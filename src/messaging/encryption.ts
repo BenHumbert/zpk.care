@@ -52,12 +52,22 @@ export function deriveEncryptionKeyPair(enrollmentKey: string): {
   // X25519 requires the private key in PKCS8 DER format
   // Build the DER-encoded PKCS8 structure for X25519
   const pkcs8Prefix = Buffer.from([
-    0x30, 0x2e, // SEQUENCE (46 bytes)
-    0x02, 0x01, 0x00, // INTEGER 0 (version)
-    0x30, 0x05, // SEQUENCE (5 bytes)
-    0x06, 0x03, 0x2b, 0x65, 0x6e, // OID 1.3.101.110 (X25519)
-    0x04, 0x22, // OCTET STRING (34 bytes)
-    0x04, 0x20, // OCTET STRING (32 bytes) — the raw key
+    0x30,
+    0x2e, // SEQUENCE (46 bytes)
+    0x02,
+    0x01,
+    0x00, // INTEGER 0 (version)
+    0x30,
+    0x05, // SEQUENCE (5 bytes)
+    0x06,
+    0x03,
+    0x2b,
+    0x65,
+    0x6e, // OID 1.3.101.110 (X25519)
+    0x04,
+    0x22, // OCTET STRING (34 bytes)
+    0x04,
+    0x20, // OCTET STRING (32 bytes) — the raw key
   ]);
   const pkcs8Der = Buffer.concat([pkcs8Prefix, seed]);
 
@@ -92,15 +102,9 @@ export function deriveEncryptionKeyPair(enrollmentKey: string): {
  * @param recipientPublicKey — recipient's 32-byte X25519 public key
  * @returns 32-byte shared secret
  */
-export function deriveSharedSecret(
-  senderPrivateKey: Buffer,
-  recipientPublicKey: Buffer,
-): Buffer {
+export function deriveSharedSecret(senderPrivateKey: Buffer, recipientPublicKey: Buffer): Buffer {
   // Build PKCS8 DER for sender's private key
-  const pkcs8Prefix = Buffer.from([
-    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05,
-    0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20,
-  ]);
+  const pkcs8Prefix = Buffer.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20]);
   const senderKeyObj = createPrivateKey({
     key: Buffer.concat([pkcs8Prefix, senderPrivateKey]),
     format: 'der',
@@ -109,10 +113,18 @@ export function deriveSharedSecret(
 
   // Build SPKI DER for recipient's public key
   const spkiPrefix = Buffer.from([
-    0x30, 0x2a, // SEQUENCE (42 bytes)
-    0x30, 0x05, // SEQUENCE (5 bytes)
-    0x06, 0x03, 0x2b, 0x65, 0x6e, // OID 1.3.101.110 (X25519)
-    0x03, 0x21, 0x00, // BIT STRING (33 bytes, 0 unused bits)
+    0x30,
+    0x2a, // SEQUENCE (42 bytes)
+    0x30,
+    0x05, // SEQUENCE (5 bytes)
+    0x06,
+    0x03,
+    0x2b,
+    0x65,
+    0x6e, // OID 1.3.101.110 (X25519)
+    0x03,
+    0x21,
+    0x00, // BIT STRING (33 bytes, 0 unused bits)
   ]);
   const recipientKeyObj = createPublicKey({
     key: Buffer.concat([spkiPrefix, recipientPublicKey]),
@@ -140,12 +152,8 @@ export function deriveSharedSecret(
  * risk even with a static shared secret across all messages in a relationship.
  */
 function deriveAesKey(sharedSecret: Buffer, messageNonce?: number): Buffer {
-  const info = messageNonce !== undefined
-    ? `zkpcare-msg-aes256gcm-${messageNonce}`
-    : 'zkpcare-msg-aes256gcm';
-  return Buffer.from(
-    hkdfSync('sha256', sharedSecret, Buffer.alloc(0), info, 32),
-  );
+  const info = messageNonce !== undefined ? `zkpcare-msg-aes256gcm-${messageNonce}` : 'zkpcare-msg-aes256gcm';
+  return Buffer.from(hkdfSync('sha256', sharedSecret, Buffer.alloc(0), info, 32));
 }
 
 // ─── Message Encryption / Decryption ────────────────────────
@@ -168,23 +176,14 @@ export interface EncryptedPayload {
  * @param messageNonce — optional per-message nonce for unique key derivation
  * @returns { ciphertext, iv, tag }
  */
-export function encryptMessage(
-  plaintext: string,
-  sharedSecret: Buffer,
-  messageNonce?: number,
-): EncryptedPayload {
+export function encryptMessage(plaintext: string, sharedSecret: Buffer, messageNonce?: number): EncryptedPayload {
   // H1 fix: derive AES key via HKDF instead of using raw shared secret
   const key = deriveAesKey(sharedSecret, messageNonce);
   // 12-byte random IV for GCM
-  const iv = Buffer.from(
-    globalThis.crypto.getRandomValues(new Uint8Array(12)),
-  );
+  const iv = Buffer.from(globalThis.crypto.getRandomValues(new Uint8Array(12)));
 
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf8'),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
 
   return { ciphertext: encrypted, iv, tag };
@@ -200,21 +199,12 @@ export function encryptMessage(
  * @param messageNonce — optional per-message nonce (must match the nonce used during encryption)
  * @returns decrypted plaintext string
  */
-export function decryptMessage(
-  ciphertext: Buffer,
-  iv: Buffer,
-  tag: Buffer,
-  sharedSecret: Buffer,
-  messageNonce?: number,
-): string {
+export function decryptMessage(ciphertext: Buffer, iv: Buffer, tag: Buffer, sharedSecret: Buffer, messageNonce?: number): string {
   // H1 fix: derive AES key via HKDF instead of using raw shared secret
   const key = deriveAesKey(sharedSecret, messageNonce);
   const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return decrypted.toString('utf8');
 }
 

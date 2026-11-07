@@ -33,10 +33,7 @@ export {
 } from './wallet-derivation.js';
 export type { RepresentativeLocalData } from './wallet-derivation.js';
 
-export {
-  ProofGateProgram,
-  ProofGateProof,
-} from './proof-gate.js';
+export { ProofGateProgram, ProofGateProof } from './proof-gate.js';
 
 export {
   WALLET_TREE_HEIGHT,
@@ -47,18 +44,8 @@ export {
   WalletRegistry,
 } from './wallet-state.js';
 
-export {
-  WalletMigrationProgram,
-  WalletMigrationProof,
-  MigrationOutput,
-} from './wallet-migration-program.js';
+export { WalletMigrationProgram, WalletMigrationProof, MigrationOutput } from './wallet-migration-program.js';
 
-export {
-  WalletMigrationService,
-} from './wallet-migration-service.js';
+export { WalletMigrationService } from './wallet-migration-service.js';
 
-export type {
-  RecoveryResult,
-  NewWalletResult,
-  MigrationRequest,
-} from './wallet-migration-service.js';
+export type { RecoveryResult, NewWalletResult, MigrationRequest } from './wallet-migration-service.js';

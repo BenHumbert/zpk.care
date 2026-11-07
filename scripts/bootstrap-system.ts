@@ -63,10 +63,8 @@ const projectRoot = path.resolve(thisDir, '..');
 
 const args = process.argv.slice(2);
 const skipKill = args.includes('--skip-kill');
-const tokenCountArg = args.find(a => a.startsWith('--tokens'));
-const tokenCount = tokenCountArg
-  ? parseInt(args[args.indexOf(tokenCountArg) + 1] || '1', 10)
-  : 1;
+const tokenCountArg = args.find((a) => a.startsWith('--tokens'));
+const tokenCount = tokenCountArg ? parseInt(args[args.indexOf(tokenCountArg) + 1] || '1', 10) : 1;
 
 // ── Config ────────────────────────────────────────────────────
 
@@ -109,12 +107,7 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function waitForHealth(
-  url: string,
-  label: string,
-  maxAttempts: number = 120,
-  requiredPhase?: string,
-): Promise<boolean> {
+async function waitForHealth(url: string, label: string, maxAttempts: number = 120, requiredPhase?: string): Promise<boolean> {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const resp = await fetch(`${url}/health`);
@@ -152,7 +145,11 @@ async function apiCall(
   const resp = await fetch(`${baseUrl}${pathStr}`, opts);
   const text = await resp.text();
   let data: any;
-  try { data = JSON.parse(text); } catch { data = text; }
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = text;
+  }
   if (!resp.ok) {
     throw new Error(`${method} ${pathStr} → ${resp.status}: ${data?.error || data?.message || text}`);
   }
@@ -203,9 +200,7 @@ async function waitForAllNodes(): Promise<void> {
   banner('Step 3: Wait for all nodes to become healthy');
 
   // Sequencer must come up first
-  const seqReady = await waitForHealth(
-    `http://localhost:${PORTS.sequencer}`, 'Sequencer', 60,
-  );
+  const seqReady = await waitForHealth(`http://localhost:${PORTS.sequencer}`, 'Sequencer', 60);
   if (!seqReady) {
     console.error('  [FATAL] Sequencer did not start');
     process.exit(1);
@@ -236,12 +231,12 @@ function openAllDashboards(): void {
   banner('Step 3a: Open all dashboards in browser');
   const dashboards = [
     { label: 'Leviathan Sequencer', port: PORTS.sequencer },
-    { label: 'Member',              port: PORTS.member },
-    { label: 'Prescriber',          port: PORTS.prescriber },
-    { label: 'Pharmacy',            port: PORTS.pharmacy },
-    { label: 'Insurer',             port: PORTS.insurer },
-    { label: 'Employer',            port: PORTS.employer },
-    { label: 'Explorer',            port: PORTS.explorer },
+    { label: 'Member', port: PORTS.member },
+    { label: 'Prescriber', port: PORTS.prescriber },
+    { label: 'Pharmacy', port: PORTS.pharmacy },
+    { label: 'Insurer', port: PORTS.insurer },
+    { label: 'Employer', port: PORTS.employer },
+    { label: 'Explorer', port: PORTS.explorer },
   ];
   for (const d of dashboards) {
     const url = `http://localhost:${d.port}`;
@@ -263,9 +258,7 @@ async function createGroup(): Promise<void> {
   try {
     // Check if group already exists
     const groups = await apiCall(employerUrl, 'GET', '/groups');
-    const existing = Array.isArray(groups)
-      ? groups.find((g: any) => g.groupId === GROUP_CONFIG.groupId)
-      : null;
+    const existing = Array.isArray(groups) ? groups.find((g: any) => g.groupId === GROUP_CONFIG.groupId) : null;
 
     if (existing) {
       log('group', `Group "${GROUP_CONFIG.groupId}" already exists — skipping`);
@@ -276,12 +269,18 @@ async function createGroup(): Promise<void> {
   }
 
   try {
-    await apiCall(employerUrl, 'POST', '/groups', {
-      groupId: GROUP_CONFIG.groupId,
-      planId: GROUP_CONFIG.planId,
-      effectiveDate: GROUP_CONFIG.effectiveDate,
-      enrollmentCap: GROUP_CONFIG.enrollmentCap,
-    }, true);
+    await apiCall(
+      employerUrl,
+      'POST',
+      '/groups',
+      {
+        groupId: GROUP_CONFIG.groupId,
+        planId: GROUP_CONFIG.planId,
+        effectiveDate: GROUP_CONFIG.effectiveDate,
+        enrollmentCap: GROUP_CONFIG.enrollmentCap,
+      },
+      true,
+    );
     log('group', `Created group "${GROUP_CONFIG.groupId}" (plan: ${GROUP_CONFIG.planId}, cap: ${GROUP_CONFIG.enrollmentCap})`);
   } catch (e: any) {
     log('group', `Group creation: ${e.message}`);
@@ -299,12 +298,18 @@ async function generateTokens(): Promise<string[]> {
   for (let i = 0; i < tokenCount; i++) {
     try {
       const employeeId = `EMP-${String(i + 1).padStart(4, '0')}`;
-      const result = await apiCall(employerUrl, 'POST', '/tokens/generate', {
-        groupId: GROUP_CONFIG.groupId,
-        employeeId,
-        familyId: employeeId,
-        validUntil: '2026-12-31',
-      }, true);
+      const result = await apiCall(
+        employerUrl,
+        'POST',
+        '/tokens/generate',
+        {
+          groupId: GROUP_CONFIG.groupId,
+          employeeId,
+          familyId: employeeId,
+          validUntil: '2026-12-31',
+        },
+        true,
+      );
       const tokenId = result?.tokenId || result?.token?.tokenId || result?.id;
       if (tokenId) {
         tokens.push(tokenId);

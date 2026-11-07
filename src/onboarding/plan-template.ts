@@ -95,9 +95,7 @@ export class PlanTemplate {
       }
     }
     // Field(0) means "all providers accepted" when no providers specified
-    this.networkRoot = config.providerWalletIds && config.providerWalletIds.length > 0
-      ? this.networkRegistry.getRoot()
-      : Field(0);
+    this.networkRoot = config.providerWalletIds && config.providerWalletIds.length > 0 ? this.networkRegistry.getRoot() : Field(0);
   }
 
   /**
@@ -106,11 +104,7 @@ export class PlanTemplate {
    * The planId and copay come from the template config.
    * The groupId and dates are per-enrollment.
    */
-  buildEligibilityData(
-    groupId: string,
-    effectiveDate: string,
-    terminationDate: string,
-  ): EligibilityData {
+  buildEligibilityData(groupId: string, effectiveDate: string, terminationDate: string): EligibilityData {
     return buildEligibilityData({
       planId: this.config.planId,
       groupId,

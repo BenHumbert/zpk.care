@@ -37,38 +37,13 @@
  *   Each settlement tx: ~30-60s
  *   Total: ~20-35 min
  */
-import {
-  Field,
-  Mina,
-  PrivateKey,
-  AccountUpdate,
-  Poseidon,
-  MerkleTree,
-} from 'o1js';
+import { Field, Mina, PrivateKey, AccountUpdate, Poseidon, MerkleTree } from 'o1js';
 import { CareContract } from '../src/engine/care-contract.js';
-import {
-  StateTransitionProgram,
-  EMPTY_CREDENTIAL_ROOT,
-} from '../src/engine/state-transition.js';
-import {
-  BatchProgram,
-  BatchProof,
-  BatchOutput,
-} from '../src/l2/batch-program.js';
-import {
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  LIFECYCLE_REGISTERED,
-  lifecycleLeafCommitment,
-} from '../src/engine/lifecycle.js';
-import {
-  deriveMemberWalletId,
-  memberWalletPreimage,
-  DOMAIN_TAG_MEMBER,
-} from '../src/wallets/wallet-derivation.js';
+import { StateTransitionProgram, EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { BatchProgram, BatchProof, BatchOutput } from '../src/l2/batch-program.js';
+import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import { LifecycleWitness, LIFECYCLE_REGISTERED, lifecycleLeafCommitment } from '../src/engine/lifecycle.js';
+import { deriveMemberWalletId, memberWalletPreimage, DOMAIN_TAG_MEMBER } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import { fixtureIdentitySalt } from '../src/data/index.js';
 
@@ -147,7 +122,12 @@ async function generateRegistration(
 
   const result = await StateTransitionProgram.proveRegistration(
     DOMAIN_TAG_MEMBER,
-    preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+    preimage[0]!,
+    preimage[1]!,
+    preimage[2]!,
+    preimage[3]!,
+    preimage[4]!,
+    preimage[5]!,
     regWitness,
     lcWitness,
     regTree.getRoot(),
@@ -232,11 +212,7 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     console.log(`[setup] Initializing CareContract state...`);
     t = Date.now();
     const initTx = await Mina.transaction(admin, async () => {
-      await contract.initState(
-        adminPkHash,
-        regTree.getRoot(),
-        lcTree.getRoot(),
-      );
+      await contract.initState(adminPkHash, regTree.getRoot(), lcTree.getRoot());
     });
     await initTx.prove();
     await initTx.sign([admin.key]).send();
@@ -248,13 +224,10 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
   // ─── Test 1: Verify initial state ─────────────────────
 
   test('CareContract initialized with correct state', () => {
-    expect(contract.walletRegistryRoot.get().toString())
-      .toBe(regTree.getRoot().toString());
-    expect(contract.lifecycleRoot.get().toString())
-      .toBe(lcTree.getRoot().toString());
+    expect(contract.walletRegistryRoot.get().toString()).toBe(regTree.getRoot().toString());
+    expect(contract.lifecycleRoot.get().toString()).toBe(lcTree.getRoot().toString());
     expect(contract.walletCount.get().toString()).toBe('0');
-    expect(contract.adminPublicKeyHash.get().toString())
-      .toBe(adminPkHash.toString());
+    expect(contract.adminPublicKeyHash.get().toString()).toBe(adminPkHash.toString());
   });
 
   // ─── Test 2: Settle paired registration batch ─────────
@@ -298,10 +271,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     console.log(`[test2] Settlement tx done in ${secs(s)}s`);
 
     // Verify on-chain state
-    expect(contract.walletRegistryRoot.get().toString())
-      .toBe(regTree.getRoot().toString());
-    expect(contract.lifecycleRoot.get().toString())
-      .toBe(lcTree.getRoot().toString());
+    expect(contract.walletRegistryRoot.get().toString()).toBe(regTree.getRoot().toString());
+    expect(contract.lifecycleRoot.get().toString()).toBe(lcTree.getRoot().toString());
     expect(contract.walletCount.get().toString()).toBe('2');
 
     console.log(`✓ Test 2 PASSED in ${secs(t)}s (${mem()})\n`);
@@ -336,10 +307,15 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
 
     const stUpdate = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
-      EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
-      Field(0),                // oldNonce
-      newCredentialRoot,       // newCredentialRoot
+      preimage1[0]!,
+      preimage1[1]!,
+      preimage1[2]!,
+      preimage1[3]!,
+      preimage1[4]!,
+      preimage1[5]!,
+      EMPTY_CREDENTIAL_ROOT, // oldCredentialRoot
+      Field(0), // oldNonce
+      newCredentialRoot, // newCredentialRoot
       regWitness1,
       lcWitness1,
       regTree.getRoot(),
@@ -364,7 +340,7 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
 
     const mergedOutput = mergedProof.publicOutput as unknown as BatchOutput;
     expect(mergedOutput.registrationCount.toString()).toBe('3'); // 2 from A + 1 from B
-    expect(mergedOutput.transitionCount.toString()).toBe('4');   // 2 + 2
+    expect(mergedOutput.transitionCount.toString()).toBe('4'); // 2 + 2
 
     // --- Settle merged batch on-chain ---
     console.log(`[test3d] Settling merged batch on LocalBlockchain...`);
@@ -377,10 +353,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     console.log(`[test3d] Settlement tx done in ${secs(s)}s`);
 
     // Verify on-chain state
-    expect(contract.walletRegistryRoot.get().toString())
-      .toBe(regTree.getRoot().toString());
-    expect(contract.lifecycleRoot.get().toString())
-      .toBe(lcTree.getRoot().toString());
+    expect(contract.walletRegistryRoot.get().toString()).toBe(regTree.getRoot().toString());
+    expect(contract.lifecycleRoot.get().toString()).toBe(lcTree.getRoot().toString());
     expect(contract.walletCount.get().toString()).toBe('5'); // was 2, +3 registrations
 
     console.log(`✓ Test 3 PASSED in ${secs(t)}s (${mem()})\n`);
@@ -414,12 +388,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
       lastName: 'Two',
     };
 
-    const staleReg1 = await generateRegistration(
-      staleMember1, ENROLLMENT_KEY_1, 5n, regTree, lcTree,
-    );
-    const staleReg2 = await generateRegistration(
-      staleMember2, ENROLLMENT_KEY_2, 6n, regTree, lcTree,
-    );
+    const staleReg1 = await generateRegistration(staleMember1, ENROLLMENT_KEY_1, 5n, regTree, lcTree);
+    const staleReg2 = await generateRegistration(staleMember2, ENROLLMENT_KEY_2, 6n, regTree, lcTree);
     const staleBatch = await BatchProgram.wrapPair(staleReg1.proof, staleReg2.proof);
     const staleBatchProof = staleBatch.proof as BatchProof;
     console.log(`[test4] Stale pair done in ${secs(s)}s`);
@@ -449,12 +419,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
       lastName: 'Two',
     };
 
-    const interReg1 = await generateRegistration(
-      interMember1, ENROLLMENT_KEY_3, 7n, regTree, lcTree,
-    );
-    const interReg2 = await generateRegistration(
-      interMember2, ENROLLMENT_KEY_4, 8n, regTree, lcTree,
-    );
+    const interReg1 = await generateRegistration(interMember1, ENROLLMENT_KEY_3, 7n, regTree, lcTree);
+    const interReg2 = await generateRegistration(interMember2, ENROLLMENT_KEY_4, 8n, regTree, lcTree);
     const interBatch = await BatchProgram.wrapPair(interReg1.proof, interReg2.proof);
     const interBatchProof = interBatch.proof as BatchProof;
     console.log(`[test4] Intervening pair done in ${secs(s)}s`);
@@ -510,12 +476,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
 
     console.log(`[test5] Generating paired registration (slots 5,6)...`);
     let s = Date.now();
-    const seqReg1 = await generateRegistration(
-      seqMember1, ENROLLMENT_KEY_5, 5n, regTree, lcTree,
-    );
-    const seqReg2 = await generateRegistration(
-      seqMember2, ENROLLMENT_KEY_6, 6n, regTree, lcTree,
-    );
+    const seqReg1 = await generateRegistration(seqMember1, ENROLLMENT_KEY_5, 5n, regTree, lcTree);
+    const seqReg2 = await generateRegistration(seqMember2, ENROLLMENT_KEY_6, 6n, regTree, lcTree);
     const seqBatch = await BatchProgram.wrapPair(seqReg1.proof, seqReg2.proof);
     const seqBatchProof = seqBatch.proof as BatchProof;
     console.log(`[test5] wrapPair done in ${secs(s)}s`);
@@ -531,10 +493,8 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     console.log(`[test5] Settlement done in ${secs(s)}s`);
 
     // Verify: walletCount = 7 + 2 = 9
-    expect(contract.walletRegistryRoot.get().toString())
-      .toBe(regTree.getRoot().toString());
-    expect(contract.lifecycleRoot.get().toString())
-      .toBe(lcTree.getRoot().toString());
+    expect(contract.walletRegistryRoot.get().toString()).toBe(regTree.getRoot().toString());
+    expect(contract.lifecycleRoot.get().toString()).toBe(lcTree.getRoot().toString());
     expect(contract.walletCount.get().toString()).toBe('9');
 
     console.log(`✓ Test 5 PASSED in ${secs(t)}s (${mem()})\n`);

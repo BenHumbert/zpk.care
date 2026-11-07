@@ -47,7 +47,7 @@ async function settle() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
 }
 
-describe('the engine\'s routes', () => {
+describe("the engine's routes", () => {
   let server: L2RpcServer;
   let url: string;
   const created: Array<Record<string, unknown>> = [];
@@ -55,40 +55,83 @@ describe('the engine\'s routes', () => {
   /** Seed prescriber 0 is wallet 700 and seed pharmacy 0 is wallet 500; no other index exists. Everything else is a no-op. */
   function standIn() {
     const svc = {
-      getState() { return { compiled: true, enrolledMembers: [] }; },
-      isProvingReady() { return true; }, // a proving route refuses with 503 while the engine's provers start
-      getPrescriberWalletId(i: number) { return i === 0 ? Field(700) : undefined; },
-      getPharmacyWalletId(i: number) { return i === 0 ? Field(500) : undefined; },
-      getL2Node() { return { withProvingLock: (fn: () => Promise<unknown>) => Promise.resolve().then(fn) }; },
-      async createPrescription(o: Record<string, unknown>) { created.push(o); return { prescriptionId: 'RX-T' }; },
-      async dispensePrescription() { return {}; },
+      getState() {
+        return { compiled: true, enrolledMembers: [] };
+      },
+      isProvingReady() {
+        return true;
+      }, // a proving route refuses with 503 while the engine's provers start
+      getPrescriberWalletId(i: number) {
+        return i === 0 ? Field(700) : undefined;
+      },
+      getPharmacyWalletId(i: number) {
+        return i === 0 ? Field(500) : undefined;
+      },
+      getL2Node() {
+        return { withProvingLock: (fn: () => Promise<unknown>) => Promise.resolve().then(fn) };
+      },
+      async createPrescription(o: Record<string, unknown>) {
+        created.push(o);
+        return { prescriptionId: 'RX-T' };
+      },
+      async dispensePrescription() {
+        return {};
+      },
       async forceBatch() {},
     };
-    return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; return typeof p === 'string' && p !== 'then' ? () => undefined : undefined; } });
+    return new Proxy(svc, {
+      get(t, p) {
+        if (p in t) return (t as any)[p];
+        return typeof p === 'string' && p !== 'then' ? () => undefined : undefined;
+      },
+    });
   }
 
   async function post(p: string, body: unknown) {
-    const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` }, body: JSON.stringify(body) });
+    const r = await fetch(url + p, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` },
+      body: JSON.stringify(body),
+    });
     const text = await r.text();
     let json: any = null;
-    try { json = JSON.parse(text); } catch { json = null; }
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
     return { status: r.status, text, json };
   }
 
   beforeAll(async () => {
-    const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-provider-index' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const node = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-provider-index' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
     registerInteractiveRoutes(server, standIn() as any);
     await server.start();
     url = `http://127.0.0.1:${server.getPort()}`;
   });
 
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => {
+    await server.stop();
+  });
 
-  beforeEach(() => { created.length = 0; });
+  beforeEach(() => {
+    created.length = 0;
+  });
 
   test('prescribe-and-fill refuses a prescriber wallet the engine does not know', async () => {
-    const r = await post('/interactive/prescribe-and-fill', { memberWalletId: '1', ndcHash: '1', prescriberWalletId: '999', pharmacyIndex: 0 });
+    const r = await post('/interactive/prescribe-and-fill', {
+      memberWalletId: '1',
+      ndcHash: '1',
+      prescriberWalletId: '999',
+      pharmacyIndex: 0,
+    });
     await settle();
     expect(r.status).toBe(409);
     expect(r.text).toMatch(/not a provider/);
@@ -108,7 +151,12 @@ describe('the engine\'s routes', () => {
   });
 
   test('prescribe-and-fill still takes a seeded prescriber and pharmacy', async () => {
-    const r = await post('/interactive/prescribe-and-fill', { memberWalletId: '1', ndcHash: '1', prescriberWalletId: '700', pharmacyIndex: 0 });
+    const r = await post('/interactive/prescribe-and-fill', {
+      memberWalletId: '1',
+      ndcHash: '1',
+      prescriberWalletId: '700',
+      pharmacyIndex: 0,
+    });
     await settle();
     expect(r.status).toBe(202);
     expect(created[created.length - 1]).toMatchObject({ prescriberIndex: 0, pharmacyIndex: 0 });
@@ -129,7 +177,7 @@ describe('the engine\'s routes', () => {
   });
 });
 
-describe('the provider nodes\' routes', () => {
+describe("the provider nodes' routes", () => {
   type Answer = { status: number; body: unknown };
 
   /** A node server reduced to what these handlers use. Only resolve-indices answers; every other engine call is a 500. */
@@ -149,7 +197,9 @@ describe('the provider nodes\' routes', () => {
         // a job the old code started fails at once on this answer and never polls
         return Promise.resolve(new Response(JSON.stringify({ error: 'stub engine' }), { status: 500 }));
       },
-      sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) { sent.push({ status, ok, data, error }); },
+      sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) {
+        sent.push({ status, ok, data, error });
+      },
     };
     return { server, calls, sent, storeMessage };
   }
@@ -167,7 +217,7 @@ describe('the provider nodes\' routes', () => {
   };
   const callsTo = <C extends { url: string }>(calls: C[], suffix: string) => calls.filter((c) => c.url.split('?')[0].endsWith(suffix));
 
-  test('an unseeded pharmacy\'s fill is refused, not filled as pharmacy 0', async () => {
+  test("an unseeded pharmacy's fill is refused, not filled as pharmacy 0", async () => {
     const p = pharmacy('999', { status: 200, body: { prescriberIndex: 0, pharmacyIndex: -1 } });
     await call(p.routes, 'POST', '/dispensing/fill', { memberWalletId: '1', ndcHash: '1', prescriberWalletId: '700' });
     expect(p.sent[0]?.status).toBe(409);
@@ -189,7 +239,7 @@ describe('the provider nodes\' routes', () => {
     expect(p.calls).toHaveLength(0);
   });
 
-  test('a seeded pharmacy\'s fill goes out with its own index and the named prescriber', async () => {
+  test("a seeded pharmacy's fill goes out with its own index and the named prescriber", async () => {
     const p = pharmacy('5002', { status: 200, body: { prescriberIndex: 0, pharmacyIndex: 2 } });
     await call(p.routes, 'POST', '/dispensing/fill', { memberWalletId: '1', ndcHash: '1', prescriberWalletId: '700' });
     expect(p.sent[0]?.status).toBe(202);
@@ -198,7 +248,7 @@ describe('the provider nodes\' routes', () => {
     expect(sentToEngine[0].body).toMatchObject({ pharmacyIndex: 2, prescriberWalletId: '700' });
   });
 
-  test('the prescription list is this pharmacy\'s own queue, and an unseeded pharmacy has none', async () => {
+  test("the prescription list is this pharmacy's own queue, and an unseeded pharmacy has none", async () => {
     const unseeded = pharmacy('999', { status: 200, body: { prescriberIndex: -1, pharmacyIndex: -1 } });
     await call(unseeded.routes, 'GET', '/prescriptions/list');
     expect(unseeded.sent[0]?.status).toBe(409);

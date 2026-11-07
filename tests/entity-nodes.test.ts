@@ -30,12 +30,7 @@ import { PrescriberNode } from '../src/nodes/prescriber-node.js';
 import { PharmacyNode } from '../src/nodes/pharmacy-node.js';
 import { InsurerNode } from '../src/nodes/insurer-node.js';
 import { ProofDelegateClient, ProofDelegateServer } from '../src/nodes/proof-delegate.js';
-import type {
-  EntityClaimView,
-  MemberNodeConfig,
-  PrescriberNodeConfig,
-  PharmacyNodeConfig,
-} from '../src/nodes/entity-node-types.js';
+import type { EntityClaimView, MemberNodeConfig, PrescriberNodeConfig, PharmacyNodeConfig } from '../src/nodes/entity-node-types.js';
 import type { ClaimAccumulatorEntry } from '../src/l2/claim-accumulator-types.js';
 
 // ─── Test Helpers ─────────────────────────────────────────────
@@ -59,21 +54,23 @@ function makeNdcHash(n: number): string {
 }
 
 /** Build a mock ClaimAccumulatorEntry */
-function mockClaimEntry(overrides: Partial<{
-  leafIndex: bigint;
-  memberWalletId: string;
-  pharmacyWalletId: string;
-  prescriberWalletId: string;
-  ndcHash: string;
-  dateOfService: string;
-  patientPayCents: string;
-  planPayCents: string;
-  operationType: string;
-  receiptId: string;
-  brandName: string;
-  tierLevel: number;
-  therapeuticClass: string;
-}> = {}): ClaimAccumulatorEntry {
+function mockClaimEntry(
+  overrides: Partial<{
+    leafIndex: bigint;
+    memberWalletId: string;
+    pharmacyWalletId: string;
+    prescriberWalletId: string;
+    ndcHash: string;
+    dateOfService: string;
+    patientPayCents: string;
+    planPayCents: string;
+    operationType: string;
+    receiptId: string;
+    brandName: string;
+    tierLevel: number;
+    therapeuticClass: string;
+  }> = {},
+): ClaimAccumulatorEntry {
   const leaf = {
     memberWalletId: overrides.memberWalletId ?? makeMemberWalletId(),
     ndcHash: overrides.ndcHash ?? makeNdcHash(1),
@@ -131,18 +128,24 @@ class TestEntityNode extends EntityNodeBase {
 
 describe('EntityNodeBase', () => {
   test('construction requires sequencerUrl', () => {
-    expect(() => new TestEntityNode({
-      role: 'member',
-      sequencerUrl: '',
-      walletId: '123',
-    })).toThrow('sequencerUrl is required');
+    expect(
+      () =>
+        new TestEntityNode({
+          role: 'member',
+          sequencerUrl: '',
+          walletId: '123',
+        }),
+    ).toThrow('sequencerUrl is required');
   });
 
   test('construction requires role', () => {
-    expect(() => new TestEntityNode({
-      role: '' as any,
-      sequencerUrl: MOCK_SEQUENCER_URL,
-    })).toThrow('role is required');
+    expect(
+      () =>
+        new TestEntityNode({
+          role: '' as any,
+          sequencerUrl: MOCK_SEQUENCER_URL,
+        }),
+    ).toThrow('role is required');
   });
 
   test('construction succeeds with valid config', () => {
@@ -205,19 +208,43 @@ describe('EntityNodeBase', () => {
 
     const views: EntityClaimView[] = [
       {
-        leafIndex: 0n, dateOfService: '20260110', patientPayCents: '1000', planPayCents: '5000',
-        operationType: 'fulfillment', memberWalletId: 'M1', pharmacyWalletId: 'P1',
-        prescriberWalletId: 'D1', ndcHash: ndcHash1, receiptId: 'r1', timestamp: 100,
+        leafIndex: 0n,
+        dateOfService: '20260110',
+        patientPayCents: '1000',
+        planPayCents: '5000',
+        operationType: 'fulfillment',
+        memberWalletId: 'M1',
+        pharmacyWalletId: 'P1',
+        prescriberWalletId: 'D1',
+        ndcHash: ndcHash1,
+        receiptId: 'r1',
+        timestamp: 100,
       },
       {
-        leafIndex: 1n, dateOfService: '20260115', patientPayCents: '3000', planPayCents: '9000',
-        operationType: 'fulfillment', memberWalletId: 'M1', pharmacyWalletId: 'P1',
-        prescriberWalletId: 'D1', ndcHash: ndcHash2, receiptId: 'r2', timestamp: 200,
+        leafIndex: 1n,
+        dateOfService: '20260115',
+        patientPayCents: '3000',
+        planPayCents: '9000',
+        operationType: 'fulfillment',
+        memberWalletId: 'M1',
+        pharmacyWalletId: 'P1',
+        prescriberWalletId: 'D1',
+        ndcHash: ndcHash2,
+        receiptId: 'r2',
+        timestamp: 200,
       },
       {
-        leafIndex: 2n, dateOfService: '20260120', patientPayCents: '1000', planPayCents: '5000',
-        operationType: 'reversal', memberWalletId: 'M1', pharmacyWalletId: 'P1',
-        prescriberWalletId: 'D1', ndcHash: ndcHash1, receiptId: 'r3', timestamp: 300,
+        leafIndex: 2n,
+        dateOfService: '20260120',
+        patientPayCents: '1000',
+        planPayCents: '5000',
+        operationType: 'reversal',
+        memberWalletId: 'M1',
+        pharmacyWalletId: 'P1',
+        prescriberWalletId: 'D1',
+        ndcHash: ndcHash1,
+        receiptId: 'r3',
+        timestamp: 300,
       },
     ];
 
@@ -253,9 +280,45 @@ describe('EntityNodeBase', () => {
     });
 
     const views: EntityClaimView[] = [
-      { leafIndex: 0n, dateOfService: '20260110', patientPayCents: '0', planPayCents: '0', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: 'N', receiptId: 'r1', timestamp: 100 },
-      { leafIndex: 1n, dateOfService: '20260115', patientPayCents: '0', planPayCents: '0', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: 'N', receiptId: 'r2', timestamp: 200 },
-      { leafIndex: 2n, dateOfService: '20260120', patientPayCents: '0', planPayCents: '0', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: 'N', receiptId: 'r3', timestamp: 300 },
+      {
+        leafIndex: 0n,
+        dateOfService: '20260110',
+        patientPayCents: '0',
+        planPayCents: '0',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: 'N',
+        receiptId: 'r1',
+        timestamp: 100,
+      },
+      {
+        leafIndex: 1n,
+        dateOfService: '20260115',
+        patientPayCents: '0',
+        planPayCents: '0',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: 'N',
+        receiptId: 'r2',
+        timestamp: 200,
+      },
+      {
+        leafIndex: 2n,
+        dateOfService: '20260120',
+        patientPayCents: '0',
+        planPayCents: '0',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: 'N',
+        receiptId: 'r3',
+        timestamp: 300,
+      },
     ];
 
     const filtered = node.testFilterByDateRange(views, '20260110', '20260115');
@@ -276,9 +339,51 @@ describe('EntityNodeBase', () => {
     const ndcB = makeNdcHash(2);
 
     const views: EntityClaimView[] = [
-      { leafIndex: 0n, dateOfService: '20260110', patientPayCents: '500', planPayCents: '2000', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: ndcA, brandName: 'DrugA', tierLevel: 1, receiptId: 'r1', timestamp: 100 },
-      { leafIndex: 1n, dateOfService: '20260111', patientPayCents: '500', planPayCents: '2000', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: ndcA, brandName: 'DrugA', tierLevel: 1, receiptId: 'r2', timestamp: 200 },
-      { leafIndex: 2n, dateOfService: '20260112', patientPayCents: '3000', planPayCents: '6000', operationType: 'fulfillment', memberWalletId: 'M', pharmacyWalletId: 'P', prescriberWalletId: 'D', ndcHash: ndcB, brandName: 'DrugB', tierLevel: 2, receiptId: 'r3', timestamp: 300 },
+      {
+        leafIndex: 0n,
+        dateOfService: '20260110',
+        patientPayCents: '500',
+        planPayCents: '2000',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: ndcA,
+        brandName: 'DrugA',
+        tierLevel: 1,
+        receiptId: 'r1',
+        timestamp: 100,
+      },
+      {
+        leafIndex: 1n,
+        dateOfService: '20260111',
+        patientPayCents: '500',
+        planPayCents: '2000',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: ndcA,
+        brandName: 'DrugA',
+        tierLevel: 1,
+        receiptId: 'r2',
+        timestamp: 200,
+      },
+      {
+        leafIndex: 2n,
+        dateOfService: '20260112',
+        patientPayCents: '3000',
+        planPayCents: '6000',
+        operationType: 'fulfillment',
+        memberWalletId: 'M',
+        pharmacyWalletId: 'P',
+        prescriberWalletId: 'D',
+        ndcHash: ndcB,
+        brandName: 'DrugB',
+        tierLevel: 2,
+        receiptId: 'r3',
+        timestamp: 300,
+      },
     ];
 
     const breakdown = node.testMedicationBreakdown(views);
@@ -304,11 +409,14 @@ describe('MemberNode', () => {
   const walletId = makeMemberWalletId();
 
   test('construction requires walletId', () => {
-    expect(() => new MemberNode({
-      role: 'member',
-      sequencerUrl: MOCK_SEQUENCER_URL,
-      walletId: '',
-    } as MemberNodeConfig)).toThrow('walletId is required');
+    expect(
+      () =>
+        new MemberNode({
+          role: 'member',
+          sequencerUrl: MOCK_SEQUENCER_URL,
+          walletId: '',
+        } as MemberNodeConfig),
+    ).toThrow('walletId is required');
   });
 
   test('construction succeeds with valid config', () => {
@@ -333,15 +441,24 @@ describe('MemberNode', () => {
     await expect(
       node.proveRegistration(
         [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
-        {} as any, {} as any, Field(0), Field(0),
+        {} as any,
+        {} as any,
+        Field(0),
+        Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
 
     await expect(
       node.proveWalletUpdate(
         [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
-        Field(0), Field(0), Field(0),
-        {} as any, {} as any, Field(0), Field(0), Field(0),
+        Field(0),
+        Field(0),
+        Field(0),
+        {} as any,
+        {} as any,
+        Field(0),
+        Field(0),
+        Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
   });
@@ -381,11 +498,14 @@ describe('PrescriberNode', () => {
   const walletId = makePrescriberWalletId();
 
   test('construction requires walletId', () => {
-    expect(() => new PrescriberNode({
-      role: 'prescriber',
-      sequencerUrl: MOCK_SEQUENCER_URL,
-      walletId: '',
-    } as PrescriberNodeConfig)).toThrow('walletId is required');
+    expect(
+      () =>
+        new PrescriberNode({
+          role: 'prescriber',
+          sequencerUrl: MOCK_SEQUENCER_URL,
+          walletId: '',
+        } as PrescriberNodeConfig),
+    ).toThrow('walletId is required');
   });
 
   test('construction succeeds with valid config', () => {
@@ -409,7 +529,10 @@ describe('PrescriberNode', () => {
     await expect(
       node.proveRegistration(
         [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
-        {} as any, {} as any, Field(0), Field(0),
+        {} as any,
+        {} as any,
+        Field(0),
+        Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
   });
@@ -440,11 +563,14 @@ describe('PharmacyNode', () => {
   const walletId = makePharmacyWalletId();
 
   test('construction requires walletId', () => {
-    expect(() => new PharmacyNode({
-      role: 'pharmacy',
-      sequencerUrl: MOCK_SEQUENCER_URL,
-      walletId: '',
-    } as PharmacyNodeConfig)).toThrow('walletId is required');
+    expect(
+      () =>
+        new PharmacyNode({
+          role: 'pharmacy',
+          sequencerUrl: MOCK_SEQUENCER_URL,
+          walletId: '',
+        } as PharmacyNodeConfig),
+    ).toThrow('walletId is required');
   });
 
   test('construction succeeds with valid config', () => {
@@ -468,7 +594,10 @@ describe('PharmacyNode', () => {
     await expect(
       node.proveRegistration(
         [Field(0), Field(0), Field(0), Field(0), Field(0), Field(0), Field(0)],
-        {} as any, {} as any, Field(0), Field(0),
+        {} as any,
+        {} as any,
+        Field(0),
+        Field(0),
       ),
     ).rejects.toThrow('Programs not compiled');
   });
@@ -547,12 +676,19 @@ describe('InsurerNode', () => {
 
     const claims = [
       {
-        prescriptionHash: '0', entryCommitment: '0',
-        patientPayCents: 1000, planPayCents: 4000,
+        prescriptionHash: '0',
+        entryCommitment: '0',
+        patientPayCents: 1000,
+        planPayCents: 4000,
         operationType: 'fulfillment' as const,
-        pharmacyWalletId: 'P1', memberWalletId: 'M1', prescriberWalletId: 'D1',
-        ndcHash: 'N1', ingredientCostCents: 4500, dispensingFeeCents: 500,
-        quantityDispensed: '30000', dateOfService: 20260115,
+        pharmacyWalletId: 'P1',
+        memberWalletId: 'M1',
+        prescriberWalletId: 'D1',
+        ndcHash: 'N1',
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
       },
     ];
 
@@ -570,28 +706,44 @@ describe('InsurerNode', () => {
 
     const claims = [
       {
-        prescriptionHash: '0', entryCommitment: '0',
-        patientPayCents: 1000, planPayCents: 4000,
+        prescriptionHash: '0',
+        entryCommitment: '0',
+        patientPayCents: 1000,
+        planPayCents: 4000,
         operationType: 'fulfillment' as const,
-        pharmacyWalletId: 'P1', memberWalletId: 'M1', prescriberWalletId: 'D1',
-        ndcHash: 'N1', ingredientCostCents: 4500, dispensingFeeCents: 500,
-        quantityDispensed: '30000', dateOfService: 20260115,
-        tierLevel: 1, brandName: 'Generic Drug',
+        pharmacyWalletId: 'P1',
+        memberWalletId: 'M1',
+        prescriberWalletId: 'D1',
+        ndcHash: 'N1',
+        ingredientCostCents: 4500,
+        dispensingFeeCents: 500,
+        quantityDispensed: '30000',
+        dateOfService: 20260115,
+        tierLevel: 1,
+        brandName: 'Generic Drug',
       },
       {
-        prescriptionHash: '0', entryCommitment: '0',
-        patientPayCents: 3000, planPayCents: 9000,
+        prescriptionHash: '0',
+        entryCommitment: '0',
+        patientPayCents: 3000,
+        planPayCents: 9000,
         operationType: 'fulfillment' as const,
-        pharmacyWalletId: 'P1', memberWalletId: 'M1', prescriberWalletId: 'D1',
-        ndcHash: 'N2', ingredientCostCents: 11000, dispensingFeeCents: 1000,
-        quantityDispensed: '30000', dateOfService: 20260116,
-        tierLevel: 2, brandName: 'Brand Drug',
+        pharmacyWalletId: 'P1',
+        memberWalletId: 'M1',
+        prescriberWalletId: 'D1',
+        ndcHash: 'N2',
+        ingredientCostCents: 11000,
+        dispensingFeeCents: 1000,
+        quantityDispensed: '30000',
+        dateOfService: 20260116,
+        tierLevel: 2,
+        brandName: 'Brand Drug',
       },
     ];
 
     const report = node.generateTierAnalysis(claims);
     expect(report.tiers.length).toBeGreaterThanOrEqual(2);
-    const tier1 = report.tiers.find(t => t.tierLevel === 1);
+    const tier1 = report.tiers.find((t) => t.tierLevel === 1);
     expect(tier1).toBeDefined();
     expect(tier1!.claimCount).toBe(1);
   });
@@ -671,21 +823,36 @@ describe('Cross-Node Integration', () => {
   });
 
   test('entity roles are correctly assigned', () => {
-    expect(new MemberNode({
-      role: 'member', sequencerUrl: MOCK_SEQUENCER_URL, walletId: '1',
-    }).getRole()).toBe('member');
+    expect(
+      new MemberNode({
+        role: 'member',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: '1',
+      }).getRole(),
+    ).toBe('member');
 
-    expect(new PrescriberNode({
-      role: 'prescriber', sequencerUrl: MOCK_SEQUENCER_URL, walletId: '1',
-    }).getRole()).toBe('prescriber');
+    expect(
+      new PrescriberNode({
+        role: 'prescriber',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: '1',
+      }).getRole(),
+    ).toBe('prescriber');
 
-    expect(new PharmacyNode({
-      role: 'pharmacy', sequencerUrl: MOCK_SEQUENCER_URL, walletId: '1',
-    }).getRole()).toBe('pharmacy');
+    expect(
+      new PharmacyNode({
+        role: 'pharmacy',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: '1',
+      }).getRole(),
+    ).toBe('pharmacy');
 
-    expect(new InsurerNode({
-      role: 'insurer', sequencerUrl: MOCK_SEQUENCER_URL,
-    }).getRole()).toBe('insurer');
+    expect(
+      new InsurerNode({
+        role: 'insurer',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+      }).getRole(),
+    ).toBe('insurer');
   });
 
   test('wallet IDs are correctly stored', () => {
@@ -693,20 +860,35 @@ describe('Cross-Node Integration', () => {
     const pWallet = makePrescriberWalletId();
     const phWallet = makePharmacyWalletId();
 
-    expect(new MemberNode({
-      role: 'member', sequencerUrl: MOCK_SEQUENCER_URL, walletId: mWallet,
-    }).getWalletId()).toBe(mWallet);
+    expect(
+      new MemberNode({
+        role: 'member',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: mWallet,
+      }).getWalletId(),
+    ).toBe(mWallet);
 
-    expect(new PrescriberNode({
-      role: 'prescriber', sequencerUrl: MOCK_SEQUENCER_URL, walletId: pWallet,
-    }).getWalletId()).toBe(pWallet);
+    expect(
+      new PrescriberNode({
+        role: 'prescriber',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: pWallet,
+      }).getWalletId(),
+    ).toBe(pWallet);
 
-    expect(new PharmacyNode({
-      role: 'pharmacy', sequencerUrl: MOCK_SEQUENCER_URL, walletId: phWallet,
-    }).getWalletId()).toBe(phWallet);
+    expect(
+      new PharmacyNode({
+        role: 'pharmacy',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+        walletId: phWallet,
+      }).getWalletId(),
+    ).toBe(phWallet);
 
-    expect(new InsurerNode({
-      role: 'insurer', sequencerUrl: MOCK_SEQUENCER_URL,
-    }).getWalletId()).toBeUndefined();
+    expect(
+      new InsurerNode({
+        role: 'insurer',
+        sequencerUrl: MOCK_SEQUENCER_URL,
+      }).getWalletId(),
+    ).toBeUndefined();
   });
 });

@@ -31,12 +31,7 @@
  */
 
 import { ClaimAccumulatorService } from './claim-accumulator-service.js';
-import type {
-  ClaimLeaf,
-  ClaimMetadata,
-  ClaimAccumulatorEntry,
-  ClaimAccumulatorState,
-} from './claim-accumulator-types.js';
+import type { ClaimLeaf, ClaimMetadata, ClaimAccumulatorEntry, ClaimAccumulatorState } from './claim-accumulator-types.js';
 
 // ─── Epoch Types ────────────────────────────────────────────
 
@@ -107,11 +102,7 @@ export class EpochAccumulatorService {
    * Append a claim to the active epoch.
    * Delegates to the active ClaimAccumulatorService.
    */
-  appendClaim(
-    leaf: ClaimLeaf,
-    metadata: ClaimMetadata,
-    _timestamp?: number,
-  ): ClaimAccumulatorEntry {
+  appendClaim(leaf: ClaimLeaf, metadata: ClaimMetadata, _timestamp?: number): ClaimAccumulatorEntry {
     const entry = this.activeEpoch.appendClaim(leaf, metadata);
 
     // Update epoch info
@@ -158,10 +149,7 @@ export class EpochAccumulatorService {
    * Get a claim with its Merkle inclusion proof.
    * Must specify the epoch since leaf indices are per-epoch.
    */
-  getClaimWithProof(
-    epochId: string,
-    leafIndex: bigint,
-  ): { entry: ClaimAccumulatorEntry; witnessJson: string; root: string } | undefined {
+  getClaimWithProof(epochId: string, leafIndex: bigint): { entry: ClaimAccumulatorEntry; witnessJson: string; root: string } | undefined {
     const acc = this.getAccumulator(epochId);
     if (!acc) return undefined;
     return acc.getClaimWithProof(leafIndex);
@@ -232,9 +220,7 @@ export class EpochAccumulatorService {
 
   /** List all epochs (active + archived) sorted newest first */
   listEpochs(): EpochInfo[] {
-    return Array.from(this.epochs.values()).sort(
-      (a, b) => b.startTimestamp - a.startTimestamp,
-    );
+    return Array.from(this.epochs.values()).sort((a, b) => b.startTimestamp - a.startTimestamp);
   }
 
   /** Get info for a specific epoch */
@@ -306,21 +292,18 @@ export class EpochAccumulatorService {
    * Query across all epochs (newest first).
    * Results from newer epochs come first.
    */
-  private queryCrossEpoch(
-    queryFn: (acc: ClaimAccumulatorService) => ClaimAccumulatorEntry[],
-  ): ClaimAccumulatorEntry[] {
+  private queryCrossEpoch(queryFn: (acc: ClaimAccumulatorService) => ClaimAccumulatorEntry[]): ClaimAccumulatorEntry[] {
     const results: ClaimAccumulatorEntry[] = [];
 
     // Active epoch first (newest)
     results.push(...queryFn(this.activeEpoch));
 
     // Then archived epochs (newest first by start timestamp)
-    const sortedArchived = Array.from(this.archivedAccumulators.entries())
-      .sort((a, b) => {
-        const infoA = this.epochs.get(a[0])!;
-        const infoB = this.epochs.get(b[0])!;
-        return infoB.startTimestamp - infoA.startTimestamp;
-      });
+    const sortedArchived = Array.from(this.archivedAccumulators.entries()).sort((a, b) => {
+      const infoA = this.epochs.get(a[0])!;
+      const infoB = this.epochs.get(b[0])!;
+      return infoB.startTimestamp - infoA.startTimestamp;
+    });
 
     for (const [, acc] of sortedArchived) {
       results.push(...queryFn(acc));

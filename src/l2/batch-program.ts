@@ -15,10 +15,7 @@
  */
 
 import { Field, Struct, ZkProgram, SelfProof } from 'o1js';
-import {
-  TransitionOutput,
-  StateTransitionProof,
-} from '../engine/state-transition.js';
+import { TransitionOutput, StateTransitionProof } from '../engine/state-transition.js';
 
 /**
  * BatchOutput — public output of the BatchProgram.
@@ -84,21 +81,14 @@ export const BatchProgram = ZkProgram({
      */
     wrapSingle: {
       privateInputs: [StateTransitionProof, StateTransitionProof],
-      async method(
-        proof: StateTransitionProof,
-        _padding: StateTransitionProof,
-      ) {
+      async method(proof: StateTransitionProof, _padding: StateTransitionProof) {
         proof.verify();
         _padding.verify();
 
         const out = proof.publicOutput as unknown as TransitionOutput;
 
-        const regChanged = out.oldRegistryRoot
-          .equals(out.newRegistryRoot)
-          .not();
-        const lcChanged = out.oldLifecycleRoot
-          .equals(out.newLifecycleRoot)
-          .not();
+        const regChanged = out.oldRegistryRoot.equals(out.newRegistryRoot).not();
+        const lcChanged = out.oldLifecycleRoot.equals(out.newLifecycleRoot).not();
         const isRegistration = regChanged.and(lcChanged);
 
         return {
@@ -124,10 +114,7 @@ export const BatchProgram = ZkProgram({
      */
     wrapPair: {
       privateInputs: [StateTransitionProof, StateTransitionProof],
-      async method(
-        leftProof: StateTransitionProof,
-        rightProof: StateTransitionProof,
-      ) {
+      async method(leftProof: StateTransitionProof, rightProof: StateTransitionProof) {
         leftProof.verify();
         rightProof.verify();
 
@@ -135,30 +122,16 @@ export const BatchProgram = ZkProgram({
         const right = rightProof.publicOutput as unknown as TransitionOutput;
 
         // Chain enforcement: left's new state must equal right's old state
-        left.newRegistryRoot.assertEquals(
-          right.oldRegistryRoot,
-          'Pair registry root chain broken: left.new != right.old',
-        );
-        left.newLifecycleRoot.assertEquals(
-          right.oldLifecycleRoot,
-          'Pair lifecycle root chain broken: left.new != right.old',
-        );
+        left.newRegistryRoot.assertEquals(right.oldRegistryRoot, 'Pair registry root chain broken: left.new != right.old');
+        left.newLifecycleRoot.assertEquals(right.oldLifecycleRoot, 'Pair lifecycle root chain broken: left.new != right.old');
 
         // Detect registration for each proof independently
-        const leftRegChanged = left.oldRegistryRoot
-          .equals(left.newRegistryRoot)
-          .not();
-        const leftLcChanged = left.oldLifecycleRoot
-          .equals(left.newLifecycleRoot)
-          .not();
+        const leftRegChanged = left.oldRegistryRoot.equals(left.newRegistryRoot).not();
+        const leftLcChanged = left.oldLifecycleRoot.equals(left.newLifecycleRoot).not();
         const leftIsRegistration = leftRegChanged.and(leftLcChanged);
 
-        const rightRegChanged = right.oldRegistryRoot
-          .equals(right.newRegistryRoot)
-          .not();
-        const rightLcChanged = right.oldLifecycleRoot
-          .equals(right.newLifecycleRoot)
-          .not();
+        const rightRegChanged = right.oldRegistryRoot.equals(right.newRegistryRoot).not();
+        const rightLcChanged = right.oldLifecycleRoot.equals(right.newLifecycleRoot).not();
         const rightIsRegistration = rightRegChanged.and(rightLcChanged);
 
         return {
@@ -167,9 +140,7 @@ export const BatchProgram = ZkProgram({
             newRegistryRoot: right.newRegistryRoot,
             oldLifecycleRoot: left.oldLifecycleRoot,
             newLifecycleRoot: right.newLifecycleRoot,
-            registrationCount: leftIsRegistration
-              .toField()
-              .add(rightIsRegistration.toField()),
+            registrationCount: leftIsRegistration.toField().add(rightIsRegistration.toField()),
             transitionCount: Field(2),
           }),
         };
@@ -184,10 +155,7 @@ export const BatchProgram = ZkProgram({
      */
     mergeBatches: {
       privateInputs: [SelfProof, SelfProof],
-      async method(
-        left: SelfProof<undefined, BatchOutput>,
-        right: SelfProof<undefined, BatchOutput>,
-      ) {
+      async method(left: SelfProof<undefined, BatchOutput>, right: SelfProof<undefined, BatchOutput>) {
         left.verify();
         right.verify();
 
@@ -207,12 +175,8 @@ export const BatchProgram = ZkProgram({
             newRegistryRoot: right.publicOutput.newRegistryRoot,
             oldLifecycleRoot: left.publicOutput.oldLifecycleRoot,
             newLifecycleRoot: right.publicOutput.newLifecycleRoot,
-            registrationCount: left.publicOutput.registrationCount.add(
-              right.publicOutput.registrationCount,
-            ),
-            transitionCount: left.publicOutput.transitionCount.add(
-              right.publicOutput.transitionCount,
-            ),
+            registrationCount: left.publicOutput.registrationCount.add(right.publicOutput.registrationCount),
+            transitionCount: left.publicOutput.transitionCount.add(right.publicOutput.transitionCount),
           }),
         };
       },

@@ -57,9 +57,18 @@ import type {
   OnboardingPhase,
 } from './nautilus-app-types.js';
 import {
-  corsOriginHeader, resolvePublicHosts, requestHostAllowed, bodyTypeAccepted,
-  JSON_BODY, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, NO_FRAMING_HEADERS,
-  resolveTrustedProxies, trustedProxyList, clientAddress, isLoopbackBind,
+  corsOriginHeader,
+  resolvePublicHosts,
+  requestHostAllowed,
+  bodyTypeAccepted,
+  JSON_BODY,
+  MISDIRECTED_REQUEST,
+  UNSUPPORTED_BODY_TYPE,
+  NO_FRAMING_HEADERS,
+  resolveTrustedProxies,
+  trustedProxyList,
+  clientAddress,
+  isLoopbackBind,
 } from '../security/network-policy.js';
 import { addressKey, normalizeAddress } from '../security/rate-limit.js';
 import { callReadsMemberData } from '../l2/member-data-methods.js';
@@ -233,7 +242,10 @@ export class NautilusAppServer {
           'unless ZKTRIDENT_TRUSTED_PROXIES lists the address that proxy connects from, every caller counts as the ' +
           'proxy: one source for each per-caller limit. Add %s to ZKTRIDENT_TRUSTED_PROXIES%s so the node reads ' +
           'X-Forwarded-For from the proxy.',
-        config.displayName ?? `${config.role} node`, config.host, this.publicHosts.join(', '), untrusted.join(' and '),
+        config.displayName ?? `${config.role} node`,
+        config.host,
+        this.publicHosts.join(', '),
+        untrusted.join(' and '),
         sources.length > 1 ? ' (Node binds localhost to whichever of 127.0.0.1 and ::1 it resolves first)' : '',
       );
     }
@@ -329,7 +341,15 @@ export class NautilusAppServer {
     } catch {
       return false;
     }
-    return verifySignedRequest({ method, path, headers: req.headers, expectedSignerId: clientId, publicKeyHex, body, replayCache: this.replayCache }).ok;
+    return verifySignedRequest({
+      method,
+      path,
+      headers: req.headers,
+      expectedSignerId: clientId,
+      publicKeyHex,
+      body,
+      replayCache: this.replayCache,
+    }).ok;
   }
 
   /**
@@ -395,10 +415,12 @@ export class NautilusAppServer {
       return false;
     }
     const header = (req.headers['x-device-session'] as string | undefined) ?? '';
-    const presented = header || (() => {
-      const auth = (req.headers['authorization'] as string | undefined) ?? '';
-      return auth.startsWith('Device ') ? auth.slice('Device '.length) : '';
-    })();
+    const presented =
+      header ||
+      (() => {
+        const auth = (req.headers['authorization'] as string | undefined) ?? '';
+        return auth.startsWith('Device ') ? auth.slice('Device '.length) : '';
+      })();
     if (!presented) return false;
     const a = Buffer.from(presented);
     const b = Buffer.from(session.token);
@@ -426,7 +448,10 @@ export class NautilusAppServer {
 
   /** The client keys this node accepts for its own admin routes (public halves only). */
   listClientKeys(): Array<{ clientId: string; publicKeyHex: string }> {
-    return [...(this.config.authorizedClientKeys ?? new Map<string, string>())].map(([clientId, publicKeyHex]) => ({ clientId, publicKeyHex }));
+    return [...(this.config.authorizedClientKeys ?? new Map<string, string>())].map(([clientId, publicKeyHex]) => ({
+      clientId,
+      publicKeyHex,
+    }));
   }
 
   /**
@@ -569,7 +594,11 @@ export class NautilusAppServer {
 
     // Close SSE connections
     for (const client of this.sseClients) {
-      try { client.end(); } catch { /* ignore */ }
+      try {
+        client.end();
+      } catch {
+        /* ignore */
+      }
     }
     this.sseClients.clear();
     this.deviceStreams.clear();
@@ -650,7 +679,9 @@ export class NautilusAppServer {
       // the request and response the timer holds, until the budget ran out, so a flood of them held as many (the review
       // of the caller-key capture, A-92). A pipelined request's response still waiting its turn does not close with its
       // connection, so the connection's closing ends that budget (endBudgetIfClosedWhileWaiting).
-      const endBudget = (): void => { if (budgetTimer) clearTimeout(budgetTimer); };
+      const endBudget = (): void => {
+        if (budgetTimer) clearTimeout(budgetTimer);
+      };
       res.on('finish', endBudget);
       res.on('close', endBudget);
       if (!res.socket) this.endBudgetIfClosedWhileWaiting(req.socket, res, endBudget);
@@ -722,8 +753,7 @@ export class NautilusAppServer {
       // own credential is not locked out of its own routes.
       if (route.deviceOnly && !this.checkDeviceAuth(req)) {
         if (!(await this.checkNautilusAdminAuth(req, method, pathname))) {
-          return this.sendResponse(res, 401, false, undefined,
-            'This device is locked. Unlock with your PIN to obtain a device session.');
+          return this.sendResponse(res, 401, false, undefined, 'This device is locked. Unlock with your PIN to obtain a device session.');
         }
       }
 
@@ -769,14 +799,20 @@ export class NautilusAppServer {
           const content = fs.readFileSync(filePath);
           const ext = path.extname(filePath).toLowerCase();
           const mimeTypes: Record<string, string> = {
-            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
-            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.svg': 'image/svg+xml',
             '.ico': 'image/x-icon',
           };
           res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
           res.end(content);
           return;
-        } catch { /* file not found, fall through */ }
+        } catch {
+          /* file not found, fall through */
+        }
       }
     }
 
@@ -789,14 +825,20 @@ export class NautilusAppServer {
           const content = fs.readFileSync(filePath);
           const ext = path.extname(filePath).toLowerCase();
           const mimeTypes: Record<string, string> = {
-            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
-            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.svg': 'image/svg+xml',
             '.ico': 'image/x-icon',
           };
           res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
           res.end(content);
           return;
-        } catch { /* file not found, fall through to 404 */ }
+        } catch {
+          /* file not found, fall through to 404 */
+        }
       }
     }
 
@@ -816,7 +858,9 @@ export class NautilusAppServer {
     const waiting = this.waitingBudgets.get(socket) ?? new Set<() => void>();
     if (!this.waitingBudgets.has(socket)) {
       this.waitingBudgets.set(socket, waiting);
-      socket.once('close', () => { for (const endWaiting of waiting) endWaiting(); });
+      socket.once('close', () => {
+        for (const endWaiting of waiting) endWaiting();
+      });
     }
     waiting.add(end);
     res.once('socket', () => waiting.delete(end));
@@ -871,9 +915,7 @@ export class NautilusAppServer {
       // Same source as /onboarding/status. These disagreed before: health read the entity node
       // while status read local state, so a device that had derived a wallet but not yet built
       // its node reported one and not the other.
-      ...(identified
-        ? { walletId: this.localState.getState()?.walletId ?? this.entityNode?.getWalletId() }
-        : {}),
+      ...(identified ? { walletId: this.localState.getState()?.walletId ?? this.entityNode?.getWalletId() } : {}),
       displayName: this.config.displayName,
       uptime: this.startTime > 0 ? Date.now() - this.startTime : 0,
       tls: this.tls,
@@ -925,7 +967,8 @@ export class NautilusAppServer {
     const policy = this.config.rpcProxy;
     if (!policy?.enabled) {
       this.sendJson(res, 404, {
-        jsonrpc: '2.0', id: null,
+        jsonrpc: '2.0',
+        id: null,
         error: { code: -32601, message: 'RPC proxying is disabled on this node' },
       });
       return;
@@ -935,10 +978,10 @@ export class NautilusAppServer {
     // the session issued at unlock, or this node's own admin credential, as for every device-only route.
     // Before this, any local process or allowed origin could read the member's claims and messages
     // through this port for as long as the device's state stayed unlocked.
-    if (this.config.role === 'member' && !this.checkDeviceAuth(req)
-      && !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))) {
+    if (this.config.role === 'member' && !this.checkDeviceAuth(req) && !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))) {
       this.sendJson(res, 401, {
-        jsonrpc: '2.0', id: null,
+        jsonrpc: '2.0',
+        id: null,
         error: { code: -32001, message: 'This device is locked. Unlock with your PIN to obtain a device session.' },
       });
       return;
@@ -955,14 +998,16 @@ export class NautilusAppServer {
         params = request.params;
       } catch {
         this.sendJson(res, 400, {
-          jsonrpc: '2.0', id: null,
+          jsonrpc: '2.0',
+          id: null,
           error: { code: -32700, message: 'Parse error' },
         });
         return;
       }
       if (!method || !policy.allowed.has(method)) {
         this.sendJson(res, 403, {
-          jsonrpc: '2.0', id: null,
+          jsonrpc: '2.0',
+          id: null,
           error: { code: -32601, message: `Method not available through this node's proxy: ${method ?? 'none'}` },
         });
         return;
@@ -973,11 +1018,18 @@ export class NautilusAppServer {
       // member as the plan (the sequencer's D1 gate admits it for any wallet), so an open proxy handed any member's
       // quote to anyone. A member node's proxy answers only the device's session (above); any other node forwards
       // such a read (callReadsMemberData: the D1 table) only for its own administrator.
-      if (this.config.role !== 'member' && callReadsMemberData(method, params)
-        && !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))) {
+      if (
+        this.config.role !== 'member' &&
+        callReadsMemberData(method, params) &&
+        !(await this.checkNautilusAdminAuth(req, 'POST', '/rpc'))
+      ) {
         this.sendJson(res, 403, {
-          jsonrpc: '2.0', id: null,
-          error: { code: -32004, message: `Forbidden — ${method} returns a member's data, and this node's proxy forwards it only for this node's administrator` },
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32004,
+            message: `Forbidden — ${method} returns a member's data, and this node's proxy forwards it only for this node's administrator`,
+          },
         });
         return;
       }
@@ -1147,7 +1199,11 @@ export class NautilusAppServer {
   private endStream(client: ServerResponse): void {
     this.sseClients.delete(client);
     this.deviceStreams.delete(client);
-    try { client.end(); } catch { /* socket already dead */ }
+    try {
+      client.end();
+    } catch {
+      /* socket already dead */
+    }
   }
 
   /** End every stream the device's session opened: the session has ended or been replaced. */
@@ -1182,13 +1238,7 @@ export class NautilusAppServer {
   // ─── Response Helpers (public — routes use these) ─────────
 
   /** Send a standard NautilusApiResponse */
-  sendResponse<T>(
-    res: ServerResponse,
-    statusCode: number,
-    ok: boolean,
-    data?: T,
-    error?: string,
-  ): void {
+  sendResponse<T>(res: ServerResponse, statusCode: number, ok: boolean, data?: T, error?: string): void {
     const response: NautilusApiResponse<T> = {
       ok,
       timestamp: Date.now(),

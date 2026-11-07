@@ -40,11 +40,11 @@ jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-step-therapy-read';
 const ABACAVIR = '00378410591';
-const AMRIX = '63459070060';                  // step therapy required in the catalog
-const CONSOLE = '79300000000000000001';      // a member with a device served from the console's formulary
-const FIXTURE = '79300000000000000002';      // a fixture member, served from the console's formulary
-const ON_PLAN = '79300000000000000003';      // a member with a device on its own plan's formulary
-const UNKNOWN = '79300000000000000099';      // a wallet the engine has not enrolled
+const AMRIX = '63459070060'; // step therapy required in the catalog
+const CONSOLE = '79300000000000000001'; // a member with a device served from the console's formulary
+const FIXTURE = '79300000000000000002'; // a fixture member, served from the console's formulary
+const ON_PLAN = '79300000000000000003'; // a member with a device on its own plan's formulary
+const UNKNOWN = '79300000000000000099'; // a wallet the engine has not enrolled
 
 let node: any;
 let seq: any;
@@ -99,7 +99,15 @@ function serveFromConsole(walletId: string, { fixture }: { fixture: boolean }): 
   m.eligibilityData = svc.sharedEligibilityData;
   m.forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, m.eligibilityData.commitment());
   const c = m.credentialData;
-  m.credentialData = new CredentialData({ credentialType: c.credentialType, forestRoot: m.forest.getForestRoot(), issuerWalletId: c.issuerWalletId, subjectWalletId: c.subjectWalletId, issuedAt: c.issuedAt, expiresAt: c.expiresAt, revoked: c.revoked });
+  m.credentialData = new CredentialData({
+    credentialType: c.credentialType,
+    forestRoot: m.forest.getForestRoot(),
+    issuerWalletId: c.issuerWalletId,
+    subjectWalletId: c.subjectWalletId,
+    issuedAt: c.issuedAt,
+    expiresAt: c.expiresAt,
+    revoked: c.revoked,
+  });
   m.credentialInventory.updateCredential(0n, m.credentialData);
   for (const u of svc.walletUpdatesFor(walletId)) svc.pendingWalletUpdates.delete(u.updateId);
   m.credentialInventoryRoot = m.credentialInventory.getRoot();
@@ -109,14 +117,22 @@ function serveFromConsole(walletId: string, { fixture }: { fixture: boolean }): 
 function backfilledDrug(ndc: string): string {
   const base = svc.medByNdcHash.get(ndcHashOf(ABACAVIR));
   const ndcHash = ndcHashOf(ndc);
-  svc.medByNdcHash.set(ndcHash, { ...base, ndc, ndcFormatted: `${ndc.slice(0, 5)}-${ndc.slice(5, 9)}-${ndc.slice(9)}`, brandName: `BACKFILLED ${ndc}`, formularyEntry: { ...base.formularyEntry, ndc } });
+  svc.medByNdcHash.set(ndcHash, {
+    ...base,
+    ndc,
+    ndcFormatted: `${ndc.slice(0, 5)}-${ndc.slice(5, 9)}-${ndc.slice(9)}`,
+    brandName: `BACKFILLED ${ndc}`,
+    formularyEntry: { ...base.formularyEntry, ndc },
+  });
   expect(svc.medIndexByNdcHash.has(ndcHash)).toBe(false);
   return ndcHash;
 }
 
 /** GET /interactive/step-therapy-check as the operator, the route's one reader. */
 async function stepRead(walletId: string, ndcHash: string): Promise<{ status: number; json: any }> {
-  const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${walletId}&ndcHash=${ndcHash}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
+  const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${walletId}&ndcHash=${ndcHash}`, {
+    headers: { Authorization: `Bearer ${OPERATOR}` },
+  });
   return { status: r.status, json: await r.json() };
 }
 
@@ -137,9 +153,19 @@ beforeAll(async () => {
   const LC = await import('../src/engine/lifecycle.js');
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-step-therapy-read' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-step-therapy-read' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
   svc.dispatchProof = async () => ({ proofJson: null, publicOutput: null, proveTimeMs: 0 });
@@ -149,55 +175,87 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 
   const base: any = {
-    planId: 'PLAN-STR', name: 'Step therapy read', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-    formularyNdcs: [ABACAVIR, AMRIX], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-STR',
+    name: 'Step therapy read',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1250,
+    formularyNdcs: [ABACAVIR, AMRIX],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, getAllFormularyEntries()).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
   for (const w of [CONSOLE, FIXTURE, ON_PLAN]) {
-    seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED); });
-    svc.approveMember({ walletId: w, groupIdHash: ndcHashOf('GRP-STR'), planIdHash: ndcHashOf('PLAN-STR'), planId: 'PLAN-STR', employerId: null, familyIdHash: null });
+    seq.adminMutate('test', ({ provision }: any) => {
+      provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED);
+    });
+    svc.approveMember({
+      walletId: w,
+      groupIdHash: ndcHashOf('GRP-STR'),
+      planIdHash: ndcHashOf('PLAN-STR'),
+      planId: 'PLAN-STR',
+      employerId: null,
+      familyIdHash: null,
+    });
     await svc.registerMemberFromEnrollment({ walletId: w, ownershipProofJson: '{}', displayName: 'Step therapy read member' });
   }
   serveFromConsole(CONSOLE, { fixture: false });
   serveFromConsole(FIXTURE, { fixture: true });
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
-describe('a step-therapy read for a drug the console\'s tree does not hold', () => {
+describe("a step-therapy read for a drug the console's tree does not hold", () => {
   let outside: string;
 
-  test('is refused as not on the formulary for a member served from the console\'s formulary and for a wallet the engine has not enrolled, and changes nothing', () => {
+  test("is refused as not on the formulary for a member served from the console's formulary and for a wallet the engine has not enrolled, and changes nothing", () => {
     outside = backfilledDrug('99999000011');
     const before = engineState();
     for (const who of [CONSOLE, FIXTURE, UNKNOWN]) {
       let refusal: any;
-      try { svc.checkStepTherapy(who, outside); } catch (err) { refusal = err; }
-      expect(refusal).toMatchObject({ name: 'RegistrationRefused', status: 403, message: 'BACKFILLED 99999000011 is not on the formulary of this member\'s plan (PLAN-GOLD-2026)' });   // before: answered (Step therapy not required), the drug added to the console's tree
+      try {
+        svc.checkStepTherapy(who, outside);
+      } catch (err) {
+        refusal = err;
+      }
+      expect(refusal).toMatchObject({
+        name: 'RegistrationRefused',
+        status: 403,
+        message: "BACKFILLED 99999000011 is not on the formulary of this member's plan (PLAN-GOLD-2026)",
+      }); // before: answered (Step therapy not required), the drug added to the console's tree
     }
-    expect(engineState()).toEqual(before);   // before: the console's root moved, each console member's leaf 0 and credential were rewritten and a 'formulary' update was queued for the member with a device
-    expect(svc.medIndexByNdcHash.has(outside)).toBe(false);   // before: indexed at a new leaf
-    expect(svc.walletUpdatesFor(CONSOLE)).toHaveLength(0);   // before: one 'formulary' update
+    expect(engineState()).toEqual(before); // before: the console's root moved, each console member's leaf 0 and credential were rewritten and a 'formulary' update was queued for the member with a device
+    expect(svc.medIndexByNdcHash.has(outside)).toBe(false); // before: indexed at a new leaf
+    expect(svc.walletUpdatesFor(CONSOLE)).toHaveLength(0); // before: one 'formulary' update
   });
 
   test('over the route the read answers 403, still changing nothing', async () => {
     const before = engineState();
     for (const who of [CONSOLE, UNKNOWN]) {
       const r = await stepRead(who, outside);
-      expect(r.status).toBe(403);   // before: 200
-      expect(r.json.error).toBe('BACKFILLED 99999000011 is not on the formulary of this member\'s plan (PLAN-GOLD-2026)');   // before: the step-therapy answer
+      expect(r.status).toBe(403); // before: 200
+      expect(r.json.error).toBe("BACKFILLED 99999000011 is not on the formulary of this member's plan (PLAN-GOLD-2026)"); // before: the step-therapy answer
     }
     const another = backfilledDrug('99999000012');
     const r = await stepRead(CONSOLE, another);
-    expect(r.status).toBe(403);   // before: 200
-    expect(engineState()).toEqual(before);   // before: the drug added, the console members moved onto the new root and an update queued
+    expect(r.status).toBe(403); // before: 200
+    expect(engineState()).toEqual(before); // before: the drug added, the console members moved onto the new root and an update queued
   });
 });
 
-describe('a step-therapy read for a drug the console\'s tree holds is answered as before', () => {
-  test('for a member served from the console\'s formulary, a wallet the engine has not enrolled and a member on its own plan, with nothing changed', async () => {
+describe("a step-therapy read for a drug the console's tree holds is answered as before", () => {
+  test("for a member served from the console's formulary, a wallet the engine has not enrolled and a member on its own plan, with nothing changed", async () => {
     const before = engineState();
     for (const who of [CONSOLE, FIXTURE, UNKNOWN, ON_PLAN]) {
       expect(svc.checkStepTherapy(who, ndcHashOf(ABACAVIR))).toEqual({ allowed: true, message: 'Step therapy not required' });

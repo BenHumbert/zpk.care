@@ -26,18 +26,35 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function journalPath(name = 'invites'): string { return path.join(dir, `${name}.journal`); }
-function snapshotPath(name = 'invites'): string { return path.join(dir, `${name}.snapshot`); }
-function lines(file: string): string[] { return fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.length > 0); }
+function journalPath(name = 'invites'): string {
+  return path.join(dir, `${name}.journal`);
+}
+function snapshotPath(name = 'invites'): string {
+  return path.join(dir, `${name}.snapshot`);
+}
+function lines(file: string): string[] {
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.length > 0);
+}
 
 describe('subkeys', () => {
   const master = randomBytes(32);
 
   test('the same master and label give the same key, and different labels different keys', () => {
-    expect(deriveSubkey(master, SUBKEYS.planStore('redeemed-codes')).equals(deriveSubkey(master, SUBKEYS.planStore('redeemed-codes')))).toBe(true);
+    expect(
+      deriveSubkey(master, SUBKEYS.planStore('redeemed-codes')).equals(deriveSubkey(master, SUBKEYS.planStore('redeemed-codes'))),
+    ).toBe(true);
     const labels = [
-      SUBKEYS.check, SUBKEYS.insurerSigningSeed, SUBKEYS.planPinPepper, SUBKEYS.planStore('a'), SUBKEYS.planStore('b'),
-      SUBKEYS.tenantStore('ACME-001'), SUBKEYS.tenantPinPepper('ACME-001'), SUBKEYS.tenantStore('ACME-002'),
+      SUBKEYS.check,
+      SUBKEYS.insurerSigningSeed,
+      SUBKEYS.planPinPepper,
+      SUBKEYS.planStore('a'),
+      SUBKEYS.planStore('b'),
+      SUBKEYS.tenantStore('ACME-001'),
+      SUBKEYS.tenantPinPepper('ACME-001'),
+      SUBKEYS.tenantStore('ACME-002'),
     ];
     const keys = new Set(labels.map((l) => deriveSubkey(master, l).toString('hex')));
     expect(keys.size).toBe(labels.length);
@@ -80,11 +97,19 @@ describe('SealedRecordStore', () => {
 
   test('putMany writes one entry for many records', () => {
     const store = SealedRecordStore.open<number>({ dir, name: 'invites', key });
-    store.putMany([['a', 1], ['b', 2], ['c', 3]]);
+    store.putMany([
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
+    ]);
     store.close();
     expect(lines(journalPath())).toHaveLength(2); // the header and one entry
     const again = SealedRecordStore.open<number>({ dir, name: 'invites', key });
-    expect([...again.entries()]).toEqual([['a', 1], ['b', 2], ['c', 3]]);
+    expect([...again.entries()]).toEqual([
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
+    ]);
     again.close();
   });
 
@@ -107,7 +132,7 @@ describe('SealedRecordStore', () => {
     expect(() => SealedRecordStore.open({ dir, name: 'invites', key: randomBytes(32) })).toThrow(SealedStoreError);
   });
 
-  test('one store\'s files cannot be passed off as another\'s, even under the same key', () => {
+  test("one store's files cannot be passed off as another's, even under the same key", () => {
     const store = SealedRecordStore.open<number>({ dir, name: 'invites', key, compactAfter: 1 });
     store.put('a', 1);
     store.put('b', 2);
@@ -189,7 +214,10 @@ describe('SealedRecordStore', () => {
     // as if the process died after the snapshot's rename and before the journal's
     fs.writeFileSync(journalPath(), oldJournal);
     const again = SealedRecordStore.open<number>({ dir, name: 'invites', key });
-    expect([...again.entries()]).toEqual([['a', 1], ['b', 2]]);
+    expect([...again.entries()]).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
     again.put('c', 3);
     again.close();
     const third = SealedRecordStore.open<number>({ dir, name: 'invites', key });
@@ -209,7 +237,10 @@ describe('SealedRecordStore', () => {
     store.close();
     fs.rmSync(snapshotPath(), { recursive: true });
     const again = SealedRecordStore.open<number>({ dir, name: 'invites', key });
-    expect([...again.entries()]).toEqual([['a', 1], ['b', 2]]);
+    expect([...again.entries()]).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
     again.close();
   });
 

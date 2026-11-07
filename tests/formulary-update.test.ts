@@ -28,13 +28,8 @@
  * that method (the cleanup's phase 3.3): it updated only members the broken processEnrollment had made.
  */
 import { Field } from 'o1js';
-import {
-  FormularyUpdateService,
-} from '../src/eligibility/formulary-update-service.js';
-import {
-  EligibilityData,
-  COVERAGE_PHARMACY,
-} from '../src/eligibility/eligibility-data.js';
+import { FormularyUpdateService } from '../src/eligibility/formulary-update-service.js';
+import { EligibilityData, COVERAGE_PHARMACY } from '../src/eligibility/eligibility-data.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 import type { FormularyEntryLocalData } from '../src/access-control/formulary-entry.js';
@@ -92,8 +87,7 @@ describe('Formulary Update Push (GAP 3)', () => {
 
   describe('FormularyUpdateService', () => {
     test('buildFormulary creates valid registry from entries', () => {
-      const { registry, root, formularyEntries } =
-        FormularyUpdateService.buildFormulary(baseFormularyEntries);
+      const { registry, root, formularyEntries } = FormularyUpdateService.buildFormulary(baseFormularyEntries);
 
       expect(registry.count).toBe(2);
       expect(root.toString()).not.toBe('0');
@@ -106,10 +100,8 @@ describe('Formulary Update Push (GAP 3)', () => {
     });
 
     test('different entries produce different roots', () => {
-      const { root: root1 } =
-        FormularyUpdateService.buildFormulary(baseFormularyEntries);
-      const { root: root2 } =
-        FormularyUpdateService.buildFormulary(updatedFormularyEntries);
+      const { root: root1 } = FormularyUpdateService.buildFormulary(baseFormularyEntries);
+      const { root: root2 } = FormularyUpdateService.buildFormulary(updatedFormularyEntries);
 
       expect(root1.toString()).not.toBe(root2.toString());
     });
@@ -133,8 +125,7 @@ describe('Formulary Update Push (GAP 3)', () => {
       const oldForestRoot = forest.getForestRoot();
 
       // Rebuild with new formulary root
-      const { newEligibilityData, newForestRoot } =
-        FormularyUpdateService.rebuildMemberForest(forest, eligData, Field(222));
+      const { newEligibilityData, newForestRoot } = FormularyUpdateService.rebuildMemberForest(forest, eligData, Field(222));
 
       expect(newForestRoot.toString()).not.toBe(oldForestRoot.toString());
       expect(newEligibilityData.formularyRoot.toString()).toBe('222');
@@ -181,10 +172,7 @@ describe('Formulary Update Push (GAP 3)', () => {
     });
 
     test('diffFormularies identifies added, removed, and changed entries', () => {
-      const oldEntries: FormularyEntryLocalData[] = [
-        { ...baseFormularyEntries[0]!, copayAmount: 1000 },
-        baseFormularyEntries[1]!,
-      ];
+      const oldEntries: FormularyEntryLocalData[] = [{ ...baseFormularyEntries[0]!, copayAmount: 1000 }, baseFormularyEntries[1]!];
 
       const newEntries: FormularyEntryLocalData[] = [
         { ...baseFormularyEntries[0]!, copayAmount: 1500 }, // changed copay
@@ -210,13 +198,7 @@ describe('Formulary Update Push (GAP 3)', () => {
 
     beforeEach(() => {
       const store = new InMemoryStore();
-      sequencer = new L2SequencerService(
-        store,
-        Field(0),
-        Field(0),
-        Field(0),
-        30_000,
-      );
+      sequencer = new L2SequencerService(store, Field(0), Field(0), Field(0), 30_000);
       sequencer.setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
     });
 
@@ -281,17 +263,17 @@ describe('Formulary Update Push (GAP 3)', () => {
 
     beforeAll(async () => {
       const store = new InMemoryStore();
-      node = new L2Node(
-        { ...DEFAULT_L2_NODE_OPTIONS, autoSettle: false },
-        store,
-        Field(0),
-        Field(0),
-        Field(0),
-      );
+      node = new L2Node({ ...DEFAULT_L2_NODE_OPTIONS, autoSettle: false }, store, Field(0), Field(0), Field(0));
       node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/formulary-update.test.ts'));
       node.start();
 
-      server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', maxBodyBytes: 10 * 1024 * 1024, enableSSE: false, adminToken: TEST_ADMIN_TOKEN });   // before: no token, and l2_storeFormulary answered Unauthorized
+      server = new L2RpcServer(node, {
+        port: 0,
+        host: '127.0.0.1',
+        maxBodyBytes: 10 * 1024 * 1024,
+        enableSSE: false,
+        adminToken: TEST_ADMIN_TOKEN,
+      }); // before: no token, and l2_storeFormulary answered Unauthorized
       await server.start();
       port = server.getPort();
 
@@ -309,11 +291,7 @@ describe('Formulary Update Push (GAP 3)', () => {
       const entriesJson = JSON.stringify(baseFormularyEntries);
 
       // Store via RPC
-      const storeResult = await client.storeFormulary(
-        planIdHash,
-        root.toString(),
-        entriesJson,
-      );
+      const storeResult = await client.storeFormulary(planIdHash, root.toString(), entriesJson);
       expect(storeResult.success).toBe(true);
       expect(storeResult.planIdHash).toBe(planIdHash);
 
@@ -329,5 +307,4 @@ describe('Formulary Update Push (GAP 3)', () => {
       expect(result).toBeNull();
     });
   });
-
 });

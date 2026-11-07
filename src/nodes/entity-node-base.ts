@@ -38,12 +38,7 @@ import type { StoredMessage, MessagePayload, MessageStoreEntry } from '../l2/mes
 import type { RequestSigner } from '../security/wallet-key.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
 import type { L2EventHandler, L2NodeStatus } from '../l2/l2-node.js';
-import type {
-  EntityNodeConfig,
-  EntityRole,
-  EntityClaimView,
-  EntityActivitySummary,
-} from './entity-node-types.js';
+import type { EntityNodeConfig, EntityRole, EntityClaimView, EntityActivitySummary } from './entity-node-types.js';
 
 // ─── EntityNodeBase ─────────────────────────────────────────
 
@@ -120,10 +115,7 @@ export abstract class EntityNodeBase {
    * This handles transparent failover when a leviathan partition leader
    * goes down and another node has promoted itself.
    */
-  protected async withPartitionRetry<T>(
-    walletId: string,
-    fn: (client: L2Client) => Promise<T>,
-  ): Promise<T> {
+  protected async withPartitionRetry<T>(walletId: string, fn: (client: L2Client) => Promise<T>): Promise<T> {
     const client = this.getClientForWallet(walletId);
     try {
       return await fn(client);
@@ -234,7 +226,11 @@ export abstract class EntityNodeBase {
   // ─── Messaging ─────────────────────────────────────────
 
   /** Store an encrypted message on the sequencer, signed as this node's wallet (A10b). */
-  async storeMessage(message: StoredMessage, payload: MessagePayload, signer: RequestSigner | null = this.walletSigner()): Promise<MessageStoreEntry> {
+  async storeMessage(
+    message: StoredMessage,
+    payload: MessagePayload,
+    signer: RequestSigner | null = this.walletSigner(),
+  ): Promise<MessageStoreEntry> {
     return this.client.storeMessage(message, payload, signer ?? undefined);
   }
 
@@ -286,8 +282,7 @@ export abstract class EntityNodeBase {
       dateOfService: entry.metadata.dateOfService ?? entry.leaf.dateOfService,
       patientPayCents: entry.leaf.patientPayCents,
       planPayCents: entry.leaf.planPayCents,
-      operationType:
-        entry.leaf.operationType === '2' ? 'reversal' : 'fulfillment',
+      operationType: entry.leaf.operationType === '2' ? 'reversal' : 'fulfillment',
       memberWalletId: entry.leaf.memberWalletId,
       pharmacyWalletId: entry.leaf.pharmacyWalletId,
       prescriberWalletId: entry.leaf.prescriberWalletId,
@@ -346,30 +341,21 @@ export abstract class EntityNodeBase {
       totalPatientPayCents,
       totalPlanPayCents,
       uniqueMedications: ndcSet.size,
-      dateRange:
-        earliest && latest ? { earliest, latest } : null,
+      dateRange: earliest && latest ? { earliest, latest } : null,
     };
   }
 
   /**
    * Filter claim views to a date range (inclusive, CCYYMMDD string compare).
    */
-  protected filterByDateRange(
-    views: EntityClaimView[],
-    start: string,
-    end: string,
-  ): EntityClaimView[] {
-    return views.filter(
-      (v) => v.dateOfService >= start && v.dateOfService <= end,
-    );
+  protected filterByDateRange(views: EntityClaimView[], start: string, end: string): EntityClaimView[] {
+    return views.filter((v) => v.dateOfService >= start && v.dateOfService <= end);
   }
 
   /**
    * Compute a medication breakdown from claim views.
    */
-  protected medicationBreakdown(
-    views: EntityClaimView[],
-  ): import('./entity-node-types.js').MedicationBreakdownEntry[] {
+  protected medicationBreakdown(views: EntityClaimView[]): import('./entity-node-types.js').MedicationBreakdownEntry[] {
     const map = new Map<
       string,
       {
@@ -408,8 +394,6 @@ export abstract class EntityNodeBase {
       }
     }
 
-    return Array.from(map.values()).sort(
-      (a, b) => b.claimCount - a.claimCount,
-    );
+    return Array.from(map.values()).sort((a, b) => b.claimCount - a.claimCount);
   }
 }

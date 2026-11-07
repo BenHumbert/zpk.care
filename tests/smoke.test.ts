@@ -15,13 +15,28 @@
  */
 
 import {
-  PRESCRIBERS, PRESCRIBER_BY_NPI,
-  PHARMACIES, PHARMACY_BY_NPI,
-  MEDICATIONS, TIER1_GENERICS, TIER2_PREFERRED, TIER3_NON_PREFERRED, TIER4_SPECIALTY,
-  MEDICATION_BY_NDC, getAllFormularyEntries, getFormularyEntriesByTier,
-  buildMedicationLocalData, buildMedicationPricingLocalData,
-  MEMBERS, MEMBER_BY_CARDHOLDER_ID, getMembersByEmployee, getSubscribers,
-  getFernhillMembers, getBaysideMembers, getAcmeMembers, getGlobexMembers,
+  PRESCRIBERS,
+  PRESCRIBER_BY_NPI,
+  PHARMACIES,
+  PHARMACY_BY_NPI,
+  MEDICATIONS,
+  TIER1_GENERICS,
+  TIER2_PREFERRED,
+  TIER3_NON_PREFERRED,
+  TIER4_SPECIALTY,
+  MEDICATION_BY_NDC,
+  getAllFormularyEntries,
+  getFormularyEntriesByTier,
+  buildMedicationLocalData,
+  buildMedicationPricingLocalData,
+  MEMBERS,
+  MEMBER_BY_CARDHOLDER_ID,
+  getMembersByEmployee,
+  getSubscribers,
+  getFernhillMembers,
+  getBaysideMembers,
+  getAcmeMembers,
+  getGlobexMembers,
 } from '../src/data/index.js';
 
 describe('Seed Data — Smoke Tests', () => {
@@ -96,8 +111,7 @@ describe('Seed Data — Smoke Tests', () => {
     expect(TIER2_PREFERRED.length).toBeGreaterThan(0);
     expect(TIER3_NON_PREFERRED.length).toBeGreaterThan(0);
     expect(TIER4_SPECIALTY.length).toBeGreaterThan(0);
-    expect(TIER1_GENERICS.length + TIER2_PREFERRED.length +
-           TIER3_NON_PREFERRED.length + TIER4_SPECIALTY.length).toBe(MEDICATIONS.length);
+    expect(TIER1_GENERICS.length + TIER2_PREFERRED.length + TIER3_NON_PREFERRED.length + TIER4_SPECIALTY.length).toBe(MEDICATIONS.length);
   });
 
   test('all NDCs are 11-digit', () => {
@@ -193,7 +207,7 @@ describe('Seed Data — Smoke Tests', () => {
 
   test('getMembersByEmployee returns employee + dependents', () => {
     const family = getMembersByEmployee('EMP-10003');
-    expect(family).toHaveLength(3);  // Carol + Daniel + Emma Williams
+    expect(family).toHaveLength(3); // Carol + Daniel + Emma Williams
     expect(family.map((m) => m.relationship).sort()).toEqual(['CHILD', 'SELF', 'SPOUSE']);
   });
 

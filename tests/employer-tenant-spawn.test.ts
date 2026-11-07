@@ -103,7 +103,12 @@ const LISTENER_SETTINGS = ['ZKTRIDENT_PUBLIC_HOSTS', 'ZKTRIDENT_TRUSTED_PROXIES'
 /** Network-wide settings from the operator, which the tenant applies as well. */
 const OPERATOR_SETTINGS = { ZKTRIDENT_RPC_PROXY: '0', ZKTRIDENT_MAX_SSE: '7' };
 
-interface TenantRequest { employerId: string; employerPubKeyHex: string; sequencerUrl: string; insurerUrl: string }
+interface TenantRequest {
+  employerId: string;
+  employerPubKeyHex: string;
+  sequencerUrl: string;
+  insurerUrl: string;
+}
 interface Outcome {
   pid: number;
   results: Array<{ employerId: string; employerNodeUrl: string; adminToken: string }>;
@@ -122,7 +127,10 @@ async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
     s.on('error', reject);
-    s.listen(0, '127.0.0.1', () => { const port = (s.address() as AddressInfo).port; s.close(() => resolve(port)); });
+    s.listen(0, '127.0.0.1', () => {
+      const port = (s.address() as AddressInfo).port;
+      s.close(() => resolve(port));
+    });
   });
 }
 
@@ -136,9 +144,17 @@ function runInsurer(insurerEnv: Record<string, string>, tenantRequests: TenantRe
     if (process.env[k] !== undefined) env[k] = process.env[k];
   }
   Object.assign(env, insurerEnv);
-  const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(REPO, 'tests', 'helpers', 'spawn-employer-tenant.ts'), JSON.stringify(tenantRequests)], {
-    cwd: REPO, env, encoding: 'utf8', timeout: 90_000, windowsHide: true,
-  });
+  const run = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', path.join(REPO, 'tests', 'helpers', 'spawn-employer-tenant.ts'), JSON.stringify(tenantRequests)],
+    {
+      cwd: REPO,
+      env,
+      encoding: 'utf8',
+      timeout: 90_000,
+      windowsHide: true,
+    },
+  );
   const line = (run.stdout ?? '').split(/\r?\n/).find((l) => l.startsWith(RESULT_MARKER));
   if (!line) throw new Error(`the insurer stand-in printed no result (exit ${run.status}):\n${run.stdout}\n${run.stderr}`);
   return JSON.parse(line.slice(RESULT_MARKER.length)) as Outcome;
@@ -147,14 +163,24 @@ function runInsurer(insurerEnv: Record<string, string>, tenantRequests: TenantRe
 beforeAll(async () => {
   sequencer = http.createServer((req, res) => {
     let raw = '';
-    req.on('data', (c) => { raw += c; });
+    req.on('data', (c) => {
+      raw += c;
+    });
     req.on('end', () => {
       let call: { id?: number; method?: string; params?: { employerId?: string } } = {};
-      try { call = JSON.parse(raw || '{}'); } catch { /* answered as unknown below */ }
+      try {
+        call = JSON.parse(raw || '{}');
+      } catch {
+        /* answered as unknown below */
+      }
       const request = requests.find((r) => r.employerId === call.params?.employerId);
-      const result = call.method === 'l2_verifyEmployer' && request
-        ? { valid: true, attestation: { employerId: request.employerId, publicKeyHex: request.employerPubKeyHex, authorizedPlanIds: ['PLAN-1'] } }
-        : null;
+      const result =
+        call.method === 'l2_verifyEmployer' && request
+          ? {
+              valid: true,
+              attestation: { employerId: request.employerId, publicKeyHex: request.employerPubKeyHex, authorizedPlanIds: ['PLAN-1'] },
+            }
+          : null;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ jsonrpc: '2.0', id: call.id ?? 1, result }));
     });
@@ -173,11 +199,22 @@ afterAll(async () => {
     const exited = new Promise<void>((resolve) => tenantChild!.once('exit', () => resolve()));
     tenantChild.kill();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([exited, new Promise<void>((resolve) => { timer = setTimeout(resolve, 5000); })]);
+    await Promise.race([
+      exited,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 5000);
+      }),
+    ]);
     clearTimeout(timer);
   }
   await new Promise<void>((resolve) => sequencer.close(() => resolve()));
-  if (stateDir) { try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  if (stateDir) {
+    try {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 /** Each tenant's request, what spawnEmployerTenant returned for it, and the environment its spawn was given. */
@@ -191,19 +228,22 @@ describe('0. a secret named in another case stays behind too', () => {
   // reads its secrets, and a tenant given zktrident_tls_key reads it back as ZKTRIDENT_TLS_KEY.
   test('lower- and mixed-case secret names reach no tenant', () => {
     const LOWER: Record<string, string> = {
-      zktrident_insurer_signing_seed: hex(32), Zktrident_Node_Key_Seed: hex(32), zktrident_gossip_secret: `gossip-${hex(16)}`,
-      zktrident_tls_key: path.join(REPO, `lower-tls-${hex(8)}.key`), zktrident_node_id: 'insurer-lower',
+      zktrident_insurer_signing_seed: hex(32),
+      Zktrident_Node_Key_Seed: hex(32),
+      zktrident_gossip_secret: `gossip-${hex(16)}`,
+      zktrident_tls_key: path.join(REPO, `lower-tls-${hex(8)}.key`),
+      zktrident_node_id: 'insurer-lower',
     };
     const lowerOutcome = runInsurer(LOWER, requests.slice(0, 1));
     const values = Object.values(lowerOutcome.spawned[0].env).map(String);
     for (const [key, secret] of Object.entries(LOWER)) {
-      expect([key, values.filter((v) => v === secret || (secret.length >= 16 && v.includes(secret)))]).toEqual([key, []]);   // before: all five came through
+      expect([key, values.filter((v) => v === secret || (secret.length >= 16 && v.includes(secret)))]).toEqual([key, []]); // before: all five came through
     }
   });
 });
 
-describe('1. a tenant starts with none of the insurer\'s secrets, and with what the employer node needs', () => {
-  test('the insurer\'s signing seed, node key and every other secret stay behind; the only admin token is the tenant\'s own', () => {
+describe("1. a tenant starts with none of the insurer's secrets, and with what the employer node needs", () => {
+  test("the insurer's signing seed, node key and every other secret stay behind; the only admin token is the tenant's own", () => {
     for (const { result, env } of tenants()) {
       // before: every one of them came through, the insurer's signing seed and node key among them
       expect(SECRET_ENV_KEYS.filter((k) => k !== 'ZKTRIDENT_ADMIN_TOKEN' && env[k] !== undefined)).toEqual([]);
@@ -216,18 +256,18 @@ describe('1. a tenant starts with none of the insurer\'s secrets, and with what 
     }
   });
 
-  test('the insurer\'s node ID, TLS certificate and key, the prover key and the development flag stay behind too', () => {
+  test("the insurer's node ID, TLS certificate and key, the prover key and the development flag stay behind too", () => {
     for (const { env } of tenants()) {
       const insurers = ['ZKTRIDENT_NODE_ID', 'ZKTRIDENT_TLS_CERT', 'ZKTRIDENT_TLS_KEY', 'ZKTRIDENT_PROVER_API_KEY', 'ZKTRIDENT_UNSECURE'];
-      expect(insurers.filter((k) => env[k] !== undefined)).toEqual([]);   // before: all but ZKTRIDENT_UNSECURE came through
+      expect(insurers.filter((k) => env[k] !== undefined)).toEqual([]); // before: all but ZKTRIDENT_UNSECURE came through
     }
   });
 
-  test('the insurer\'s listener settings, its public names and the proxies it trusts, stay behind: only the insurer reaches a tenant', () => {
+  test("the insurer's listener settings, its public names and the proxies it trusts, stay behind: only the insurer reaches a tenant", () => {
     // The insurer above serves its name itself; this one is behind a reverse proxy on its own host.
     const behindProxy = runInsurer(INSURER_BEHIND_PROXY, requests.slice(0, 1));
     for (const env of [...tenants().map((t) => t.env), behindProxy.spawned[0].env]) {
-      expect(Object.keys(env).filter((k) => LISTENER_SETTINGS.includes(k.toUpperCase()))).toEqual([]);   // before: the insurer's came through
+      expect(Object.keys(env).filter((k) => LISTENER_SETTINGS.includes(k.toUpperCase()))).toEqual([]); // before: the insurer's came through
     }
   });
 
@@ -248,7 +288,7 @@ describe('1. a tenant starts with none of the insurer\'s secrets, and with what 
     }
   });
 
-  test('the host\'s environment and the operator\'s network settings still reach it', () => {
+  test("the host's environment and the operator's network settings still reach it", () => {
     for (const { env } of tenants()) {
       const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH');
       expect(pathKey && env[pathKey]).toBe(process.env.PATH);
@@ -279,8 +319,12 @@ describe('1. a tenant starts with none of the insurer\'s secrets, and with what 
       windowsHide: true,
     });
     let output = '';
-    tenantChild.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
-    tenantChild.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
+    tenantChild.stdout?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
+    tenantChild.stderr?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
     const base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     let phase = '';
@@ -288,17 +332,21 @@ describe('1. a tenant starts with none of the insurer\'s secrets, and with what 
       if (tenantChild.exitCode !== null) throw new Error(`the employer node exited (code ${tenantChild.exitCode}):\n${output}`);
       if (Date.now() > deadline) throw new Error(`the employer node did not reach phase=ready:\n${output}`);
       try {
-        const health = await (await fetch(`${base}/health`)).json() as { data?: { phase?: string } };
+        const health = (await (await fetch(`${base}/health`)).json()) as { data?: { phase?: string } };
         phase = health?.data?.phase ?? '';
-      } catch { /* not listening yet */ }
+      } catch {
+        /* not listening yet */
+      }
       if (phase !== 'ready') await new Promise((r) => setTimeout(r, 250));
     }
     expect((await fetch(`${base}/groups`, { headers: { Authorization: `Bearer ${result.adminToken}` } })).status).toBe(200);
-    expect((await fetch(`${base}/groups`, { headers: { Authorization: `Bearer ${INSURER_SECRETS.ZKTRIDENT_ADMIN_TOKEN}` } })).status).toBe(401);
+    expect((await fetch(`${base}/groups`, { headers: { Authorization: `Bearer ${INSURER_SECRETS.ZKTRIDENT_ADMIN_TOKEN}` } })).status).toBe(
+      401,
+    );
     // The insurer answers insurer.example. The tenant, reached only by the insurer on loopback, answers no public name,
     // so it has no reverse proxy to warn of; a node warns as it starts, before it answers /health.
     const proxyWarnings = output.split(/\r?\n/).filter((line) => line.includes('ZKTRIDENT_TRUSTED_PROXIES'));
-    expect(proxyWarnings).toEqual([]);   // before: the proxy warning, at every tenant's boot
+    expect(proxyWarnings).toEqual([]); // before: the proxy warning, at every tenant's boot
   });
 });
 
@@ -308,7 +356,7 @@ describe('2. the tenant admin token carries 128 random bits', () => {
       const prefix = `${request.employerId.toLowerCase()}-admin-`;
       expect(result.adminToken.startsWith(prefix)).toBe(true);
       const randomPart = result.adminToken.slice(prefix.length);
-      expect(randomPart).toMatch(/^[0-9a-f]{32}$/);   // before: 16 hex characters
+      expect(randomPart).toMatch(/^[0-9a-f]{32}$/); // before: 16 hex characters
       return randomPart;
     });
     expect(new Set(randomParts).size).toBe(randomParts.length);
@@ -317,7 +365,9 @@ describe('2. the tenant admin token carries 128 random bits', () => {
   test('the sequencer is sent the same 16-character fingerprint form, taken over the whole token', () => {
     expect(outcome.registrations.map((r) => r.employerId)).toEqual(requests.map((r) => r.employerId));
     outcome.registrations.forEach((registration, i) => {
-      expect(registration.adminTokenFingerprint).toBe(createHash('sha256').update(outcome.results[i].adminToken).digest('hex').slice(0, 16));
+      expect(registration.adminTokenFingerprint).toBe(
+        createHash('sha256').update(outcome.results[i].adminToken).digest('hex').slice(0, 16),
+      );
       expect(registration.adminTokenFingerprint).toMatch(/^[0-9a-f]{16}$/);
     });
   });

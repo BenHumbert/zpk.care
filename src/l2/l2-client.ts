@@ -265,16 +265,19 @@ export class L2Client {
    * for it, a caller presenting its attestation (memberAttestation), the plan or the operator; a planId sent with a
    * walletId is not used. With no walletId, the named plan's published price, or the list price for none.
    */
-  async estimateCost(params: {
-    ndcHash: string;
-    /** In the drug's NADAC pricing unit (EA, ML or GM), to thousandths; 30 when omitted */
-    quantity?: number;
-    walletId?: string;
-    /** The member's own unexpired attestation, the tap at a counter */
-    memberAttestation?: Record<string, unknown>;
-    /** Read only when no walletId is sent */
-    planId?: string;
-  }, signer?: RequestSigner): Promise<{
+  async estimateCost(
+    params: {
+      ndcHash: string;
+      /** In the drug's NADAC pricing unit (EA, ML or GM), to thousandths; 30 when omitted */
+      quantity?: number;
+      walletId?: string;
+      /** The member's own unexpired attestation, the tap at a counter */
+      memberAttestation?: Record<string, unknown>;
+      /** Read only when no walletId is sent */
+      planId?: string;
+    },
+    signer?: RequestSigner,
+  ): Promise<{
     covered: boolean;
     drugName: string;
     ndcHash: string;
@@ -310,8 +313,16 @@ export class L2Client {
   // ─── Claim Accumulator Queries ──────────────────────────
 
   /** Get all claims for a member wallet ID */
-  async getClaimsByMember(walletId: string, signer?: RequestSigner, memberAttestation?: Record<string, unknown>): Promise<ClaimAccumulatorEntry[]> {
-    return this.rpcCall<ClaimAccumulatorEntry[]>('l2_getClaimsByMember', memberAttestation ? { walletId, memberAttestation } : { walletId }, signer);
+  async getClaimsByMember(
+    walletId: string,
+    signer?: RequestSigner,
+    memberAttestation?: Record<string, unknown>,
+  ): Promise<ClaimAccumulatorEntry[]> {
+    return this.rpcCall<ClaimAccumulatorEntry[]>(
+      'l2_getClaimsByMember',
+      memberAttestation ? { walletId, memberAttestation } : { walletId },
+      signer,
+    );
   }
 
   /** Get all claims for a pharmacy wallet ID */
@@ -330,7 +341,10 @@ export class L2Client {
   }
 
   /** Get a claim with its Merkle inclusion proof */
-  async getClaimWithProof(leafIndex: bigint, signer?: RequestSigner): Promise<{
+  async getClaimWithProof(
+    leafIndex: bigint,
+    signer?: RequestSigner,
+  ): Promise<{
     entry: ClaimAccumulatorEntry;
     witnessJson: string;
     root: string;
@@ -360,7 +374,11 @@ export class L2Client {
   }
 
   /** Get Merkle witnesses for an existing registered wallet (for wallet update proofs) */
-  async getWalletWitnesses(walletId: string, signer?: RequestSigner, holder?: string): Promise<{
+  async getWalletWitnesses(
+    walletId: string,
+    signer?: RequestSigner,
+    holder?: string,
+  ): Promise<{
     registryWitnessJson: string;
     lifecycleWitnessJson: string;
     currentRegistryRoot: string;
@@ -377,7 +395,10 @@ export class L2Client {
   }
 
   /** Get the current wallet state (nonce + credentialInventoryRoot) */
-  async getWalletState(walletId: string, signer?: RequestSigner): Promise<{
+  async getWalletState(
+    walletId: string,
+    signer?: RequestSigner,
+  ): Promise<{
     walletId: string;
     credentialInventoryRoot: string;
     nonce: string;
@@ -391,7 +412,11 @@ export class L2Client {
    *
    * @returns Reconstructed totals, or null if no claims found for this wallet
    */
-  async reconstructAccumulator(walletId: string, planIdHash?: string, signer?: RequestSigner): Promise<{
+  async reconstructAccumulator(
+    walletId: string,
+    planIdHash?: string,
+    signer?: RequestSigner,
+  ): Promise<{
     deductiblePaidCents: bigint;
     oopPaidCents: bigint;
     benefitUsedCents: bigint;
@@ -407,7 +432,12 @@ export class L2Client {
 
   /** Register a PCP assignment on the sequencer */
   /** Link a member to a primary-care prescriber. Signed as the member (A10b); unsigned, the sequencer refuses. */
-  async registerPcpAssignment(memberWalletId: string, prescriberWalletId: string, effectiveDate: string, signer?: RequestSigner): Promise<unknown> {
+  async registerPcpAssignment(
+    memberWalletId: string,
+    prescriberWalletId: string,
+    effectiveDate: string,
+    signer?: RequestSigner,
+  ): Promise<unknown> {
     return this.rpcCall('l2_registerPcpAssignment', { memberWalletId, prescriberWalletId, effectiveDate }, signer);
   }
 
@@ -419,12 +449,18 @@ export class L2Client {
   }
 
   /** Get PCP assignments for a prescriber */
-  async getPcpAssignments(prescriberWalletId: string, signer?: RequestSigner): Promise<{ memberWalletId: string; effectiveDate: string; timestamp: number }[]> {
+  async getPcpAssignments(
+    prescriberWalletId: string,
+    signer?: RequestSigner,
+  ): Promise<{ memberWalletId: string; effectiveDate: string; timestamp: number }[]> {
     return this.rpcCall('l2_getPcpAssignments', { prescriberWalletId }, signer);
   }
 
   /** A wallet's X25519 public key, for encrypting to it. Answers any signed caller (D1); null when none is registered. */
-  async getEncryptionKey(walletId: string, signer?: RequestSigner): Promise<{ walletId?: string; encryptionPublicKeyHex?: string | null } | null> {
+  async getEncryptionKey(
+    walletId: string,
+    signer?: RequestSigner,
+  ): Promise<{ walletId?: string; encryptionPublicKeyHex?: string | null } | null> {
     return this.rpcCall('l2_getEncryptionKey', { walletId }, signer);
   }
 
@@ -458,10 +494,14 @@ export class L2Client {
   /** Store an encrypted message on the sequencer */
   /** Store a message. Signed as its sender (A10b); unsigned, the sequencer refuses. */
   async storeMessage(message: StoredMessage, payload: MessagePayload, signer?: RequestSigner): Promise<MessageStoreEntry> {
-    return this.rpcCall<MessageStoreEntry>('l2_storeMessage', {
-      message: message as unknown as Record<string, unknown>,
-      payload: payload as unknown as Record<string, unknown>,
-    }, signer);
+    return this.rpcCall<MessageStoreEntry>(
+      'l2_storeMessage',
+      {
+        message: message as unknown as Record<string, unknown>,
+        payload: payload as unknown as Record<string, unknown>,
+      },
+      signer,
+    );
   }
 
   // ─── Provider Registry ──────────────────────────────────
@@ -520,10 +560,7 @@ export class L2Client {
   // ─── Peer Network / Gossip ────────────────────────────
 
   /** Relay a gossip message to a remote peer */
-  async gossipRelay(
-    message: GossipMessage,
-    fromPeerId?: string,
-  ): Promise<{ accepted: boolean }> {
+  async gossipRelay(message: GossipMessage, fromPeerId?: string): Promise<{ accepted: boolean }> {
     return this.rpcCall('l2_gossipRelay', {
       message: message as unknown as Record<string, unknown>,
       ...(fromPeerId ? { fromPeerId } : {}),
@@ -621,7 +658,15 @@ export class L2Client {
       // D2: the stream needs a credential — this node's key when it has one, else the admin token.
       const streamHeaders: Record<string, string> = {};
       if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
-        Object.assign(streamHeaders, signRequest({ signerId: this.options.adminNodeId, privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex), method: 'GET', path: '/events' }));
+        Object.assign(
+          streamHeaders,
+          signRequest({
+            signerId: this.options.adminNodeId,
+            privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex),
+            method: 'GET',
+            path: '/events',
+          }),
+        );
       } else if (this.options.adminToken) {
         streamHeaders['Authorization'] = `Bearer ${this.options.adminToken}`;
       }
@@ -676,10 +721,7 @@ export class L2Client {
 
     const scheduleReconnect = () => {
       if (aborted) return;
-      const delay = Math.min(
-        this.options.retryBaseDelayMs * Math.pow(2, retryCount),
-        30_000,
-      );
+      const delay = Math.min(this.options.retryBaseDelayMs * Math.pow(2, retryCount), 30_000);
       retryCount++;
       reconnectTimer = setTimeout(connect, delay);
     };
@@ -713,22 +755,28 @@ export class L2Client {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (signer) {
       // A10b: a call that speaks for a wallet is signed by that wallet's own key, not the node's.
-      Object.assign(headers, signRequest({
-        signerId: signer.signerId,
-        privateKey: signer.privateKey,
-        method: 'POST',
-        path: '/rpc',
-        body,
-      }));
+      Object.assign(
+        headers,
+        signRequest({
+          signerId: signer.signerId,
+          privateKey: signer.privateKey,
+          method: 'POST',
+          path: '/rpc',
+          body,
+        }),
+      );
     } else if (this.options.adminPrivateKeyHex && this.options.adminNodeId) {
       // A9: this node's own key signs the exact bytes sent, in the one wire format every server verifies.
-      Object.assign(headers, signRequest({
-        signerId: this.options.adminNodeId,
-        privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex),
-        method: 'POST',
-        path: '/rpc',
-        body,
-      }));
+      Object.assign(
+        headers,
+        signRequest({
+          signerId: this.options.adminNodeId,
+          privateKey: privateKeyFromSeedHex(this.options.adminPrivateKeyHex),
+          method: 'POST',
+          path: '/rpc',
+          body,
+        }),
+      );
     } else if (this.options.adminToken) {
       headers['Authorization'] = `Bearer ${this.options.adminToken}`;
     }

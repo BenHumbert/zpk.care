@@ -85,11 +85,7 @@ export class AccumulatorFulfillmentService {
   private registry: WalletRegistry;
   private formularyRegistry: FormularyRegistry;
 
-  constructor(
-    store: ILocalStore,
-    registry: WalletRegistry,
-    formularyRegistry: FormularyRegistry,
-  ) {
+  constructor(store: ILocalStore, registry: WalletRegistry, formularyRegistry: FormularyRegistry) {
     this.store = store;
     this.registry = registry;
     this.formularyRegistry = formularyRegistry;
@@ -118,33 +114,29 @@ export class AccumulatorFulfillmentService {
     eligibilityCredentialSlot: bigint,
     pharmacyPreimage: Field[] = [],
     /** B8: the family's totals before this fill and the plan's family limits, in cents; zeros mean no family pooling */
-    family: { deductiblePaidCents: number; oopPaidCents: number; benefitUsedCents: number; deductibleAmountCents: number; oopMaxCents: number; benefitMaxCents: number } = { deductiblePaidCents: 0, oopPaidCents: 0, benefitUsedCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, benefitMaxCents: 0 },
+    family: {
+      deductiblePaidCents: number;
+      oopPaidCents: number;
+      benefitUsedCents: number;
+      deductibleAmountCents: number;
+      oopMaxCents: number;
+      benefitMaxCents: number;
+    } = { deductiblePaidCents: 0, oopPaidCents: 0, benefitUsedCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, benefitMaxCents: 0 },
   ): Promise<AccumulatorFulfillmentResult> {
     // 1. Pre-flight validation (circuit also enforces — fail-fast only)
     const statusVal = BigInt(latestStatus.status.toString());
     const isFilled = statusVal === BigInt(RX_STATUS_FILLED.toString());
     const isPartiallyFilled = statusVal === BigInt(RX_STATUS_PARTIALLY_FILLED.toString());
     if (!isFilled && !isPartiallyFilled) {
-      throw new Error(
-        `Prescription must be FILLED or PARTIALLY_FILLED, got status ${statusVal}`,
-      );
+      throw new Error(`Prescription must be FILLED or PARTIALLY_FILLED, got status ${statusVal}`);
     }
 
     // 2. Build ALL witnesses BEFORE any mutation
     const rxForestRoots = ForestRoots.fromForest(prescriptionForest);
-    const medicationWitness = prescriptionForest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const statusWitness = prescriptionForest.getWitness(
-      ForestDomain.TRANSACTION,
-      latestStatusIndex,
-    );
+    const medicationWitness = prescriptionForest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const statusWitness = prescriptionForest.getWitness(ForestDomain.TRANSACTION, latestStatusIndex);
     const fulfillmentSlotIndex = latestStatusIndex + 1n;
-    const newSlotWitness = prescriptionForest.getWitness(
-      ForestDomain.TRANSACTION,
-      fulfillmentSlotIndex,
-    );
+    const newSlotWitness = prescriptionForest.getWitness(ForestDomain.TRANSACTION, fulfillmentSlotIndex);
 
     const formularyEntry = this.formularyRegistry.getEntry(formularyEntryIndex);
     if (!formularyEntry) {
@@ -154,10 +146,7 @@ export class AccumulatorFulfillmentService {
     const formularyRoot = this.formularyRegistry.getRoot();
 
     const eligForestRoots = ForestRoots.fromForest(eligibilityForest);
-    const accumulatorWitness = eligibilityForest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      accumulatorLeafIndex,
-    );
+    const accumulatorWitness = eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, accumulatorLeafIndex);
 
     // 3. Generate proof
     const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
@@ -198,11 +187,7 @@ export class AccumulatorFulfillmentService {
       output.planPayCents,
       output.deductibleCreditCents,
     ]);
-    prescriptionForest.setLeaf(
-      ForestDomain.TRANSACTION,
-      fulfillmentSlotIndex,
-      settlementCommitment,
-    );
+    prescriptionForest.setLeaf(ForestDomain.TRANSACTION, fulfillmentSlotIndex, settlementCommitment);
 
     // 5. Create new prescription CredentialData
     const newPrescriptionCredentialData = new CredentialData({
@@ -216,10 +201,7 @@ export class AccumulatorFulfillmentService {
     });
 
     // 6. Update prescription credential in pharmacy inventory
-    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(
-      prescriptionCredentialSlot,
-      newPrescriptionCredentialData,
-    );
+    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(prescriptionCredentialSlot, newPrescriptionCredentialData);
 
     // 7. Compute new accumulator data off-chain (C4 fix: deductibleCredit, not patientPay)
     const patientPayBig = BigInt(output.patientPayCents.toString());
@@ -228,25 +210,15 @@ export class AccumulatorFulfillmentService {
     const newAccumulatorData = new AccumulatorData({
       planYear: accumulatorData.planYear,
       deductibleAmountCents: accumulatorData.deductibleAmountCents,
-      deductiblePaidCents: Field(
-        BigInt(accumulatorData.deductiblePaidCents.toString()) + deductibleCreditBig,
-      ),
+      deductiblePaidCents: Field(BigInt(accumulatorData.deductiblePaidCents.toString()) + deductibleCreditBig),
       oopMaxCents: accumulatorData.oopMaxCents,
-      oopPaidCents: Field(
-        BigInt(accumulatorData.oopPaidCents.toString()) + patientPayBig,
-      ),
+      oopPaidCents: Field(BigInt(accumulatorData.oopPaidCents.toString()) + patientPayBig),
       annualBenefitMaxCents: accumulatorData.annualBenefitMaxCents,
-      annualBenefitUsedCents: Field(
-        BigInt(accumulatorData.annualBenefitUsedCents.toString()) + planPayBig,
-      ),
+      annualBenefitUsedCents: Field(BigInt(accumulatorData.annualBenefitUsedCents.toString()) + planPayBig),
     });
 
     // 8. Mutate eligibility forest
-    eligibilityForest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      accumulatorLeafIndex,
-      newAccumulatorData.commitment(),
-    );
+    eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, accumulatorLeafIndex, newAccumulatorData.commitment());
 
     // 9. Create new eligibility CredentialData
     const newEligibilityCredentialData = new CredentialData({
@@ -260,10 +232,7 @@ export class AccumulatorFulfillmentService {
     });
 
     // 10. Update eligibility credential in member inventory
-    const newMemberInventoryRoot = memberInventory.updateCredential(
-      eligibilityCredentialSlot,
-      newEligibilityCredentialData,
-    );
+    const newMemberInventoryRoot = memberInventory.updateCredential(eligibilityCredentialSlot, newEligibilityCredentialData);
 
     // 11. Update wallet registry for both wallets
     const oldPharmacyState = this.registry.getState(pharmacyWalletId);
@@ -332,25 +301,13 @@ export class AccumulatorFulfillmentService {
   ): Promise<AccumulatorReversalResult> {
     // 1. Build ALL witnesses BEFORE mutation
     const rxForestRoots = ForestRoots.fromForest(prescriptionForest);
-    const medicationWitness = prescriptionForest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const fulfillmentWitness = prescriptionForest.getWitness(
-      ForestDomain.TRANSACTION,
-      originalFulfillmentIndex,
-    );
+    const medicationWitness = prescriptionForest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const fulfillmentWitness = prescriptionForest.getWitness(ForestDomain.TRANSACTION, originalFulfillmentIndex);
     const reversalSlotIndex = originalFulfillmentIndex + 1n;
-    const reversalSlotWitness = prescriptionForest.getWitness(
-      ForestDomain.TRANSACTION,
-      reversalSlotIndex,
-    );
+    const reversalSlotWitness = prescriptionForest.getWitness(ForestDomain.TRANSACTION, reversalSlotIndex);
 
     const eligForestRoots = ForestRoots.fromForest(eligibilityForest);
-    const accumulatorWitness = eligibilityForest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      accumulatorLeafIndex,
-    );
+    const accumulatorWitness = eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, accumulatorLeafIndex);
 
     // 2. Generate proof
     const result = await AccumulatorFulfillmentProgram.proveReversalWithAccumulator(
@@ -378,11 +335,7 @@ export class AccumulatorFulfillmentService {
     const output = result.proof.publicOutput;
 
     // 3. Mutate prescription forest (reversal commitment)
-    prescriptionForest.setLeaf(
-      ForestDomain.TRANSACTION,
-      reversalSlotIndex,
-      reversalData.commitment(),
-    );
+    prescriptionForest.setLeaf(ForestDomain.TRANSACTION, reversalSlotIndex, reversalData.commitment());
 
     // 4. Create new prescription CredentialData
     const newPrescriptionCredentialData = new CredentialData({
@@ -396,10 +349,7 @@ export class AccumulatorFulfillmentService {
     });
 
     // 5. Update prescription credential in pharmacy inventory
-    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(
-      prescriptionCredentialSlot,
-      newPrescriptionCredentialData,
-    );
+    const newPharmacyInventoryRoot = pharmacyInventory.updateCredential(prescriptionCredentialSlot, newPrescriptionCredentialData);
 
     // 6. Compute reversed accumulator off-chain (C1 fix: safe sub, C4 fix: deductibleCredit)
     const origPatBig = BigInt(originalPatientPay.toString());
@@ -411,25 +361,15 @@ export class AccumulatorFulfillmentService {
     const newAccumulatorData = new AccumulatorData({
       planYear: accumulatorData.planYear,
       deductibleAmountCents: accumulatorData.deductibleAmountCents,
-      deductiblePaidCents: Field(
-        curDeductPaid >= origDeductBig ? curDeductPaid - origDeductBig : 0n,
-      ),
+      deductiblePaidCents: Field(curDeductPaid >= origDeductBig ? curDeductPaid - origDeductBig : 0n),
       oopMaxCents: accumulatorData.oopMaxCents,
-      oopPaidCents: Field(
-        curOopPaid >= origPatBig ? curOopPaid - origPatBig : 0n,
-      ),
+      oopPaidCents: Field(curOopPaid >= origPatBig ? curOopPaid - origPatBig : 0n),
       annualBenefitMaxCents: accumulatorData.annualBenefitMaxCents,
-      annualBenefitUsedCents: Field(
-        curBenefitUsed >= origPlanBig ? curBenefitUsed - origPlanBig : 0n,
-      ),
+      annualBenefitUsedCents: Field(curBenefitUsed >= origPlanBig ? curBenefitUsed - origPlanBig : 0n),
     });
 
     // 7. Mutate eligibility forest
-    eligibilityForest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      accumulatorLeafIndex,
-      newAccumulatorData.commitment(),
-    );
+    eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, accumulatorLeafIndex, newAccumulatorData.commitment());
 
     // 8. Create new eligibility CredentialData
     const newEligibilityCredentialData = new CredentialData({
@@ -443,10 +383,7 @@ export class AccumulatorFulfillmentService {
     });
 
     // 9. Update eligibility credential in member inventory
-    const newMemberInventoryRoot = memberInventory.updateCredential(
-      eligibilityCredentialSlot,
-      newEligibilityCredentialData,
-    );
+    const newMemberInventoryRoot = memberInventory.updateCredential(eligibilityCredentialSlot, newEligibilityCredentialData);
 
     // 10. Update wallet registry for both wallets
     const oldPharmacyState = this.registry.getState(pharmacyWalletId);
@@ -503,8 +440,7 @@ export class AccumulatorFulfillmentService {
     formularyEntry: FormularyEntry,
     accumulatorData: AccumulatorData,
   ): { patientPayCents: Field; planPayCents: Field; deductibleCreditCents: Field } {
-    const total = BigInt(fulfillmentData.ingredientCostCents.toString())
-      + BigInt(fulfillmentData.dispensingFeeCents.toString());
+    const total = BigInt(fulfillmentData.ingredientCostCents.toString()) + BigInt(fulfillmentData.dispensingFeeCents.toString());
     const copay = BigInt(formularyEntry.copayAmountCents.toString());
     const deductibleLimit = BigInt(accumulatorData.deductibleAmountCents.toString());
     const deductiblePaid = BigInt(accumulatorData.deductiblePaidCents.toString());

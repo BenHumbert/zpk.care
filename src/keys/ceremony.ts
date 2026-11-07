@@ -127,7 +127,9 @@ export function canonicalJson(value: unknown): string {
   }
   if (Array.isArray(value)) return `[${value.map((v) => (v === undefined ? 'null' : canonicalJson(v))).join(',')}]`;
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
+  const keys = Object.keys(obj)
+    .filter((k) => obj[k] !== undefined)
+    .sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
 }
 
@@ -151,7 +153,13 @@ export function recordHashOf(record: CeremonyRecordBody & { signatures?: unknown
  */
 export function bootFingerprint(bootPublicKeyHex: string): string {
   if (!HEX32.test(bootPublicKeyHex)) throw new CeremonyRecordError('bootFingerprint: a public key is 32 bytes of hex');
-  return createHash('sha256').update(Buffer.from(bootPublicKeyHex, 'hex')).digest('hex').slice(0, 16).toUpperCase().match(/.{4}/g)!.join('-');
+  return createHash('sha256')
+    .update(Buffer.from(bootPublicKeyHex, 'hex'))
+    .digest('hex')
+    .slice(0, 16)
+    .toUpperCase()
+    .match(/.{4}/g)!
+    .join('-');
 }
 
 function recordMessage(recordHash: string): Buffer {
@@ -195,7 +203,9 @@ function checkHolderSet(holders: unknown, threshold: unknown): asserts holders i
   }
   for (const [group, count] of perGroup) {
     if (count >= (threshold as number)) {
-      throw new CeremonyRecordError(`no one group may hold enough shares to rebuild a key alone: ${group} has ${count} of the ${threshold} needed`);
+      throw new CeremonyRecordError(
+        `no one group may hold enough shares to rebuild a key alone: ${group} has ${count} of the ${threshold} needed`,
+      );
     }
   }
 }
@@ -204,29 +214,47 @@ function checkNodes(nodes: unknown, requireKeys: boolean): asserts nodes is Cere
   if (!Array.isArray(nodes) || nodes.length === 0) throw new CeremonyRecordError('a ceremony keys at least one node');
   const ids = new Set<string>();
   for (const node of nodes as CeremonyNodeEntry[]) {
-    if (!node || typeof node.nodeId !== 'string' || !NODE_ID.test(node.nodeId)) throw new CeremonyRecordError('a node ID is 1 to 63 lower-case letters, digits or dashes');
+    if (!node || typeof node.nodeId !== 'string' || !NODE_ID.test(node.nodeId))
+      throw new CeremonyRecordError('a node ID is 1 to 63 lower-case letters, digits or dashes');
     if (ids.has(node.nodeId)) throw new CeremonyRecordError(`node ${node.nodeId} is listed twice`);
     ids.add(node.nodeId);
-    if (node.role !== 'insurer') throw new CeremonyRecordError(`node ${node.nodeId} has a role the ceremony does not key: ${String(node.role)}`);
+    if (node.role !== 'insurer')
+      throw new CeremonyRecordError(`node ${node.nodeId} has a role the ceremony does not key: ${String(node.role)}`);
     if (!requireKeys) continue;
-    if (typeof node.masterCheckHex !== 'string' || !HEX32.test(node.masterCheckHex)) throw new CeremonyRecordError(`node ${node.nodeId} has no check value`);
+    if (typeof node.masterCheckHex !== 'string' || !HEX32.test(node.masterCheckHex))
+      throw new CeremonyRecordError(`node ${node.nodeId} has no check value`);
     const key = node.publicKeys?.insurerSigningPublicKeyHex;
     if (typeof key !== 'string' || !HEX32.test(key)) throw new CeremonyRecordError(`node ${node.nodeId} has no insurer signing key`);
   }
 }
 
 function checkBody(record: CeremonyRecord): void {
-  if (!record || record.v !== 1 || record.kind !== 'zpk.care key ceremony record') throw new CeremonyRecordError('this is not a key ceremony record');
-  if (typeof record.ceremonyId !== 'string' || !CEREMONY_ID.test(record.ceremonyId)) throw new CeremonyRecordError('the ceremony ID is not valid');
-  if (typeof record.createdAt !== 'string' || Number.isNaN(Date.parse(record.createdAt))) throw new CeremonyRecordError('the record has no valid date');
+  if (!record || record.v !== 1 || record.kind !== 'zpk.care key ceremony record')
+    throw new CeremonyRecordError('this is not a key ceremony record');
+  if (typeof record.ceremonyId !== 'string' || !CEREMONY_ID.test(record.ceremonyId))
+    throw new CeremonyRecordError('the ceremony ID is not valid');
+  if (typeof record.createdAt !== 'string' || Number.isNaN(Date.parse(record.createdAt)))
+    throw new CeremonyRecordError('the record has no valid date');
   if (record.previous !== null) {
     const p = record.previous;
-    if (!p || typeof p.ceremonyId !== 'string' || !CEREMONY_ID.test(p.ceremonyId) || typeof p.recordHash !== 'string' || !HEX32.test(p.recordHash)) {
+    if (
+      !p ||
+      typeof p.ceremonyId !== 'string' ||
+      !CEREMONY_ID.test(p.ceremonyId) ||
+      typeof p.recordHash !== 'string' ||
+      !HEX32.test(p.recordHash)
+    ) {
       throw new CeremonyRecordError('the record names its predecessor wrongly');
     }
   }
   const program = record.program;
-  if (!program || program.name !== CEREMONY_PROGRAM.name || typeof program.version !== 'string' || typeof program.sourceSha256 !== 'string' || !HEX32.test(program.sourceSha256)) {
+  if (
+    !program ||
+    program.name !== CEREMONY_PROGRAM.name ||
+    typeof program.version !== 'string' ||
+    typeof program.sourceSha256 !== 'string' ||
+    !HEX32.test(program.sourceSha256)
+  ) {
     throw new CeremonyRecordError('the record does not name the program that made it');
   }
   checkHolderSet(record.holders, record.threshold);
@@ -270,7 +298,12 @@ export function runCeremony(opts: RunCeremonyOptions): { record: CeremonyRecord;
   const now = opts.now ?? new Date();
   const ceremonyId = opts.ceremonyId ?? `${now.toISOString().slice(0, 10)}-${randomBytes(4).toString('hex')}`;
   if (!CEREMONY_ID.test(ceremonyId)) throw new CeremonyRecordError('runCeremony: the ceremony ID is not valid');
-  const holders = opts.holders.map((h) => ({ label: h.label, ...(h.group ? { group: h.group } : {}), signPublicKeyHex: h.signPublicKeyHex, boxPublicKeyHex: h.boxPublicKeyHex }));
+  const holders = opts.holders.map((h) => ({
+    label: h.label,
+    ...(h.group ? { group: h.group } : {}),
+    signPublicKeyHex: h.signPublicKeyHex,
+    boxPublicKeyHex: h.boxPublicKeyHex,
+  }));
   const shares: ShareFile[] = [];
   const nodes: CeremonyNodeEntry[] = [];
   for (const spec of opts.nodes) {
@@ -356,9 +389,16 @@ export function verifyRecordSuccession(previous: CeremonyRecord, next: CeremonyR
 // ─── Shares ───────────────────────────────────────────────────────────────────
 
 function checkShareFile(file: ShareFile): void {
-  if (!file || file.v !== 1 || file.kind !== 'zpk.care key share' || !CEREMONY_ID.test(String(file.ceremonyId))
-    || !NODE_ID.test(String(file.nodeId)) || !HEX32.test(String(file.holder)) || !Number.isInteger(file.index)
-    || !isSealedEnvelope(file.envelope)) {
+  if (
+    !file ||
+    file.v !== 1 ||
+    file.kind !== 'zpk.care key share' ||
+    !CEREMONY_ID.test(String(file.ceremonyId)) ||
+    !NODE_ID.test(String(file.nodeId)) ||
+    !HEX32.test(String(file.holder)) ||
+    !Number.isInteger(file.index) ||
+    !isSealedEnvelope(file.envelope)
+  ) {
     throw new CeremonyRecordError('this is not a key share');
   }
 }
@@ -367,7 +407,10 @@ function checkShareFile(file: ShareFile): void {
 export function openHolderShare(file: ShareFile, holder: UnlockedHolder): SecretShare {
   checkShareFile(file);
   if (file.holder !== holder.card.signPublicKeyHex) throw new CeremonyRecordError("this share is not this holder's");
-  return { index: file.index, value: openSealed(holder.boxPrivateKey, file.envelope, shareContext(file.ceremonyId, file.nodeId, file.index)) };
+  return {
+    index: file.index,
+    value: openSealed(holder.boxPrivateKey, file.envelope, shareContext(file.ceremonyId, file.nodeId, file.index)),
+  };
 }
 
 /** A holder releases their share to one start of one node: sealed to its one-time key, and signed. */
@@ -377,7 +420,9 @@ export function releaseShare(
   target: { ceremonyId: string; nodeId: string; bootPublicKeyHex: string },
 ): ShareRelease {
   if (file.ceremonyId !== target.ceremonyId || file.nodeId !== target.nodeId) {
-    throw new CeremonyRecordError(`this share is for ${file.nodeId} of ceremony ${file.ceremonyId}, not ${target.nodeId} of ${target.ceremonyId}`);
+    throw new CeremonyRecordError(
+      `this share is for ${file.nodeId} of ceremony ${file.ceremonyId}, not ${target.nodeId} of ${target.ceremonyId}`,
+    );
   }
   const share = openHolderShare(file, holder);
   try {
@@ -389,7 +434,11 @@ export function releaseShare(
       holder: holder.card.signPublicKeyHex,
       index: share.index,
       bootPublicKeyHex: target.bootPublicKeyHex,
-      envelope: sealTo(target.bootPublicKeyHex, share.value, releaseContext(file.ceremonyId, file.nodeId, target.bootPublicKeyHex, share.index)),
+      envelope: sealTo(
+        target.bootPublicKeyHex,
+        share.value,
+        releaseContext(file.ceremonyId, file.nodeId, target.bootPublicKeyHex, share.index),
+      ),
     };
     return { ...body, signatureHex: holder.sign(releaseMessage(body)) };
   } finally {
@@ -410,7 +459,8 @@ export function acceptShareRelease(
   if (!release || release.v !== 1 || release.kind !== 'zpk.care share release' || !isSealedEnvelope(release.envelope)) {
     throw new CeremonyRecordError('this is not a share release');
   }
-  if (release.nodeId !== nodeId || !record.nodes.some((n) => n.nodeId === nodeId)) throw new CeremonyRecordError('this release is for another node');
+  if (release.nodeId !== nodeId || !record.nodes.some((n) => n.nodeId === nodeId))
+    throw new CeremonyRecordError('this release is for another node');
   if (release.ceremonyId !== record.ceremonyId) throw new CeremonyRecordError('this release is for another ceremony');
   if (release.bootPublicKeyHex !== boot.publicKeyHex) throw new CeremonyRecordError('this release is for another start of this node');
   const position = record.holders.findIndex((h) => h.signPublicKeyHex === release.holder);
@@ -422,6 +472,10 @@ export function acceptShareRelease(
   if (release.index !== position + 1) throw new CeremonyRecordError("this release is not for the holder's slot");
   return {
     index: release.index,
-    value: openSealed(boot.privateKey, release.envelope, releaseContext(release.ceremonyId, release.nodeId, release.bootPublicKeyHex, release.index)),
+    value: openSealed(
+      boot.privateKey,
+      release.envelope,
+      releaseContext(release.ceremonyId, release.nodeId, release.bootPublicKeyHex, release.index),
+    ),
   };
 }

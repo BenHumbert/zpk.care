@@ -103,14 +103,14 @@ export const FulfillmentProgram = ZkProgram({
         FulfillmentData,
         FormularyEntry,
         ForestRoots,
-        ForestMerkleWitness,       // MEDICATION: prescription at leaf
-        ForestMerkleWitness,       // TRANSACTION: latest status at leaf N
-        ForestMerkleWitness,       // TRANSACTION: new fulfillment slot (empty)
-        FormularyMerkleWitness,    // formulary entry in formulary tree
-        Field,                      // formularyRoot
-        Field,                      // H2: pharmacy qualifier
-        Field,                      // H2: pharmacy serviceProviderIdHash
-        Field,                      // H2: pharmacy enrollmentKeyHash
+        ForestMerkleWitness, // MEDICATION: prescription at leaf
+        ForestMerkleWitness, // TRANSACTION: latest status at leaf N
+        ForestMerkleWitness, // TRANSACTION: new fulfillment slot (empty)
+        FormularyMerkleWitness, // formulary entry in formulary tree
+        Field, // formularyRoot
+        Field, // H2: pharmacy qualifier
+        Field, // H2: pharmacy serviceProviderIdHash
+        Field, // H2: pharmacy enrollmentKeyHash
       ],
       async method(
         credentialData: CredentialData,
@@ -129,10 +129,7 @@ export const FulfillmentProgram = ZkProgram({
         pharmacyEnrollmentKeyHash: Field,
       ) {
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -144,66 +141,35 @@ export const FulfillmentProgram = ZkProgram({
           pharmacyServiceProviderIdHash,
           pharmacyEnrollmentKeyHash,
         ]);
-        computedPharmacyWalletId.assertEquals(
-          fulfillmentData.pharmacyWalletId,
-          'Pharmacy wallet identity binding failed',
-        );
+        computedPharmacyWalletId.assertEquals(fulfillmentData.pharmacyWalletId, 'Pharmacy wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Latest status in TRANSACTION tree
-        statusWitness
-          .calculateRoot(latestStatus.commitment())
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Status not in TRANSACTION tree',
-          );
+        statusWitness.calculateRoot(latestStatus.commitment()).assertEquals(forestRoots.transactionRoot, 'Status not in TRANSACTION tree');
 
         // 6. Status must be FILLED or PARTIALLY_FILLED
         const isFilled = latestStatus.status.equals(RX_STATUS_FILLED);
         const isPartiallyFilled = latestStatus.status.equals(RX_STATUS_PARTIALLY_FILLED);
-        isFilled.or(isPartiallyFilled).assertTrue(
-          'Prescription must be FILLED or PARTIALLY_FILLED',
-        );
+        isFilled.or(isPartiallyFilled).assertTrue('Prescription must be FILLED or PARTIALLY_FILLED');
 
         // 7. New TRANSACTION slot is empty
-        newSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'New TRANSACTION slot is not empty',
-          );
+        newSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'New TRANSACTION slot is not empty');
 
         // 8. FulfillmentData links to correct prescription
-        fulfillmentData.prescriptionHash.assertEquals(
-          rxCommitment,
-          'Fulfillment prescriptionHash mismatch',
-        );
+        fulfillmentData.prescriptionHash.assertEquals(rxCommitment, 'Fulfillment prescriptionHash mismatch');
 
         // 9. NDC matches prescription
-        fulfillmentData.ndcHash.assertEquals(
-          prescriptionData.ndcHash,
-          'NDC does not match prescription',
-        );
+        fulfillmentData.ndcHash.assertEquals(prescriptionData.ndcHash, 'NDC does not match prescription');
 
         // 10. Quantity within formulary limits
-        fulfillmentData.quantityDispensed
-          .lessThanOrEqual(formularyEntry.maxQuantityPerFill)
-          .assertTrue('Quantity exceeds max per fill');
+        fulfillmentData.quantityDispensed.lessThanOrEqual(formularyEntry.maxQuantityPerFill).assertTrue('Quantity exceeds max per fill');
 
         // 10b. Quantity dispensed must not exceed quantity prescribed (FWA guard)
         fulfillmentData.quantityDispensed
@@ -211,42 +177,22 @@ export const FulfillmentProgram = ZkProgram({
           .assertTrue('Quantity dispensed exceeds quantity prescribed');
 
         // 11. Formulary entry in formulary tree
-        formularyWitness
-          .calculateRoot(formularyEntry.commitment())
-          .assertEquals(
-            formularyRoot,
-            'Formulary entry not in formulary tree',
-          );
+        formularyWitness.calculateRoot(formularyEntry.commitment()).assertEquals(formularyRoot, 'Formulary entry not in formulary tree');
 
         // 12. Formulary NDC matches claim NDC
-        formularyEntry.ndcHash.assertEquals(
-          fulfillmentData.ndcHash,
-          'Formulary NDC does not match claim',
-        );
+        formularyEntry.ndcHash.assertEquals(fulfillmentData.ndcHash, 'Formulary NDC does not match claim');
 
         // 13. Compute settlement amounts (ZK-enforced copay)
-        const total = fulfillmentData.ingredientCostCents.add(
-          fulfillmentData.dispensingFeeCents,
-        );
+        const total = fulfillmentData.ingredientCostCents.add(fulfillmentData.dispensingFeeCents);
         const copay = formularyEntry.copayAmountCents;
         const totalLessThanCopay = total.lessThan(copay);
         const patientPay = Provable.if(totalLessThanCopay, total, copay);
-        const planPay = Provable.if(
-          totalLessThanCopay,
-          Field(0),
-          total.sub(copay),
-        );
+        const planPay = Provable.if(totalLessThanCopay, Field(0), total.sub(copay));
 
         // 14. Compute settlement commitment and new TRANSACTION root
         const fulfillmentCommitment = fulfillmentData.commitment();
-        const settlementCommitment = Poseidon.hash([
-          fulfillmentCommitment,
-          patientPay,
-          planPay,
-        ]);
-        const newTransactionRoot = newSlotWitness.calculateRoot(
-          settlementCommitment,
-        );
+        const settlementCommitment = Poseidon.hash([fulfillmentCommitment, patientPay, planPay]);
+        const newTransactionRoot = newSlotWitness.calculateRoot(settlementCommitment);
         const newForestRoot = Poseidon.hash([
           forestRoots.memberRoot,
           forestRoots.prescriberRoot,
@@ -293,14 +239,14 @@ export const FulfillmentProgram = ZkProgram({
         ReversalData,
         FormularyEntry,
         ForestRoots,
-        ForestMerkleWitness,       // MEDICATION: prescription at leaf
-        ForestMerkleWitness,       // TRANSACTION: original fulfillment at leaf K
-        ForestMerkleWitness,       // TRANSACTION: reversal slot (empty)
-        FormularyMerkleWitness,    // formulary entry in formulary tree
-        Field,                      // formularyRoot
-        Field,                      // H2: pharmacy qualifier
-        Field,                      // H2: pharmacy serviceProviderIdHash
-        Field,                      // H2: pharmacy enrollmentKeyHash
+        ForestMerkleWitness, // MEDICATION: prescription at leaf
+        ForestMerkleWitness, // TRANSACTION: original fulfillment at leaf K
+        ForestMerkleWitness, // TRANSACTION: reversal slot (empty)
+        FormularyMerkleWitness, // formulary entry in formulary tree
+        Field, // formularyRoot
+        Field, // H2: pharmacy qualifier
+        Field, // H2: pharmacy serviceProviderIdHash
+        Field, // H2: pharmacy enrollmentKeyHash
       ],
       async method(
         credentialData: CredentialData,
@@ -319,10 +265,7 @@ export const FulfillmentProgram = ZkProgram({
         pharmacyEnrollmentKeyHash: Field,
       ) {
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -334,99 +277,51 @@ export const FulfillmentProgram = ZkProgram({
           pharmacyServiceProviderIdHash,
           pharmacyEnrollmentKeyHash,
         ]);
-        computedPharmacyWalletId.assertEquals(
-          originalFulfillment.pharmacyWalletId,
-          'Pharmacy wallet identity binding failed',
-        );
+        computedPharmacyWalletId.assertEquals(originalFulfillment.pharmacyWalletId, 'Pharmacy wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Original fulfillment commitment (tree verification deferred to step 10b)
         const origCommitment = originalFulfillment.commitment();
 
         // 6. Reversal slot is empty
-        reversalSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Reversal slot is not empty',
-          );
+        reversalSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'Reversal slot is not empty');
 
         // 7. ReversalData links to correct fulfillment
-        reversalData.fulfillmentHash.assertEquals(
-          origCommitment,
-          'Reversal fulfillmentHash mismatch',
-        );
+        reversalData.fulfillmentHash.assertEquals(origCommitment, 'Reversal fulfillmentHash mismatch');
 
         // 8. Formulary entry in formulary tree
-        formularyWitness
-          .calculateRoot(formularyEntry.commitment())
-          .assertEquals(
-            formularyRoot,
-            'Formulary entry not in formulary tree',
-          );
+        formularyWitness.calculateRoot(formularyEntry.commitment()).assertEquals(formularyRoot, 'Formulary entry not in formulary tree');
 
         // 9. Formulary NDC matches original fulfillment NDC
-        formularyEntry.ndcHash.assertEquals(
-          originalFulfillment.ndcHash,
-          'Formulary NDC does not match fulfillment',
-        );
+        formularyEntry.ndcHash.assertEquals(originalFulfillment.ndcHash, 'Formulary NDC does not match fulfillment');
 
         // 10. Recompute original settlement amounts
-        const total = originalFulfillment.ingredientCostCents.add(
-          originalFulfillment.dispensingFeeCents,
-        );
+        const total = originalFulfillment.ingredientCostCents.add(originalFulfillment.dispensingFeeCents);
         const copay = formularyEntry.copayAmountCents;
         const totalLessThanCopay = total.lessThan(copay);
         const originalPatientPay = Provable.if(totalLessThanCopay, total, copay);
-        const originalPlanPay = Provable.if(
-          totalLessThanCopay,
-          Field(0),
-          total.sub(copay),
-        );
+        const originalPlanPay = Provable.if(totalLessThanCopay, Field(0), total.sub(copay));
 
         // 10b. Verify original settlement commitment in TRANSACTION tree
-        const origSettlementCommitment = Poseidon.hash([
-          origCommitment,
-          originalPatientPay,
-          originalPlanPay,
-        ]);
+        const origSettlementCommitment = Poseidon.hash([origCommitment, originalPatientPay, originalPlanPay]);
         fulfillmentWitness
           .calculateRoot(origSettlementCommitment)
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Settlement commitment not in TRANSACTION tree',
-          );
+          .assertEquals(forestRoots.transactionRoot, 'Settlement commitment not in TRANSACTION tree');
 
         // 11. Reversal amounts must match original
-        reversalData.patientRefundCents.assertEquals(
-          originalPatientPay,
-          'Patient refund does not match original copay',
-        );
-        reversalData.planRefundCents.assertEquals(
-          originalPlanPay,
-          'Plan refund does not match original plan pay',
-        );
+        reversalData.patientRefundCents.assertEquals(originalPatientPay, 'Patient refund does not match original copay');
+        reversalData.planRefundCents.assertEquals(originalPlanPay, 'Plan refund does not match original plan pay');
 
         // 12. Compute new TRANSACTION root and forest root
         const reversalCommitment = reversalData.commitment();
-        const newTransactionRoot = reversalSlotWitness.calculateRoot(
-          reversalCommitment,
-        );
+        const newTransactionRoot = reversalSlotWitness.calculateRoot(reversalCommitment);
         const newForestRoot = Poseidon.hash([
           forestRoots.memberRoot,
           forestRoots.prescriberRoot,

@@ -201,14 +201,20 @@ describe('Claim Accumulator Integration — Sequencer', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-    }));
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_B.toString(),
-      ndcHash: NDC_METFORMIN_HASH,
-      brandName: 'Metformin',
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+      }),
+    );
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_B.toString(),
+        ndcHash: NDC_METFORMIN_HASH,
+        brandName: 'Metformin',
+      }),
+    );
 
     const memberAClaims = sequencer.getClaimsByMember(WALLET_A.toString());
     expect(memberAClaims.length).toBe(1);
@@ -236,12 +242,18 @@ describe('Claim Accumulator Integration — Sequencer', () => {
     });
 
     // Both members get Lisinopril
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-    }));
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_B.toString(),
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+      }),
+    );
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_B.toString(),
+      }),
+    );
 
     const ndcClaims = sequencer.getClaimsByNdc(NDC_LISINOPRIL_HASH);
     expect(ndcClaims.length).toBe(2);
@@ -273,11 +285,14 @@ describe('Claim Accumulator Integration — Sequencer', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof, makeClaimMetadata({
-      operationType: '2',
-      patientPayCents: '1000',
-      planPayCents: '5000',
-    }));
+    await sequencer.submitProof(
+      proof,
+      makeClaimMetadata({
+        operationType: '2',
+        patientPayCents: '1000',
+        planPayCents: '5000',
+      }),
+    );
 
     const claims = sequencer.getClaimsByMember(WALLET_A.toString());
     expect(claims.length).toBe(1);
@@ -306,13 +321,19 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await original.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-    }));
-    await original.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_B.toString(),
-      ndcHash: NDC_METFORMIN_HASH,
-    }));
+    await original.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+      }),
+    );
+    await original.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_B.toString(),
+        ndcHash: NDC_METFORMIN_HASH,
+      }),
+    );
 
     const originalRoot = original.getClaimAccumulatorRoot();
     const state = original.exportState();
@@ -367,13 +388,7 @@ describe('Claim Accumulator Integration — Checkpoint', () => {
 describe('Claim Accumulator Integration — L2Node', () => {
   test('L2Node.submitProof forwards metadata to sequencer', async () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      REG_ROOT_0,
-      LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, REG_ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof = makeMockProof({
@@ -393,13 +408,7 @@ describe('Claim Accumulator Integration — L2Node', () => {
 
   test('L2Node claim query pass-throughs work correctly', async () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      REG_ROOT_0,
-      LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, REG_ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/claim-accumulator-integration.test.ts'));
 
     const proof = makeMockProof({
@@ -410,10 +419,13 @@ describe('Claim Accumulator Integration — L2Node', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await node.submitProof(proof, makeClaimMetadata({
-      pharmacyWalletId: '5001',
-      prescriberWalletId: '6001',
-    }));
+    await node.submitProof(
+      proof,
+      makeClaimMetadata({
+        pharmacyWalletId: '5001',
+        prescriberWalletId: '6001',
+      }),
+    );
 
     // All query methods work through node
     expect(node.getClaimsByPharmacy('5001').length).toBe(1);
@@ -449,12 +461,15 @@ describe('Claim Accumulator Integration — Multiple Claims', () => {
         oldLifecycleRoot: LC_ROOT,
         newLifecycleRoot: LC_ROOT,
       });
-      await sequencer.submitProof(proof, makeClaimMetadata({
-        memberWalletId: WALLET_A.toString(),
-        ndcHash: drugs[i].ndcHash,
-        brandName: drugs[i].brandName,
-        fillNumber: i === 2 ? 1 : 0,  // D4: the refill is a later fill of the same drug; the same fill twice is a duplicate
-      }));
+      await sequencer.submitProof(
+        proof,
+        makeClaimMetadata({
+          memberWalletId: WALLET_A.toString(),
+          ndcHash: drugs[i].ndcHash,
+          brandName: drugs[i].brandName,
+          fillNumber: i === 2 ? 1 : 0, // D4: the refill is a later fill of the same drug; the same fill twice is a duplicate
+        }),
+      );
     }
 
     // Member has 3 claims
@@ -470,7 +485,7 @@ describe('Claim Accumulator Integration — Multiple Claims', () => {
     expect(metforminClaims.length).toBe(1);
 
     // All 3 claims have valid leaf indices
-    expect(memberClaims.map(c => c.leafIndex)).toEqual([0n, 1n, 2n]);
+    expect(memberClaims.map((c) => c.leafIndex)).toEqual([0n, 1n, 2n]);
   });
 
   test('mixed claim and non-claim proofs maintain correct state', async () => {

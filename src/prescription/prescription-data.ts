@@ -180,9 +180,7 @@ export interface PrescriptionStatusLocalData {
 /**
  * Build a PrescriptionStatusData from raw local data.
  */
-export function buildPrescriptionStatusData(
-  local: PrescriptionStatusLocalData,
-): PrescriptionStatusData {
+export function buildPrescriptionStatusData(local: PrescriptionStatusLocalData): PrescriptionStatusData {
   return new PrescriptionStatusData({
     prescriptionHash: Field(BigInt(local.prescriptionHash)),
     status: Field(BigInt(local.status)),
@@ -270,10 +268,7 @@ export function assertValidStatusTransition(from: Field, to: Field): void {
   // REVERSED(6) → ADJUDICATED(1)
   const t13 = from.equals(RX_STATUS_REVERSED).and(to.equals(RX_STATUS_ADJUDICATED));
 
-  const isValid = t1.or(t2).or(t3).or(t4)
-    .or(t5).or(t6).or(t7).or(t8).or(t9).or(t14)
-    .or(t10).or(t15).or(t11)
-    .or(t12).or(t13);
+  const isValid = t1.or(t2).or(t3).or(t4).or(t5).or(t6).or(t7).or(t8).or(t9).or(t14).or(t10).or(t15).or(t11).or(t12).or(t13);
   isValid.assertTrue('Invalid prescription status transition');
 }
 

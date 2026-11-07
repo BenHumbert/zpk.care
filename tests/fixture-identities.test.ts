@@ -88,7 +88,7 @@ function stringsIn(value: unknown, at: string, out: Array<[string, string]> = []
 
 describe('fixture provider identities', () => {
   test('the check-digit rule is the CMS one', () => {
-    expect(npiCheckDigitValid('1234567893')).toBe(true);    // the worked example CMS publishes
+    expect(npiCheckDigitValid('1234567893')).toBe(true); // the worked example CMS publishes
     expect(npiCheckDigitValid('1234567890')).toBe(false);
     expect(npiCheckDigitValid('2999000013')).toBe(true);
   });
@@ -97,7 +97,11 @@ describe('fixture provider identities', () => {
     const npis = [...rawPrescribers, ...rawPharmacies].map((r) => String(r.npi));
     expect(npis.length).toBeGreaterThan(0);
     for (const npi of npis) {
-      expect({ npi, format: FICTIONAL_NPI.test(npi), checkDigit: npiCheckDigitValid(npi) }).toEqual({ npi, format: true, checkDigit: true });
+      expect({ npi, format: FICTIONAL_NPI.test(npi), checkDigit: npiCheckDigitValid(npi) }).toEqual({
+        npi,
+        format: true,
+        checkDigit: true,
+      });
     }
     expect(new Set(npis).size).toBe(npis.length);
   });
@@ -157,7 +161,11 @@ describe('fixture provider identities', () => {
     expect(shown).toHaveLength(data.PRESCRIBERS.length);
     for (const p of shown) {
       const physician = p.credential === 'MD' || p.credential === 'DO';
-      expect({ name: p.name, credential: p.credential, titled: p.name.startsWith('Dr. ') }).toEqual({ name: p.name, credential: p.credential, titled: physician });
+      expect({ name: p.name, credential: p.credential, titled: p.name.startsWith('Dr. ') }).toEqual({
+        name: p.name,
+        credential: p.credential,
+        titled: physician,
+      });
     }
   });
 });
@@ -169,8 +177,13 @@ describe('fixture members and employers', () => {
 
   test('every member works for exactly one fixture employer, by cardholder and family prefix', () => {
     for (const m of data.MEMBERS) {
-      const employers = data.FIXTURE_EMPLOYERS.filter((e) => m.localData.cardholderId.startsWith(e.cardholderPrefix) && m.familyId.startsWith(e.familyPrefix));
-      expect({ cardholderId: m.localData.cardholderId, employers: employers.length }).toEqual({ cardholderId: m.localData.cardholderId, employers: 1 });
+      const employers = data.FIXTURE_EMPLOYERS.filter(
+        (e) => m.localData.cardholderId.startsWith(e.cardholderPrefix) && m.familyId.startsWith(e.familyPrefix),
+      );
+      expect({ cardholderId: m.localData.cardholderId, employers: employers.length }).toEqual({
+        cardholderId: m.localData.cardholderId,
+        employers: 1,
+      });
     }
     expect(data.getFernhillMembers().length + data.getBaysideMembers().length).toBe(data.MEMBERS.length);
   });

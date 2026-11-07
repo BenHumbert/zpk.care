@@ -54,7 +54,10 @@ export type ProofRejectionReason =
 export const VERIFY_TIMEOUT_MS = 20_000;
 
 export class ProofRejected extends Error {
-  constructor(readonly reason: ProofRejectionReason, message: string) {
+  constructor(
+    readonly reason: ProofRejectionReason,
+    message: string,
+  ) {
     super(message);
     this.name = 'ProofRejected';
   }
@@ -86,9 +89,7 @@ export interface TransitionVerifierOptions {
  * Compiling costs a few seconds once at startup (measured ~3.8 s). The returned
  * closure holds the key, so per-proof verification does no further setup.
  */
-export async function createTransitionProofVerifier(
-  options: TransitionVerifierOptions = {},
-): Promise<TransitionProofVerifier> {
+export async function createTransitionProofVerifier(options: TransitionVerifierOptions = {}): Promise<TransitionProofVerifier> {
   const startedAt = Date.now();
   const { verificationKey } = await StateTransitionProgram.compile();
   const compileMs = Date.now() - startedAt;
@@ -145,16 +146,12 @@ export async function createTransitionProofVerifier(
     } catch (err: unknown) {
       if (err instanceof ProofRejected) throw err;
       const detail = err instanceof Error ? err.message : String(err);
-      throw new ProofRejected(
-        'undecodable',
-        `Proof rejected: not a decodable state-transition proof (${detail})`,
-      );
+      throw new ProofRejected('undecodable', `Proof rejected: not a decodable state-transition proof (${detail})`);
     }
     if (!valid) {
       throw new ProofRejected(
         'invalid',
-        'Proof rejected: the state-transition proof is not valid against this ' +
-          "deployment's verification key",
+        'Proof rejected: the state-transition proof is not valid against this ' + "deployment's verification key",
       );
     }
   };

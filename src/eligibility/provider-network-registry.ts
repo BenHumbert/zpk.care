@@ -73,9 +73,7 @@ export class ProviderNetworkRegistry {
    */
   addProvider(walletId: Field): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_NETWORK_PROVIDERS)) {
-      throw new Error(
-        `Network full: cannot exceed ${MAX_NETWORK_PROVIDERS} providers`,
-      );
+      throw new Error(`Network full: cannot exceed ${MAX_NETWORK_PROVIDERS} providers`);
     }
 
     const walletStr = walletId.toString();

@@ -19,12 +19,7 @@ import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/cre
 import { ForestRoots } from '../eligibility/forest-roots.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
 import { DOMAIN_TAG_PRESCRIBER } from '../wallets/wallet-derivation.js';
-import {
-  PrescriptionData,
-  PrescriptionStatusData,
-  RX_STATUS_TRANSFERRED,
-  assertValidStatusTransition,
-} from './prescription-data.js';
+import { PrescriptionData, PrescriptionStatusData, RX_STATUS_TRANSFERRED, assertValidStatusTransition } from './prescription-data.js';
 
 // ─── PrescriptionOutput ─────────────────────────────────────────
 
@@ -88,15 +83,15 @@ export const PrescriptionProgram = ZkProgram({
       privateInputs: [
         CredentialData,
         PrescriptionData,
-        PrescriptionStatusData,      // old status entry
-        PrescriptionStatusData,      // new status entry
+        PrescriptionStatusData, // old status entry
+        PrescriptionStatusData, // new status entry
         ForestRoots,
-        ForestMerkleWitness,         // MEDICATION: prescription at leaf
-        ForestMerkleWitness,         // TRANSACTION: old status at leaf N
-        ForestMerkleWitness,         // TRANSACTION: new slot N+1 (empty)
-        Field,                        // M4: prescriber qualifier
-        Field,                        // M4: prescriber serviceProviderIdHash
-        Field,                        // M4: prescriber enrollmentKeyHash
+        ForestMerkleWitness, // MEDICATION: prescription at leaf
+        ForestMerkleWitness, // TRANSACTION: old status at leaf N
+        ForestMerkleWitness, // TRANSACTION: new slot N+1 (empty)
+        Field, // M4: prescriber qualifier
+        Field, // M4: prescriber serviceProviderIdHash
+        Field, // M4: prescriber enrollmentKeyHash
       ],
       async method(
         credentialData: CredentialData,
@@ -112,10 +107,7 @@ export const PrescriptionProgram = ZkProgram({
         prescriberEnrollmentKeyHash: Field,
       ) {
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -127,56 +119,32 @@ export const PrescriptionProgram = ZkProgram({
           prescriberServiceProviderIdHash,
           prescriberEnrollmentKeyHash,
         ]);
-        computedPrescriberWalletId.assertEquals(
-          prescriptionData.prescriberWalletId,
-          'Prescriber wallet identity binding failed',
-        );
+        computedPrescriberWalletId.assertEquals(prescriptionData.prescriberWalletId, 'Prescriber wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Old status entry in TRANSACTION tree
         oldStatusWitness
           .calculateRoot(oldStatus.commitment())
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Old status not in TRANSACTION tree',
-          );
+          .assertEquals(forestRoots.transactionRoot, 'Old status not in TRANSACTION tree');
 
         // 6. New TRANSACTION slot is empty
-        newSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'New TRANSACTION slot is not empty',
-          );
+        newSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'New TRANSACTION slot is not empty');
 
         // 7. Status transition is valid
         assertValidStatusTransition(oldStatus.status, newStatus.status);
 
         // 8. New status links to correct prescription
-        newStatus.prescriptionHash.assertEquals(
-          rxCommitment,
-          'New status prescriptionHash mismatch',
-        );
+        newStatus.prescriptionHash.assertEquals(rxCommitment, 'New status prescriptionHash mismatch');
 
         // 9. Compute new TRANSACTION root and forest root
-        const newTransactionRoot = newSlotWitness.calculateRoot(
-          newStatus.commitment(),
-        );
+        const newTransactionRoot = newSlotWitness.calculateRoot(newStatus.commitment());
         const newForestRoot = Poseidon.hash([
           forestRoots.memberRoot,
           forestRoots.prescriberRoot,
@@ -211,16 +179,16 @@ export const PrescriptionProgram = ZkProgram({
       privateInputs: [
         CredentialData,
         PrescriptionData,
-        PrescriptionStatusData,      // old status entry
-        PrescriptionStatusData,      // transfer status entry
+        PrescriptionStatusData, // old status entry
+        PrescriptionStatusData, // transfer status entry
         ForestRoots,
-        ForestMerkleWitness,         // MEDICATION: prescription
-        ForestMerkleWitness,         // TRANSACTION: old status
-        ForestMerkleWitness,         // TRANSACTION: transfer entry slot
-        Field,                        // destination pharmacy wallet ID
-        Field,                        // M4: prescriber qualifier
-        Field,                        // M4: prescriber serviceProviderIdHash
-        Field,                        // M4: prescriber enrollmentKeyHash
+        ForestMerkleWitness, // MEDICATION: prescription
+        ForestMerkleWitness, // TRANSACTION: old status
+        ForestMerkleWitness, // TRANSACTION: transfer entry slot
+        Field, // destination pharmacy wallet ID
+        Field, // M4: prescriber qualifier
+        Field, // M4: prescriber serviceProviderIdHash
+        Field, // M4: prescriber enrollmentKeyHash
       ],
       async method(
         credentialData: CredentialData,
@@ -237,10 +205,7 @@ export const PrescriptionProgram = ZkProgram({
         prescriberEnrollmentKeyHash: Field,
       ) {
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -252,68 +217,38 @@ export const PrescriptionProgram = ZkProgram({
           prescriberServiceProviderIdHash,
           prescriberEnrollmentKeyHash,
         ]);
-        computedPrescriberWalletId.assertEquals(
-          prescriptionData.prescriberWalletId,
-          'Prescriber wallet identity binding failed',
-        );
+        computedPrescriberWalletId.assertEquals(prescriptionData.prescriberWalletId, 'Prescriber wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Old status entry in TRANSACTION tree
         oldStatusWitness
           .calculateRoot(oldStatus.commitment())
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Old status not in TRANSACTION tree',
-          );
+          .assertEquals(forestRoots.transactionRoot, 'Old status not in TRANSACTION tree');
 
         // 6. Transfer slot is empty
-        transferSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Transfer slot is not empty',
-          );
+        transferSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'Transfer slot is not empty');
 
         // 7. Status transition: old → TRANSFERRED
         assertValidStatusTransition(oldStatus.status, transferStatus.status);
 
         // 8. Transfer status must be TRANSFERRED
-        transferStatus.status.assertEquals(
-          RX_STATUS_TRANSFERRED,
-          'Transfer status must be TRANSFERRED',
-        );
+        transferStatus.status.assertEquals(RX_STATUS_TRANSFERRED, 'Transfer status must be TRANSFERRED');
 
         // 9. Transfer status links to correct prescription
-        transferStatus.prescriptionHash.assertEquals(
-          rxCommitment,
-          'Transfer status prescriptionHash mismatch',
-        );
+        transferStatus.prescriptionHash.assertEquals(rxCommitment, 'Transfer status prescriptionHash mismatch');
 
         // 10. Transfer status pharmacy matches destination
-        transferStatus.pharmacyWalletId.assertEquals(
-          destPharmacyWalletId,
-          'Transfer pharmacy does not match destination',
-        );
+        transferStatus.pharmacyWalletId.assertEquals(destPharmacyWalletId, 'Transfer pharmacy does not match destination');
 
         // 11. Compute new TRANSACTION root and forest root
-        const newTransactionRoot = transferSlotWitness.calculateRoot(
-          transferStatus.commitment(),
-        );
+        const newTransactionRoot = transferSlotWitness.calculateRoot(transferStatus.commitment());
         const newForestRoot = Poseidon.hash([
           forestRoots.memberRoot,
           forestRoots.prescriberRoot,

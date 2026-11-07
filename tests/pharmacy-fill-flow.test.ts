@@ -32,7 +32,10 @@ import vm from 'vm';
 import { buildPharmacyRoutes } from '../src/nodes/routes/pharmacy-routes.js';
 
 const NL = String.fromCharCode(10);
-const app = fs.readFileSync('dashboard-pharmacy/app.js', 'utf8').split(String.fromCharCode(13) + NL).join(NL);
+const app = fs
+  .readFileSync('dashboard-pharmacy/app.js', 'utf8')
+  .split(String.fromCharCode(13) + NL)
+  .join(NL);
 const REFUSAL = 'Cannot fill prescription in FILLED status. Must be ADJUDICATED.';
 
 /** A top-level function of the IIFE: from its declaration to the first line that is exactly two spaces and "}". */
@@ -45,7 +48,13 @@ function lift(name: string): string {
 
 /** The lifted functions in a vm whose globals are the page stubs. */
 function page(stubs: Record<string, unknown>, names: string[]) {
-  const ctx: Record<string, any> = { console: { warn() {} }, scriptWorkflow: {}, renderWorkstationColumns: () => {}, toast: () => {}, ...stubs };
+  const ctx: Record<string, any> = {
+    console: { warn() {} },
+    scriptWorkflow: {},
+    renderWorkstationColumns: () => {},
+    toast: () => {},
+    ...stubs,
+  };
   vm.createContext(ctx);
   vm.runInContext(names.map(lift).join(NL), ctx);
   return ctx;
@@ -54,23 +63,29 @@ function page(stubs: Record<string, unknown>, names: string[]) {
 test('only the engine moves a script: a refused fill stays in Adjudicated and says why, an accepted one moves to Filled', async () => {
   const toasts: Array<[string, string]> = [];
   const refused = { prescriptionId: 'RX-1', status: 'ADJUDICATED' };
-  const r = page({
-    scriptKey: () => 'k',
-    findClaimByKey: () => refused,
-    toast: (m: string, t: string) => toasts.push([m, t]),
-    API: { dispensing: { markFilled: () => Promise.reject(new Error(REFUSAL)) } },
-  }, ['getScriptStatus', 'setScriptStatus', 'fillScript']);
+  const r = page(
+    {
+      scriptKey: () => 'k',
+      findClaimByKey: () => refused,
+      toast: (m: string, t: string) => toasts.push([m, t]),
+      API: { dispensing: { markFilled: () => Promise.reject(new Error(REFUSAL)) } },
+    },
+    ['getScriptStatus', 'setScriptStatus', 'fillScript'],
+  );
   await r.fillScript('k');
   expect(r.getScriptStatus(refused)).toBe('adjudicated');
   expect(r.scriptWorkflow.k?._transientStatus).toBeUndefined(); // not left greyed out as "filling"
   expect(toasts).toEqual([['Fill failed: ' + REFUSAL, 'error']]);
 
   const accepted = { prescriptionId: 'RX-2', status: 'ADJUDICATED' };
-  const a = page({
-    scriptKey: () => 'k',
-    findClaimByKey: () => accepted,
-    API: { dispensing: { markFilled: async () => ({ status: 'FILLED' }) } },
-  }, ['getScriptStatus', 'setScriptStatus', 'fillScript']);
+  const a = page(
+    {
+      scriptKey: () => 'k',
+      findClaimByKey: () => accepted,
+      API: { dispensing: { markFilled: async () => ({ status: 'FILLED' }) } },
+    },
+    ['getScriptStatus', 'setScriptStatus', 'fillScript'],
+  );
   await a.fillScript('k');
   expect(a.getScriptStatus(accepted)).toBe('filled');
 });
@@ -79,18 +94,28 @@ test('a PENDING script offers no Fill and cannot be filled; an ADJUDICATED one b
   const pending = { prescriptionId: 'RX-2', status: 'PENDING' };
   const ready = { prescriptionId: 'RX-3', status: 'ADJUDICATED' };
   const markFilled = jest.fn(async () => ({}));
-  const p = page({
-    scriptKey: (c: { prescriptionId: string }) => c.prescriptionId,
-    findClaimByKey: (k: string) => [pending, ready].find((c) => c.prescriptionId === k),
-    getScriptIssue: () => null, isScriptVerified: () => false, $: () => null,
-    truncate: String, formatDate: String, formatCents: String, escapeHtml: String,
-    API: { dispensing: { markFilled } },
-  }, ['getScriptStatus', 'setScriptStatus', 'fillPricingOf', 'formatNadacUnit', 'nadacBreakdown', 'renderColumn', 'fillScript']);
+  const p = page(
+    {
+      scriptKey: (c: { prescriptionId: string }) => c.prescriptionId,
+      findClaimByKey: (k: string) => [pending, ready].find((c) => c.prescriptionId === k),
+      getScriptIssue: () => null,
+      isScriptVerified: () => false,
+      $: () => null,
+      truncate: String,
+      formatDate: String,
+      formatCents: String,
+      escapeHtml: String,
+      API: { dispensing: { markFilled } },
+    },
+    ['getScriptStatus', 'setScriptStatus', 'fillPricingOf', 'formatNadacUnit', 'nadacBreakdown', 'renderColumn', 'fillScript'],
+  );
   expect(p.getScriptStatus(pending)).toBe('pending');
   const column = { innerHTML: '' };
   p.renderColumn(column, [pending, ready], 'adjudicated');
   // One chunk per card: from its opening tag to the next card's.
-  const card = (key: string) => column.innerHTML.split(/<div class="script-card(?=[" ])/).find((h) => h.includes(`data-key="${key}" data-act="showScriptDetail"`)) ?? '';
+  const card = (key: string) =>
+    column.innerHTML.split(/<div class="script-card(?=[" ])/).find((h) => h.includes(`data-key="${key}" data-act="showScriptDetail"`)) ??
+    '';
   expect(card('RX-2')).not.toBe('');
   expect(card('RX-2')).not.toContain('data-act="fillScript"');
   expect(card('RX-3')).toContain('data-act="fillScript" data-key="RX-3"');
@@ -100,7 +125,7 @@ test('a PENDING script offers no Fill and cannot be filled; an ADJUDICATED one b
   expect(markFilled).toHaveBeenCalledTimes(1);
 });
 
-test('the node forwards the engine\'s refusal of a fill as the error, so the screen can say why', async () => {
+test("the node forwards the engine's refusal of a fill as the error, so the screen can say why", async () => {
   const sent: Array<{ status: number; ok: boolean; data?: unknown; error?: string }> = [];
   let engine = { status: 400, body: { error: REFUSAL } as Record<string, unknown> };
   const server = {
@@ -111,7 +136,9 @@ test('the node forwards the engine\'s refusal of a fill as the error, so the scr
       if (!u.endsWith('/interactive/mark-filled')) throw new Error('unexpected engine call ' + u);
       return new Response(JSON.stringify(engine.body), { status: engine.status, headers: { 'Content-Type': 'application/json' } });
     },
-    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) { sent.push({ status, ok, data, error }); },
+    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) {
+      sent.push({ status, ok, data, error });
+    },
   };
   const route = buildPharmacyRoutes(server as any).find((x) => x.method === 'POST' && x.path === '/dispensing/mark-filled')!;
   await route.handler({} as any, {} as any, {}, new URLSearchParams(), { prescriptionId: 'RX-1' });

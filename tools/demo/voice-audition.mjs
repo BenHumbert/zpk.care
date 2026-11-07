@@ -29,35 +29,52 @@ fs.mkdirSync(REFS_DIR, { recursive: true });
 // Sample lines with the words the engines find hard (used while the script is still a placeholder).
 const SAMPLE = {
   narrator: [
-    { text: 'The phone hashes six fields with one salt, using Poseidon, and only the wallet ID leaves it. The Merkle root moves; nobody learns her name.', mood: 'precise' },
-    { text: 'The fill proof prices the claim: fourteen eighteen, the NADAC price plus a thirteen-dollar fee, all of it inside the deductible.', mood: 'precise' }
+    {
+      text: 'The phone hashes six fields with one salt, using Poseidon, and only the wallet ID leaves it. The Merkle root moves; nobody learns her name.',
+      mood: 'precise',
+    },
+    {
+      text: 'The fill proof prices the claim: fourteen eighteen, the NADAC price plus a thirteen-dollar fee, all of it inside the deductible.',
+      mood: 'precise',
+    },
   ],
   hr: [
-    { text: 'Fernhill Test Works. EIN double-zero, forty-four seventeen three twenty-one. Effective today, cap of twenty-five.', mood: 'brisk' },
-    { text: 'Codes go in the letters. PINs go by text. Never together.', mood: 'brisk' }
+    {
+      text: 'Fernhill Test Works. EIN double-zero, forty-four seventeen three twenty-one. Effective today, cap of twenty-five.',
+      mood: 'brisk',
+    },
+    { text: 'Codes go in the letters. PINs go by text. Never together.', mood: 'brisk' },
   ],
   analyst: [
     { text: 'Everything on this form is in cents. Five hundred deductible. Seventy-eight hundred out-of-pocket.', mood: 'dry' },
-    { text: 'Chain integrity. Pass. Financial balance. Good.', mood: 'dry' }
+    { text: 'Chain integrity. Pass. Financial balance. Good.', mood: 'dry' },
   ],
   member: [
     { text: 'Code from the letter. PIN from the text. And a recovery PIN, something I will not forget.', mood: 'anxious' },
-    { text: 'Oh. I thought it was a ten-dollar copay. Okay, that is less than I was bracing for.', mood: 'relieved' }
+    { text: 'Oh. I thought it was a ten-dollar copay. Okay, that is less than I was bracing for.', mood: 'relieved' },
   ],
   prescriber: [
     { text: 'She was worried about cost. Generic, then. Allopurinol, a hundred milligrams, once a day.', mood: 'kind' },
-    { text: 'No refills until I see her labs. Send.', mood: 'kind' }
+    { text: 'No refills until I see her labs. Send.', mood: 'kind' },
   ],
   pharmacist: [
     { text: 'Allopurinol, hundred milligram, thirty. Signature is good. One script ready.', mood: 'wry' },
-    { text: 'It will be, once you have met your deductible. Take it after a meal, with plenty of water.', mood: 'wry' }
-  ]
+    { text: 'It will be, once you have met your deductible. Take it after a meal, with plenty of water.', mood: 'wry' },
+  ],
 };
 let LINES = SAMPLE;
 if (SCRIPT_STATUS !== 'placeholder') {
   // the real script: each person's first two lines
   const all = allLines(castOf());
-  LINES = Object.fromEntries(Object.keys(PEOPLE).map((k) => [k, all.filter((l) => l.who === k).slice(0, 2).map((l) => ({ text: l.text, mood: l.mood }))]));
+  LINES = Object.fromEntries(
+    Object.keys(PEOPLE).map((k) => [
+      k,
+      all
+        .filter((l) => l.who === k)
+        .slice(0, 2)
+        .map((l) => ({ text: l.text, mood: l.mood })),
+    ]),
+  );
 }
 // preset or reference voices per person (Kokoro, Chatterbox, Turbo); Maya1 designs one voice per person
 const CANDIDATES = {
@@ -66,15 +83,31 @@ const CANDIDATES = {
   analyst: ['am_michael', 'bm_daniel'],
   member: ['af_heart', 'af_bella'],
   prescriber: ['af_kore', 'bf_alice'],
-  pharmacist: ['am_adam', 'bm_lewis']
+  pharmacist: ['am_adam', 'bm_lewis'],
 };
 const MAYA = Object.fromEntries(Object.keys(PEOPLE).map((k) => [k, k])); // MAYA_VOICES has one designed voice per person
-const ORPHEUS = { narrator: ['leo', 'zac'], hr: ['leah', 'jess'], analyst: ['zac', 'dan'], member: ['tara', 'mia'], prescriber: ['leah', 'zoe'], pharmacist: ['dan', 'leo'] };
-const ENGINE_LABEL = { kokoro: 'Kokoro', chatterbox: 'Chatterbox', turbo: 'Chatterbox Turbo', maya: 'Maya1 (GPU)', orpheus: 'Orpheus 3B (GPU)' };
+const ORPHEUS = {
+  narrator: ['leo', 'zac'],
+  hr: ['leah', 'jess'],
+  analyst: ['zac', 'dan'],
+  member: ['tara', 'mia'],
+  prescriber: ['leah', 'zoe'],
+  pharmacist: ['dan', 'leo'],
+};
+const ENGINE_LABEL = {
+  kokoro: 'Kokoro',
+  chatterbox: 'Chatterbox',
+  turbo: 'Chatterbox Turbo',
+  maya: 'Maya1 (GPU)',
+  orpheus: 'Orpheus 3B (GPU)',
+};
 const REF_TEXT = 'Hello. Thank you for taking a moment with me today. Let me walk you through how this works, one careful step at a time.';
 
 const db = fs.existsSync(DB) ? JSON.parse(fs.readFileSync(DB, 'utf8')) : { rows: [] };
-const engines = String(args.engines || (args.page ? '' : 'kokoro')).split(',').map((s) => s.trim()).filter(Boolean);
+const engines = String(args.engines || (args.page ? '' : 'kokoro'))
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 for (const k of Object.keys(PEOPLE)) if (!MAYA_VOICES[MAYA[k]]) throw new Error(`no Maya1 voice for ${k}`);
 
 if (engines.some((e) => e === 'chatterbox' || e === 'turbo')) {
@@ -108,34 +141,46 @@ for (const engine of engines) {
 stopEngines();
 
 if (args.page) {
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const asrOf = (r) => {
     if (!args.asr) return '';
     const f = path.join(String(args.asr), `${r.key}-${r.engine}-${r.voice}`, 'asr.json');
     if (!fs.existsSync(f)) return '';
     const a = JSON.parse(fs.readFileSync(f, 'utf8'));
-    const list = Array.isArray(a) ? a : (a.results || a.lines || []);
+    const list = Array.isArray(a) ? a : a.results || a.lines || [];
     const bad = list.filter((x) => Number(x.match) < 0.95);
     if (!bad.length) return '<span class="asr ok">heard word for word</span>';
     const worst = bad.sort((x, y) => Number(x.match) - Number(y.match))[0];
     return `<span class="asr">heard: "${esc(String(worst.heard).slice(0, 80))}"</span>`;
   };
   const order = ['kokoro', 'chatterbox', 'turbo', 'maya', 'orpheus'];
-  const people = Object.keys(LINES).map((key) => {
-    const p = PEOPLE[key];
-    const rows = db.rows.filter((r) => r.key === key).sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine) || a.voice.localeCompare(b.voice));
-    const lines = LINES[key].map((l, i) => `<li><span class="n">${i + 1}</span>${esc(stripCues(l.text))}</li>`).join('');
-    const body = rows.map((r) => {
-      const audio = r.clips.map((c, i) => {
-        const data = fs.readFileSync(path.join(OUT, c.file)).toString('base64');
-        return `<div class="clip"><span class="n">${i + 1}</span><audio controls preload="metadata" src="data:audio/mpeg;base64,${data}"></audio></div>`;
-      }).join('');
-      const voiceName = r.engine === 'maya' ? 'designed voice' : r.voice.replace(/^[ab][fm]_/, '').replace(/^./, (m) => m.toUpperCase()) + (r.engine === 'orpheus' ? ' (Orpheus voice)' : '');
-      return `<div class="row"><div class="who"><b>${esc(ENGINE_LABEL[r.engine])}</b><span>${esc(voiceName)}</span>${asrOf(r)}</div><div class="clips">${audio}</div></div>`;
-    }).join('');
-    const design = MAYA_VOICES[MAYA[key]] ? `<div class="design">Maya1 design: ${esc(MAYA_VOICES[MAYA[key]])}</div>` : '';
-    return `<section class="person"><div class="ph"><span class="dot" style="background:${p.color}"></span><h2>${esc(p.name)}</h2><span class="role">${esc(p.role)}</span></div>${design}<ol class="lines">${lines}</ol>${body}</section>`;
-  }).join('');
+  const people = Object.keys(LINES)
+    .map((key) => {
+      const p = PEOPLE[key];
+      const rows = db.rows
+        .filter((r) => r.key === key)
+        .sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine) || a.voice.localeCompare(b.voice));
+      const lines = LINES[key].map((l, i) => `<li><span class="n">${i + 1}</span>${esc(stripCues(l.text))}</li>`).join('');
+      const body = rows
+        .map((r) => {
+          const audio = r.clips
+            .map((c, i) => {
+              const data = fs.readFileSync(path.join(OUT, c.file)).toString('base64');
+              return `<div class="clip"><span class="n">${i + 1}</span><audio controls preload="metadata" src="data:audio/mpeg;base64,${data}"></audio></div>`;
+            })
+            .join('');
+          const voiceName =
+            r.engine === 'maya'
+              ? 'designed voice'
+              : r.voice.replace(/^[ab][fm]_/, '').replace(/^./, (m) => m.toUpperCase()) +
+                (r.engine === 'orpheus' ? ' (Orpheus voice)' : '');
+          return `<div class="row"><div class="who"><b>${esc(ENGINE_LABEL[r.engine])}</b><span>${esc(voiceName)}</span>${asrOf(r)}</div><div class="clips">${audio}</div></div>`;
+        })
+        .join('');
+      const design = MAYA_VOICES[MAYA[key]] ? `<div class="design">Maya1 design: ${esc(MAYA_VOICES[MAYA[key]])}</div>` : '';
+      return `<section class="person"><div class="ph"><span class="dot" style="background:${p.color}"></span><h2>${esc(p.name)}</h2><span class="role">${esc(p.role)}</span></div>${design}<ol class="lines">${lines}</ol>${body}</section>`;
+    })
+    .join('');
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voice Audition</title>
 <style>
 :root { --bg:#0a0a0a; --surface:#131313; --raised:#1a1a1a; --line:#262626; --fg:#f4f4f5; --muted:#a1a1aa; --dim:#71717a; --accent:#8b5cf6; color-scheme:dark }

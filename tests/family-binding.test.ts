@@ -35,12 +35,17 @@ const keys = (ms: M[]) => ms.map((x) => x.key).sort();
 
 describe('who pools with whom', () => {
   test('a member with no bound family pools with no one, however many others have none (A-34)', () => {
-    const a = m('a', ''), b = m('b', ''), c = m('c', '');
+    const a = m('a', ''),
+      b = m('b', ''),
+      c = m('c', '');
     expect(keys(familyMembersOf(a, [a, b, c]))).toEqual(['a']);
   });
 
   test('members who share a bound family in one group and plan pool together, and no one else does', () => {
-    const parent = m('parent', '111'), child = m('child', '111'), other = m('other', '222'), loner = m('loner', '');
+    const parent = m('parent', '111'),
+      child = m('child', '111'),
+      other = m('other', '222'),
+      loner = m('loner', '');
     const all = [parent, child, other, loner];
     expect(keys(familyMembersOf(child, all))).toEqual(['child', 'parent']);
     expect(keys(familyMembersOf(other, all))).toEqual(['other']);
@@ -48,7 +53,9 @@ describe('who pools with whom', () => {
   });
 
   test('the same family hash under another group or another plan does not pool', () => {
-    const a = m('a', '111'), otherGroup = m('g', '111', 'G2'), otherPlan = m('p', '111', 'G1', 'PLAN-2');
+    const a = m('a', '111'),
+      otherGroup = m('g', '111', 'G2'),
+      otherPlan = m('p', '111', 'G1', 'PLAN-2');
     expect(keys(familyMembersOf(a, [a, otherGroup, otherPlan]))).toEqual(['a']);
   });
 
@@ -62,7 +69,7 @@ describe('the family limits', () => {
   const plan = { familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0 };
   const none = { familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0 };
 
-  test('a member with a bound family gets the plan\'s', () => {
+  test("a member with a bound family gets the plan's", () => {
     expect(familyLimitsFor({ familyId: '111' }, plan)).toEqual(plan);
   });
 
@@ -73,7 +80,7 @@ describe('the family limits', () => {
   });
 });
 
-describe('the employer\'s code carries the family', () => {
+describe("the employer's code carries the family", () => {
   const DATE = '20261018';
   const PIN = '135790';
   function redeem(authority: TokenAuthority, familyIdHash: string, employeeIdHash: string) {
@@ -109,7 +116,7 @@ describe('the engine in source', () => {
   const start = engine.indexOf('async registerMemberFromEnrollment(');
   const register = engine.slice(start, engine.indexOf('\n  }\n', start));
 
-  test('registration binds the family from the insurer\'s approval and reads none from the request', () => {
+  test("registration binds the family from the insurer's approval and reads none from the request", () => {
     expect(start).toBeGreaterThan(0);
     expect(register).toContain("familyId: approval.familyIdHash ?? '',");
     expect(register).not.toMatch(/opts\.familyId|opts\.employeeId/);

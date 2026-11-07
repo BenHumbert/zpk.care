@@ -344,7 +344,7 @@ export interface L2ChainProofResponse {
 export interface BenefitPlanConfig {
   planId: string;
   name: string;
-  coverageType: number;            // 1=pharmacy, 2=medical, 3=dental
+  coverageType: number; // 1=pharmacy, 2=medical, 3=dental
   copayAmountCents: number;
   deductibleAmountCents: number;
   oopMaxCents: number;
@@ -407,14 +407,14 @@ export interface PublishedPlanTerms {
 
 /** Employer application status lifecycle */
 export type EmployerApplicationStatus =
-  | 'submitted'         // Employer submitted application
-  | 'under_review'      // Insurer is reviewing
-  | 'needs_documents'   // CP 575 / verification documents required
-  | 'approved'          // Insurer approved, awaiting agreement signing
-  | 'signed'            // Both parties signed, attestation registered
-  | 'active'            // Employer node is live
-  | 'denied'            // Insurer denied
-  | 'suspended';        // Insurer suspended active employer
+  | 'submitted' // Employer submitted application
+  | 'under_review' // Insurer is reviewing
+  | 'needs_documents' // CP 575 / verification documents required
+  | 'approved' // Insurer approved, awaiting agreement signing
+  | 'signed' // Both parties signed, attestation registered
+  | 'active' // Employer node is live
+  | 'denied' // Insurer denied
+  | 'suspended'; // Insurer suspended active employer
 
 /** EmployerApplication — submitted by employer via marketplace */
 export interface EmployerApplication {

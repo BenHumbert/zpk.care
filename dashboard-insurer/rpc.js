@@ -28,15 +28,25 @@ const API = (() => {
   let sseAttempt = 0;
   let lastOnEvent = null;
 
-  function setBaseUrl(url) { baseUrl = url.replace(/\/+$/, ''); }
+  function setBaseUrl(url) {
+    baseUrl = url.replace(/\/+$/, '');
+  }
   function setAdminToken(token) {
     adminToken = token || '';
-    try { localStorage.setItem('zkt_insurer_admin_token', adminToken); } catch {}
-    if (lastOnEvent) connectSSE(lastOnEvent);   // the event stream opens with the token (A-79)
+    try {
+      localStorage.setItem('zkt_insurer_admin_token', adminToken);
+    } catch {}
+    if (lastOnEvent) connectSSE(lastOnEvent); // the event stream opens with the token (A-79)
   }
-  function getAdminToken() { return adminToken; }
+  function getAdminToken() {
+    return adminToken;
+  }
   // Restore admin token from localStorage, fall back to bootstrap default
-  try { adminToken = localStorage.getItem('zkt_insurer_admin_token') || ''; } catch { adminToken = ''; }
+  try {
+    adminToken = localStorage.getItem('zkt_insurer_admin_token') || '';
+  } catch {
+    adminToken = '';
+  }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -63,7 +73,11 @@ const API = (() => {
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   function headers(admin) {
@@ -79,9 +93,17 @@ const API = (() => {
     const res = await fetch(url, opts);
     const text = await res.text();
     let data;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
     if (!res.ok) {
-      const msg = (data && data.error != null ? errMsg(data.error) : '') || (data && typeof data.message === 'string' ? data.message : '') || (typeof text === 'string' ? text : '') || ('HTTP ' + res.status);
+      const msg =
+        (data && data.error != null ? errMsg(data.error) : '') ||
+        (data && typeof data.message === 'string' ? data.message : '') ||
+        (typeof text === 'string' ? text : '') ||
+        'HTTP ' + res.status;
       const err = new Error(msg);
       err.status = res.status;
       throw err;
@@ -92,10 +114,14 @@ const API = (() => {
   }
 
   // ---- Onboarding ----
-  function getOnboardingStatus() { return request('GET', '/onboarding/status'); }
+  function getOnboardingStatus() {
+    return request('GET', '/onboarding/status');
+  }
 
   // ---- Health ----
-  function getHealth() { return request('GET', '/health'); }
+  function getHealth() {
+    return request('GET', '/health');
+  }
 
   // ---- Enrollment ----
   function processEnrollment(walletId, tokenId, role) {
@@ -120,24 +146,44 @@ const API = (() => {
     return request('GET', '/audit/log' + q, undefined, true);
   }
 
-  function getChainProof() { return request('GET', '/chain-proof'); }
+  function getChainProof() {
+    return request('GET', '/chain-proof');
+  }
 
   // The three checks read the audit log as the plan, so each takes the node's admin token; the chain proof is open.
-  function verifyChainIntegrity() { return request('GET', '/audit/chain-integrity', undefined, true); }
-  function verifyFinancialBalance() { return request('GET', '/audit/financial-balance', undefined, true); }
-  function detectDuplicateClaims() { return request('GET', '/audit/duplicate-claims', undefined, true); }
+  function verifyChainIntegrity() {
+    return request('GET', '/audit/chain-integrity', undefined, true);
+  }
+  function verifyFinancialBalance() {
+    return request('GET', '/audit/financial-balance', undefined, true);
+  }
+  function detectDuplicateClaims() {
+    return request('GET', '/audit/duplicate-claims', undefined, true);
+  }
 
   // ---- Entity-filtered claims (the node's admin token: every claim names its member) ----
-  function getMemberClaims(walletId) { return request('GET', '/claims/member/' + encodeURIComponent(walletId), undefined, true); }
-  function getPrescriberClaims(walletId) { return request('GET', '/claims/prescriber/' + encodeURIComponent(walletId), undefined, true); }
-  function getPharmacyClaims(walletId) { return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId), undefined, true); }
-  function getDrugClaims(ndcHash) { return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash), undefined, true); }
+  function getMemberClaims(walletId) {
+    return request('GET', '/claims/member/' + encodeURIComponent(walletId), undefined, true);
+  }
+  function getPrescriberClaims(walletId) {
+    return request('GET', '/claims/prescriber/' + encodeURIComponent(walletId), undefined, true);
+  }
+  function getPharmacyClaims(walletId) {
+    return request('GET', '/claims/pharmacy/' + encodeURIComponent(walletId), undefined, true);
+  }
+  function getDrugClaims(ndcHash) {
+    return request('GET', '/claims/drug/' + encodeURIComponent(ndcHash), undefined, true);
+  }
 
   // ---- Reports (the node's admin credential; a refusal is thrown with the node's reason) ----
-  function generateReport(type, body) { return request('POST', '/reports/' + encodeURIComponent(type), body, true); }
+  function generateReport(type, body) {
+    return request('POST', '/reports/' + encodeURIComponent(type), body, true);
+  }
 
   // ---- Admin ----
-  function forceBatch() { return request('POST', '/admin/batch/force', {}, true); }
+  function forceBatch() {
+    return request('POST', '/admin/batch/force', {}, true);
+  }
 
   // ---- Roster (live from sequencer) ----
   function getRoster(groupId, role) {
@@ -215,7 +261,9 @@ const API = (() => {
 
   // ---- Prior authorization ----
   /** The requests waiting for the insurer's decision: { requests: [...] }, oldest first. */
-  function getPendingPriorAuths() { return request('GET', '/prior-auth/pending', undefined, true); }
+  function getPendingPriorAuths() {
+    return request('GET', '/prior-auth/pending', undefined, true);
+  }
   /** The latest decisions: { decisions: [...] }, newest first. */
   function getPriorAuthDecisions(limit) {
     return request('GET', '/prior-auth/decisions' + (limit ? '?limit=' + encodeURIComponent(limit) : ''), undefined, true);
@@ -233,17 +281,35 @@ const API = (() => {
   }
 
   // ---- Plans ----
-  function getPlans() { return request('GET', '/plans'); }
-  function getPlan(planId) { return request('GET', '/plans/' + encodeURIComponent(planId)); }
-  function createPlan(data) { return request('POST', '/plans', data, true); }
-  function updatePlan(planId, data) { return request('PUT', '/plans/' + encodeURIComponent(planId), data, true); }
-  function deletePlan(planId) { return request('DELETE', '/plans/' + encodeURIComponent(planId), {}, true); }
-  function publishPlan(planId) { return request('POST', '/plans/' + encodeURIComponent(planId) + '/publish', {}, true); }
+  function getPlans() {
+    return request('GET', '/plans');
+  }
+  function getPlan(planId) {
+    return request('GET', '/plans/' + encodeURIComponent(planId));
+  }
+  function createPlan(data) {
+    return request('POST', '/plans', data, true);
+  }
+  function updatePlan(planId, data) {
+    return request('PUT', '/plans/' + encodeURIComponent(planId), data, true);
+  }
+  function deletePlan(planId) {
+    return request('DELETE', '/plans/' + encodeURIComponent(planId), {}, true);
+  }
+  function publishPlan(planId) {
+    return request('POST', '/plans/' + encodeURIComponent(planId) + '/publish', {}, true);
+  }
 
   // ---- Messaging (a wallet's messages and a thread take the node's admin token; the store's status is open) ----
-  function getMessagesByWallet(walletId) { return request('GET', '/messaging/wallet/' + encodeURIComponent(walletId), undefined, true); }
-  function getMessagesByThread(threadIdHash) { return request('GET', '/messaging/thread/' + encodeURIComponent(threadIdHash), undefined, true); }
-  function getMessageStoreStatus() { return request('GET', '/messaging/status'); }
+  function getMessagesByWallet(walletId) {
+    return request('GET', '/messaging/wallet/' + encodeURIComponent(walletId), undefined, true);
+  }
+  function getMessagesByThread(threadIdHash) {
+    return request('GET', '/messaging/thread/' + encodeURIComponent(threadIdHash), undefined, true);
+  }
+  function getMessageStoreStatus() {
+    return request('GET', '/messaging/status');
+  }
 
   // ---- SSE ----
   /*
@@ -259,11 +325,11 @@ const API = (() => {
     const attempt = sseAttempt;
     request('POST', '/events/ticket', {}, true)
       .then((data) => {
-        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        if (attempt !== sseAttempt) return; // disconnected, or connected again, while the ticket was on its way
         sseConnection = new EventSource(baseUrl + '/events?ticket=' + encodeURIComponent(data.ticket));
         sseConnection.onopen = () => {
           sseReconnectDelay = 1000;
-          sseListeners.forEach(fn => fn('connected'));
+          sseListeners.forEach((fn) => fn('connected'));
         };
         sseConnection.onmessage = (ev) => {
           try {
@@ -274,7 +340,7 @@ const API = (() => {
           }
         };
         sseConnection.onerror = () => {
-          sseListeners.forEach(fn => fn('disconnected'));
+          sseListeners.forEach((fn) => fn('disconnected'));
           sseConnection.close();
           sseConnection = null;
           reconnectSSE();
@@ -282,7 +348,7 @@ const API = (() => {
       })
       .catch(() => {
         if (attempt !== sseAttempt) return;
-        sseListeners.forEach(fn => fn('disconnected'));
+        sseListeners.forEach((fn) => fn('disconnected'));
         reconnectSSE();
       });
   }
@@ -292,13 +358,26 @@ const API = (() => {
   }
   function disconnectSSE() {
     sseAttempt++;
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
-    if (sseConnection) { sseConnection.close(); sseConnection = null; }
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
+    if (sseConnection) {
+      sseConnection.close();
+      sseConnection = null;
+    }
   }
-  function onConnectionChange(fn) { sseListeners.push(fn); }
+  function onConnectionChange(fn) {
+    sseListeners.push(fn);
+  }
 
   async function checkConnection() {
-    try { await getHealth(); return true; } catch { return false; }
+    try {
+      await getHealth();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // ── Marketplace Employer Applications ──
@@ -320,7 +399,10 @@ const API = (() => {
     const res = await fetch(baseUrl + '/marketplace/api/document/' + encodeURIComponent(appId), { headers: headers(true) });
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
-      try { const j = await res.json(); if (j && j.error != null) msg = errMsg(j.error); } catch (_) {}
+      try {
+        const j = await res.json();
+        if (j && j.error != null) msg = errMsg(j.error);
+      } catch (_) {}
       const err = new Error(msg);
       err.status = res.status;
       throw err;
@@ -332,25 +414,60 @@ const API = (() => {
   }
 
   return {
-    setBaseUrl, setAdminToken, getAdminToken,
-    getOnboardingStatus, getHealth,
+    setBaseUrl,
+    setAdminToken,
+    getAdminToken,
+    getOnboardingStatus,
+    getHealth,
     processEnrollment,
-    getReceipts, getBatches,
-    getAuditLog, getChainProof,
-    verifyChainIntegrity, verifyFinancialBalance, detectDuplicateClaims,
-    getMemberClaims, getPrescriberClaims, getPharmacyClaims, getDrugClaims,
+    getReceipts,
+    getBatches,
+    getAuditLog,
+    getChainProof,
+    verifyChainIntegrity,
+    verifyFinancialBalance,
+    detectDuplicateClaims,
+    getMemberClaims,
+    getPrescriberClaims,
+    getPharmacyClaims,
+    getDrugClaims,
     generateReport,
     forceBatch,
-    getRoster, registerRoster,
-    getCredentialingApplications, submitCredentialingApplication,
-    verifyApplication, approveApplication, denyApplication,
-    getCredentialingStatus, suspendProvider, terminateProvider,
+    getRoster,
+    registerRoster,
+    getCredentialingApplications,
+    submitCredentialingApplication,
+    verifyApplication,
+    approveApplication,
+    denyApplication,
+    getCredentialingStatus,
+    suspendProvider,
+    terminateProvider,
     getProviderRegistry,
-    getPlans, getPlan, createPlan, updatePlan, deletePlan, publishPlan,
-    getFormulary, publishFormulary, estimateCost,
-    getPendingPriorAuths, getPriorAuthDecisions, approvePriorAuth, denyPriorAuth,
-    getMessagesByWallet, getMessagesByThread, getMessageStoreStatus,
-    getEmployerApplications, approveEmployerApplication, denyEmployerApplication, requestEmployerDocuments, getEmployerDocument,
-    connectSSE, disconnectSSE, onConnectionChange, checkConnection,
+    getPlans,
+    getPlan,
+    createPlan,
+    updatePlan,
+    deletePlan,
+    publishPlan,
+    getFormulary,
+    publishFormulary,
+    estimateCost,
+    getPendingPriorAuths,
+    getPriorAuthDecisions,
+    approvePriorAuth,
+    denyPriorAuth,
+    getMessagesByWallet,
+    getMessagesByThread,
+    getMessageStoreStatus,
+    getEmployerApplications,
+    approveEmployerApplication,
+    denyEmployerApplication,
+    requestEmployerDocuments,
+    getEmployerDocument,
+    connectSSE,
+    disconnectSSE,
+    onConnectionChange,
+    checkConnection,
   };
 })();

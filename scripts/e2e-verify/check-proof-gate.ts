@@ -100,11 +100,7 @@ async function snapshot(): Promise<Ledger> {
     walletCount: String(s.currentWalletCount ?? '?'),
     proofsAccepted: String(s.totalProofsAccepted ?? '?'),
     receipts: Array.isArray(receipts.result) ? receipts.result.length : -1,
-    auditEntries: Array.isArray(auditResult)
-      ? auditResult.length
-      : Array.isArray(auditResult?.events)
-        ? auditResult.events.length
-        : -1,
+    auditEntries: Array.isArray(auditResult) ? auditResult.length : Array.isArray(auditResult?.events) ? auditResult.events.length : -1,
     claimLeaves: String(claims.result?.leafCount ?? '?'),
   };
 }
@@ -191,13 +187,13 @@ async function realProofPhase() {
   // A throwaway fictional identity. Nothing here belongs to a person.
   const tag = `GATECHECK-${Date.now()}`;
   const preimage = [
-    Field(0),                                                        // domainTag: member
-    hashString(tag),                                                 // cardholder id
-    hashString('19700101'),                                          // date of birth
-    hashString('Gate'),                                              // first name
-    hashString('Check'),                                             // last name
-    hashString(crypto.randomBytes(32).toString('base64url')),        // enrollment key hash
-    Field(0),                                                        // group id hash
+    Field(0), // domainTag: member
+    hashString(tag), // cardholder id
+    hashString('19700101'), // date of birth
+    hashString('Gate'), // first name
+    hashString('Check'), // last name
+    hashString(crypto.randomBytes(32).toString('base64url')), // enrollment key hash
+    Field(0), // group id hash
   ];
 
   const tCompile = Date.now();
@@ -206,8 +202,17 @@ async function realProofPhase() {
 
   const tProve = Date.now();
   const { proof } = await StateTransitionProgram.proveRegistration(
-    preimage[0], preimage[1], preimage[2], preimage[3], preimage[4], preimage[5], preimage[6],
-    regWitness, lcWitness, currentReg, currentLc,
+    preimage[0],
+    preimage[1],
+    preimage[2],
+    preimage[3],
+    preimage[4],
+    preimage[5],
+    preimage[6],
+    regWitness,
+    lcWitness,
+    currentReg,
+    currentLc,
   );
   const proveMs = Date.now() - tProve;
   const honest = proof.toJSON();
@@ -218,10 +223,9 @@ async function realProofPhase() {
   const tampered = JSON.parse(JSON.stringify(honest));
   tampered.publicOutput[0] = (BigInt(tampered.publicOutput[0]) + 1n).toString();
 
-  await expectRefusedWithoutMutation(
-    '5. a REAL proof with an altered wallet id, roots left matching current state',
-    { proofJson: tampered },
-  );
+  await expectRefusedWithoutMutation('5. a REAL proof with an altered wallet id, roots left matching current state', {
+    proofJson: tampered,
+  });
 
   // And the honest one must be accepted, or the gate is just an outage.
   const before = await snapshot();
@@ -235,7 +239,7 @@ async function realProofPhase() {
     accepted,
     accepted
       ? `receipt ${String((res.result as any)?.receiptId)}, round trip ${submitMs} ms, ` +
-        `wallets ${before.walletCount} -> ${after.walletCount}`
+          `wallets ${before.walletCount} -> ${after.walletCount}`
       : `refused: ${res.error?.message}`,
   );
 }
@@ -270,10 +274,9 @@ async function main() {
     proofJson: envelope([reg, reg, lc, lc, '1', '0', '0'], 'ZmFrZXByb29m'),
   });
 
-  await expectRefusedWithoutMutation(
-    '3. roots that match current state, proof bytes that do not back them',
-    { proofJson: envelope([reg, reg, lc, lc, '0', '0', '0'], Buffer.alloc(64).toString('base64')) },
-  );
+  await expectRefusedWithoutMutation('3. roots that match current state, proof bytes that do not back them', {
+    proofJson: envelope([reg, reg, lc, lc, '0', '0', '0'], Buffer.alloc(64).toString('base64')),
+  });
 
   await expectRefusedWithoutMutation('4. empty envelope', {
     proofJson: envelope([], ''),

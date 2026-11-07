@@ -37,8 +37,12 @@ function standInPool() {
   return {
     isRunning: () => running,
     prove: jest.fn(async () => ({ proofJson: '{"pool":true}', publicOutput: null, proveTimeMs: 1 })),
-    start: () => { running = true; },
-    stop: () => { running = false; },
+    start: () => {
+      running = true;
+    },
+    stop: () => {
+      running = false;
+    },
   };
 }
 
@@ -51,7 +55,9 @@ function bareEngine(compiled: boolean): any {
 }
 
 /** Let a settled start's callbacks run. */
-const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+};
 
 beforeAll(async () => {
   process.env.ZKTRIDENT_FORMULARY_LIMIT = '100';
@@ -60,8 +66,18 @@ beforeAll(async () => {
   const { L2Node } = await import('../src/l2/l2-node.js');
   ({ AdjudicationService } = await import('../src/adjudication/interactive-service.js'));
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-proving-ready' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-proving-ready' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
 });
 
 describe('an engine that has just booted', () => {
@@ -73,7 +89,13 @@ describe('an engine that has just booted', () => {
   test('is not ready while its proof pool starts, even once compiled, and is the moment the pool runs', async () => {
     const pool = standInPool();
     let finishStart!: () => void;
-    const starting = new Promise<void>((resolve) => { finishStart = () => { pool.start(); svc.setProofPool(pool); resolve(); }; });
+    const starting = new Promise<void>((resolve) => {
+      finishStart = () => {
+        pool.start();
+        svc.setProofPool(pool);
+        resolve();
+      };
+    });
     svc.setProofPoolStarting(starting);
     expect(svc.provingReadiness()).toEqual({ ready: false, compiled: false, prover: 'starting' });
     svc.compiled = true;
@@ -94,7 +116,11 @@ describe("the proof pool's start, tracked until it settles", () => {
   test('a start that fails leaves the engine ready to prove inline (the documented fallback)', async () => {
     const e = bareEngine(true);
     let fail!: (err: Error) => void;
-    e.setProofPoolStarting(new Promise<void>((_resolve, reject) => { fail = reject; }));
+    e.setProofPoolStarting(
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
     expect(e.provingReadiness()).toEqual({ ready: false, compiled: true, prover: 'starting' });
     fail(new Error('All proof pool workers failed to compile'));
     await settle();
@@ -119,7 +145,12 @@ describe("the proof pool's start, tracked until it settles", () => {
   test('a pool that stops after it started leaves proofs to prove inline, and the engine says so', async () => {
     const e = bareEngine(true);
     const pool = standInPool();
-    e.setProofPoolStarting(Promise.resolve().then(() => { pool.start(); e.setProofPool(pool); }));
+    e.setProofPoolStarting(
+      Promise.resolve().then(() => {
+        pool.start();
+        e.setProofPool(pool);
+      }),
+    );
     await settle();
     expect(e.provingReadiness().prover).toBe('pool');
     pool.stop();
@@ -129,7 +160,11 @@ describe("the proof pool's start, tracked until it settles", () => {
   test('a second start supersedes the first: the first one settling later changes nothing', async () => {
     const e = bareEngine(true);
     let failFirst!: (err: Error) => void;
-    e.setProofPoolStarting(new Promise<void>((_resolve, reject) => { failFirst = reject; }));
+    e.setProofPoolStarting(
+      new Promise<void>((_resolve, reject) => {
+        failFirst = reject;
+      }),
+    );
     e.setProofPoolStarting(new Promise<void>(() => {})); // still starting
     failFirst(new Error('the first start failed'));
     await settle();
@@ -143,9 +178,18 @@ describe('readiness agrees with what a proof would do', () => {
     const pool = standInPool();
     let finishStart!: () => void;
     e.setProofPool(pool); // the pool object exists but is not running yet
-    e.setProofPoolStarting(new Promise<void>((resolve) => { finishStart = () => { pool.start(); resolve(); }; }));
+    e.setProofPoolStarting(
+      new Promise<void>((resolve) => {
+        finishStart = () => {
+          pool.start();
+          resolve();
+        };
+      }),
+    );
     expect(e.isProvingReady()).toBe(false);
-    const inline = jest.fn(async () => { throw new Error('proved inline'); });
+    const inline = jest.fn(async () => {
+      throw new Error('proved inline');
+    });
     const proof = e.dispatchProof('ProofGate', 'verifyPrescriber', [], [], inline);
     await new Promise((r) => setTimeout(r, 20));
     expect(pool.prove).not.toHaveBeenCalled(); // waiting, as the engine said

@@ -110,9 +110,7 @@ export interface GroupEnrollmentTokenLocalData {
  * Build a GroupEnrollmentToken from raw local data.
  * Hashes all string fields, converts dates and nonce to Fields.
  */
-export function buildGroupEnrollmentToken(
-  local: GroupEnrollmentTokenLocalData,
-): GroupEnrollmentToken {
+export function buildGroupEnrollmentToken(local: GroupEnrollmentTokenLocalData): GroupEnrollmentToken {
   return new GroupEnrollmentToken({
     tokenIdHash: hashString(local.tokenId),
     groupIdHash: hashString(local.groupId),

@@ -79,7 +79,6 @@ const testTransactionHeader: TransactionHeaderLocalData = {
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Layer 0 — ZK Primitives & Data Models', () => {
-
   describe('Hash Utilities', () => {
     test('hashString produces deterministic Field output', () => {
       const h1 = hashString('test');
@@ -249,20 +248,16 @@ describe('Layer 0 — ZK Primitives & Data Models', () => {
 
       // Verify each inclusion
       const memberWitness = forest.getWitness(ForestDomain.MEMBER, 0n);
-      expect(memberWitness.calculateRoot(memberCommitment).toString())
-        .toBe(forest.getTreeRoot(ForestDomain.MEMBER).toString());
+      expect(memberWitness.calculateRoot(memberCommitment).toString()).toBe(forest.getTreeRoot(ForestDomain.MEMBER).toString());
 
       const prescriberWitness = forest.getWitness(ForestDomain.PRESCRIBER, 0n);
-      expect(prescriberWitness.calculateRoot(prescriberCommitment).toString())
-        .toBe(forest.getTreeRoot(ForestDomain.PRESCRIBER).toString());
+      expect(prescriberWitness.calculateRoot(prescriberCommitment).toString()).toBe(forest.getTreeRoot(ForestDomain.PRESCRIBER).toString());
 
       const pharmacyWitness = forest.getWitness(ForestDomain.PHARMACY, 0n);
-      expect(pharmacyWitness.calculateRoot(pharmacyCommitment).toString())
-        .toBe(forest.getTreeRoot(ForestDomain.PHARMACY).toString());
+      expect(pharmacyWitness.calculateRoot(pharmacyCommitment).toString()).toBe(forest.getTreeRoot(ForestDomain.PHARMACY).toString());
 
       const medicationWitness = forest.getWitness(ForestDomain.MEDICATION, 0n);
-      expect(medicationWitness.calculateRoot(medicationCommitment).toString())
-        .toBe(forest.getTreeRoot(ForestDomain.MEDICATION).toString());
+      expect(medicationWitness.calculateRoot(medicationCommitment).toString()).toBe(forest.getTreeRoot(ForestDomain.MEDICATION).toString());
 
       // Forest root should be non-trivial
       const forestRoot = forest.getForestRoot();

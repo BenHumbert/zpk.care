@@ -23,5 +23,7 @@ import { parentPidFromEnv, watchParent } from '../../src/nodes/parent-watchdog.j
 
 const pid = parentPidFromEnv();
 if (!pid) process.exit(2);
-setInterval(() => { /* stay alive with nothing to say */ }, 1_000);
+setInterval(() => {
+  /* stay alive with nothing to say */
+}, 1_000);
 watchParent({ parentPid: pid, intervalMs: 500, onGone: () => process.exit(0) });

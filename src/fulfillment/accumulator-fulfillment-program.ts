@@ -103,30 +103,30 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
      */
     proveFulfillmentWithAccumulator: {
       privateInputs: [
-        CredentialData,                    // prescription credential
+        CredentialData, // prescription credential
         PrescriptionData,
         PrescriptionStatusData,
         FulfillmentData,
         FormularyEntry,
-        ForestRoots,                // prescription forest roots
-        ForestMerkleWitness,        // MEDICATION: prescription at leaf
-        ForestMerkleWitness,        // TRANSACTION: latest status at leaf N
-        ForestMerkleWitness,        // TRANSACTION: new fulfillment slot (empty)
-        FormularyMerkleWitness,     // formulary entry in formulary tree
-        Field,                      // formularyRoot
-        CredentialData,                    // eligibility credential
-        ForestRoots,                // eligibility forest roots
-        AccumulatorData,            // current accumulator state
-        ForestMerkleWitness,        // accumulator in eligibility ACCESS_CONTROL tree
-        Field,                      // H2: pharmacy qualifier
-        Field,                      // H2: pharmacy serviceProviderIdHash
-        Field,                      // H2: pharmacy enrollmentKeyHash
-        Field,                      // B8: family deductible paid before this fill (cents)
-        Field,                      // B8: family out-of-pocket paid before this fill
-        Field,                      // B8: family annual benefit used before this fill
-        Field,                      // B8: family deductible amount (0 = none)
-        Field,                      // B8: family out-of-pocket maximum (0 = none)
-        Field,                      // B8: family annual benefit maximum (0 = none)
+        ForestRoots, // prescription forest roots
+        ForestMerkleWitness, // MEDICATION: prescription at leaf
+        ForestMerkleWitness, // TRANSACTION: latest status at leaf N
+        ForestMerkleWitness, // TRANSACTION: new fulfillment slot (empty)
+        FormularyMerkleWitness, // formulary entry in formulary tree
+        Field, // formularyRoot
+        CredentialData, // eligibility credential
+        ForestRoots, // eligibility forest roots
+        AccumulatorData, // current accumulator state
+        ForestMerkleWitness, // accumulator in eligibility ACCESS_CONTROL tree
+        Field, // H2: pharmacy qualifier
+        Field, // H2: pharmacy serviceProviderIdHash
+        Field, // H2: pharmacy enrollmentKeyHash
+        Field, // B8: family deductible paid before this fill (cents)
+        Field, // B8: family out-of-pocket paid before this fill
+        Field, // B8: family annual benefit used before this fill
+        Field, // B8: family deductible amount (0 = none)
+        Field, // B8: family out-of-pocket maximum (0 = none)
+        Field, // B8: family annual benefit maximum (0 = none)
       ],
       async method(
         credentialData: CredentialData,
@@ -157,10 +157,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         // ── Steps 1-12: Prescription credential validation (same as FulfillmentProgram) ──
 
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -172,66 +169,35 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           pharmacyServiceProviderIdHash,
           pharmacyEnrollmentKeyHash,
         ]);
-        computedPharmacyWalletId.assertEquals(
-          fulfillmentData.pharmacyWalletId,
-          'Pharmacy wallet identity binding failed',
-        );
+        computedPharmacyWalletId.assertEquals(fulfillmentData.pharmacyWalletId, 'Pharmacy wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Latest status in TRANSACTION tree
-        statusWitness
-          .calculateRoot(latestStatus.commitment())
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Status not in TRANSACTION tree',
-          );
+        statusWitness.calculateRoot(latestStatus.commitment()).assertEquals(forestRoots.transactionRoot, 'Status not in TRANSACTION tree');
 
         // 6. Status must be FILLED or PARTIALLY_FILLED
         const isFilled = latestStatus.status.equals(RX_STATUS_FILLED);
         const isPartiallyFilled = latestStatus.status.equals(RX_STATUS_PARTIALLY_FILLED);
-        isFilled.or(isPartiallyFilled).assertTrue(
-          'Prescription must be FILLED or PARTIALLY_FILLED',
-        );
+        isFilled.or(isPartiallyFilled).assertTrue('Prescription must be FILLED or PARTIALLY_FILLED');
 
         // 7. New TRANSACTION slot is empty
-        newSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'New TRANSACTION slot is not empty',
-          );
+        newSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'New TRANSACTION slot is not empty');
 
         // 8. FulfillmentData links to correct prescription
-        fulfillmentData.prescriptionHash.assertEquals(
-          rxCommitment,
-          'Fulfillment prescriptionHash mismatch',
-        );
+        fulfillmentData.prescriptionHash.assertEquals(rxCommitment, 'Fulfillment prescriptionHash mismatch');
 
         // 9. NDC matches prescription
-        fulfillmentData.ndcHash.assertEquals(
-          prescriptionData.ndcHash,
-          'NDC does not match prescription',
-        );
+        fulfillmentData.ndcHash.assertEquals(prescriptionData.ndcHash, 'NDC does not match prescription');
 
         // 10. Quantity within formulary limits
-        fulfillmentData.quantityDispensed
-          .lessThanOrEqual(formularyEntry.maxQuantityPerFill)
-          .assertTrue('Quantity exceeds max per fill');
+        fulfillmentData.quantityDispensed.lessThanOrEqual(formularyEntry.maxQuantityPerFill).assertTrue('Quantity exceeds max per fill');
 
         // 10b. Quantity dispensed must not exceed quantity prescribed (FWA guard)
         fulfillmentData.quantityDispensed
@@ -239,26 +205,15 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           .assertTrue('Quantity dispensed exceeds quantity prescribed');
 
         // 11. Formulary entry in formulary tree
-        formularyWitness
-          .calculateRoot(formularyEntry.commitment())
-          .assertEquals(
-            formularyRoot,
-            'Formulary entry not in formulary tree',
-          );
+        formularyWitness.calculateRoot(formularyEntry.commitment()).assertEquals(formularyRoot, 'Formulary entry not in formulary tree');
 
         // 12. Formulary NDC matches claim NDC
-        formularyEntry.ndcHash.assertEquals(
-          fulfillmentData.ndcHash,
-          'Formulary NDC does not match claim',
-        );
+        formularyEntry.ndcHash.assertEquals(fulfillmentData.ndcHash, 'Formulary NDC does not match claim');
 
         // ── Steps 13-15: Eligibility credential + Accumulator verification ──
 
         // 13. Eligibility credential is ELIGIBILITY type, not revoked
-        eligCredentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Elig credential type must be ELIGIBILITY',
-        );
+        eligCredentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Elig credential type must be ELIGIBILITY');
         eligCredentialData.revoked.assertEquals(Field(0), 'Elig credential is revoked');
 
         // 13b. Prescription patient must match eligibility credential subject (H1 fix).
@@ -270,18 +225,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
 
         // 14. Eligibility forest root integrity
         const eligComputedRoot = eligForestRoots.computeForestRoot();
-        eligComputedRoot.assertEquals(
-          eligCredentialData.forestRoot,
-          'Elig forest root mismatch',
-        );
+        eligComputedRoot.assertEquals(eligCredentialData.forestRoot, 'Elig forest root mismatch');
 
         // 15. Accumulator in eligibility ACCESS_CONTROL tree
         accumulatorWitness
           .calculateRoot(accumulator.commitment())
-          .assertEquals(
-            eligForestRoots.accessControlRoot,
-            'Accumulator not in ACCESS_CONTROL tree',
-          );
+          .assertEquals(eligForestRoots.accessControlRoot, 'Accumulator not in ACCESS_CONTROL tree');
 
         // ── Step 16: Accumulator-aware copay calculation ──
         //
@@ -291,15 +240,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         //   3. Deductible phase → patient pays deductible portion + copay on remainder
         //   4. Normal → patient pays min(total, formulary copay)
 
-        const total = fulfillmentData.ingredientCostCents.add(
-          fulfillmentData.dispensingFeeCents,
-        );
+        const total = fulfillmentData.ingredientCostCents.add(fulfillmentData.dispensingFeeCents);
         const copay = formularyEntry.copayAmountCents;
 
         // ── 16a: Deductible calculation ──
         const hasDeductible = accumulator.deductibleAmountCents.greaterThan(Field(0));
-        const deductibleMet = accumulator.deductiblePaidCents
-          .greaterThanOrEqual(accumulator.deductibleAmountCents);
+        const deductibleMet = accumulator.deductiblePaidCents.greaterThanOrEqual(accumulator.deductibleAmountCents);
         const inDeductiblePhase = hasDeductible.and(deductibleMet.not());
 
         const remainingDeductible = Provable.if(
@@ -309,22 +255,14 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         );
 
         // Deductible portion = min(total, remainingDeductible)
-        const deductiblePay = Provable.if(
-          total.lessThan(remainingDeductible),
-          total,
-          remainingDeductible,
-        );
+        const deductiblePay = Provable.if(total.lessThan(remainingDeductible), total, remainingDeductible);
 
         // Amount remaining after deductible is satisfied
         const afterDeductible = total.sub(deductiblePay);
 
         // ── 16b: Copay on post-deductible amount (C5 fix: split payment) ──
         // When claim straddles deductible boundary, copay applies to the excess
-        const copayOnRemainder = Provable.if(
-          afterDeductible.lessThan(copay),
-          afterDeductible,
-          copay,
-        );
+        const copayOnRemainder = Provable.if(afterDeductible.lessThan(copay), afterDeductible, copay);
 
         // Normal copay (when deductible already met or no deductible)
         const normalPay = Provable.if(total.lessThan(copay), total, copay);
@@ -332,17 +270,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         // Patient base pay:
         //   in deductible phase: deductiblePay + copayOnRemainder
         //   otherwise: normalPay
-        const basePay = Provable.if(
-          inDeductiblePhase,
-          deductiblePay.add(copayOnRemainder),
-          normalPay,
-        );
+        const basePay = Provable.if(inDeductiblePhase, deductiblePay.add(copayOnRemainder), normalPay);
 
         // ── 16c: Benefit maximum mid-claim cap (C2 fix) ──
         const hasBenefitMax = accumulator.annualBenefitMaxCents.greaterThan(Field(0));
         const benefitFullyExhausted = hasBenefitMax.and(
-          accumulator.annualBenefitUsedCents
-            .greaterThanOrEqual(accumulator.annualBenefitMaxCents),
+          accumulator.annualBenefitUsedCents.greaterThanOrEqual(accumulator.annualBenefitMaxCents),
         );
 
         const basePlanPay = total.sub(basePay);
@@ -359,21 +292,14 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         );
 
         // Cap plan pay at remaining benefit
-        const cappedPlanPay = Provable.if(
-          hasBenefitMax.and(basePlanPay.greaterThan(remainingBenefit)),
-          remainingBenefit,
-          basePlanPay,
-        );
+        const cappedPlanPay = Provable.if(hasBenefitMax.and(basePlanPay.greaterThan(remainingBenefit)), remainingBenefit, basePlanPay);
 
         // Patient picks up what plan can't cover
         const postBenefitPay = total.sub(cappedPlanPay);
 
         // ── 16d: OOPM mid-claim cap (C3 fix — ACA requirement) ──
         const hasOopm = accumulator.oopMaxCents.greaterThan(Field(0));
-        const oopFullyMet = hasOopm.and(
-          accumulator.oopPaidCents
-            .greaterThanOrEqual(accumulator.oopMaxCents),
-        );
+        const oopFullyMet = hasOopm.and(accumulator.oopPaidCents.greaterThanOrEqual(accumulator.oopMaxCents));
 
         // Remaining OOPM = OOPM met ? 0 : (has OOPM ? max-paid : unlimited)
         const remainingOopm = Provable.if(
@@ -387,11 +313,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         );
 
         // Cap patient pay at remaining OOPM
-        const individualPatientPay = Provable.if(
-          hasOopm.and(postBenefitPay.greaterThan(remainingOopm)),
-          remainingOopm,
-          postBenefitPay,
-        );
+        const individualPatientPay = Provable.if(hasOopm.and(postBenefitPay.greaterThan(remainingOopm)), remainingOopm, postBenefitPay);
         const individualPlanPay = total.sub(individualPatientPay);
 
         // ── B8 (A-23): family pooling, inside the circuit ──
@@ -402,17 +324,13 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         const hasFamilyOopm = familyOopMaxCents.greaterThan(Field(0));
         const familyOopMet = hasFamilyOopm.and(familyOopPaidCents.greaterThanOrEqual(familyOopMaxCents));
         const hasFamilyBenefitMax = familyBenefitMaxCents.greaterThan(Field(0));
-        const familyBenefitExhausted = hasFamilyBenefitMax.and(
-          familyBenefitUsedCents.greaterThanOrEqual(familyBenefitMaxCents),
-        );
+        const familyBenefitExhausted = hasFamilyBenefitMax.and(familyBenefitUsedCents.greaterThanOrEqual(familyBenefitMaxCents));
         const familyOopRemaining = Provable.if(
           familyOopMet,
           Field(0),
           Provable.if(hasFamilyOopm, familyOopMaxCents.sub(familyOopPaidCents), individualPatientPay),
         );
-        const familyOopCapApplies = hasFamilyOopm
-          .and(familyOopMet.not())
-          .and(individualPatientPay.greaterThan(familyOopRemaining));
+        const familyOopCapApplies = hasFamilyOopm.and(familyOopMet.not()).and(individualPatientPay.greaterThan(familyOopRemaining));
         const familyBenefitRemaining = Provable.if(
           familyBenefitExhausted,
           Field(0),
@@ -457,21 +375,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         // Only the deductible portion counts toward deductiblePaidCents.
         // If OOPM/benefit caps reduced patientPay below deductiblePay,
         // credit = min(deductiblePay, patientPay)
-        const deductibleCredit = Provable.if(
-          patientPay.lessThan(deductiblePay),
-          patientPay,
-          deductiblePay,
-        );
+        const deductibleCredit = Provable.if(patientPay.lessThan(deductiblePay), patientPay, deductiblePay);
 
         // ── Step 17: Settlement commitment (includes deductibleCredit for reversal) ──
 
         const fulfillmentCommitment = fulfillmentData.commitment();
-        const settlementCommitment = Poseidon.hash([
-          fulfillmentCommitment,
-          patientPay,
-          planPay,
-          deductibleCredit,
-        ]);
+        const settlementCommitment = Poseidon.hash([fulfillmentCommitment, patientPay, planPay, deductibleCredit]);
 
         // ── Step 18: Update accumulator (C4 fix: deductibleCredit, not patientPay) ──
 
@@ -487,9 +396,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
 
         // ── Step 19-20: Compute new eligibility roots ──
 
-        const newEligACRoot = accumulatorWitness.calculateRoot(
-          newAccumulatorCommitment,
-        );
+        const newEligACRoot = accumulatorWitness.calculateRoot(newAccumulatorCommitment);
         const newEligForestRoot = Poseidon.hash([
           eligForestRoots.memberRoot,
           eligForestRoots.prescriberRoot,
@@ -541,24 +448,24 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
      */
     proveReversalWithAccumulator: {
       privateInputs: [
-        CredentialData,                    // prescription credential
+        CredentialData, // prescription credential
         PrescriptionData,
-        FulfillmentData,            // original fulfillment
+        FulfillmentData, // original fulfillment
         ReversalData,
-        ForestRoots,                // prescription forest roots
-        ForestMerkleWitness,        // MEDICATION: prescription at leaf
-        ForestMerkleWitness,        // TRANSACTION: settlement commitment at leaf K
-        ForestMerkleWitness,        // TRANSACTION: reversal slot (empty)
-        Field,                      // originalPatientPay
-        Field,                      // originalPlanPay
-        Field,                      // originalDeductibleCredit
-        CredentialData,                    // eligibility credential
-        ForestRoots,                // eligibility forest roots
-        AccumulatorData,            // current accumulator state
-        ForestMerkleWitness,        // accumulator in eligibility ACCESS_CONTROL tree
-        Field,                      // H2: pharmacy qualifier
-        Field,                      // H2: pharmacy serviceProviderIdHash
-        Field,                      // H2: pharmacy enrollmentKeyHash
+        ForestRoots, // prescription forest roots
+        ForestMerkleWitness, // MEDICATION: prescription at leaf
+        ForestMerkleWitness, // TRANSACTION: settlement commitment at leaf K
+        ForestMerkleWitness, // TRANSACTION: reversal slot (empty)
+        Field, // originalPatientPay
+        Field, // originalPlanPay
+        Field, // originalDeductibleCredit
+        CredentialData, // eligibility credential
+        ForestRoots, // eligibility forest roots
+        AccumulatorData, // current accumulator state
+        ForestMerkleWitness, // accumulator in eligibility ACCESS_CONTROL tree
+        Field, // H2: pharmacy qualifier
+        Field, // H2: pharmacy serviceProviderIdHash
+        Field, // H2: pharmacy enrollmentKeyHash
       ],
       async method(
         credentialData: CredentialData,
@@ -583,10 +490,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
         // ── Steps 1-3: Prescription credential validation ──
 
         // 1. Credential type is PRESCRIPTION
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_PRESCRIPTION,
-          'Credential type must be PRESCRIPTION',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_PRESCRIPTION, 'Credential type must be PRESCRIPTION');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -598,73 +502,37 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
           pharmacyServiceProviderIdHash,
           pharmacyEnrollmentKeyHash,
         ]);
-        computedPharmacyWalletId.assertEquals(
-          originalFulfillment.pharmacyWalletId,
-          'Pharmacy wallet identity binding failed',
-        );
+        computedPharmacyWalletId.assertEquals(originalFulfillment.pharmacyWalletId, 'Pharmacy wallet identity binding failed');
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Prescription data in MEDICATION tree
         const rxCommitment = prescriptionData.commitment();
-        medicationWitness
-          .calculateRoot(rxCommitment)
-          .assertEquals(
-            forestRoots.medicationRoot,
-            'Prescription not in MEDICATION tree',
-          );
+        medicationWitness.calculateRoot(rxCommitment).assertEquals(forestRoots.medicationRoot, 'Prescription not in MEDICATION tree');
 
         // 5. Original fulfillment in TRANSACTION tree via SETTLEMENT commitment
         const origCommitment = originalFulfillment.commitment();
-        const origSettlementCommitment = Poseidon.hash([
-          origCommitment,
-          originalPatientPay,
-          originalPlanPay,
-          originalDeductibleCredit,
-        ]);
+        const origSettlementCommitment = Poseidon.hash([origCommitment, originalPatientPay, originalPlanPay, originalDeductibleCredit]);
         fulfillmentWitness
           .calculateRoot(origSettlementCommitment)
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Settlement commitment not in TRANSACTION tree',
-          );
+          .assertEquals(forestRoots.transactionRoot, 'Settlement commitment not in TRANSACTION tree');
 
         // 6. Reversal slot is empty
-        reversalSlotWitness
-          .calculateRoot(Field(0))
-          .assertEquals(
-            forestRoots.transactionRoot,
-            'Reversal slot is not empty',
-          );
+        reversalSlotWitness.calculateRoot(Field(0)).assertEquals(forestRoots.transactionRoot, 'Reversal slot is not empty');
 
         // 7. ReversalData links to correct fulfillment
-        reversalData.fulfillmentHash.assertEquals(
-          origCommitment,
-          'Reversal fulfillmentHash mismatch',
-        );
+        reversalData.fulfillmentHash.assertEquals(origCommitment, 'Reversal fulfillmentHash mismatch');
 
         // 8. Reversal amounts must match original settlement
-        reversalData.patientRefundCents.assertEquals(
-          originalPatientPay,
-          'Patient refund does not match original payment',
-        );
-        reversalData.planRefundCents.assertEquals(
-          originalPlanPay,
-          'Plan refund does not match original payment',
-        );
+        reversalData.patientRefundCents.assertEquals(originalPatientPay, 'Patient refund does not match original payment');
+        reversalData.planRefundCents.assertEquals(originalPlanPay, 'Plan refund does not match original payment');
 
         // ── Steps 9-11: Eligibility credential + Accumulator verification ──
 
         // 9. Eligibility credential is ELIGIBILITY type, not revoked
-        eligCredentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Elig credential type must be ELIGIBILITY',
-        );
+        eligCredentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Elig credential type must be ELIGIBILITY');
         eligCredentialData.revoked.assertEquals(Field(0), 'Elig credential is revoked');
 
         // 9b. Prescription patient must match eligibility credential subject (H1 fix).
@@ -675,18 +543,12 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
 
         // 10. Eligibility forest root integrity
         const eligComputedRoot = eligForestRoots.computeForestRoot();
-        eligComputedRoot.assertEquals(
-          eligCredentialData.forestRoot,
-          'Elig forest root mismatch',
-        );
+        eligComputedRoot.assertEquals(eligCredentialData.forestRoot, 'Elig forest root mismatch');
 
         // 11. Accumulator in eligibility ACCESS_CONTROL tree
         accumulatorWitness
           .calculateRoot(accumulator.commitment())
-          .assertEquals(
-            eligForestRoots.accessControlRoot,
-            'Accumulator not in ACCESS_CONTROL tree',
-          );
+          .assertEquals(eligForestRoots.accessControlRoot, 'Accumulator not in ACCESS_CONTROL tree');
 
         // ── Step 12: Reverse accumulator (C1 fix: safe subtraction, C4 fix: deductibleCredit) ──
 
@@ -719,9 +581,7 @@ export const AccumulatorFulfillmentProgram = ZkProgram({
 
         // ── Step 13-14: Compute new eligibility roots ──
 
-        const newEligACRoot = accumulatorWitness.calculateRoot(
-          newAccumulatorCommitment,
-        );
+        const newEligACRoot = accumulatorWitness.calculateRoot(newAccumulatorCommitment);
         const newEligForestRoot = Poseidon.hash([
           eligForestRoots.memberRoot,
           eligForestRoots.prescriberRoot,

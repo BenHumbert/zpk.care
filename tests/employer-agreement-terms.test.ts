@@ -58,30 +58,53 @@ let seqUrl: string;
 let marketplace: any[];
 let employerAdmin: any[];
 let store: Map<string, any>;
-let att: any;            // src/onboarding/employer-attestation.ts
+let att: any; // src/onboarding/employer-attestation.ts
 let publishedTermsFrom: any;
 let EmployerNode: any;
 let buildEmployerRoutes: any;
 let NautilusAppServer: any;
 const tempDirs: string[] = [];
 
-interface Captured { status: number; payload: any }
+interface Captured {
+  status: number;
+  payload: any;
+}
 async function call(routes: any[], method: string, p: string, params: Record<string, string> = {}, body?: unknown): Promise<Captured> {
   const r = routes.find((x) => x.method === method && x.path === p);
   if (!r) throw new Error(`route not registered: ${method} ${p}`);
   let status = 0;
   let payload: any = {};
   const res = {
-    writeHead(code: number) { status = code; return this; },
-    setHeader() { return this; },
-    end(b?: string) { if (b) { try { payload = JSON.parse(b); } catch { payload = { raw: b }; } } return this; },
-    get writableEnded() { return status !== 0; },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
+    end(b?: string) {
+      if (b) {
+        try {
+          payload = JSON.parse(b);
+        } catch {
+          payload = { raw: b };
+        }
+      }
+      return this;
+    },
+    get writableEnded() {
+      return status !== 0;
+    },
   };
   await r.handler({ url: p, headers: {}, socket: { remoteAddress: '127.0.0.1' } } as any, res as any, params, new URLSearchParams(), body);
   return { status, payload };
 }
 async function rpc(method: string, params: Record<string, unknown>): Promise<any> {
-  const r = await fetch(`${seqUrl}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const r = await fetch(`${seqUrl}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
   return r.json();
 }
 function tempDir(prefix: string): string {
@@ -91,9 +114,22 @@ function tempDir(prefix: string): string {
 }
 
 const planOf = (planId: string, over: Record<string, unknown> = {}) => ({
-  planId, name: `Plan ${planId}`, coverageType: 1, copayAmountCents: 2000, deductibleAmountCents: 50000, oopMaxCents: 780000,
-  annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0,
-  formularyNdcs: ['00378410591'], networkProviderWalletIds: [], published: true, createdAt: 1, updatedAt: 1, ...over,
+  planId,
+  name: `Plan ${planId}`,
+  coverageType: 1,
+  copayAmountCents: 2000,
+  deductibleAmountCents: 50000,
+  oopMaxCents: 780000,
+  annualBenefitMaxCents: 0,
+  familyDeductibleAmountCents: 100000,
+  familyOopMaxCents: 1600000,
+  familyAnnualBenefitMaxCents: 0,
+  formularyNdcs: ['00378410591'],
+  networkProviderWalletIds: [],
+  published: true,
+  createdAt: 1,
+  updatedAt: 1,
+  ...over,
 });
 /** A plan as the insurer publishes it: the record, its published terms and roots. */
 const publishedPlan = (planId: string, over: Record<string, unknown> = {}, root = '111') => {
@@ -105,17 +141,37 @@ const publishedPlan = (planId: string, over: Record<string, unknown> = {}, root 
 async function approvedApplication(employerId: string, selectedPlanIds: string[]) {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyHex = (publicKey.export({ type: 'spki', format: 'der' }) as Buffer).subarray(12).toString('hex');
-  const applied = await call(marketplace, 'POST', '/marketplace/api/apply', {}, {
-    companyName: 'Fernhill Test Works LLC', employerId, contactName: 'Jordan Testcase', contactEmail: 'hr@fernhill.example.test',
-    ein: '00-0000009', state: 'WI', selectedPlanIds, effectiveDate: '2027-01-01', enrollmentCap: 10, publicKeyHex,
-  });
+  const applied = await call(
+    marketplace,
+    'POST',
+    '/marketplace/api/apply',
+    {},
+    {
+      companyName: 'Fernhill Test Works LLC',
+      employerId,
+      contactName: 'Jordan Testcase',
+      contactEmail: 'hr@fernhill.example.test',
+      ein: '00-0000009',
+      state: 'WI',
+      selectedPlanIds,
+      effectiveDate: '2027-01-01',
+      enrollmentCap: 10,
+      publicKeyHex,
+    },
+  );
   expect(applied.status).toBe(201);
   const applicationId = applied.payload.data.applicationId as string;
   store.get(applicationId).status = 'approved';
   const sign = async (agreement: any) => {
     const message = `${agreement.canonicalMessage}|Jordan Testcase|Owner`;
     const employerSignature = crypto.sign(null, Buffer.from(message, 'utf8'), privateKey).toString('hex');
-    return call(marketplace, 'POST', '/marketplace/api/sign/:applicationId', { applicationId }, { employerSignature, signerName: 'Jordan Testcase', signerTitle: 'Owner', reviewedAt: Date.now() });
+    return call(
+      marketplace,
+      'POST',
+      '/marketplace/api/sign/:applicationId',
+      { applicationId },
+      { employerSignature, signerName: 'Jordan Testcase', signerTitle: 'Owner', reviewedAt: Date.now() },
+    );
   };
   return { applicationId, sign };
 }
@@ -131,7 +187,8 @@ beforeAll(async () => {
   const { L2Node } = await import('../src/l2/l2-node.js');
   const { L2RpcServer } = await import('../src/l2/l2-rpc-server.js');
   ({ NautilusAppServer } = await import('../src/nodes/nautilus-app-server.js'));
-  const { buildMarketplaceRoutes, buildEmployerAdminRoutes, getApplicationStore } = await import('../src/nodes/routes/marketplace-routes.js');
+  const { buildMarketplaceRoutes, buildEmployerAdminRoutes, getApplicationStore } =
+    await import('../src/nodes/routes/marketplace-routes.js');
   ({ buildEmployerRoutes } = await import('../src/nodes/routes/employer-routes.js'));
   ({ EmployerNode } = await import('../src/nodes/employer-node.js'));
   const { generateNodeKey } = await import('../src/security/node-roles.js');
@@ -139,10 +196,19 @@ beforeAll(async () => {
   ({ publishedTermsFrom } = await import('../src/l2/plan-terms.js'));
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-agreement-terms' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-agreement-terms' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   const insurerKey = generateNodeKey('insurer-node');
   rpcServer = new L2RpcServer(node, {
-    port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false,
+    port: 0,
+    host: '127.0.0.1',
+    adminToken: OPERATOR,
+    enableSSE: false,
     insurerAttestationPublicKeyHex: att.insurerPublicKeyFromSeed(SIGNING_SEED),
   });
   rpcServer.registerNodeKey(insurerKey.nodeId, insurerKey.publicKeyHex, 'insurer');
@@ -150,9 +216,17 @@ beforeAll(async () => {
   seqUrl = `http://127.0.0.1:${rpcServer.getPort()}`;
 
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: tempDir('agreement-terms-'), enableSSE: false,
-    maxSseConnections: 0, allowedOrigins: [], adminToken: 'insurer-admin-token-for-tests',
-    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex }, insurerSigningSeed: SIGNING_SEED,
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: tempDir('agreement-terms-'),
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'insurer-admin-token-for-tests',
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    insurerSigningSeed: SIGNING_SEED,
   } as any);
   marketplace = buildMarketplaceRoutes(server);
   employerAdmin = buildEmployerAdminRoutes(server);
@@ -160,7 +234,9 @@ beforeAll(async () => {
 
   // PLAN-AGR is published at a $20 copay and no fee of its own, and the insurer is drafting a $5 copay and a $90 fee.
   const live = publishedPlan('PLAN-AGR');
-  expect((await rpc('l2_storePlan', { plan: { ...live, copayAmountCents: 500, dispensingFeeCents: 9000, published: false } })).error).toBeUndefined();
+  expect(
+    (await rpc('l2_storePlan', { plan: { ...live, copayAmountCents: 500, dispensingFeeCents: 9000, published: false } })).error,
+  ).toBeUndefined();
   // PLAN-LEGACY was published before the terms were kept; PLAN-NEVER was never published.
   expect((await rpc('l2_storePlan', { plan: { ...planOf('PLAN-LEGACY'), formularyRoot: '1', networkRoot: '2' } })).error).toBeUndefined();
   expect((await rpc('l2_storePlan', { plan: planOf('PLAN-NEVER', { published: false }) })).error).toBeUndefined();
@@ -168,25 +244,61 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await rpcServer?.stop();
-  for (const dir of tempDirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of tempDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 describe('the agreement terms', () => {
   test('a plan is agreed to at its published terms, with the fee a fill is charged and its formulary root, not at a draft', () => {
     const plan = { ...publishedPlan('PLAN-X'), copayAmountCents: 500, dispensingFeeCents: 9000, published: false };
-    const terms = att.buildAgreementTerms({ applicationId: 'EMPAPP-X', employerId: 'E', companyName: 'C', selectedPlanIds: ['PLAN-X'], effectiveDate: '20270101', enrollmentCap: 10 }, [plan]);
-    expect(terms.selectedPlans).toEqual([{
-      planId: 'PLAN-X', planName: 'Plan PLAN-X', coverageType: 1, copayAmountCents: 2000, deductibleAmountCents: 50000, oopMaxCents: 780000,
-      annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0,
-      dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', formularyRoot: '111', networkRoot: '0',
-    }]);
+    const terms = att.buildAgreementTerms(
+      {
+        applicationId: 'EMPAPP-X',
+        employerId: 'E',
+        companyName: 'C',
+        selectedPlanIds: ['PLAN-X'],
+        effectiveDate: '20270101',
+        enrollmentCap: 10,
+      },
+      [plan],
+    );
+    expect(terms.selectedPlans).toEqual([
+      {
+        planId: 'PLAN-X',
+        planName: 'Plan PLAN-X',
+        coverageType: 1,
+        copayAmountCents: 2000,
+        deductibleAmountCents: 50000,
+        oopMaxCents: 780000,
+        annualBenefitMaxCents: 0,
+        familyDeductibleAmountCents: 100000,
+        familyOopMaxCents: 1600000,
+        familyAnnualBenefitMaxCents: 0,
+        dispensingFeeCents: 1000,
+        dispensingFeeSource: 'network-default',
+        formularyRoot: '111',
+        networkRoot: '0',
+      },
+    ]);
     expect(terms.unavailablePlanIds).toEqual([]);
     expect(terms.termsVersion).toBe('2026.2');
   });
 
   test('a selected plan with no published terms is listed as unavailable, not agreed to', () => {
     const terms = att.buildAgreementTerms(
-      { applicationId: 'EMPAPP-Y', employerId: 'E', companyName: 'C', selectedPlanIds: ['PLAN-X', 'PLAN-LEGACY', 'PLAN-NEVER', 'PLAN-GONE'], effectiveDate: '20270101', enrollmentCap: 10 },
+      {
+        applicationId: 'EMPAPP-Y',
+        employerId: 'E',
+        companyName: 'C',
+        selectedPlanIds: ['PLAN-X', 'PLAN-LEGACY', 'PLAN-NEVER', 'PLAN-GONE'],
+        effectiveDate: '20270101',
+        enrollmentCap: 10,
+      },
       [publishedPlan('PLAN-X'), { ...planOf('PLAN-LEGACY'), formularyRoot: '1' }, planOf('PLAN-NEVER', { published: false })],
     );
     expect(terms.selectedPlans.map((p: any) => p.planId)).toEqual(['PLAN-X']);
@@ -194,26 +306,42 @@ describe('the agreement terms', () => {
   });
 
   test('the commitment changes when a plan is republished with another fee or another formulary', () => {
-    const app = { applicationId: 'EMPAPP-Z', employerId: 'E', companyName: 'C', selectedPlanIds: ['PLAN-X'], effectiveDate: '20270101', enrollmentCap: 10 };
+    const app = {
+      applicationId: 'EMPAPP-Z',
+      employerId: 'E',
+      companyName: 'C',
+      selectedPlanIds: ['PLAN-X'],
+      effectiveDate: '20270101',
+      enrollmentCap: 10,
+    };
     const commit = (plan: unknown) => att.computeAgreementCommitment(att.buildAgreementTerms(app, [plan]));
     const base = commit(publishedPlan('PLAN-X'));
     expect(commit(publishedPlan('PLAN-X'))).toBe(base);
-    expect(commit(publishedPlan('PLAN-X', { dispensingFeeCents: 10000 }))).not.toBe(base);   // a $100 fee
-    expect(commit(publishedPlan('PLAN-X', {}, '222'))).not.toBe(base);                       // another drug list
+    expect(commit(publishedPlan('PLAN-X', { dispensingFeeCents: 10000 }))).not.toBe(base); // a $100 fee
+    expect(commit(publishedPlan('PLAN-X', {}, '222'))).not.toBe(base); // another drug list
     expect(commit({ ...publishedPlan('PLAN-X'), copayAmountCents: 1, published: false })).toBe(base); // a draft is not billed
   });
 
   test('the commitment covers every published term: the family limits, the provider network and the coverage type too', () => {
-    const app = { applicationId: 'EMPAPP-F', employerId: 'E', companyName: 'C', selectedPlanIds: ['PLAN-X'], effectiveDate: '20270101', enrollmentCap: 10 };
+    const app = {
+      applicationId: 'EMPAPP-F',
+      employerId: 'E',
+      companyName: 'C',
+      selectedPlanIds: ['PLAN-X'],
+      effectiveDate: '20270101',
+      enrollmentCap: 10,
+    };
     const commit = (plan: unknown) => att.computeAgreementCommitment(att.buildAgreementTerms(app, [plan]));
     const base = commit(publishedPlan('PLAN-X'));
     // the fill circuit pools a family against the family OOP max and annual max (B8), so each changes what members pay
-    expect(commit(publishedPlan('PLAN-X', { familyOopMaxCents: 400000 }))).not.toBe(base);          // before: equal
+    expect(commit(publishedPlan('PLAN-X', { familyOopMaxCents: 400000 }))).not.toBe(base); // before: equal
     expect(commit(publishedPlan('PLAN-X', { familyAnnualBenefitMaxCents: 2500000 }))).not.toBe(base); // before: equal
-    expect(commit(publishedPlan('PLAN-X', { familyDeductibleAmountCents: 50000 }))).not.toBe(base);   // before: equal
-    expect(commit(publishedPlan('PLAN-X', { coverageType: 2 }))).not.toBe(base);                      // before: equal
+    expect(commit(publishedPlan('PLAN-X', { familyDeductibleAmountCents: 50000 }))).not.toBe(base); // before: equal
+    expect(commit(publishedPlan('PLAN-X', { coverageType: 2 }))).not.toBe(base); // before: equal
     const narrowed = planOf('PLAN-X', { networkProviderWalletIds: ['42'] });
-    expect(commit({ ...narrowed, formularyRoot: '111', networkRoot: '999', publishedTerms: publishedTermsFrom(narrowed, '111', '999', 1) })).not.toBe(base); // before: equal
+    expect(
+      commit({ ...narrowed, formularyRoot: '111', networkRoot: '999', publishedTerms: publishedTermsFrom(narrowed, '111', '999', 1) }),
+    ).not.toBe(base); // before: equal
   });
 
   /** An attestation as signed before 2026.2: its commitment covered each plan's copay, deductible, OOP max and annual max. */
@@ -222,39 +350,87 @@ describe('the agreement terms', () => {
     const { hashString, dateToField } = await import('../src/zkp/hash-utils.js');
     const planFinancials = `${plan.planId}:${plan.copayAmountCents}:${plan.deductibleAmountCents}:${plan.oopMaxCents}:${plan.annualBenefitMaxCents}`;
     const agreementCommitment = Poseidon.hash([
-      hashString(`AGR-${applicationId}`), hashString('E'), hashString(planFinancials), F(BigInt(10)), dateToField('20270101'), hashString('2026.1'),
+      hashString(`AGR-${applicationId}`),
+      hashString('E'),
+      hashString(planFinancials),
+      F(BigInt(10)),
+      dateToField('20270101'),
+      hashString('2026.1'),
     ]).toString();
-    return { applicationId, employerId: 'E', authorizedPlanIds: [plan.planId], enrollmentCap: 10, effectiveDate: '20270101', agreementCommitment };
+    return {
+      applicationId,
+      employerId: 'E',
+      authorizedPlanIds: [plan.planId],
+      enrollmentCap: 10,
+      effectiveDate: '20270101',
+      agreementCommitment,
+    };
   }
 
   test('an attestation signed before 2026.2 whose terms are unchanged is signed before full terms, not a terms change', async () => {
     const signedOver = await legacyAttestation(planOf('PLAN-X'), 'EMPAPP-OLD');
-    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X')])).toMatchObject({ termsChanged: false, signedBeforeFullTerms: true }); // before: termsChanged true
+    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X')])).toMatchObject({
+      termsChanged: false,
+      signedBeforeFullTerms: true,
+    }); // before: termsChanged true
     // what it did not cover may change without making it a terms change: it never committed to the fee
-    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { dispensingFeeCents: 1250 })])).toMatchObject({ termsChanged: false, signedBeforeFullTerms: true });
+    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { dispensingFeeCents: 1250 })])).toMatchObject({
+      termsChanged: false,
+      signedBeforeFullTerms: true,
+    });
     // what it covered changing is a terms change
-    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { copayAmountCents: 2500 })])).toMatchObject({ termsChanged: true, signedBeforeFullTerms: false });
+    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { copayAmountCents: 2500 })])).toMatchObject({
+      termsChanged: true,
+      signedBeforeFullTerms: false,
+    });
   });
 
   test('an attestation over the current terms is current, and never counted as signed before full terms', () => {
-    const app = { applicationId: 'EMPAPP-NEW', employerId: 'E', companyName: 'C', selectedPlanIds: ['PLAN-X'], effectiveDate: '20270101', enrollmentCap: 10 };
+    const app = {
+      applicationId: 'EMPAPP-NEW',
+      employerId: 'E',
+      companyName: 'C',
+      selectedPlanIds: ['PLAN-X'],
+      effectiveDate: '20270101',
+      enrollmentCap: 10,
+    };
     const agreementCommitment = att.computeAgreementCommitment(att.buildAgreementTerms(app, [publishedPlan('PLAN-X')]));
-    const signedOver = { applicationId: 'EMPAPP-NEW', employerId: 'E', authorizedPlanIds: ['PLAN-X'], enrollmentCap: 10, effectiveDate: '20270101', agreementCommitment };
-    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X')])).toMatchObject({ termsChanged: false, signedBeforeFullTerms: false });
-    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { familyOopMaxCents: 400000 })])).toMatchObject({ termsChanged: true, signedBeforeFullTerms: false });
+    const signedOver = {
+      applicationId: 'EMPAPP-NEW',
+      employerId: 'E',
+      authorizedPlanIds: ['PLAN-X'],
+      enrollmentCap: 10,
+      effectiveDate: '20270101',
+      agreementCommitment,
+    };
+    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X')])).toMatchObject({
+      termsChanged: false,
+      signedBeforeFullTerms: false,
+    });
+    expect(att.attestationTermsStatus(signedOver, [publishedPlan('PLAN-X', { familyOopMaxCents: 400000 })])).toMatchObject({
+      termsChanged: true,
+      signedBeforeFullTerms: false,
+    });
   });
 
   test('the signed document states the family limits and the network, and that a plan published later needs a new signature', async () => {
     const terms = att.buildAgreementTerms(
-      { applicationId: 'EMPAPP-DOC', employerId: 'E', companyName: 'Fernhill Test Works LLC', selectedPlanIds: ['PLAN-X', 'PLAN-NEVER'], effectiveDate: '20270101', enrollmentCap: 10 },
+      {
+        applicationId: 'EMPAPP-DOC',
+        employerId: 'E',
+        companyName: 'Fernhill Test Works LLC',
+        selectedPlanIds: ['PLAN-X', 'PLAN-NEVER'],
+        effectiveDate: '20270101',
+        enrollmentCap: 10,
+      },
       [publishedPlan('PLAN-X', { familyAnnualBenefitMaxCents: 2500000 }), planOf('PLAN-NEVER', { published: false })],
     );
     const docx = await att.generateAgreementDocx(terms, '1', 'ab', 'cd', 'ef', 'a'.repeat(64), 'Jordan Testcase', 'Owner');
     const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml')!.async('string');
     const text = xml.replace(/<[^>]+>/g, '');
     expect(text).toContain('Family OOP Max');
-    expect(text).toContain('$16000.00');                       // the family OOP max
-    expect(text).toContain('$25000.00');                       // the family annual max
+    expect(text).toContain('$16000.00'); // the family OOP max
+    expect(text).toContain('$25000.00'); // the family annual max
     expect(text).toContain('Published provider network root for Plan PLAN-X');
     expect(text).toContain('A plan published later is covered only under a new Agreement that the Employer signs');
     expect(text).not.toContain('until the Insurer publishes them');
@@ -273,15 +449,25 @@ describe('signing, a terms change, and signing the new terms', () => {
   test('the marketplace offers only plans with published terms, at those terms', async () => {
     const r = await call(marketplace, 'GET', '/marketplace/api/plans');
     const offered = r.payload.data as any[];
-    expect(offered.map((p) => p.planId)).toEqual(['PLAN-AGR']);   // not the legacy plan, not the draft-only plan
+    expect(offered.map((p) => p.planId)).toEqual(['PLAN-AGR']); // not the legacy plan, not the draft-only plan
     expect(offered[0]).toMatchObject({ copayAmountCents: 2000, dispensingFeeCents: null, formularyRoot: '111', published: true });
-    expect((await call(marketplace, 'GET', '/marketplace/api/plans/:planId', { planId: 'PLAN-AGR' })).payload.data.copayAmountCents).toBe(2000);
+    expect((await call(marketplace, 'GET', '/marketplace/api/plans/:planId', { planId: 'PLAN-AGR' })).payload.data.copayAmountCents).toBe(
+      2000,
+    );
     expect((await call(marketplace, 'GET', '/marketplace/api/plans/:planId', { planId: 'PLAN-NEVER' })).status).toBe(404);
   });
 
   test('the agreement states the published terms, the fee and the formulary, and lists the unpublished plan', async () => {
     const a = await agreementFor(applicationId);
-    expect(a.terms.selectedPlans).toEqual([expect.objectContaining({ planId: 'PLAN-AGR', copayAmountCents: 2000, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', formularyRoot: '111' })]);
+    expect(a.terms.selectedPlans).toEqual([
+      expect.objectContaining({
+        planId: 'PLAN-AGR',
+        copayAmountCents: 2000,
+        dispensingFeeCents: 1000,
+        dispensingFeeSource: 'network-default',
+        formularyRoot: '111',
+      }),
+    ]);
     expect(a.terms.unavailablePlanIds).toEqual(['PLAN-NEVER']);
     expect(a.commitment).toBe(att.computeAgreementCommitment(a.terms));
     expect(a.signedAttestation).toBeNull();
@@ -293,13 +479,19 @@ describe('signing, a terms change, and signing the new terms', () => {
     const registered = (await rpc('l2_getEmployerAttestation', { employerId })).result;
     expect(registered).toMatchObject({ attestationSeq: 0, agreementCommitment: a.commitment });
     // the plans the agreement covers, not the unpublished plan it lists as unavailable
-    expect(registered.authorizedPlanIds).toEqual(['PLAN-AGR']);   // before: ['PLAN-AGR', 'PLAN-NEVER']
+    expect(registered.authorizedPlanIds).toEqual(['PLAN-AGR']); // before: ['PLAN-AGR', 'PLAN-NEVER']
     expect(store.get(applicationId).authorizedPlanIds).toEqual(['PLAN-AGR']);
   });
 
   test('while the published terms are unchanged, the signed attestation is current everywhere', async () => {
     const a = await agreementFor(applicationId);
-    expect(a.signedAttestation).toEqual({ attestationSeq: 0, signedAt: expect.any(Number), termsChanged: false, signedBeforeFullTerms: false, plansToAdd: [] });
+    expect(a.signedAttestation).toEqual({
+      attestationSeq: 0,
+      signedAt: expect.any(Number),
+      termsChanged: false,
+      signedBeforeFullTerms: false,
+      plansToAdd: [],
+    });
     expect(a.attestationSeq).toBe(1);
     const apps = (await call(employerAdmin, 'GET', '/employer-applications')).payload.data as any[];
     expect(apps.find((x) => x.applicationId === applicationId)).toMatchObject({ termsChanged: false, signedBeforeFullTerms: false });
@@ -323,16 +515,32 @@ describe('signing, a terms change, and signing the new terms', () => {
     const client = employer.getClient();
     const readPlans = client.getPlans.bind(client);
     let planReads = 0;
-    client.getPlans = async () => { planReads++; return readPlans(); };
+    client.getPlans = async () => {
+      planReads++;
+      return readPlans();
+    };
     expect(await employer.attestationTermsStatus()).toEqual({ termsChanged: true, signedBeforeFullTerms: false, unavailablePlanIds: [] });
     const tenant = new NautilusAppServer({
-      role: 'employer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: tempDir('agreement-employer-'), enableSSE: false,
-      maxSseConnections: 0, allowedOrigins: [], adminToken: 'employer-admin-token-for-tests',
+      role: 'employer',
+      port: 0,
+      host: '127.0.0.1',
+      sequencerUrl: seqUrl,
+      stateDir: tempDir('agreement-employer-'),
+      enableSSE: false,
+      maxSseConnections: 0,
+      allowedOrigins: [],
+      adminToken: 'employer-admin-token-for-tests',
     } as any);
     tenant.setEntityNode(employer);
     const employerRoutes = buildEmployerRoutes(tenant);
     const status = await call(employerRoutes, 'GET', '/attestation');
-    expect(status.payload.data).toMatchObject({ loaded: true, attestationSeq: 0, termsChanged: true, signedBeforeFullTerms: false, unavailablePlanIds: [] });
+    expect(status.payload.data).toMatchObject({
+      loaded: true,
+      attestationSeq: 0,
+      termsChanged: true,
+      signedBeforeFullTerms: false,
+      unavailablePlanIds: [],
+    });
     await Promise.all([1, 2, 3].map(() => call(employerRoutes, 'GET', '/attestation')));
     expect(planReads).toBe(1);
     // and it offers the plans with published terms, at those terms
@@ -387,14 +595,19 @@ describe('a plan the agreement did not cover, published after the employer signe
     expect((await rpc('l2_storePlan', { plan: publishedPlan('PLAN-LATER', { dispensingFeeCents: 10000 }, '333') })).error).toBeUndefined();
     const employer = new EmployerNode({ role: 'employer', sequencerUrl: seqUrl, employerId, displayName: 'Fernhill' });
     employer.setAttestation(registered);
-    expect(employer.isPlanAuthorized('PLAN-LATER')).toBe(false);   // before: true, at terms never signed
+    expect(employer.isPlanAuthorized('PLAN-LATER')).toBe(false); // before: true, at terms never signed
     expect(() => employer.createGroup('GRP-LATER', 'PLAN-LATER', '20270101')).toThrow(/not authorized/);
     expect(employer.isPlanAuthorized('PLAN-AGR')).toBe(true);
   });
 
   test('the agreement route offers it to sign as the next attestation, and signing it admits it', async () => {
     const a = await agreementFor(applicationId);
-    expect(a.signedAttestation).toMatchObject({ attestationSeq: 0, termsChanged: false, signedBeforeFullTerms: false, plansToAdd: ['PLAN-LATER'] });
+    expect(a.signedAttestation).toMatchObject({
+      attestationSeq: 0,
+      termsChanged: false,
+      signedBeforeFullTerms: false,
+      plansToAdd: ['PLAN-LATER'],
+    });
     expect(a.terms.selectedPlans.map((p: any) => p.planId)).toEqual(['PLAN-AGR', 'PLAN-LATER']);
     expect(a.terms.selectedPlans[1]).toMatchObject({ dispensingFeeCents: 10000, dispensingFeeSource: 'plan', formularyRoot: '333' });
     expect(a.canonicalMessage).toContain('|PLAN-AGR,PLAN-LATER|');

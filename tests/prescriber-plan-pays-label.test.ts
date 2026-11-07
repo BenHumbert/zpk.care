@@ -52,13 +52,21 @@ function liftVar(name: string): string {
   const end = APP.indexOf(NL + '  };' + NL, at);
   return APP.slice(at + 1, end + 5);
 }
-const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escHtml = (s: unknown): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 const WALLET = '79000000000000000001';
 /** The card for a patient's own quote; a helper the fix added is absent from the page before it. */
 function card(quote: Record<string, unknown>, esc: (s: unknown) => string = escHtml): string {
-  const pieces = [liftVar('PHASE_LABELS'), liftVar('PA_LABELS'),
-    ...['memberPaysLabel', 'planPaysLabel', 'coverageLine', 'priorAuthBlock', 'estimateCardHtml'].filter(has).map(lift)];
+  const pieces = [
+    liftVar('PHASE_LABELS'),
+    liftVar('PA_LABELS'),
+    ...['memberPaysLabel', 'planPaysLabel', 'coverageLine', 'priorAuthBlock', 'estimateCardHtml'].filter(has).map(lift),
+  ];
   const estimateCardHtml = new Function('esc', `'use strict';\n${pieces.join(NL)}\nreturn estimateCardHtml;`)(esc);
   return estimateCardHtml(quote, WALLET, null, 30).html;
 }
@@ -71,40 +79,96 @@ function planTile(html: string): { amount: string; line: string } {
 
 // Standard Rx 2026: $500 deductible, $7,800 OOP max, $100,000 annual benefit max, $10 copay
 const accumulator = (paid: Partial<AccumulatorAmounts> = {}): AccumulatorAmounts => ({
-  deductibleAmountCents: 50000, deductiblePaidCents: 0, oopMaxCents: 780000, oopPaidCents: 0,
-  annualBenefitMaxCents: 10000000, annualBenefitUsedCents: 0, ...paid,
+  deductibleAmountCents: 50000,
+  deductiblePaidCents: 0,
+  oopMaxCents: 780000,
+  oopPaidCents: 0,
+  annualBenefitMaxCents: 10000000,
+  annualBenefitUsedCents: 0,
+  ...paid,
 });
 /** l2_estimateCost for ALLOPURINOL x 30 EA, its total and split as the engine makes them for these accumulators. */
 function quote(totalCostCents: number, paid: Partial<AccumulatorAmounts>) {
   const split = splitClaimCost({ totalCostCents, copayCents: 1000, accumulator: accumulator(paid) });
   return {
-    covered: true, drugName: 'ALLOPURINOL', ndcHash: '1111', nadacPerUnit: 0.0394, pricingUnit: 'EA', quantity: 30, tierLevel: 1,
-    ingredientCostCents: totalCostCents - 1300, dispensingFeeCents: 1300, dispensingFeeSource: 'plan', totalCostCents,
-    copayAmountCents: 1000, copayBasis: 'plan', phase: split.phase, memberPayCents: split.patientPayCents, employerPayCents: split.planPayCents,
-    priorAuthRequired: false, stepTherapyRequired: false, maxQuantityPerFill: 90,
+    covered: true,
+    drugName: 'ALLOPURINOL',
+    ndcHash: '1111',
+    nadacPerUnit: 0.0394,
+    pricingUnit: 'EA',
+    quantity: 30,
+    tierLevel: 1,
+    ingredientCostCents: totalCostCents - 1300,
+    dispensingFeeCents: 1300,
+    dispensingFeeSource: 'plan',
+    totalCostCents,
+    copayAmountCents: 1000,
+    copayBasis: 'plan',
+    phase: split.phase,
+    memberPayCents: split.patientPayCents,
+    employerPayCents: split.planPayCents,
+    priorAuthRequired: false,
+    stepTherapyRequired: false,
+    maxQuantityPerFill: 90,
   };
 }
 
 describe('the Plan Pays tile says what the plan pays', () => {
   test('in the deductible phase, with the whole fill hers, it says the plan pays nothing yet', () => {
-    const q = quote(1418, {});                                         // the walkthrough's fill: $14.18, deductible not met
+    const q = quote(1418, {}); // the walkthrough's fill: $14.18, deductible not met
     expect([q.phase, q.memberPayCents, q.employerPayCents]).toEqual(['deductible', 1418, 0]);
     const tile = planTile(card(q));
-    expect(tile).toEqual({ amount: '$0.00', line: 'Deductible phase: the plan pays nothing yet' });   // before: Plan covers remainder
+    expect(tile).toEqual({ amount: '$0.00', line: 'Deductible phase: the plan pays nothing yet' }); // before: Plan covers remainder
   });
 
   test.each([
-    ['a fill that finishes the deductible', 7159750, { deductiblePaidCents: 2000 }, 'deductible', 'The rest, after the deductible and the copay'],
+    [
+      'a fill that finishes the deductible',
+      7159750,
+      { deductiblePaidCents: 2000 },
+      'deductible',
+      'The rest, after the deductible and the copay',
+    ],
     ['the copay phase, the total over the copay', 1418, { deductiblePaidCents: 50000 }, 'copay', 'The rest, after the copay'],
-    ['the copay phase, the total within the copay', 800, { deductiblePaidCents: 50000 }, 'copay', 'Total within the copay: the plan pays nothing'],
-    ['the out-of-pocket max met before the fill', 1418, { deductiblePaidCents: 50000, oopPaidCents: 780000 }, 'oop-max-reached', 'Out-of-pocket max reached: the plan pays it all'],
-    ['the out-of-pocket max reached by the fill', 1418, { deductiblePaidCents: 50000, oopPaidCents: 779700 }, 'oop-max-reached', 'The rest, past the out-of-pocket max'],
-    ['the annual benefit max used up', 1418, { deductiblePaidCents: 50000, annualBenefitUsedCents: 10000000 }, 'benefit-max-reached', 'Annual benefit max reached: the plan pays nothing more'],
-    ['the annual benefit max nearly used', 1418, { deductiblePaidCents: 50000, annualBenefitUsedCents: 9999800 }, 'benefit-max-reached', 'What is left of the annual benefit max'],
+    [
+      'the copay phase, the total within the copay',
+      800,
+      { deductiblePaidCents: 50000 },
+      'copay',
+      'Total within the copay: the plan pays nothing',
+    ],
+    [
+      'the out-of-pocket max met before the fill',
+      1418,
+      { deductiblePaidCents: 50000, oopPaidCents: 780000 },
+      'oop-max-reached',
+      'Out-of-pocket max reached: the plan pays it all',
+    ],
+    [
+      'the out-of-pocket max reached by the fill',
+      1418,
+      { deductiblePaidCents: 50000, oopPaidCents: 779700 },
+      'oop-max-reached',
+      'The rest, past the out-of-pocket max',
+    ],
+    [
+      'the annual benefit max used up',
+      1418,
+      { deductiblePaidCents: 50000, annualBenefitUsedCents: 10000000 },
+      'benefit-max-reached',
+      'Annual benefit max reached: the plan pays nothing more',
+    ],
+    [
+      'the annual benefit max nearly used',
+      1418,
+      { deductiblePaidCents: 50000, annualBenefitUsedCents: 9999800 },
+      'benefit-max-reached',
+      'What is left of the annual benefit max',
+    ],
   ])('%s', (_case, total, paid, phase, line) => {
     const q = quote(total as number, paid as Partial<AccumulatorAmounts>);
     expect(q.phase).toBe(phase);
-    expect(planTile(card(q)).line).toBe(line);                        // before: Plan covers remainder, whatever the split
+    expect(planTile(card(q)).line).toBe(line); // before: Plan covers remainder, whatever the split
   });
 
   test('the plan never "covers the remainder" of a fill it pays nothing of', () => {

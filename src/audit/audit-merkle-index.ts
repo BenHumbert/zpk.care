@@ -139,9 +139,7 @@ export class AuditMerkleIndex {
    */
   getSelectiveWitness(eventIndex: bigint): SelectiveWitnessResult {
     if (eventIndex >= this.nextLeafIndex) {
-      throw new Error(
-        `Event index ${eventIndex} out of range (${this.nextLeafIndex} events stored)`,
-      );
+      throw new Error(`Event index ${eventIndex} out of range (${this.nextLeafIndex} events stored)`);
     }
 
     const commitment = this.eventCommitments.get(eventIndex);
@@ -168,11 +166,7 @@ export class AuditMerkleIndex {
    * and a commitment, verify that the commitment is included in the
    * tree with the expected root — without knowing any other leaves.
    */
-  static verifySelectiveWitness(
-    witness: AuditEventWitness,
-    eventCommitment: Field,
-    expectedRoot: Field,
-  ): boolean {
+  static verifySelectiveWitness(witness: AuditEventWitness, eventCommitment: Field, expectedRoot: Field): boolean {
     const computedRoot = witness.calculateRoot(eventCommitment);
     return computedRoot.equals(expectedRoot).toBoolean();
   }

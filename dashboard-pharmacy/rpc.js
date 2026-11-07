@@ -28,7 +28,11 @@ function errMsg(e) {
   if (typeof e.message === 'string') return e.message;
   if (typeof e.error === 'string') return e.error;
   if (e.error && typeof e.error.message === 'string') return e.error.message;
-  try { return JSON.stringify(e); } catch (_) { return String(e); }
+  try {
+    return JSON.stringify(e);
+  } catch (_) {
+    return String(e);
+  }
 }
 
 async function request(method, path, body, headers) {
@@ -43,7 +47,10 @@ async function request(method, path, body, headers) {
   const res = await fetch(url, opts);
   if (!res.ok) {
     let msg = 'HTTP ' + res.status;
-    try { const j = await res.json(); msg = (j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : '')) || msg; } catch {}
+    try {
+      const j = await res.json();
+      msg = (j.error != null ? errMsg(j.error) : typeof j.message === 'string' ? j.message : '') || msg;
+    } catch {}
     const err = new Error(msg);
     err.status = res.status;
     throw err;
@@ -77,17 +84,19 @@ function stripBigints(obj) {
   return obj;
 }
 
-function get(path, headers) { return request('GET', path, undefined, headers); }
+function get(path, headers) {
+  return request('GET', path, undefined, headers);
+}
 
 // D1: the member's attestation from the last scan this node verified. Kept in memory only, never in
 // browser storage. The DUR reads present it as X-Member-Attestation, and only for the wallet it names.
 let lastTap = null;
 function tapHeader(memberWalletId) {
-  return lastTap && lastTap.w === memberWalletId
-    ? { 'X-Member-Attestation': btoa(JSON.stringify(lastTap)) }
-    : undefined;
+  return lastTap && lastTap.w === memberWalletId ? { 'X-Member-Attestation': btoa(JSON.stringify(lastTap)) } : undefined;
 }
-function post(path, body) { return request('POST', path, body); }
+function post(path, body) {
+  return request('POST', path, body);
+}
 
 // ── SSE Connection ────────────────────────────────────────────
 
@@ -114,7 +123,7 @@ class SSEConnection {
   onEvent(fn) {
     this.listeners.push(fn);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== fn);
+      this.listeners = this.listeners.filter((l) => l !== fn);
     };
   }
 }
@@ -122,7 +131,6 @@ class SSEConnection {
 // ── API Object ────────────────────────────────────────────────
 
 const API = {
-
   // ── Health ──────────────────────────────────────────────────
   health() {
     return get('/health');
@@ -168,7 +176,9 @@ const API = {
 
   // ── Prescriptions (server-side state from sequencer) ──────
   prescriptions: {
-    list() { return get('/prescriptions/list'); },
+    list() {
+      return get('/prescriptions/list');
+    },
   },
 
   // ── Dispensing ─────────────────────────────────────────────

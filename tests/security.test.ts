@@ -65,7 +65,6 @@ function freshPharmacy(): PharmacyLocalData {
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Security — PHI/PII Scrubbing', () => {
-
   describe('scrubObject', () => {
     test('zeroes all string properties', () => {
       const obj: Record<string, unknown> = { name: 'John Doe', id: 'SSN-123' };
@@ -113,10 +112,7 @@ describe('Security — PHI/PII Scrubbing', () => {
 
   describe('scrubArray', () => {
     test('scrubs all elements and empties the array', () => {
-      const arr: unknown[] = [
-        { name: 'John' },
-        { name: 'Jane' },
-      ];
+      const arr: unknown[] = [{ name: 'John' }, { name: 'Jane' }];
       scrubArray(arr);
       expect(arr).toHaveLength(0);
     });
@@ -125,7 +121,12 @@ describe('Security — PHI/PII Scrubbing', () => {
   describe('secureMemberDerivation — PHI/PII + enrollment key wipe', () => {
     test('returns valid wallet ID', () => {
       const memberData = freshMember();
-      const expectedId = deriveMemberWalletId(freshMember(), TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: freshMember() }));
+      const expectedId = deriveMemberWalletId(
+        freshMember(),
+        TEST_ENROLLMENT_KEY,
+        Field(0),
+        fixtureIdentitySalt({ localData: freshMember() }),
+      );
 
       const result = secureMemberDerivation(memberData, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: memberData }));
       expect(result.walletId.toString()).toBe(expectedId.toString());
@@ -289,8 +290,7 @@ describe('Security — PHI/PII Scrubbing', () => {
     test('wrong PIN fails decryption', () => {
       const key = generateEnrollmentKey();
       const backup = exportEnrollmentBackup(key, TEST_PIN, TEST_WALLET_ID, 0);
-      expect(() => importEnrollmentBackup(backup, 'wrong-pin-99'))
-        .toThrow('Decryption failed');
+      expect(() => importEnrollmentBackup(backup, 'wrong-pin-99')).toThrow('Decryption failed');
     });
 
     test('each export produces unique salt and IV', () => {
@@ -310,24 +310,20 @@ describe('Security — PHI/PII Scrubbing', () => {
 
     test('rejects PIN shorter than minimum', () => {
       const key = generateEnrollmentKey();
-      expect(() => exportEnrollmentBackup(key, '123', TEST_WALLET_ID, 0))
-        .toThrow(`at least ${MIN_PIN_LENGTH}`);
+      expect(() => exportEnrollmentBackup(key, '123', TEST_WALLET_ID, 0)).toThrow(`at least ${MIN_PIN_LENGTH}`);
     });
 
     test('tampered ciphertext fails', () => {
       const key = generateEnrollmentKey();
       const backup = exportEnrollmentBackup(key, TEST_PIN, TEST_WALLET_ID, 0);
       const tampered = { ...backup, encryptedKey: 'ff' + backup.encryptedKey.slice(2) };
-      expect(() => importEnrollmentBackup(tampered, TEST_PIN))
-        .toThrow('Decryption failed');
+      expect(() => importEnrollmentBackup(tampered, TEST_PIN)).toThrow('Decryption failed');
     });
 
     test('multiple backups of same key all recover correctly', () => {
       const key = generateEnrollmentKey();
       const pins = ['backup-pin-001!', 'backup-pin-002!', 'backup-pin-003!'];
-      const backups = pins.map(pin =>
-        exportEnrollmentBackup(key, pin, TEST_WALLET_ID, 0),
-      );
+      const backups = pins.map((pin) => exportEnrollmentBackup(key, pin, TEST_WALLET_ID, 0));
       for (let i = 0; i < backups.length; i++) {
         expect(importEnrollmentBackup(backups[i], pins[i])).toBe(key);
       }

@@ -16,10 +16,7 @@
 
 import { Field, MerkleTree } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
-import {
-  WalletRegistry,
-  WalletState,
-} from '../wallets/wallet-state.js';
+import { WalletRegistry, WalletState } from '../wallets/wallet-state.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
 import { CredentialInventory } from '../credentials/credential-inventory.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
@@ -84,11 +81,7 @@ export class PrescriptionService {
   private store: ILocalStore;
   private registry: WalletRegistry;
 
-  constructor(
-    store: ILocalStore,
-    registry: WalletRegistry,
-    lifecycleTree: MerkleTree,
-  ) {
+  constructor(store: ILocalStore, registry: WalletRegistry, lifecycleTree: MerkleTree) {
     this.store = store;
     this.registry = registry;
   }
@@ -121,11 +114,7 @@ export class PrescriptionService {
     isEmergency: boolean = false,
   ): { credentialData: CredentialData; initialStatus: PrescriptionStatusData } {
     // Insert prescription commitment into MEDICATION tree
-    forest.setLeaf(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-      prescriptionData.commitment(),
-    );
+    forest.setLeaf(ForestDomain.MEDICATION, rxLeafIndex, prescriptionData.commitment());
 
     // Build initial ACTIVE status entry at TRANSACTION leaf 0
     const initialStatus = new PrescriptionStatusData({
@@ -139,11 +128,7 @@ export class PrescriptionService {
     });
 
     // Insert initial status into TRANSACTION tree at index 0
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      0n,
-      initialStatus.commitment(),
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, 0n, initialStatus.commitment());
 
     const credentialData = new CredentialData({
       credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
@@ -170,8 +155,7 @@ export class PrescriptionService {
     pharmacyInventory: CredentialInventory,
   ): { credentialIndex: bigint; newInventoryRoot: Field; newRegistryRoot: Field } {
     // Insert credential into pharmacy's inventory
-    const { index: credentialIndex, newRoot: newInventoryRoot } =
-      pharmacyInventory.mint(credentialData);
+    const { index: credentialIndex, newRoot: newInventoryRoot } = pharmacyInventory.mint(credentialData);
 
     // Update wallet registry with new inventory root
     const oldState = this.registry.getState(pharmacyWalletId);
@@ -221,20 +205,22 @@ export class PrescriptionService {
     );
 
     // 2. Mint into pharmacy's inventory
-    const { credentialIndex, newInventoryRoot, newRegistryRoot } =
-      this.mintPrescriptionToPharmacy(
-        pharmacyWalletId,
-        credentialData,
-        pharmacyInventory,
-      );
+    const { credentialIndex, newInventoryRoot, newRegistryRoot } = this.mintPrescriptionToPharmacy(
+      pharmacyWalletId,
+      credentialData,
+      pharmacyInventory,
+    );
 
     // 3. Store proof metadata
     const proofId = `rx-issue-${credentialIndex}-${Date.now()}`;
-    await this.store.saveProof(proofId, JSON.stringify({
-      credentialIndex: credentialIndex.toString(),
-      prescriberWalletId: prescriberWalletId.toString(),
-      pharmacyWalletId: pharmacyWalletId.toString(),
-    }));
+    await this.store.saveProof(
+      proofId,
+      JSON.stringify({
+        credentialIndex: credentialIndex.toString(),
+        prescriberWalletId: prescriberWalletId.toString(),
+        pharmacyWalletId: pharmacyWalletId.toString(),
+      }),
+    );
 
     return {
       credentialData,
@@ -285,26 +271,15 @@ export class PrescriptionService {
     const oldStatusVal = BigInt(oldStatus.status.toString());
     const newStatusVal = BigInt(newStatus.status.toString());
     if (!isValidStatusTransition(oldStatusVal, newStatusVal)) {
-      throw new Error(
-        `Invalid status transition: ${oldStatusVal} → ${newStatusVal}`,
-      );
+      throw new Error(`Invalid status transition: ${oldStatusVal} → ${newStatusVal}`);
     }
 
     // Build witnesses BEFORE mutating the forest
     const forestRoots = ForestRoots.fromForest(forest);
-    const medicationWitness = forest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const oldStatusWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      currentStatusIndex,
-    );
+    const medicationWitness = forest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const oldStatusWitness = forest.getWitness(ForestDomain.TRANSACTION, currentStatusIndex);
     const newSlotIndex = currentStatusIndex + 1n;
-    const newSlotWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      newSlotIndex,
-    );
+    const newSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, newSlotIndex);
 
     // Generate ZK proof
     const result = await PrescriptionProgram.proveStatusUpdate(
@@ -322,11 +297,7 @@ export class PrescriptionService {
     );
 
     // Update TRANSACTION tree
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      newSlotIndex,
-      newStatus.commitment(),
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, newSlotIndex, newStatus.commitment());
 
     // Create new CredentialData with updated forestRoot
     const newCredentialData = new CredentialData({
@@ -340,10 +311,7 @@ export class PrescriptionService {
     });
 
     // Replace credential in inventory (same slot)
-    const newInventoryRoot = pharmacyInventory.updateCredential(
-      credentialSlotIndex,
-      newCredentialData,
-    );
+    const newInventoryRoot = pharmacyInventory.updateCredential(credentialSlotIndex, newCredentialData);
 
     // Update wallet registry
     const oldState = this.registry.getState(pharmacyWalletId);
@@ -398,19 +366,10 @@ export class PrescriptionService {
   ): Promise<TransferResult> {
     // Build witnesses BEFORE mutating
     const forestRoots = ForestRoots.fromForest(forest);
-    const medicationWitness = forest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const oldStatusWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      currentStatusIndex,
-    );
+    const medicationWitness = forest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const oldStatusWitness = forest.getWitness(ForestDomain.TRANSACTION, currentStatusIndex);
     const transferSlotIndex = currentStatusIndex + 1n;
-    const transferSlotWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      transferSlotIndex,
-    );
+    const transferSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, transferSlotIndex);
 
     // Generate transfer proof
     const result = await PrescriptionProgram.proveTransfer(
@@ -429,11 +388,7 @@ export class PrescriptionService {
     );
 
     // Update source forest with TRANSFERRED status
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      transferSlotIndex,
-      transferStatus.commitment(),
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, transferSlotIndex, transferStatus.commitment());
 
     // Remove credential from source inventory
     const sourceNewInventoryRoot = sourceInventory.removeCredential(sourceCredentialSlotIndex);
@@ -463,11 +418,7 @@ export class PrescriptionService {
       fillQuantity: Field(0),
       notesHash: Field(0),
     });
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      destActiveStatusIndex,
-      destActiveStatus.commitment(),
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, destActiveStatusIndex, destActiveStatus.commitment());
 
     // Create new CredentialData for dest pharmacy
     const destCredentialData = new CredentialData({
@@ -481,8 +432,7 @@ export class PrescriptionService {
     });
 
     // Mint into dest inventory
-    const { index: destCredentialIndex, newRoot: destNewInventoryRoot } =
-      destInventory.mint(destCredentialData);
+    const { index: destCredentialIndex, newRoot: destNewInventoryRoot } = destInventory.mint(destCredentialData);
 
     // Update dest wallet registry
     const destOldState = this.registry.getState(destPharmacyWalletId);

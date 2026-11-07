@@ -30,12 +30,54 @@ import path from 'path';
 
 export const SAMPLE_EMPLOYER = { company: 'Fernhill Tool Works (fictional)', ein: '00-4417321', state: 'WI' };
 
-export const SAMPLE_ROSTER: ReadonlyArray<Record<'employee_id' | 'family_id' | 'first_name' | 'last_name' | 'dob' | 'email' | 'mobile', string>> = [
-  { employee_id: 'FTW-001', family_id: 'FAM-01', first_name: 'Avery', last_name: 'Quillfeather', dob: '19870412', email: 'avery.quillfeather@example.test', mobile: '+1 608 555 0101' },
-  { employee_id: 'FTW-002', family_id: 'FAM-01', first_name: 'Rowan', last_name: 'Quillfeather', dob: '19890930', email: '', mobile: '+1 608 555 0102' },
-  { employee_id: 'FTW-003', family_id: 'FAM-02', first_name: 'Jordan', last_name: 'Okafor-Lind', dob: '19750203', email: '', mobile: '+1 608 555 0103' },
-  { employee_id: 'FTW-004', family_id: 'FAM-03', first_name: 'Sam', last_name: 'Delacroix-Hale', dob: '19920718', email: '', mobile: '+1 608 555 0104' },
-  { employee_id: 'FTW-005', family_id: 'FAM-04', first_name: 'Kai', last_name: 'Brennwald', dob: '20010111', email: '', mobile: '+1 608 555 0105' },
+export const SAMPLE_ROSTER: ReadonlyArray<
+  Record<'employee_id' | 'family_id' | 'first_name' | 'last_name' | 'dob' | 'email' | 'mobile', string>
+> = [
+  {
+    employee_id: 'FTW-001',
+    family_id: 'FAM-01',
+    first_name: 'Avery',
+    last_name: 'Quillfeather',
+    dob: '19870412',
+    email: 'avery.quillfeather@example.test',
+    mobile: '+1 608 555 0101',
+  },
+  {
+    employee_id: 'FTW-002',
+    family_id: 'FAM-01',
+    first_name: 'Rowan',
+    last_name: 'Quillfeather',
+    dob: '19890930',
+    email: '',
+    mobile: '+1 608 555 0102',
+  },
+  {
+    employee_id: 'FTW-003',
+    family_id: 'FAM-02',
+    first_name: 'Jordan',
+    last_name: 'Okafor-Lind',
+    dob: '19750203',
+    email: '',
+    mobile: '+1 608 555 0103',
+  },
+  {
+    employee_id: 'FTW-004',
+    family_id: 'FAM-03',
+    first_name: 'Sam',
+    last_name: 'Delacroix-Hale',
+    dob: '19920718',
+    email: '',
+    mobile: '+1 608 555 0104',
+  },
+  {
+    employee_id: 'FTW-005',
+    family_id: 'FAM-04',
+    first_name: 'Kai',
+    last_name: 'Brennwald',
+    dob: '20010111',
+    email: '',
+    mobile: '+1 608 555 0105',
+  },
 ];
 
 const csvCell = (v: string): string => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);

@@ -51,12 +51,26 @@ function standInService() {
       calls.push(opts);
       if (opts.prescriberWalletId === '9999') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
       const hours = opts.hours ?? 24;
-      return { memberWalletId: opts.walletId, prescriberWalletId: opts.prescriberWalletId, ndcHash: opts.ndcHash ?? null, grantedAt: 1000, expiresAt: 1000 + hours * 3_600_000 };
+      return {
+        memberWalletId: opts.walletId,
+        prescriberWalletId: opts.prescriberWalletId,
+        ndcHash: opts.ndcHash ?? null,
+        grantedAt: 1000,
+        expiresAt: 1000 + hours * 3_600_000,
+      };
     },
-    getState() { return { compiled: true, enrolledMembers: [] }; },
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
     __calls: calls,
   };
-  return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`); return undefined; } });
+  return new Proxy(svc, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`);
+      return undefined;
+    },
+  });
 }
 
 let server: L2RpcServer;
@@ -68,34 +82,61 @@ async function post(body: unknown, headers: Record<string, string> = {}) {
   const text = JSON.stringify(body);
   const r = await fetch(url + P, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: text });
   let json: any = null;
-  try { json = await r.json(); } catch { json = null; }
+  try {
+    json = await r.json();
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
-const asWallet = (ek: string, walletId: string, body: unknown) => signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: P, body: JSON.stringify(body) });
+const asWallet = (ek: string, walletId: string, body: unknown) =>
+  signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: P, body: JSON.stringify(body) });
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-consent-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-consent-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
   service = standInService();
   registerInteractiveRoutes(server, service as any);
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
-  for (const [who, wallet] of [['alice', W.alice], ['bob', W.bob]] as const) {
-    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params: { walletId: wallet, displayName: who, type: 'member', signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex } });
-    const headers = signRequest({ signerId: memberNode.nodeId, privateKey: privateKeyFromSeedHex(memberNode.seedHex), method: 'POST', path: '/rpc', body });
+  for (const [who, wallet] of [
+    ['alice', W.alice],
+    ['bob', W.bob],
+  ] as const) {
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_registerEntity',
+      params: { walletId: wallet, displayName: who, type: 'member', signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex },
+    });
+    const headers = signRequest({
+      signerId: memberNode.nodeId,
+      privateKey: privateKeyFromSeedHex(memberNode.seedHex),
+      method: 'POST',
+      path: '/rpc',
+      body,
+    });
     const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
-    const j = await r.json() as any;
+    const j = (await r.json()) as any;
     if (j.error) throw new Error(`fixture registration failed: ${j.error.message}`);
   }
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
 describe('POST /interactive/prescriber-authorization', () => {
   const good = { walletId: W.alice, prescriberWalletId: W.drP, ndcHash: '777', hours: 2 };
 
-  test('takes only the named wallet\'s signature', async () => {
+  test("takes only the named wallet's signature", async () => {
     expect((await post(good)).status).toBe(401);
     expect((await post(good, { Authorization: `Bearer ${OPERATOR}` })).status).toBe(401);
     expect((await post(good, asWallet(EK.bob, W.bob, good))).status).toBe(401);
@@ -104,7 +145,7 @@ describe('POST /interactive/prescriber-authorization', () => {
     expect(service.__calls).toHaveLength(0);
   });
 
-  test('validates its body, passes the engine\'s refusal through, and hands the service what the device sent', async () => {
+  test("validates its body, passes the engine's refusal through, and hands the service what the device sent", async () => {
     const missing = { walletId: W.alice };
     const r400 = await post(missing, asWallet(EK.alice, W.alice, missing));
     expect(r400.status).toBe(400);
@@ -125,11 +166,14 @@ describe('POST /interactive/prescriber-authorization', () => {
   });
 });
 
-describe('the engine\'s prescribing and dispensing paths', () => {
+describe("the engine's prescribing and dispensing paths", () => {
   const src = fs.readFileSync('src/adjudication/interactive-service.ts', 'utf8');
 
   test('createPrescription refuses a terminated member, then requires the PCP or a device authorization, before any record is made', () => {
-    const fn = src.slice(src.indexOf('  async createPrescription('), src.indexOf('this.pendingPrescriptions.set(pendingRxId', src.indexOf('  async createPrescription(')));
+    const fn = src.slice(
+      src.indexOf('  async createPrescription('),
+      src.indexOf('this.pendingPrescriptions.set(pendingRxId', src.indexOf('  async createPrescription(')),
+    );
     const lifecycle = fn.indexOf('refuseUnlessLedgerBillable(');
     const consent = fn.indexOf("is not this member's primary-care prescriber and holds no authorization");
     expect(lifecycle).toBeGreaterThan(0);

@@ -85,9 +85,7 @@ export function generateIdentitySalt(): string {
  */
 export function validateEnrollmentKey(key: string): void {
   if (!key || key.length < MIN_ENROLLMENT_KEY_LENGTH) {
-    throw new Error(
-      `Enrollment key must be at least ${MIN_ENROLLMENT_KEY_LENGTH} characters (got ${key?.length ?? 0})`,
-    );
+    throw new Error(`Enrollment key must be at least ${MIN_ENROLLMENT_KEY_LENGTH} characters (got ${key?.length ?? 0})`);
   }
 
   let classes = 0;
@@ -97,19 +95,16 @@ export function validateEnrollmentKey(key: string): void {
   if (/[^a-zA-Z0-9]/.test(key)) classes++;
 
   if (classes < 3) {
-    throw new Error(
-      'Enrollment key must contain at least 3 of 4 character classes: ' +
-      'uppercase, lowercase, digits, symbols',
-    );
+    throw new Error('Enrollment key must contain at least 3 of 4 character classes: ' + 'uppercase, lowercase, digits, symbols');
   }
 }
 
 // ─── Domain Tags & Derivation ───────────────────────────
 
 /** Domain tags — prevent identity collisions across entity types */
-export const DOMAIN_TAG_MEMBER         = Field(0);
-export const DOMAIN_TAG_PRESCRIBER     = Field(1);
-export const DOMAIN_TAG_PHARMACY       = Field(2);
+export const DOMAIN_TAG_MEMBER = Field(0);
+export const DOMAIN_TAG_PRESCRIBER = Field(1);
+export const DOMAIN_TAG_PHARMACY = Field(2);
 export const DOMAIN_TAG_REPRESENTATIVE = Field(3);
 
 /**
@@ -168,11 +163,7 @@ export function derivePrescriberWalletId(local: PrescriberLocalData, enrollmentK
  * Compute the prescriber wallet identity preimage Fields.
  */
 export function prescriberWalletPreimage(local: PrescriberLocalData, enrollmentKey: string): Field[] {
-  return [
-    codeToField(local.prescriberIdQualifier),
-    hashString(local.prescriberId),
-    hashString(enrollmentKey),
-  ];
+  return [codeToField(local.prescriberIdQualifier), hashString(local.prescriberId), hashString(enrollmentKey)];
 }
 
 /**
@@ -194,11 +185,7 @@ export function derivePharmacyWalletId(local: PharmacyLocalData, enrollmentKey: 
  * Compute the pharmacy wallet identity preimage Fields.
  */
 export function pharmacyWalletPreimage(local: PharmacyLocalData, enrollmentKey: string): Field[] {
-  return [
-    codeToField(local.serviceProviderIdQualifier),
-    hashString(local.serviceProviderId),
-    hashString(enrollmentKey),
-  ];
+  return [codeToField(local.serviceProviderIdQualifier), hashString(local.serviceProviderId), hashString(enrollmentKey)];
 }
 
 // ─── Representative (AOR) ───────────────────────────────
@@ -222,10 +209,7 @@ export interface RepresentativeLocalData {
  *
  * Preimage: [3, codeToField(qualifier), hash(representativeId), hash(enrollmentKey)]
  */
-export function deriveRepresentativeWalletId(
-  local: RepresentativeLocalData,
-  enrollmentKey: string,
-): Field {
+export function deriveRepresentativeWalletId(local: RepresentativeLocalData, enrollmentKey: string): Field {
   validateEnrollmentKey(enrollmentKey);
   return Poseidon.hash([
     DOMAIN_TAG_REPRESENTATIVE,
@@ -238,15 +222,8 @@ export function deriveRepresentativeWalletId(
 /**
  * Compute the representative wallet identity preimage Fields.
  */
-export function representativeWalletPreimage(
-  local: RepresentativeLocalData,
-  enrollmentKey: string,
-): Field[] {
-  return [
-    codeToField(local.representativeIdQualifier),
-    hashString(local.representativeId),
-    hashString(enrollmentKey),
-  ];
+export function representativeWalletPreimage(local: RepresentativeLocalData, enrollmentKey: string): Field[] {
+  return [codeToField(local.representativeIdQualifier), hashString(local.representativeId), hashString(enrollmentKey)];
 }
 
 // ─── Padded Preimage Helpers (for StateTransitionProgram) ─────

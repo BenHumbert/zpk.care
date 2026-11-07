@@ -95,9 +95,7 @@ export interface RecoveryCard {
 /**
  * Discriminate between v1 EnrollmentBackup and v2 RecoveryCard.
  */
-export function isRecoveryCard(
-  backup: EnrollmentBackup | RecoveryCard,
-): backup is RecoveryCard {
+export function isRecoveryCard(backup: EnrollmentBackup | RecoveryCard): backup is RecoveryCard {
   return backup.version === 2;
 }
 
@@ -143,10 +141,7 @@ export function exportRecoveryCard(
 
   try {
     const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(enrollmentKey, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(enrollmentKey, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     return {
@@ -186,13 +181,8 @@ export function importRecoveryCard(card: RecoveryCard, pin: string): string {
   const iv = Buffer.from(card.iv, 'hex');
   const encryptedWithTag = Buffer.from(card.encryptedKey, 'hex');
 
-  const ciphertext = encryptedWithTag.subarray(
-    0,
-    encryptedWithTag.length - AUTH_TAG_LENGTH,
-  );
-  const authTag = encryptedWithTag.subarray(
-    encryptedWithTag.length - AUTH_TAG_LENGTH,
-  );
+  const ciphertext = encryptedWithTag.subarray(0, encryptedWithTag.length - AUTH_TAG_LENGTH);
+  const authTag = encryptedWithTag.subarray(encryptedWithTag.length - AUTH_TAG_LENGTH);
 
   const derivedKey = scryptSync(pin, salt, SCRYPT_KEY_LENGTH, {
     N: SCRYPT_N,
@@ -206,10 +196,7 @@ export function importRecoveryCard(card: RecoveryCard, pin: string): string {
     decipher.setAuthTag(authTag);
 
     try {
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return decrypted.toString('utf8');
     } catch {
       throw new Error('Decryption failed — wrong PIN or corrupted recovery card');
@@ -232,9 +219,7 @@ export function estimateRecoveryCardSize(card: RecoveryCard): number {
 
 function validatePin(pin: string): void {
   if (!pin || pin.length < MIN_PIN_LENGTH) {
-    throw new Error(
-      `PIN must be at least ${MIN_PIN_LENGTH} characters (got ${pin?.length ?? 0})`,
-    );
+    throw new Error(`PIN must be at least ${MIN_PIN_LENGTH} characters (got ${pin?.length ?? 0})`);
   }
 }
 
@@ -276,9 +261,15 @@ export const RECOVERY_PIN_MAX_LENGTH = 32;
 export function isRecoveryCardV3(value: unknown): value is RecoveryCardV3 {
   if (!value || typeof value !== 'object') return false;
   const c = value as Record<string, unknown>;
-  return c.v === 3
-    && typeof c.id === 'string' && /^[0-9a-f]{16}$/i.test(c.id)
-    && typeof c.s === 'string' && /^[0-9a-f]+$/i.test(c.s) && c.s.length % 2 === 0 && c.s.length >= 32;
+  return (
+    c.v === 3 &&
+    typeof c.id === 'string' &&
+    /^[0-9a-f]{16}$/i.test(c.id) &&
+    typeof c.s === 'string' &&
+    /^[0-9a-f]+$/i.test(c.s) &&
+    c.s.length % 2 === 0 &&
+    c.s.length >= 32
+  );
 }
 
 export function validateRecoveryPin(pin: unknown): asserts pin is string {
@@ -288,7 +279,10 @@ export function validateRecoveryPin(pin: unknown): asserts pin is string {
 }
 
 /** Split the enrollment key for one card. Each call makes an independent pair. */
-export function splitEnrollmentKey(enrollmentKey: string, rng: (n: number) => Buffer = randomBytes): { card: RecoveryCardV3; share2Hex: string } {
+export function splitEnrollmentKey(
+  enrollmentKey: string,
+  rng: (n: number) => Buffer = randomBytes,
+): { card: RecoveryCardV3; share2Hex: string } {
   const keyBytes = Buffer.from(enrollmentKey, 'utf8');
   if (keyBytes.length < 16) throw new Error('splitEnrollmentKey: the enrollment key is too short to be real');
   const share1 = rng(keyBytes.length);
@@ -314,7 +308,10 @@ export function combineEnrollmentKey(card: RecoveryCardV3, share2Hex: string): s
 export function recoveryPinVerifier(pin: string, cardId: string): string {
   validateRecoveryPin(pin);
   const derived = scryptSync(pin, Buffer.from('zpk.care/recovery-pin/v1\n' + cardId, 'utf8'), SCRYPT_KEY_LENGTH, {
-    N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: SCRYPT_MAXMEM,
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM,
   });
   try {
     return derived.toString('hex');

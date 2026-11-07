@@ -113,7 +113,13 @@ const PROXY = ['127.0.0.1'];
 
 const dirs: string[] = [];
 afterAll(() => {
-  for (const dir of dirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of dirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 /**
@@ -124,9 +130,18 @@ function nodeFor(role: 'insurer' | 'employer', over: Partial<NautilusAppConfig> 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'caller-address-'));
   dirs.push(dir);
   return new NautilusAppServer({
-    role, port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-caller-tests',
-    publicHosts: [], trustedProxies: [], ...over,
+    role,
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'admin-token-for-caller-tests',
+    publicHosts: [],
+    trustedProxies: [],
+    ...over,
   } as NautilusAppConfig);
 }
 
@@ -136,7 +151,11 @@ function from(remoteAddress: string | undefined, forwardedFor?: string) {
 }
 type StandIn = ReturnType<typeof from>;
 
-interface Answer { status: number; retryAfter: string | undefined; error: string | undefined }
+interface Answer {
+  status: number;
+  retryAfter: string | undefined;
+  error: string | undefined;
+}
 
 /** Calls `route`'s handler as the server does once it has parsed the body, with a stand-in response; returns the answer. */
 async function call(route: RouteRegistration, req: StandIn, body?: unknown, params: Record<string, string> = {}): Promise<Answer> {
@@ -144,10 +163,21 @@ async function call(route: RouteRegistration, req: StandIn, body?: unknown, para
   let text = '';
   const headers: Record<string, string> = {};
   const res = {
-    get writableEnded() { return status !== 0; },
-    setHeader(name: string, value: string) { headers[name.toLowerCase()] = value; return this; },
-    writeHead(code: number) { status = code; return this; },
-    end(chunk?: string) { text = chunk ?? ''; return this; },
+    get writableEnded() {
+      return status !== 0;
+    },
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = value;
+      return this;
+    },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    end(chunk?: string) {
+      text = chunk ?? '';
+      return this;
+    },
   };
   await route.handler(req as unknown as IncomingMessage, res as unknown as ServerResponse, params, new URLSearchParams(), body);
   return { status, retryAfter: headers['retry-after'], error: text ? (JSON.parse(text) as { error?: string }).error : undefined };
@@ -180,15 +210,24 @@ function withCheckDigit(nine: string): string {
 }
 let nextNine = 300_000_000;
 /** An application as a prescriber's office fills it in, under an NPI no other application in this file has used. */
-const application = (): Record<string, unknown> =>
-  ({ providerType: 'prescriber', npi: withCheckDigit(String(nextNine++)), displayName: 'Dr. Avery Quill, MD' });
+const application = (): Record<string, unknown> => ({
+  providerType: 'prescriber',
+  npi: withCheckDigit(String(nextNine++)),
+  displayName: 'Dr. Avery Quill, MD',
+});
 
 let employers = 0;
 /** An application as an employer fills it in on the marketplace, under an employerId no other application here has used. */
 const employerApplication = (): Record<string, unknown> => ({
-  companyName: 'Fernhill Test Works LLC', employerId: `CALLER-${++employers}`, contactName: 'Jordan Testcase',
-  contactEmail: 'hr@fernhill.example.test', state: 'WI', selectedPlanIds: ['PLAN-TEST-1'], effectiveDate: '2027-01-01',
-  enrollmentCap: 10, publicKeyHex: 'a'.repeat(64),
+  companyName: 'Fernhill Test Works LLC',
+  employerId: `CALLER-${++employers}`,
+  contactName: 'Jordan Testcase',
+  contactEmail: 'hr@fernhill.example.test',
+  state: 'WI',
+  selectedPlanIds: ['PLAN-TEST-1'],
+  effectiveDate: '2027-01-01',
+  enrollmentCap: 10,
+  publicKeyHex: 'a'.repeat(64),
 });
 
 // ── The functions ──────────────────────────────────────────
@@ -202,14 +241,18 @@ describe('resolveTrustedProxies: the reverse proxies whose X-Forwarded-For a nod
   });
 
   test('an IPv6 address, however it is written, in the form RFC 5952 gives it', () => {
-    expect(resolveTrustedProxies({ ZKTRIDENT_TRUSTED_PROXIES: '::1, 2001:0DB8:0000:0000:0000:0000:0000:0010, FE80::1%eth0' }))
-      .toEqual(['::1', '2001:db8::10', 'fe80::1%eth0']);
+    expect(resolveTrustedProxies({ ZKTRIDENT_TRUSTED_PROXIES: '::1, 2001:0DB8:0000:0000:0000:0000:0000:0010, FE80::1%eth0' })).toEqual([
+      '::1',
+      '2001:db8::10',
+      'fe80::1%eth0',
+    ]);
   });
 
   test('an entry that is not one IP address is refused, naming the variable and the entry', () => {
     for (const entry of ['proxy.internal', 'localhost', '10.0.0.0/8', '127.0.0.1:8080', '[::1]', '127.0.0.01', '2001:db8::1::2']) {
-      expect(() => resolveTrustedProxies({ ZKTRIDENT_TRUSTED_PROXIES: `127.0.0.1, ${entry}` }))
-        .toThrow(`ZKTRIDENT_TRUSTED_PROXIES: "${entry}" is not an IP address`);
+      expect(() => resolveTrustedProxies({ ZKTRIDENT_TRUSTED_PROXIES: `127.0.0.1, ${entry}` })).toThrow(
+        `ZKTRIDENT_TRUSTED_PROXIES: "${entry}" is not an IP address`,
+      );
     }
   });
 
@@ -217,8 +260,9 @@ describe('resolveTrustedProxies: the reverse proxies whose X-Forwarded-For a nod
     const saved = process.env.ZKTRIDENT_TRUSTED_PROXIES;
     process.env.ZKTRIDENT_TRUSTED_PROXIES = '127.0.0.1, proxy.internal';
     try {
-      expect(() => nodeFor('insurer', { trustedProxies: undefined }))
-        .toThrow('ZKTRIDENT_TRUSTED_PROXIES: "proxy.internal" is not an IP address');   // before: the node started, and read no proxy's header
+      expect(() => nodeFor('insurer', { trustedProxies: undefined })).toThrow(
+        'ZKTRIDENT_TRUSTED_PROXIES: "proxy.internal" is not an IP address',
+      ); // before: the node started, and read no proxy's header
     } finally {
       if (saved === undefined) delete process.env.ZKTRIDENT_TRUSTED_PROXIES;
       else process.env.ZKTRIDENT_TRUSTED_PROXIES = saved;
@@ -242,7 +286,7 @@ describe('normalizeAddress: one text for each address', () => {
 });
 
 describe('clientAddress: the client a request speaks for', () => {
-  test('from a socket that is not a trusted proxy, the socket\'s address as given, whatever X-Forwarded-For says', () => {
+  test("from a socket that is not a trusted proxy, the socket's address as given, whatever X-Forwarded-For says", () => {
     expect(clientAddress('192.0.2.50', '198.51.100.7', PROXY)).toBe('192.0.2.50');
     expect(clientAddress('127.0.0.1', '198.51.100.7', [])).toBe('127.0.0.1');
     expect(clientAddress('::ffff:192.0.2.50', '198.51.100.7', PROXY)).toBe('::ffff:192.0.2.50');
@@ -250,37 +294,37 @@ describe('clientAddress: the client a request speaks for', () => {
   });
 
   test('from a trusted proxy, the address it appended: the only entry, or the rightmost of several', () => {
-    expect(clientAddress('127.0.0.1', '198.51.100.7', PROXY)).toBe('198.51.100.7');                  // before: 127.0.0.1, nothing read the header
-    expect(clientAddress('127.0.0.1', '203.0.113.9, 198.51.100.7', PROXY)).toBe('198.51.100.7');     // before: 127.0.0.1
-    expect(clientAddress('127.0.0.1', ' 203.0.113.9 ,198.51.100.7 ', PROXY)).toBe('198.51.100.7');   // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '198.51.100.7', PROXY)).toBe('198.51.100.7'); // before: 127.0.0.1, nothing read the header
+    expect(clientAddress('127.0.0.1', '203.0.113.9, 198.51.100.7', PROXY)).toBe('198.51.100.7'); // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', ' 203.0.113.9 ,198.51.100.7 ', PROXY)).toBe('198.51.100.7'); // before: 127.0.0.1
     expect(clientAddress('127.0.0.1', undefined, PROXY)).toBe('127.0.0.1');
     expect(clientAddress('127.0.0.1', '', PROXY)).toBe('127.0.0.1');
   });
 
   test('a chain of trusted proxies is walked to the first address that is not one of them', () => {
     const chain = ['127.0.0.1', '10.0.0.2', '10.0.0.3'];
-    expect(clientAddress('127.0.0.1', '203.0.113.9, 198.51.100.7, 10.0.0.3, 10.0.0.2', chain)).toBe('198.51.100.7');   // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '203.0.113.9, 198.51.100.7, 10.0.0.3, 10.0.0.2', chain)).toBe('198.51.100.7'); // before: 127.0.0.1
     // A proxy no one listed is a client like any other, and a request whose every entry is a listed proxy is the leftmost's.
-    expect(clientAddress('127.0.0.1', '198.51.100.7, 10.0.0.2', PROXY)).toBe('10.0.0.2');            // before: 127.0.0.1
-    expect(clientAddress('127.0.0.1', '10.0.0.3, 10.0.0.2', chain)).toBe('10.0.0.3');                // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '198.51.100.7, 10.0.0.2', PROXY)).toBe('10.0.0.2'); // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '10.0.0.3, 10.0.0.2', chain)).toBe('10.0.0.3'); // before: 127.0.0.1
   });
 
-  test('an entry that is not an IP address stops the walk, and the request is the last trusted hop\'s', () => {
+  test("an entry that is not an IP address stops the walk, and the request is the last trusted hop's", () => {
     for (const header of ['unknown', '198.51.100.7, unknown', '198.51.100.7:51234', '[2001:db8::7]', '198.51.100.7, ', 'client.example']) {
       expect([header, clientAddress('127.0.0.1', header, PROXY)]).toEqual([header, '127.0.0.1']);
     }
     const chain = ['127.0.0.1', '10.0.0.2'];
-    expect(clientAddress('127.0.0.1', '198.51.100.7, client.example, 10.0.0.2', chain)).toBe('10.0.0.2');   // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '198.51.100.7, client.example, 10.0.0.2', chain)).toBe('10.0.0.2'); // before: 127.0.0.1
   });
 
   test('IPv6 in any text form, a proxy listed by IPv6 or reported as an IPv4-mapped address, and a header sent twice', () => {
-    expect(clientAddress('127.0.0.1', '2001:0DB8:85A3:0:0:0:0:7', PROXY)).toBe('2001:db8:85a3::7');  // before: 127.0.0.1
-    expect(clientAddress('127.0.0.1', '::ffff:198.51.100.7', PROXY)).toBe('198.51.100.7');           // before: 127.0.0.1
-    expect(clientAddress('127.0.0.1', 'fe80::7%eth0', PROXY)).toBe('fe80::7%eth0');                  // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '2001:0DB8:85A3:0:0:0:0:7', PROXY)).toBe('2001:db8:85a3::7'); // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', '::ffff:198.51.100.7', PROXY)).toBe('198.51.100.7'); // before: 127.0.0.1
+    expect(clientAddress('127.0.0.1', 'fe80::7%eth0', PROXY)).toBe('fe80::7%eth0'); // before: 127.0.0.1
     // A listener bound to both families reports an IPv4 proxy as ::ffff:127.0.0.1.
-    expect(clientAddress('::ffff:127.0.0.1', '198.51.100.7', PROXY)).toBe('198.51.100.7');           // before: ::ffff:127.0.0.1
-    expect(clientAddress('::1', '2001:db8::7', ['::1'])).toBe('2001:db8::7');                        // before: ::1
-    expect(clientAddress('0:0:0:0:0:0:0:1', '2001:db8::7', ['0::1'])).toBe('2001:db8::7');           // before: 0:0:0:0:0:0:0:1
+    expect(clientAddress('::ffff:127.0.0.1', '198.51.100.7', PROXY)).toBe('198.51.100.7'); // before: ::ffff:127.0.0.1
+    expect(clientAddress('::1', '2001:db8::7', ['::1'])).toBe('2001:db8::7'); // before: ::1
+    expect(clientAddress('0:0:0:0:0:0:0:1', '2001:db8::7', ['0::1'])).toBe('2001:db8::7'); // before: 0:0:0:0:0:0:0:1
     expect(clientAddress('127.0.0.1', ['203.0.113.9', '198.51.100.7'], PROXY)).toBe('198.51.100.7'); // before: 127.0.0.1
   });
 });
@@ -289,9 +333,9 @@ describe('NautilusAppServer.callerKey: what each per-caller limit counts', () =>
   test('addressKey of the client the request speaks for', () => {
     const server = nodeFor('insurer', { trustedProxies: PROXY });
     const key = (req: StandIn): string => server.callerKey(req as unknown as IncomingMessage);
-    expect(key(from('127.0.0.1', '2001:db8:85a3:12::1'))).toBe('2001:db8:85a3:12::/64');   // before: 127.0.0.1, the proxy, for every client
-    expect(key(from('::ffff:127.0.0.1', '198.51.100.7'))).toBe('198.51.100.7');            // before: 127.0.0.1
-    expect(key(from('127.0.0.1', 'fe80::7%eth0'))).toBe('fe80::/64%eth0');                 // before: fe80::7%eth0, each link-local address a source
+    expect(key(from('127.0.0.1', '2001:db8:85a3:12::1'))).toBe('2001:db8:85a3:12::/64'); // before: 127.0.0.1, the proxy, for every client
+    expect(key(from('::ffff:127.0.0.1', '198.51.100.7'))).toBe('198.51.100.7'); // before: 127.0.0.1
+    expect(key(from('127.0.0.1', 'fe80::7%eth0'))).toBe('fe80::/64%eth0'); // before: fe80::7%eth0, each link-local address a source
     expect(key(from('192.0.2.50', '198.51.100.7'))).toBe('192.0.2.50');
     expect(key(from('127.0.0.1'))).toBe('127.0.0.1');
     expect(key(from(undefined))).toBe('unknown');
@@ -300,18 +344,18 @@ describe('NautilusAppServer.callerKey: what each per-caller limit counts', () =>
 
 describe('addressKey: a link-local caller is the link it arrived on', () => {
   test('every link-local address on one interface is one key, fe80::/64 on that interface, all of fe80::/10 alike', () => {
-    expect(addressKey('fe80::1%eth0')).toBe('fe80::/64%eth0');                     // before: fe80::1%eth0, each address a key of its own
-    expect(addressKey('fe80::9f3c:51ff:fe0a:7d21%eth0')).toBe('fe80::/64%eth0');   // before: fe80::9f3c:51ff:fe0a:7d21%eth0
-    expect(addressKey('FE80:0:0:0:0:0:0:2%eth0')).toBe('fe80::/64%eth0');          // before: fe80::2%eth0
-    expect(addressKey('febf:0:0:0:1::1%eth0')).toBe('fe80::/64%eth0');             // before: febf::1:0:0:1%eth0
-    expect(addressKey('fe80::a:b:c:d%12')).toBe('fe80::/64%12');                   // before: fe80::a:b:c:d%12; Windows numbers its interfaces
+    expect(addressKey('fe80::1%eth0')).toBe('fe80::/64%eth0'); // before: fe80::1%eth0, each address a key of its own
+    expect(addressKey('fe80::9f3c:51ff:fe0a:7d21%eth0')).toBe('fe80::/64%eth0'); // before: fe80::9f3c:51ff:fe0a:7d21%eth0
+    expect(addressKey('FE80:0:0:0:0:0:0:2%eth0')).toBe('fe80::/64%eth0'); // before: fe80::2%eth0
+    expect(addressKey('febf:0:0:0:1::1%eth0')).toBe('fe80::/64%eth0'); // before: febf::1:0:0:1%eth0
+    expect(addressKey('fe80::a:b:c:d%12')).toBe('fe80::/64%12'); // before: fe80::a:b:c:d%12; Windows numbers its interfaces
     // A proxy may write a link-local client with no interface.
-    expect(addressKey('fe80::1')).toBe('fe80::/64');                               // before: fe80::1
-    expect(addressKey('fec0::1')).toBe('fec0:0:0:0::/64');                         // past fe80::/10, the /64 rule
+    expect(addressKey('fe80::1')).toBe('fe80::/64'); // before: fe80::1
+    expect(addressKey('fec0::1')).toBe('fec0:0:0:0::/64'); // past fe80::/10, the /64 rule
   });
 
-  test('the same link-local address on two interfaces is two keys: the interface is this host\'s to name', () => {
-    expect(addressKey('fe80::1%eth1')).toBe('fe80::/64%eth1');                     // before: fe80::1%eth1
+  test("the same link-local address on two interfaces is two keys: the interface is this host's to name", () => {
+    expect(addressKey('fe80::1%eth1')).toBe('fe80::/64%eth1'); // before: fe80::1%eth1
     expect(addressKey('fe80::1%eth1')).not.toBe(addressKey('fe80::1%eth0'));
   });
 });
@@ -325,12 +369,12 @@ describe('POST /credentialing/apply counts the source callerKey names', () => {
     return (req) => call(apply, req, application());
   }
 
-  test('two addresses in one IPv6 /64 share a source\'s ten open applications, and an address in another /64 does not', async () => {
+  test("two addresses in one IPv6 /64 share a source's ten open applications, and an address in another /64 does not", async () => {
     const apply = insurer();
     const kept = await statuses(10, (i) => apply(from(i % 2 ? '2001:db8:85a3:12::1' : '2001:db8:85a3:12:9f3c:51ff:fe0a:7d21')));
     expect(kept).toEqual(Array(10).fill(201));
     const eleventh = await apply(from('2001:db8:85a3:12::2'));
-    expect([eleventh.status, eleventh.error]).toEqual([429, OPEN_FROM_SOURCE]);   // keyed by the raw socket address, 201: a source of its own
+    expect([eleventh.status, eleventh.error]).toEqual([429, OPEN_FROM_SOURCE]); // keyed by the raw socket address, 201: a source of its own
     expect((await apply(from('2001:db8:85a3:13::1'))).status).toBe(201);
   });
 
@@ -338,14 +382,14 @@ describe('POST /credentialing/apply counts the source callerKey names', () => {
     const apply = insurer();
     expect(await statuses(10, () => apply(from('203.0.113.7')))).toEqual(Array(10).fill(201));
     const mapped = await apply(from('::ffff:203.0.113.7'));
-    expect([mapped.status, mapped.error]).toEqual([429, OPEN_FROM_SOURCE]);       // keyed by the raw socket address, 201: a source of its own
+    expect([mapped.status, mapped.error]).toEqual([429, OPEN_FROM_SOURCE]); // keyed by the raw socket address, 201: a source of its own
   });
 
-  test('link-local addresses on one interface share a source\'s ten open applications, and the same address on another interface does not', async () => {
+  test("link-local addresses on one interface share a source's ten open applications, and the same address on another interface does not", async () => {
     const apply = insurer();
     expect(await statuses(10, (i) => apply(from(`fe80::${(i + 1).toString(16)}%eth0`)))).toEqual(Array(10).fill(201));
     const eleventh = await apply(from('fe80::9f3c:51ff:fe0a:7d21%eth0'));
-    expect([eleventh.status, eleventh.error]).toEqual([429, OPEN_FROM_SOURCE]);   // before: 201, each link-local address a source of its own
+    expect([eleventh.status, eleventh.error]).toEqual([429, OPEN_FROM_SOURCE]); // before: 201, each link-local address a source of its own
     expect((await apply(from('fe80::1%eth1'))).status).toBe(201);
   });
 
@@ -354,15 +398,15 @@ describe('POST /credentialing/apply counts the source callerKey names', () => {
     expect(await statuses(10, () => trusting(from('127.0.0.1', '198.51.100.1')))).toEqual(Array(10).fill(201));
     const past = await trusting(from('127.0.0.1', '198.51.100.1'));
     expect([past.status, past.error, past.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']);
-    expect((await trusting(from('127.0.0.1', '198.51.100.2'))).status).toBe(201);          // before: 429, every caller was the proxy
-    expect((await trusting(from('127.0.0.1', '2001:db8:85a3:12::1'))).status).toBe(201);   // before: 429
+    expect((await trusting(from('127.0.0.1', '198.51.100.2'))).status).toBe(201); // before: 429, every caller was the proxy
+    expect((await trusting(from('127.0.0.1', '2001:db8:85a3:12::1'))).status).toBe(201); // before: 429
 
     const untrusting = insurer();
     expect(await statuses(10, (i) => untrusting(from('127.0.0.1', `198.51.100.${i + 1}`)))).toEqual(Array(10).fill(201));
     expect((await untrusting(from('127.0.0.1', '198.51.100.99'))).status).toBe(429);
   });
 
-  test('X-Forwarded-For from an address that is not a trusted proxy makes no new source, nor does an entry a client writes ahead of the proxy\'s', async () => {
+  test("X-Forwarded-For from an address that is not a trusted proxy makes no new source, nor does an entry a client writes ahead of the proxy's", async () => {
     const apply = insurer({ trustedProxies: PROXY });
     expect(await statuses(10, (i) => apply(from('192.0.2.50', `198.51.100.${i + 1}`)))).toEqual(Array(10).fill(201));
     expect((await apply(from('192.0.2.50', '198.51.100.99'))).status).toBe(429);
@@ -372,8 +416,8 @@ describe('POST /credentialing/apply counts the source callerKey names', () => {
   });
 });
 
-describe('the insurer\'s card recovery and plans-to-add limits count each client behind a trusted proxy', () => {
-  test('one client\'s thirty recovery requests a minute leave every other member\'s card recovery open', async () => {
+describe("the insurer's card recovery and plans-to-add limits count each client behind a trusted proxy", () => {
+  test("one client's thirty recovery requests a minute leave every other member's card recovery open", async () => {
     const routes = buildInsurerRoutes(nodeFor('insurer', { trustedProxies: PROXY }));
     const release = routeOf(routes, 'POST', '/recovery/release');
     const revoke = routeOf(routes, 'POST', '/recovery/revoke');
@@ -382,22 +426,22 @@ describe('the insurer\'s card recovery and plans-to-add limits count each client
     expect(await statuses(30, (i) => call(i % 2 ? revoke : release, from('127.0.0.1', '198.51.100.7'), bad))).toEqual(Array(30).fill(400));
     const spent = await call(release, from('127.0.0.1', '198.51.100.7'), bad);
     expect([spent.status, spent.retryAfter]).toEqual([429, '60']);
-    expect((await call(release, from('127.0.0.1', '198.51.100.8'), bad)).status).toBe(400);       // before: 429, one client spent the proxy's thirty
-    expect((await call(revoke, from('127.0.0.1', '2001:db8:aa:1::5'), bad)).status).toBe(400);    // before: 429
+    expect((await call(release, from('127.0.0.1', '198.51.100.8'), bad)).status).toBe(400); // before: 429, one client spent the proxy's thirty
+    expect((await call(revoke, from('127.0.0.1', '2001:db8:aa:1::5'), bad)).status).toBe(400); // before: 429
   });
 
-  test('one client\'s thirty plans-to-add reads a minute leave another\'s open', async () => {
+  test("one client's thirty plans-to-add reads a minute leave another's open", async () => {
     const routes = buildInsurerRoutes(nodeFor('insurer', { trustedProxies: PROXY }));
     const plans = routeOf(routes, 'GET', '/employer-agreements/:applicationId/plans-to-add');
     const ask = (client: string): Promise<Answer> => call(plans, from('127.0.0.1', client), undefined, { applicationId: 'EMPAPP-NONE' });
     // No insurer node is behind these routes, so each read the limit lets through is answered 503.
     expect(await statuses(30, () => ask('198.51.100.7'))).toEqual(Array(30).fill(503));
     expect((await ask('198.51.100.7')).status).toBe(429);
-    expect((await ask('198.51.100.8')).status).toBe(503);                                          // before: 429, every caller was the proxy
+    expect((await ask('198.51.100.8')).status).toBe(503); // before: 429, every caller was the proxy
   });
 });
 
-describe('the employer\'s validate oracle counts each caller as callerKey names it', () => {
+describe("the employer's validate oracle counts each caller as callerKey names it", () => {
   /** Asks the validate oracle of a fresh employer node, whose limits start empty, unsigned: refused 401 once counted. */
   function employer(over: Partial<NautilusAppConfig> = {}): (req: StandIn) => Promise<Answer> {
     const server = nodeFor('employer', over);
@@ -411,9 +455,9 @@ describe('the employer\'s validate oracle counts each caller as callerKey names 
   test('an IPv4-mapped caller is the IPv4 address it maps, and two addresses in one IPv6 /64 are one caller', async () => {
     const validate = employer();
     expect(await statuses(60, () => validate(from('203.0.113.7')))).toEqual(Array(60).fill(401));
-    expect((await validate(from('::ffff:203.0.113.7'))).status).toBe(429);            // before: 401, the raw address was a caller of its own
+    expect((await validate(from('::ffff:203.0.113.7'))).status).toBe(429); // before: 401, the raw address was a caller of its own
     expect(await statuses(60, () => validate(from('2001:db8:1:2::1')))).toEqual(Array(60).fill(401));
-    expect((await validate(from('2001:db8:1:2:abcd::99'))).status).toBe(429);         // before: 401, each address of a /64 a caller of its own
+    expect((await validate(from('2001:db8:1:2:abcd::99'))).status).toBe(429); // before: 401, each address of a /64 a caller of its own
     expect((await validate(from('198.51.100.20'))).status).toBe(401);
   });
 
@@ -421,7 +465,7 @@ describe('the employer\'s validate oracle counts each caller as callerKey names 
     const validate = employer({ trustedProxies: ['::1'] });
     expect(await statuses(60, () => validate(from('::1', '198.51.100.7')))).toEqual(Array(60).fill(401));
     expect((await validate(from('::1', '198.51.100.7'))).status).toBe(429);
-    expect((await validate(from('::1', '198.51.100.8'))).status).toBe(401);           // before: 429, every caller was the proxy
+    expect((await validate(from('::1', '198.51.100.8'))).status).toBe(401); // before: 429, every caller was the proxy
   });
 });
 
@@ -431,16 +475,18 @@ describe('a request keeps the source it arrived from, though its socket closes b
   test('a client that half-closes right after its request is its own source to a route that reads callerKey once the socket has closed', async () => {
     const server = nodeFor('insurer');
     const keyed = new Promise<string>((resolve) => {
-      server.registerRoutes([{
-        method: 'POST',
-        path: '/caller',
-        // A route that awaits anything may find the socket closed by the time it reads its caller; this one waits for that.
-        handler: async (req, res) => {
-          if (!req.socket.destroyed) await new Promise((closed) => req.socket.once('close', closed));
-          resolve(server.callerKey(req));
-          res.end();
+      server.registerRoutes([
+        {
+          method: 'POST',
+          path: '/caller',
+          // A route that awaits anything may find the socket closed by the time it reads its caller; this one waits for that.
+          handler: async (req, res) => {
+            if (!req.socket.destroyed) await new Promise((closed) => req.socket.once('close', closed));
+            resolve(server.callerKey(req));
+            res.end();
+          },
         },
-      }]);
+      ]);
     });
     await server.start();
     try {
@@ -451,7 +497,7 @@ describe('a request keeps the source it arrived from, though its socket closes b
       });
       client.resume();
       const failed = new Promise<never>((_, reject) => client.on('error', reject));
-      expect(await Promise.race([keyed, failed])).toBe('127.0.0.1');   // before: unknown, the closed socket had no address to give
+      expect(await Promise.race([keyed, failed])).toBe('127.0.0.1'); // before: unknown, the closed socket had no address to give
     } finally {
       await server.stop();
     }
@@ -486,7 +532,9 @@ describe('POST /marketplace/api/apply counts the source an application came from
     /** An application from `address` whose socket closes, as a client's that half-closes, while the sequencer is asked. */
     const leaving = async (address: string): Promise<Answer> => {
       const req = from(address);
-      beforeAnswering = () => { req.socket.remoteAddress = undefined; };
+      beforeAnswering = () => {
+        req.socket.remoteAddress = undefined;
+      };
       try {
         return await call(apply, req, employerApplication());
       } finally {
@@ -495,47 +543,73 @@ describe('POST /marketplace/api/apply counts the source an application came from
     };
     expect(await statuses(3, () => leaving('198.51.100.7'))).toEqual([201, 201, 201]);
     const sources = [...getApplicationStore().values()].map((a) => (a as EmployerApplication & { source?: string }).source);
-    expect(sources).toEqual(Array(3).fill('198.51.100.7'));                             // before: unknown three times
+    expect(sources).toEqual(Array(3).fill('198.51.100.7')); // before: unknown three times
     // The same client with its socket open holds three open applications already, as many as one source keeps.
     const fourth = await call(apply, from('198.51.100.7'), employerApplication());
-    expect([fourth.status, fourth.error]).toEqual([429, EMPLOYER_OPEN_FROM_SOURCE]);   // before: [201, undefined], a fourth open from one client
+    expect([fourth.status, fourth.error]).toEqual([429, EMPLOYER_OPEN_FROM_SOURCE]); // before: [201, undefined], a fourth open from one client
     // Another client whose socket closes the same way is a source of its own, not refused for the first one's three.
-    expect((await leaving('203.0.113.9')).status).toBe(201);                             // before: 429, unknown held three
+    expect((await leaving('203.0.113.9')).status).toBe(201); // before: 429, unknown held three
   });
 });
 
 // ── A client already gone ──────────────────────────────────
 
 /** The node's own routing, which a started node runs on each request it reads. */
-interface Routing { handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> }
+interface Routing {
+  handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void>;
+}
 
 describe('a request whose socket has no address as it arrives goes no further: its client has gone, as a reset leaves it on Linux', () => {
   /** A response as handleRequest sees Node's: it keeps each status it is sent, and finishes, then closes, as it ends. */
   class RoutedResponse extends EventEmitter {
     writableEnded = false;
-    constructor(readonly socket: object, private readonly answered: number[]) { super(); }
-    setHeader(): this { return this; }
-    writeHead(status: number): this { this.answered.push(status); return this; }
-    end(): this { this.writableEnded = true; this.emit('finish'); this.emit('close'); return this; }
+    constructor(
+      readonly socket: object,
+      private readonly answered: number[],
+    ) {
+      super();
+    }
+    setHeader(): this {
+      return this;
+    }
+    writeHead(status: number): this {
+      this.answered.push(status);
+      return this;
+    }
+    end(): this {
+      this.writableEnded = true;
+      this.emit('finish');
+      this.emit('close');
+      return this;
+    }
   }
 
   test('it reaches no handler, counts against no source and has its connection closed, where a request with an address is routed', async () => {
     const server = nodeFor('insurer');
     const routes = buildInsurerRoutes(server);
     const reached: string[] = [];
-    server.registerRoutes([...routes, {
-      method: 'GET',
-      path: '/caller',
-      handler: async (req, res) => {
-        reached.push(server.callerKey(req));
-        server.sendResponse(res, 200, true);
+    server.registerRoutes([
+      ...routes,
+      {
+        method: 'GET',
+        path: '/caller',
+        handler: async (req, res) => {
+          reached.push(server.callerKey(req));
+          server.sendResponse(res, 200, true);
+        },
       },
-    }]);
+    ]);
     const answered: number[] = [];
     let closed = 0;
     /** Routes a GET of `url` arriving on a socket at `remoteAddress`; none, as Linux gives a reset socket, when undefined. */
     const arrive = (url: string, remoteAddress: string | undefined): Promise<void> => {
-      const socket = { remoteAddress, localPort: 4004, destroy: (): void => { closed++; } };
+      const socket = {
+        remoteAddress,
+        localPort: 4004,
+        destroy: (): void => {
+          closed++;
+        },
+      };
       const req = { url, method: 'GET', headers: { host: '127.0.0.1:4004' }, socket };
       const res = new RoutedResponse(socket, answered);
       return (server as unknown as Routing).handleRequest(req as unknown as IncomingMessage, res as unknown as ServerResponse);
@@ -547,12 +621,12 @@ describe('a request whose socket has no address as it arrives goes no further: i
 
     for (let i = 0; i < 30; i++) await arrive('/employer-agreements/EMPAPP-NONE/plans-to-add', undefined);
     await arrive('/caller', undefined);
-    expect(reached).toEqual(['203.0.113.7']);   // before: ['203.0.113.7', 'unknown'], routed under the one key every such client shares
-    expect(answered).toEqual([200]);            // before: thirty 503s and a 200 more, sent to clients that had gone
-    expect(closed).toBe(31);                    // before: 0, the node routed each request instead
+    expect(reached).toEqual(['203.0.113.7']); // before: ['203.0.113.7', 'unknown'], routed under the one key every such client shares
+    expect(answered).toEqual([200]); // before: thirty 503s and a 200 more, sent to clients that had gone
+    expect(closed).toBe(31); // before: 0, the node routed each request instead
     // The plans-to-add limit counts thirty reads a minute from each source; routed, those thirty spent 'unknown''s minute.
     const plans = routeOf(routes, 'GET', '/employer-agreements/:applicationId/plans-to-add');
-    expect((await call(plans, from(undefined), undefined, { applicationId: 'EMPAPP-NONE' })).status).toBe(503);   // before: 429
+    expect((await call(plans, from(undefined), undefined, { applicationId: 'EMPAPP-NONE' })).status).toBe(503); // before: 429
   });
 });
 
@@ -561,17 +635,34 @@ describe('a request whose client goes away ends its budget as its connection clo
   // jest.getTimerCount() is the number of budgets the node holds, and Node's own sockets keep their real timers.
   beforeEach(() => {
     jest.useFakeTimers({
-      doNotFake: ['Date', 'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame',
-        'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate',
-        'setInterval', 'clearInterval'],
+      doNotFake: [
+        'Date',
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+      ],
     });
   });
-  afterEach(() => { jest.useRealTimers(); });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
 
   /** A whole POST /work, as a raw-socket client writes it. */
   const work = (port: number): string =>
     `POST /work HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}`;
-  interface Working { budgetsHeld: number; connectionClosed: Promise<void> }
+  interface Working {
+    budgetsHeld: number;
+    connectionClosed: Promise<void>;
+  }
 
   /**
    * A node whose POST /work never answers, as a route still proving when its client leaves. Each request it starts on
@@ -582,28 +673,33 @@ describe('a request whose client goes away ends its budget as its connection clo
     const server = nodeFor('insurer');
     const working: Working[] = [];
     let check = (): void => undefined;
-    server.registerRoutes([{
-      method: 'POST',
-      path: '/work',
-      handler: async (req) => {
-        const connectionClosed = new Promise<void>((resolve) => {
-          if (req.socket.closed) resolve();
-          else req.socket.once('close', () => resolve());
-        });
-        working.push({ budgetsHeld: jest.getTimerCount(), connectionClosed });
-        check();
-        await connectionClosed;
+    server.registerRoutes([
+      {
+        method: 'POST',
+        path: '/work',
+        handler: async (req) => {
+          const connectionClosed = new Promise<void>((resolve) => {
+            if (req.socket.closed) resolve();
+            else req.socket.once('close', () => resolve());
+          });
+          working.push({ budgetsHeld: jest.getTimerCount(), connectionClosed });
+          check();
+          await connectionClosed;
+        },
       },
-    }]);
+    ]);
     /** Resolves once the route has started on `n` requests in all. */
-    const started = (n: number): Promise<void> => new Promise((resolve) => {
-      check = () => { if (working.length >= n) resolve(); };
-      check();
-    });
+    const started = (n: number): Promise<void> =>
+      new Promise((resolve) => {
+        check = () => {
+          if (working.length >= n) resolve();
+        };
+        check();
+      });
     return { server, working, started };
   }
 
-  test('a client that half-closes, or resets, while its route works frees the request\'s timer as soon as its connection closes', async () => {
+  test("a client that half-closes, or resets, while its route works frees the request's timer as soon as its connection closes", async () => {
     const { server, working, started } = nodeAtWork();
     await server.start();
     try {
@@ -613,13 +709,15 @@ describe('a request whose client goes away ends its budget as its connection clo
           if (leaving === 'half-closes') client.end(work(port));
           else client.write(work(port));
         });
-        client.on('error', () => { /* the reset's own */ });
+        client.on('error', () => {
+          /* the reset's own */
+        });
         await started(working.length + 1);
         const request = working[working.length - 1];
         expect([leaving, request.budgetsHeld]).toEqual([leaving, 1]);
         if (leaving === 'resets') client.resetAndDestroy();
         await request.connectionClosed;
-        expect([leaving, jest.getTimerCount()]).toEqual([leaving, 0]);   // before: ['half-closes', 1], the timer held until its budget ran out
+        expect([leaving, jest.getTimerCount()]).toEqual([leaving, 0]); // before: ['half-closes', 1], the timer held until its budget ran out
       }
     } finally {
       await server.stop();
@@ -632,12 +730,14 @@ describe('a request whose client goes away ends its budget as its connection clo
     try {
       const port = server.getPort();
       const client = net.connect(port, '127.0.0.1', () => client.write(work(port) + work(port)));
-      client.on('error', () => { /* the reset's own */ });
+      client.on('error', () => {
+        /* the reset's own */
+      });
       await started(2);
       expect(working[1].budgetsHeld).toBe(2);
       client.resetAndDestroy();
       await Promise.all(working.map((request) => request.connectionClosed));
-      expect(jest.getTimerCount()).toBe(0);   // before: 2, both held until their budgets ran out; the response's close alone freed the first
+      expect(jest.getTimerCount()).toBe(0); // before: 2, both held until their budgets ran out; the response's close alone freed the first
     } finally {
       await server.stop();
     }
@@ -670,11 +770,11 @@ describe('a node bound to loopback that answers a public name warns at boot unle
   test('an IPv4 loopback bind asks for 127.0.0.1, and any trusted address in 127.0.0.0/8 is the proxy it is reached from', () => {
     const found = warnings('127.0.0.1', []);
     expect(found).toHaveLength(1);
-    expect(found[0]).toContain('Insurer is bound to 127.0.0.1 and answers insurer.example');   // before: "bound to loopback", whatever the bind
+    expect(found[0]).toContain('Insurer is bound to 127.0.0.1 and answers insurer.example'); // before: "bound to loopback", whatever the bind
     expect(found[0]).toContain('every caller counts as the proxy');
-    expect(found[0]).toContain('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so the node reads X-Forwarded-For');   // before: "Set ZKTRIDENT_TRUSTED_PROXIES to the proxy's address (127.0.0.1 for a proxy on this host)"
+    expect(found[0]).toContain('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so the node reads X-Forwarded-For'); // before: "Set ZKTRIDENT_TRUSTED_PROXIES to the proxy's address (127.0.0.1 for a proxy on this host)"
     // A proxy on this host reaches 127.0.0.2 from 127.0.0.1, as it reaches 127.0.0.1.
-    expect(warnings('127.0.0.2', [])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]);   // before: "Set ZKTRIDENT_TRUSTED_PROXIES to the proxy's address"
+    expect(warnings('127.0.0.2', [])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]); // before: "Set ZKTRIDENT_TRUSTED_PROXIES to the proxy's address"
     expect(warnings('127.0.0.1', ['127.0.0.1'])).toEqual([]);
     expect(warnings('127.0.0.2', ['127.0.0.1'])).toEqual([]);
     expect(warnings('127.0.0.1', ['127.0.0.2'])).toEqual([]);
@@ -683,22 +783,22 @@ describe('a node bound to loopback that answers a public name warns at boot unle
 
   test('::1 asks for ::1, and a trusted proxy of the other family, or on another host, silences neither bind', () => {
     for (const host of ['::1', '[::1]', '0:0:0:0:0:0:0:1']) {
-      expect([host, warnings(host, ['127.0.0.1'])]).toEqual([host, [expect.stringContaining('Add ::1 to ZKTRIDENT_TRUSTED_PROXIES so')]]);   // before: no warning, any entry silenced it
+      expect([host, warnings(host, ['127.0.0.1'])]).toEqual([host, [expect.stringContaining('Add ::1 to ZKTRIDENT_TRUSTED_PROXIES so')]]); // before: no warning, any entry silenced it
     }
-    expect(warnings('::1', ['127.0.0.1'])).toEqual([expect.stringContaining('Insurer is bound to ::1 and answers insurer.example')]);   // before: no warning
+    expect(warnings('::1', ['127.0.0.1'])).toEqual([expect.stringContaining('Insurer is bound to ::1 and answers insurer.example')]); // before: no warning
     expect(warnings('::1', ['::1'])).toEqual([]);
     expect(warnings('::1', ['0:0:0:0:0:0:0:1'])).toEqual([]);
-    expect(warnings('127.0.0.1', ['::1'])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]);   // before: no warning
-    expect(warnings('127.0.0.1', ['10.0.0.2'])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]);   // before: no warning
+    expect(warnings('127.0.0.1', ['::1'])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]); // before: no warning
+    expect(warnings('127.0.0.1', ['10.0.0.2'])).toEqual([expect.stringContaining('Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES so')]); // before: no warning
   });
 
   test('localhost, bound to whichever of 127.0.0.1 and ::1 Node resolves first, asks for each of them until both are trusted', () => {
     // Many systems resolve localhost to ::1 first (Node 22 on Windows does), and a proxy then reaches a localhost bind
     // from ::1: had trusting 127.0.0.1 alone silenced the warning, every caller would still be one source.
     const why = '(Node binds localhost to whichever of 127.0.0.1 and ::1 it resolves first)';
-    expect(warnings('localhost', [])).toEqual([expect.stringContaining(`Add 127.0.0.1 and ::1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]);   // before: it asked for 127.0.0.1 alone
-    expect(warnings('LocalHost', ['127.0.0.1'])).toEqual([expect.stringContaining(`Add ::1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]);   // before: no warning
-    expect(warnings('localhost', ['::1'])).toEqual([expect.stringContaining(`Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]);   // before: no warning
+    expect(warnings('localhost', [])).toEqual([expect.stringContaining(`Add 127.0.0.1 and ::1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]); // before: it asked for 127.0.0.1 alone
+    expect(warnings('LocalHost', ['127.0.0.1'])).toEqual([expect.stringContaining(`Add ::1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]); // before: no warning
+    expect(warnings('localhost', ['::1'])).toEqual([expect.stringContaining(`Add 127.0.0.1 to ZKTRIDENT_TRUSTED_PROXIES ${why}`)]); // before: no warning
     expect(warnings('localhost', ['127.0.0.1', '::1'])).toEqual([]);
   });
 

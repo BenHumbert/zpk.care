@@ -120,7 +120,7 @@ export const ChainProgram = ZkProgram({
      */
     advance: {
       privateInputs: [
-        SelfProof,  // previous ChainProof
+        SelfProof, // previous ChainProof
         BatchProof, // new batch
         Field, // adminPublicKeyHash
         Field, // benefitPlanRoot
@@ -147,14 +147,8 @@ export const ChainProgram = ZkProgram({
         const batch = batchProof.publicOutput;
 
         // 2. Chain continuity: batch must start where previous block ended
-        batch.oldRegistryRoot.assertEquals(
-          prev.registryRoot,
-          'Chain break: batch.oldRegistryRoot != prev.registryRoot',
-        );
-        batch.oldLifecycleRoot.assertEquals(
-          prev.lifecycleRoot,
-          'Chain break: batch.oldLifecycleRoot != prev.lifecycleRoot',
-        );
+        batch.oldRegistryRoot.assertEquals(prev.registryRoot, 'Chain break: batch.oldRegistryRoot != prev.registryRoot');
+        batch.oldLifecycleRoot.assertEquals(prev.lifecycleRoot, 'Chain break: batch.oldLifecycleRoot != prev.lifecycleRoot');
 
         // 3. Advance block height and accumulate wallet count
         const blockHeight = prev.blockHeight.add(1);

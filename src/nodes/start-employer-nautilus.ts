@@ -101,8 +101,12 @@ function readTenantKeys(): Promise<{ storeKey: Buffer; pinPepper: Buffer }> {
       process.stdin.pause();
       try {
         const parsed = JSON.parse(text.slice(0, end)) as { storeKeyHex?: unknown; pinPepperHex?: unknown };
-        if (typeof parsed.storeKeyHex !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.storeKeyHex)
-          || typeof parsed.pinPepperHex !== 'string' || !/^[0-9a-f]{64}$/.test(parsed.pinPepperHex)) {
+        if (
+          typeof parsed.storeKeyHex !== 'string' ||
+          !/^[0-9a-f]{64}$/.test(parsed.storeKeyHex) ||
+          typeof parsed.pinPepperHex !== 'string' ||
+          !/^[0-9a-f]{64}$/.test(parsed.pinPepperHex)
+        ) {
           throw new Error('malformed');
         }
         resolve({ storeKey: Buffer.from(parsed.storeKeyHex, 'hex'), pinPepper: Buffer.from(parsed.pinPepperHex, 'hex') });
@@ -135,11 +139,13 @@ const employerId = env.ZKTRIDENT_EMPLOYER_ID || fatal('  [FATAL] ZKTRIDENT_EMPLO
 // public key it is expected to operate under. When the attestation loads from
 // the sequencer, its publicKeyHex field is compared against this environment
 // variable; any mismatch is a fatal identity error and the process exits.
-const employerPubKeyHex = env.ZKTRIDENT_EMPLOYER_PUBKEY_HEX || fatal(
-  '  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX is required',
-  '          This must be the Ed25519 public key that signed the marketplace',
-  '          agreement for this employerId. The orchestrator provides this.',
-);
+const employerPubKeyHex =
+  env.ZKTRIDENT_EMPLOYER_PUBKEY_HEX ||
+  fatal(
+    '  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX is required',
+    '          This must be the Ed25519 public key that signed the marketplace',
+    '          agreement for this employerId. The orchestrator provides this.',
+  );
 if (!/^[0-9a-f]{64}$/i.test(employerPubKeyHex)) {
   console.error('  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX must be 64 hex characters (32 bytes)');
   process.exit(1);
@@ -170,11 +176,18 @@ async function main(): Promise<void> {
   if (env.ZKTRIDENT_TENANT_KEYS === 'stdin') {
     try {
       const keys = await readTenantKeys();
-      store = SealedRecordStore.open<EmployerStoredRecord>({ dir: path.join(config.stateDir, 'records'), name: 'employer', key: keys.storeKey });
+      store = SealedRecordStore.open<EmployerStoredRecord>({
+        dir: path.join(config.stateDir, 'records'),
+        name: 'employer',
+        key: keys.storeKey,
+      });
       keys.storeKey.fill(0);
       pinPepper = keys.pinPepper;
     } catch (err) {
-      console.error('  [FATAL] the tenant keys could not be read or its records opened: %s', err instanceof Error ? err.message : String(err));
+      console.error(
+        '  [FATAL] the tenant keys could not be read or its records opened: %s',
+        err instanceof Error ? err.message : String(err),
+      );
       process.exit(1);
     }
   }
@@ -201,7 +214,12 @@ async function main(): Promise<void> {
   console.log('  [init] Employer ID:  %s', employerId);
   console.log('  [init] Pinned PubKey: %s…', employerPubKeyHex.slice(0, 16));
   console.log('  [init] Attestation:  REQUIRED (fail-closed)');
-  console.log('  [init] Records:      %s', store ? `sealed store (${node.listGroups().length} group(s), ${node.listRoster().length} roster entr(ies) kept)` : 'memory only (no tenant keys)');
+  console.log(
+    '  [init] Records:      %s',
+    store
+      ? `sealed store (${node.listGroups().length} group(s), ${node.listRoster().length} roster entr(ies) kept)`
+      : 'memory only (no tenant keys)',
+  );
   if (insurerUrl) {
     console.log('  [init] Insurer URL:  %s', insurerUrl);
   }
@@ -219,7 +237,7 @@ async function main(): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_verifyEmployer', params: { employerId } }),
       });
-      const attJson = await attResp.json() as any;
+      const attJson = (await attResp.json()) as any;
       if (!attJson.result?.valid || !attJson.result?.attestation) {
         return 'not-found';
       }
@@ -255,10 +273,13 @@ async function main(): Promise<void> {
   for (let i = 0; i < retryDelays.length; i++) {
     if (retryDelays[i] > 0) {
       console.log('  [init] Retrying attestation load in %dms...', retryDelays[i]);
-      await new Promise(r => setTimeout(r, retryDelays[i]));
+      await new Promise((r) => setTimeout(r, retryDelays[i]));
     }
     const status = await loadAndVerifyAttestation();
-    if (status === 'loaded') { finalStatus = 'loaded'; break; }
+    if (status === 'loaded') {
+      finalStatus = 'loaded';
+      break;
+    }
     if (status === 'mismatch') {
       // Key mismatch is a permanent, unrecoverable identity error
       process.exit(1);
@@ -290,7 +311,14 @@ async function main(): Promise<void> {
   console.log('  Insurer URL:   %s', insurerUrl ?? 'not configured');
   console.log('  TLS:           %s', server.isTls() ? 'enabled' : 'disabled');
   console.log('  SSE:           %s', config.enableSSE ? 'enabled' : 'disabled');
-  console.log('  Admin token:   %s', config.adminTokenSha256 ? 'configured (checked against its hash)' : config.adminToken ? 'configured' : 'NONE (admin endpoints disabled)');
+  console.log(
+    '  Admin token:   %s',
+    config.adminTokenSha256
+      ? 'configured (checked against its hash)'
+      : config.adminToken
+        ? 'configured'
+        : 'NONE (admin endpoints disabled)',
+  );
   if (config.dashboardDir) {
     console.log('  Dashboard:     %s://%s:%d/', proto, config.host === '0.0.0.0' ? 'localhost' : config.host, server.getPort());
   }

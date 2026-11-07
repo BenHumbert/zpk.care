@@ -37,25 +37,26 @@
  */
 
 import {
-  API_BASE, formatCents,
-  updateChainState, renderCredentialCard, renderForestCard, renderZkDataSection,
+  API_BASE,
+  formatCents,
+  updateChainState,
+  renderCredentialCard,
+  renderForestCard,
+  renderZkDataSection,
 } from '../interactive-app.js';
 
-import {
-  checkInteractions,
-  getDurStatus,
-  renderDurBadge,
-  renderInteractionAlerts,
-} from '../drug-interactions.js';
-import {
-  renderSectionCard, renderMetricRow, renderSortableTable,
-  truncHash,
-} from '../node-common.js';
+import { checkInteractions, getDurStatus, renderDurBadge, renderInteractionAlerts } from '../drug-interactions.js';
+import { renderSectionCard, renderMetricRow, renderSortableTable, truncHash } from '../node-common.js';
 import { loadInteractiveState } from './state-client.js';
 import { escapeHtml, renderMessageBubbles } from './message-thread.js';
 import {
-  nadacIngredientPreview, nadacPerUnitLabel, engineFillPriceLine,
-  parseQuantity, quantityMilli, remainingQuantity, formatQuantity,
+  nadacIngredientPreview,
+  nadacPerUnitLabel,
+  engineFillPriceLine,
+  parseQuantity,
+  quantityMilli,
+  remainingQuantity,
+  formatQuantity,
 } from './nadac-price.js';
 
 export class PharmacyPhase {
@@ -66,7 +67,7 @@ export class PharmacyPhase {
     this.selectedRxId = null;
     this.selectedMedIndex = null; // for formulary browser
     this.scannedMemberWalletId = null; // patient lookup filter
-    this.scannedCredentialJson = null;  // stored credential from scan
+    this.scannedCredentialJson = null; // stored credential from scan
   }
 
   // ─── Main Render ─────────────────────────────────────────
@@ -75,14 +76,12 @@ export class PharmacyPhase {
     this.currentState = state;
 
     const allPrescriptions = state.prescriptions || [];
-    const queuePrescriptions = allPrescriptions.filter(rx =>
-      rx.status === 'PENDING' || rx.status === 'ACTIVE');
-    const fillablePrescriptions = allPrescriptions.filter(rx =>
-      rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED');
+    const queuePrescriptions = allPrescriptions.filter((rx) => rx.status === 'PENDING' || rx.status === 'ACTIVE');
+    const fillablePrescriptions = allPrescriptions.filter((rx) => rx.status === 'DISPENSED' || rx.status === 'PARTIALLY_FILLED');
 
     // Filter fillable by scanned member if set
     const filteredFillable = this.scannedMemberWalletId
-      ? fillablePrescriptions.filter(rx => rx.memberWalletId === this.scannedMemberWalletId)
+      ? fillablePrescriptions.filter((rx) => rx.memberWalletId === this.scannedMemberWalletId)
       : fillablePrescriptions;
 
     this.container.innerHTML = `
@@ -104,7 +103,7 @@ export class PharmacyPhase {
     this.bindDispensingQueueEvents(state);
     this.bindFillQueueEvents(filteredFillable, state);
     if (this.selectedRxId) {
-      const currentRx = fillablePrescriptions.find(rx => rx.id === this.selectedRxId);
+      const currentRx = fillablePrescriptions.find((rx) => rx.id === this.selectedRxId);
       if (currentRx) {
         const med = state.demoData.medications[currentRx.medicationIndex];
         this.bindFillDetailEvents(currentRx, med, state);
@@ -121,7 +120,7 @@ export class PharmacyPhase {
   renderPatientLookup(state) {
     const enrolled = state.enrolledMembers || [];
     const scanned = this.scannedMemberWalletId;
-    const member = scanned ? enrolled.find(m => m.walletId === scanned) : null;
+    const member = scanned ? enrolled.find((m) => m.walletId === scanned) : null;
 
     return `
       <div class="section-card" style="border-left: 3px solid var(--accent-blue);">
@@ -153,14 +152,20 @@ export class PharmacyPhase {
             <button id="pharm-scan-btn" class="btn-action pharmacy" style="white-space: nowrap;">
               Scan / Lookup
             </button>
-            ${scanned ? `
+            ${
+              scanned
+                ? `
               <button id="pharm-clear-scan" class="btn-action" style="background: var(--border-subtle); color: var(--text-primary); white-space: nowrap; font-size: 12px; padding: 8px 12px;">
                 Clear Filter
               </button>
-            ` : ''}
+            `
+                : ''
+            }
           </div>
 
-          ${member ? `
+          ${
+            member
+              ? `
           <div style="margin-top: 12px; padding: 10px 14px; background: rgba(102, 187, 106, 0.08); border: 1px solid rgba(102, 187, 106, 0.3); border-radius: 6px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
               <span style="color: var(--accent-green); font-weight: 600; font-size: 13px;">Patient Verified</span>
@@ -176,11 +181,15 @@ export class PharmacyPhase {
               Fill Queue below is filtered to this patient's prescriptions.
             </div>
           </div>
-          ` : scanned ? `
+          `
+              : scanned
+                ? `
           <div style="margin-top: 12px; padding: 10px 14px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.3); border-radius: 6px;">
             <span style="color: var(--accent-red); font-size: 12px;">No enrolled member found for wallet ID: ${escapeHtml(scanned.slice(0, 12))}\u2026</span>
           </div>
-          ` : ''}
+          `
+                : ''
+          }
 
           <div id="pharm-scan-result"></div>
         </div>
@@ -207,7 +216,10 @@ export class PharmacyPhase {
     // Enter key on inputs triggers scan
     const nfcInput = document.getElementById('pharm-nfc-input');
     const credInput = document.getElementById('pharm-credential-input');
-    if (nfcInput) nfcInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.doPatientScan(state); });
+    if (nfcInput)
+      nfcInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this.doPatientScan(state);
+      });
   }
 
   doPatientScan(state) {
@@ -252,7 +264,6 @@ export class PharmacyPhase {
       if (credJson && !this.scannedCredentialJson) this.scannedCredentialJson = credJson;
       this.selectedRxId = null;
       this.render(this.currentState);
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px; margin-top: 8px;">Invalid input: ${escapeHtml(err.message)}</div>`;
@@ -277,24 +288,23 @@ export class PharmacyPhase {
       `;
     }
 
-    const pendingCount = queuePrescriptions.filter(rx => rx.status === 'PENDING').length;
-    const activeCount = queuePrescriptions.filter(rx => rx.status === 'ACTIVE').length;
+    const pendingCount = queuePrescriptions.filter((rx) => rx.status === 'PENDING').length;
+    const activeCount = queuePrescriptions.filter((rx) => rx.status === 'ACTIVE').length;
     const headerParts = [];
     if (pendingCount > 0) headerParts.push(`${pendingCount} proving`);
     if (activeCount > 0) headerParts.push(`${activeCount} ready`);
     const headerLabel = headerParts.join(', ');
 
-    const rows = queuePrescriptions.map(rx => {
-      const med = state.demoData.medications[rx.medicationIndex];
-      const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
-      const prescriber = state.demoData.prescribers[rx.prescriberIndex];
-      const isPending = rx.status === 'PENDING';
-      const elapsed = isPending && rx.startedAt
-        ? `${Math.round((Date.now() - rx.startedAt) / 1000)}s`
-        : '';
+    const rows = queuePrescriptions
+      .map((rx) => {
+        const med = state.demoData.medications[rx.medicationIndex];
+        const member = state.enrolledMembers.find((m) => m.walletId === rx.memberWalletId);
+        const prescriber = state.demoData.prescribers[rx.prescriberIndex];
+        const isPending = rx.status === 'PENDING';
+        const elapsed = isPending && rx.startedAt ? `${Math.round((Date.now() - rx.startedAt) / 1000)}s` : '';
 
-      if (isPending) {
-        return `
+        if (isPending) {
+          return `
           <tr style="opacity: 0.75;">
             <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
             <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
@@ -309,9 +319,9 @@ export class PharmacyPhase {
             </td>
           </tr>
         `;
-      }
+        }
 
-      return `
+        return `
         <tr>
           <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
           <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
@@ -325,7 +335,8 @@ export class PharmacyPhase {
           </td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <style>
@@ -362,19 +373,22 @@ export class PharmacyPhase {
   }
 
   bindDispensingQueueEvents(state) {
-    this.container.querySelectorAll('.btn-dispense').forEach(btn => {
+    this.container.querySelectorAll('.btn-dispense').forEach((btn) => {
       btn.addEventListener('click', () => this.doDispense(btn.dataset.rxId, state));
     });
-    this.container.querySelectorAll('.btn-reject-queue').forEach(btn => {
+    this.container.querySelectorAll('.btn-reject-queue').forEach((btn) => {
       btn.addEventListener('click', () => this.doRejectFromQueue(btn.dataset.rxId, state));
     });
   }
 
   async doDispense(rxId, state) {
     const btn = this.container.querySelector(`.btn-dispense[data-rx-id="${rxId}"]`);
-    if (btn) { btn.disabled = true; btn.textContent = 'Dispensing...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Dispensing...';
+    }
 
-    const rx = (state.prescriptions || []).find(r => r.id === rxId);
+    const rx = (state.prescriptions || []).find((r) => r.id === rxId);
     if (!rx) return;
 
     try {
@@ -412,16 +426,22 @@ export class PharmacyPhase {
         this.render(fresh);
       }
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Dispense'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Dispense';
+      }
       alert(`Dispense failed: ${err.message}`);
     }
   }
 
   async doRejectFromQueue(rxId, state) {
     const btn = this.container.querySelector(`.btn-reject-queue[data-rx-id="${rxId}"]`);
-    if (btn) { btn.disabled = true; btn.textContent = 'Rejecting...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Rejecting...';
+    }
 
-    const rx = (state.prescriptions || []).find(r => r.id === rxId);
+    const rx = (state.prescriptions || []).find((r) => r.id === rxId);
     if (!rx) return;
 
     try {
@@ -447,7 +467,10 @@ export class PharmacyPhase {
         this.render(fresh);
       }
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Reject'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Reject';
+      }
       alert(`Reject failed: ${err.message}`);
     }
   }
@@ -468,13 +491,14 @@ export class PharmacyPhase {
       `;
     }
 
-    const rows = fillable.map(rx => {
-      const med = state.demoData.medications[rx.medicationIndex];
-      const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
-      const remaining = remainingQuantity(rx.quantity, rx.quantityDispensed);
-      const isSelected = rx.id === this.selectedRxId;
-      const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
-      return `
+    const rows = fillable
+      .map((rx) => {
+        const med = state.demoData.medications[rx.medicationIndex];
+        const member = state.enrolledMembers.find((m) => m.walletId === rx.memberWalletId);
+        const remaining = remainingQuantity(rx.quantity, rx.quantityDispensed);
+        const isSelected = rx.id === this.selectedRxId;
+        const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
+        return `
         <tr style="${isSelected ? 'background: rgba(255, 183, 77, 0.12);' : ''}" data-rx-id="${escapeHtml(rx.id)}">
           <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
           <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
@@ -490,7 +514,8 @@ export class PharmacyPhase {
           </td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card" style="border-left: 3px solid var(--accent-yellow); margin-top: 16px;">
@@ -512,7 +537,7 @@ export class PharmacyPhase {
   }
 
   bindFillQueueEvents(fillable, state) {
-    this.container.querySelectorAll('.btn-select-fill').forEach(btn => {
+    this.container.querySelectorAll('.btn-select-fill').forEach((btn) => {
       btn.addEventListener('click', () => {
         this.selectedRxId = btn.dataset.rxId;
         this.fillResult = null;
@@ -526,7 +551,7 @@ export class PharmacyPhase {
   // ─── Fill Details Panel (shown when script selected) ──────
 
   renderFillDetails(fillable, state) {
-    const currentRx = fillable.find(rx => rx.id === this.selectedRxId);
+    const currentRx = fillable.find((rx) => rx.id === this.selectedRxId);
     if (!currentRx) {
       this.selectedRxId = null;
       return '';
@@ -535,7 +560,7 @@ export class PharmacyPhase {
     const med = state.demoData.medications[currentRx.medicationIndex];
     const prescriber = state.demoData.prescribers[currentRx.prescriberIndex];
     const pharmacy = state.demoData.pharmacies[currentRx.pharmacyIndex];
-    const member = state.enrolledMembers.find(m => m.walletId === currentRx.memberWalletId);
+    const member = state.enrolledMembers.find((m) => m.walletId === currentRx.memberWalletId);
     const accumulator = member ? member.accumulator : { deductiblePaidCents: 0, oopPaidCents: 0 };
     const plan = state.demoData.plan;
     const billing = memberBilling(member, med, plan);
@@ -670,22 +695,21 @@ export class PharmacyPhase {
   renderFormularyBrowser(state) {
     const medications = state.demoData.medications;
 
-    const rows = medications.map((m, i) => {
-      const tier = m.currentTierLevel ?? m.tier;
-      const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
-      const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
-      const step = m.currentStepTherapyRequired ?? m.stepTherapyRequired;
-      const active = m.active !== false;
-      const paClass = pa ? ' pa-required-row' : '';
-      const removedClass = !active ? ' formulary-removed' : '';
-      const paBadge = pa
-        ? '<span class="pa-badge pa-required">PA</span>'
-        : '<span style="color: var(--text-muted);">No</span>';
-      const badges = [];
-      if (!active) badges.push('<span class="removed-badge">Removed</span>');
-      if (step) badges.push('<span class="step-therapy-badge">Step</span>');
-      if (m.deaSchedule > 0) badges.push(`<span class="dea-badge dea-schedule-${m.deaSchedule}">C${m.deaSchedule}</span>`);
-      return `
+    const rows = medications
+      .map((m, i) => {
+        const tier = m.currentTierLevel ?? m.tier;
+        const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
+        const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
+        const step = m.currentStepTherapyRequired ?? m.stepTherapyRequired;
+        const active = m.active !== false;
+        const paClass = pa ? ' pa-required-row' : '';
+        const removedClass = !active ? ' formulary-removed' : '';
+        const paBadge = pa ? '<span class="pa-badge pa-required">PA</span>' : '<span style="color: var(--text-muted);">No</span>';
+        const badges = [];
+        if (!active) badges.push('<span class="removed-badge">Removed</span>');
+        if (step) badges.push('<span class="step-therapy-badge">Step</span>');
+        if (m.deaSchedule > 0) badges.push(`<span class="dea-badge dea-schedule-${m.deaSchedule}">C${m.deaSchedule}</span>`);
+        return `
         <tr data-med-index="${i}" class="${paClass}${removedClass}" style="cursor: pointer;">
           <td>${escapeHtml(m.brandName)}${badges.length ? ' ' + badges.join(' ') : ''}</td>
           <td>${escapeHtml(m.strength)}</td>
@@ -697,7 +721,8 @@ export class PharmacyPhase {
           <td>${m.maxQuantityPerFill}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card" style="margin-top: 16px;">
@@ -745,7 +770,7 @@ export class PharmacyPhase {
     if (search) {
       search.addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase();
-        document.querySelectorAll('#pharm-med-table-body tr').forEach(row => {
+        document.querySelectorAll('#pharm-med-table-body tr').forEach((row) => {
           const text = row.textContent.toLowerCase();
           row.style.display = text.includes(q) ? '' : 'none';
         });
@@ -758,8 +783,7 @@ export class PharmacyPhase {
       tbody.addEventListener('click', (e) => {
         const row = e.target.closest('tr');
         if (!row) return;
-        document.querySelectorAll('#pharm-med-table-body tr').forEach(r =>
-          r.style.background = '');
+        document.querySelectorAll('#pharm-med-table-body tr').forEach((r) => (r.style.background = ''));
         row.style.background = 'rgba(79, 195, 247, 0.1)';
         this.selectedMedIndex = parseInt(row.dataset.medIndex, 10);
         this.showPharmMedDetail(medications[this.selectedMedIndex]);
@@ -783,9 +807,10 @@ export class PharmacyPhase {
     const stepDisplay = step
       ? '<span class="step-therapy-badge">Step Therapy Required</span>'
       : '<span style="color: var(--accent-green);">Not Required</span>';
-    const deaDisplay = med.deaSchedule === 0
-      ? 'Non-controlled'
-      : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
+    const deaDisplay =
+      med.deaSchedule === 0
+        ? 'Non-controlled'
+        : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
 
     document.getElementById('pharm-med-detail-body').innerHTML = `
       ${!active ? `<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>` : ''}
@@ -820,8 +845,11 @@ export class PharmacyPhase {
     if (enrolled.length === 0) return '';
 
     const memberOptions = enrolled
-      .filter(m => m.lifecycle !== 'REVOKED')
-      .map(m => `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${m.walletId ? escapeHtml(m.walletId.slice(0, 8)) + '\u2026' : '--'})</option>`)
+      .filter((m) => m.lifecycle !== 'REVOKED')
+      .map(
+        (m) =>
+          `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${m.walletId ? escapeHtml(m.walletId.slice(0, 8)) + '\u2026' : '--'})</option>`,
+      )
       .join('');
 
     return `
@@ -866,8 +894,8 @@ export class PharmacyPhase {
     const fulfillments = state.fulfillments || [];
 
     // Find this member's filled prescriptions
-    const memberRxs = prescriptions.filter(rx => rx.memberWalletId === memberWalletId);
-    const filledRxs = memberRxs.filter(rx => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED');
+    const memberRxs = prescriptions.filter((rx) => rx.memberWalletId === memberWalletId);
+    const filledRxs = memberRxs.filter((rx) => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED');
 
     if (filledRxs.length === 0) {
       resultsEl.innerHTML = `
@@ -880,7 +908,7 @@ export class PharmacyPhase {
     }
 
     // Build active medication list
-    const activeMeds = filledRxs.map(rx => {
+    const activeMeds = filledRxs.map((rx) => {
       const med = medications[rx.medicationIndex] || {};
       return {
         brandName: med.brandName || rx.medication || '--',
@@ -892,7 +920,7 @@ export class PharmacyPhase {
 
     // De-duplicate by brand name
     const seen = new Set();
-    const uniqueMeds = activeMeds.filter(m => {
+    const uniqueMeds = activeMeds.filter((m) => {
       if (seen.has(m.brandName)) return false;
       seen.add(m.brandName);
       return true;
@@ -903,14 +931,18 @@ export class PharmacyPhase {
     const status = getDurStatus(alerts);
 
     // Active medications table
-    const medRows = uniqueMeds.map(m => `
+    const medRows = uniqueMeds
+      .map(
+        (m) => `
       <tr>
         <td>${escapeHtml(m.brandName)}</td>
         <td>${escapeHtml(m.strength)}</td>
         <td>${escapeHtml(m.therapeuticClass || '--')}</td>
         <td>${m.tier != null ? `<span class="tier-badge tier-${m.tier}">Tier ${m.tier}</span>` : '--'}</td>
       </tr>
-    `).join('');
+    `,
+      )
+      .join('');
 
     resultsEl.innerHTML = `
       <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
@@ -936,13 +968,14 @@ export class PharmacyPhase {
   renderPharmacyActivity(allPrescriptions, state) {
     if (allPrescriptions.length === 0) return '';
 
-    const filled = allPrescriptions.filter(rx => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED');
-    const reversed = allPrescriptions.filter(rx => rx.status === 'REVERSED');
-    const active = allPrescriptions.filter(rx => rx.status === 'ACTIVE' || rx.status === 'PENDING' || rx.status === 'DISPENSED');
-    const patientSet = new Set(allPrescriptions.map(rx => rx.memberWalletId).filter(Boolean));
-    const medSet = new Set(allPrescriptions.map(rx => rx.medicationIndex));
+    const filled = allPrescriptions.filter((rx) => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED');
+    const reversed = allPrescriptions.filter((rx) => rx.status === 'REVERSED');
+    const active = allPrescriptions.filter((rx) => rx.status === 'ACTIVE' || rx.status === 'PENDING' || rx.status === 'DISPENSED');
+    const patientSet = new Set(allPrescriptions.map((rx) => rx.memberWalletId).filter(Boolean));
+    const medSet = new Set(allPrescriptions.map((rx) => rx.medicationIndex));
 
-    let totalPatientPay = 0, totalPlanPay = 0;
+    let totalPatientPay = 0,
+      totalPlanPay = 0;
     for (const rx of allPrescriptions) {
       totalPatientPay += rx.patientPayCents || 0;
       totalPlanPay += rx.planPayCents || 0;
@@ -973,8 +1006,8 @@ export class PharmacyPhase {
 
     const enrolled = state.enrolledMembers || [];
     const getMemberName = (walletId) => {
-      const m = enrolled.find(e => e.walletId === walletId);
-      return m ? m.displayName : (walletId ? truncHash(walletId, 8) : '--');
+      const m = enrolled.find((e) => e.walletId === walletId);
+      return m ? m.displayName : walletId ? truncHash(walletId, 8) : '--';
     };
 
     const patientMap = new Map();
@@ -982,7 +1015,10 @@ export class PharmacyPhase {
       const e = patientMap.get(rx.memberWalletId) || {
         name: getMemberName(rx.memberWalletId),
         walletId: rx.memberWalletId,
-        scripts: 0, meds: new Set(), patientPay: 0, planPay: 0,
+        scripts: 0,
+        meds: new Set(),
+        patientPay: 0,
+        planPay: 0,
       };
       e.scripts++;
       e.meds.add(rx.medicationIndex);
@@ -992,7 +1028,7 @@ export class PharmacyPhase {
     }
 
     const patients = Array.from(patientMap.values()).sort((a, b) => b.scripts - a.scripts);
-    const rows = patients.map(p => ({
+    const rows = patients.map((p) => ({
       name: p.name,
       walletId: p.walletId ? truncHash(p.walletId, 8) : '--',
       scripts: p.scripts,
@@ -1002,17 +1038,18 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Patient', format: v => escapeHtml(v) },
-      { key: 'walletId', label: 'Wallet ID', format: v => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
+      { key: 'name', label: 'Patient', format: (v) => escapeHtml(v) },
+      { key: 'walletId', label: 'Wallet ID', format: (v) => `<span class="mono" style="font-size: 11px;">${escapeHtml(v)}</span>` },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
-      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
-      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: (v) => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: (v) => formatCents(v) },
     ];
 
     return renderSectionCard(
-      `Patient Breakdown (${patients.length})`, 'pharmacy',
-      renderSortableTable('pharm-patient-table', columns, rows, 'scripts')
+      `Patient Breakdown (${patients.length})`,
+      'pharmacy',
+      renderSortableTable('pharm-patient-table', columns, rows, 'scripts'),
     );
   }
 
@@ -1029,7 +1066,9 @@ export class PharmacyPhase {
         name: prescribers[rx.prescriberIndex]
           ? `Dr. ${prescribers[rx.prescriberIndex].firstName} ${prescribers[rx.prescriberIndex].lastName}`
           : `Prescriber #${rx.prescriberIndex}`,
-        scripts: 0, patients: new Set(), meds: new Set(),
+        scripts: 0,
+        patients: new Set(),
+        meds: new Set(),
       };
       e.scripts++;
       e.patients.add(rx.memberWalletId);
@@ -1038,7 +1077,7 @@ export class PharmacyPhase {
     }
 
     const prescs = Array.from(prescriberMap.values()).sort((a, b) => b.scripts - a.scripts);
-    const rows = prescs.map(p => ({
+    const rows = prescs.map((p) => ({
       name: p.name,
       scripts: p.scripts,
       patients: p.patients.size,
@@ -1046,15 +1085,16 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Prescriber', format: v => escapeHtml(v) },
+      { key: 'name', label: 'Prescriber', format: (v) => escapeHtml(v) },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
       { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
     ];
 
     return renderSectionCard(
-      `Prescriber Breakdown (${prescs.length})`, 'pharmacy',
-      renderSortableTable('pharm-prescriber-table', columns, rows, 'scripts')
+      `Prescriber Breakdown (${prescs.length})`,
+      'pharmacy',
+      renderSortableTable('pharm-prescriber-table', columns, rows, 'scripts'),
     );
   }
 
@@ -1071,7 +1111,10 @@ export class PharmacyPhase {
       const e = medMap.get(rx.medicationIndex) || {
         name: med.brandName || rx.medication || '--',
         tier: med.tier ?? null,
-        scripts: 0, patients: new Set(), patientPay: 0, planPay: 0,
+        scripts: 0,
+        patients: new Set(),
+        patientPay: 0,
+        planPay: 0,
       };
       e.scripts++;
       e.patients.add(rx.memberWalletId);
@@ -1081,7 +1124,7 @@ export class PharmacyPhase {
     }
 
     const meds = Array.from(medMap.values()).sort((a, b) => b.scripts - a.scripts);
-    const rows = meds.map(m => ({
+    const rows = meds.map((m) => ({
       name: m.name,
       tier: m.tier,
       scripts: m.scripts,
@@ -1091,39 +1134,41 @@ export class PharmacyPhase {
     }));
 
     const columns = [
-      { key: 'name', label: 'Medication', format: v => escapeHtml(v) },
-      { key: 'tier', label: 'Tier', format: v => v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--' },
+      { key: 'name', label: 'Medication', format: (v) => escapeHtml(v) },
+      { key: 'tier', label: 'Tier', format: (v) => (v != null ? `<span class="tier-badge tier-${v}">Tier ${v}</span>` : '--') },
       { key: 'scripts', label: 'Scripts', align: 'right' },
       { key: 'patients', label: 'Patients', align: 'right' },
-      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: v => formatCents(v) },
-      { key: 'planPay', label: 'Plan Pay', align: 'right', format: v => formatCents(v) },
+      { key: 'patientPay', label: 'Patient Pay', align: 'right', format: (v) => formatCents(v) },
+      { key: 'planPay', label: 'Plan Pay', align: 'right', format: (v) => formatCents(v) },
     ];
 
     return renderSectionCard(
-      `Medication Breakdown (${meds.length})`, 'pharmacy',
-      renderSortableTable('pharm-med-table', columns, rows, 'scripts')
+      `Medication Breakdown (${meds.length})`,
+      'pharmacy',
+      renderSortableTable('pharm-med-table', columns, rows, 'scripts'),
     );
   }
 
   // ─── Shared Renderers ───────────────────────────────────
 
   renderPrescriptionHistory(allPrescriptions, state) {
-    const completed = allPrescriptions.filter(rx => rx.status === 'FILLED');
-    const reversed = allPrescriptions.filter(rx => rx.status === 'REVERSED');
-    const terminal = allPrescriptions.filter(rx =>
-      rx.status === 'CANCELLED' || rx.status === 'REJECTED');
+    const completed = allPrescriptions.filter((rx) => rx.status === 'FILLED');
+    const reversed = allPrescriptions.filter((rx) => rx.status === 'REVERSED');
+    const terminal = allPrescriptions.filter((rx) => rx.status === 'CANCELLED' || rx.status === 'REJECTED');
     return this.renderPrescriptionSummary(completed, reversed, terminal, state);
   }
 
   renderPrescriptionSummary(completed, reversed, terminal, state) {
     if (completed.length === 0 && reversed.length === 0 && terminal.length === 0) return '';
 
-    const renderRows = (rxList) => rxList.map(rx => {
-      const med = state.demoData.medications[rx.medicationIndex];
-      const member = state.enrolledMembers.find(m => m.walletId === rx.memberWalletId);
-      const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
-      const canReverse = rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED';
-      return `
+    const renderRows = (rxList) =>
+      rxList
+        .map((rx) => {
+          const med = state.demoData.medications[rx.medicationIndex];
+          const member = state.enrolledMembers.find((m) => m.walletId === rx.memberWalletId);
+          const statusClass = `rx-status-${rx.status.toLowerCase().replace('_', '-')}`;
+          const canReverse = rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED';
+          return `
         <tr>
           <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
           <td>${escapeHtml(med.brandName)} ${escapeHtml(med.strength)}</td>
@@ -1135,7 +1180,8 @@ export class PharmacyPhase {
           <td>${canReverse ? `<button class="btn-reverse-rx" data-rx-id="${escapeHtml(rx.id)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-yellow); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Reverse</button>` : ''}</td>
         </tr>
       `;
-    }).join('');
+        })
+        .join('');
 
     return `
       <div class="section-card" style="margin-top: 16px;">
@@ -1173,7 +1219,9 @@ export class PharmacyPhase {
     return `
       <div style="margin-top: 12px; border-top: 1px solid var(--border-subtle); padding-top: 8px;">
         <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">STATUS HISTORY</div>
-        ${history.map(h => `
+        ${history
+          .map(
+            (h) => `
           <div style="font-size: 11px; color: var(--text-secondary); padding: 2px 0; display: flex; gap: 8px;">
             <span class="mono">${new Date(h.timestamp).toLocaleTimeString()}</span>
             <span><span class="rx-status-badge rx-status-${escapeHtml(h.from.toLowerCase().replace('_', '-'))}" style="font-size: 10px; padding: 1px 6px;">${escapeHtml(h.from.replace('_', ' '))}</span>
@@ -1183,7 +1231,9 @@ export class PharmacyPhase {
             ${h.fillQuantity ? `<span>(qty: ${escapeHtml(h.fillQuantity)})</span>` : ''}
             ${h.note ? `<span style="color: var(--text-muted);">\u2014 ${escapeHtml(h.note)}</span>` : ''}
           </div>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </div>
     `;
   }
@@ -1215,18 +1265,33 @@ export class PharmacyPhase {
       if (!res.ok) throw new Error('Failed to fetch chain state');
       const cs = await res.json();
 
-      const truncate = (s) => s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014');
+      const truncate = (s) => (s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014'));
 
       const entries = [];
       entries.push(`<div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>`);
       entries.push(`<div class="label">Health</div><div class="value"><span style="color: var(--accent-green);">Connected</span></div>`);
-      if (cs.registryRoot) entries.push(`<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`);
-      if (cs.lifecycleRoot) entries.push(`<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`);
+      if (cs.registryRoot)
+        entries.push(
+          `<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`,
+        );
+      if (cs.lifecycleRoot)
+        entries.push(
+          `<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`,
+        );
       if (cs.walletCount != null) entries.push(`<div class="label">Wallet Count</div><div class="value">${cs.walletCount}</div>`);
-      if (cs.benefitPlanRoot) entries.push(`<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`);
-      if (cs.nftRegistryRoot) entries.push(`<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`);
+      if (cs.benefitPlanRoot)
+        entries.push(
+          `<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`,
+        );
+      if (cs.nftRegistryRoot)
+        entries.push(
+          `<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`,
+        );
       if (cs.blockHeight != null) entries.push(`<div class="label">Block Height</div><div class="value">${cs.blockHeight}</div>`);
-      if (cs.globalStateRoot) entries.push(`<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`);
+      if (cs.globalStateRoot)
+        entries.push(
+          `<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`,
+        );
 
       container.innerHTML = `<div class="data-grid">${entries.join('')}</div>`;
     } catch (err) {
@@ -1293,11 +1358,14 @@ export class PharmacyPhase {
         document.getElementById('pharmacy-msg-thread-id').value = '';
         document.getElementById('pharmacy-reply-banner').classList.add('hidden');
         if (msgSubject) msgSubject.value = '';
-        if (msgRecipient) { msgRecipient.value = ''; msgRecipient.disabled = false; }
+        if (msgRecipient) {
+          msgRecipient.value = '';
+          msgRecipient.disabled = false;
+        }
       });
     }
     // Thread click handlers
-    document.querySelectorAll('.pharmacy-thread-item').forEach(el => {
+    document.querySelectorAll('.pharmacy-thread-item').forEach((el) => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.msg-reply-btn')) return;
         this.doExpandPharmacyThread(el);
@@ -1306,7 +1374,7 @@ export class PharmacyPhase {
   }
 
   bindSummaryEvents(state) {
-    this.container.querySelectorAll('.btn-reverse-rx').forEach(btn => {
+    this.container.querySelectorAll('.btn-reverse-rx').forEach((btn) => {
       btn.addEventListener('click', () => this.doReverseRx(btn.dataset.rxId, btn, state));
     });
   }
@@ -1325,7 +1393,9 @@ export class PharmacyPhase {
     }
     const remainingQty = remainingQuantity(currentRx.quantity, currentRx.quantityDispensed);
     if (quantityMilli(qty) > quantityMilli(remainingQty)) {
-      alert(`Quantity dispensed (${formatQuantity(qty, med)}) exceeds remaining qty (${formatQuantity(remainingQty, med)}). Fill rejected.`);
+      alert(
+        `Quantity dispensed (${formatQuantity(qty, med)}) exceeds remaining qty (${formatQuantity(remainingQty, med)}). Fill rejected.`,
+      );
       return;
     }
 
@@ -1362,7 +1432,6 @@ export class PharmacyPhase {
       this.fillResult = result;
       this._renderFillResult(result, currentRx);
       this.app.setStatus('ready', 'Complete');
-
     } catch (err) {
       const resultDiv = document.getElementById('fill-result');
       if (resultDiv) {
@@ -1383,7 +1452,7 @@ export class PharmacyPhase {
     let pollCount = 0;
 
     while (Date.now() - startTime < timeoutMs) {
-      await new Promise(r => setTimeout(r, intervalMs));
+      await new Promise((r) => setTimeout(r, intervalMs));
       pollCount++;
 
       const elapsed = Math.round((Date.now() - startTime) / 1000);
@@ -1414,20 +1483,22 @@ export class PharmacyPhase {
     // (*Nft) and threw after every fill, so the engine's numbers in it were never shown.
     const elig = result.eligibilityCredential || {};
     const sd = result.serviceDateStr;
-    const serviceDateDisplay = sd
-      ? sd.slice(4,6) + '/' + sd.slice(6,8) + '/' + sd.slice(0,4)
-      : new Date().toLocaleDateString();
+    const serviceDateDisplay = sd ? sd.slice(4, 6) + '/' + sd.slice(6, 8) + '/' + sd.slice(0, 4) : new Date().toLocaleDateString();
 
     const resultDiv = document.getElementById('fill-result');
     resultDiv.classList.remove('hidden');
     resultDiv.innerHTML = `
       <div class="result-card">
         <div class="result-title">Prescription ${result.rxStatus === 'PARTIALLY_FILLED' ? 'Partially Filled' : 'Filled'} \u2014 Claim Adjudicated</div>
-        ${result.rxStatus === 'PARTIALLY_FILLED' ? `
+        ${
+          result.rxStatus === 'PARTIALLY_FILLED'
+            ? `
           <div style="padding: 6px 10px; background: rgba(255, 183, 77, 0.1); border: 1px solid rgba(255, 183, 77, 0.3); border-radius: 4px; margin-bottom: 8px; font-size: 12px; color: var(--accent-yellow);">
             Partial fill: ${result.quantityDispensed} of ${result.quantityPrescribed} dispensed. Return to this tab to fill the remainder.
           </div>
-        ` : ''}
+        `
+            : ''
+        }
 
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ADJUDICATION (ZK-enforced in-circuit)</h4>
         <div class="data-grid">
@@ -1440,9 +1511,13 @@ export class PharmacyPhase {
           <div class="label">Patient Pay</div><div class="value" style="color: var(--accent-orange); font-weight: 700;">${formatCents(result.adjudication.patientPayCents)}</div>
           <div class="label">Plan Pay</div><div class="value" style="color: var(--accent-green); font-weight: 700;">${formatCents(result.adjudication.planPayCents)}</div>
         </div>
-        ${result.adjudication.familyPoolingApplied ? `
+        ${
+          result.adjudication.familyPoolingApplied
+            ? `
           <div class="family-pooling-badge">Family Pooling Applied \u2014 ${escapeHtml(result.adjudication.familyPoolingReason)}</div>
-        ` : ''}
+        `
+            : ''
+        }
 
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ACCUMULATOR (BEFORE \u2192 AFTER)</h4>
         <div class="progress-container">
@@ -1460,7 +1535,9 @@ export class PharmacyPhase {
           <div class="progress-bar"><div class="fill oop" style="width: ${pct(result.accumulator.after.oopPaidCents, result.accumulator.limits.oopMaxCents)}%"></div></div>
         </div>
 
-        ${result.accumulator.limits.familyOopMaxCents ? `
+        ${
+          result.accumulator.limits.familyOopMaxCents
+            ? `
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">FAMILY ACCUMULATOR</h4>
         <div class="family-accumulator-bar">
           <div class="progress-container">
@@ -1481,7 +1558,9 @@ export class PharmacyPhase {
         <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
           Family totals require querying all enrolled family members. Individual + family limits are enforced at the service layer.
         </div>
-        ` : ''}
+        `
+            : ''
+        }
 
         <h4 style="color: var(--accent-blue); margin: 16px 0 8px; font-size: 13px;">ELIGIBILITY CREDENTIAL</h4>
         <div class="data-grid">
@@ -1590,8 +1669,8 @@ export class PharmacyPhase {
 
       const result = await res.json();
       // the member's own limits, as on the fill screen (the reversal result carries none)
-      const reversedRx = (state.prescriptions || []).find(rx => rx.id === rxId);
-      const reversedMember = reversedRx ? (state.enrolledMembers || []).find(m => m.walletId === reversedRx.memberWalletId) : null;
+      const reversedRx = (state.prescriptions || []).find((rx) => rx.id === rxId);
+      const reversedMember = reversedRx ? (state.enrolledMembers || []).find((m) => m.walletId === reversedRx.memberWalletId) : null;
       const limits = memberBilling(reversedMember, {}, state.demoData.plan);
       // the reversal result's name for it since the credential rename (it was eligibilityNft)
       const elig = result.eligibilityCredential || {};
@@ -1665,7 +1744,6 @@ export class PharmacyPhase {
           this.render(fresh);
         }
       }, 1500);
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1681,7 +1759,7 @@ export class PharmacyPhase {
 
   renderPharmacyMessages(state, currentRx) {
     const dir = state.walletDirectory || {};
-    const MSG_LABELS = { 1:'Rx', 2:'PA Req', 3:'PA Resp', 4:'Notice', 5:'General', 6:'Support', 7:'Summary' };
+    const MSG_LABELS = { 1: 'Rx', 2: 'PA Req', 3: 'PA Resp', 4: 'Notice', 5: 'General', 6: 'Support', 7: 'Summary' };
 
     let pharmacyWalletId = null;
     for (const [wid, info] of Object.entries(dir)) {
@@ -1692,37 +1770,40 @@ export class PharmacyPhase {
     }
 
     const messages = pharmacyWalletId
-      ? (state.messaging?.messages || []).filter(m =>
-          m.senderWalletId === pharmacyWalletId || m.recipientWalletId === pharmacyWalletId)
+      ? (state.messaging?.messages || []).filter((m) => m.senderWalletId === pharmacyWalletId || m.recipientWalletId === pharmacyWalletId)
       : [];
 
     // Group messages by threadId
     const threadMap = new Map();
-    messages.forEach(m => {
+    messages.forEach((m) => {
       const tid = m.threadId || `msg-${m.messageIndex}`;
       if (!threadMap.has(tid)) threadMap.set(tid, []);
       threadMap.get(tid).push(m);
     });
     const threads = Array.from(threadMap.entries())
-      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map(m => m.timestamp || 0)) }))
+      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map((m) => m.timestamp || 0)) }))
       .sort((a, b) => b.latest - a.latest);
 
     // Build recipient options — pharmacies can contact members and prescribers
     const recipientOptions = [];
     const pharmacyIdx = currentRx.pharmacyIndex;
-    const rxAtPharmacy = (state.prescriptions || []).filter(rx => rx.pharmacyIndex === pharmacyIdx);
+    const rxAtPharmacy = (state.prescriptions || []).filter((rx) => rx.pharmacyIndex === pharmacyIdx);
 
     // Unique members with Rx at this pharmacy
     const memberWalletSet = new Set();
-    rxAtPharmacy.forEach(rx => { if (rx.memberWalletId) memberWalletSet.add(rx.memberWalletId); });
+    rxAtPharmacy.forEach((rx) => {
+      if (rx.memberWalletId) memberWalletSet.add(rx.memberWalletId);
+    });
     for (const wid of memberWalletSet) {
-      const m = state.enrolledMembers?.find(e => e.walletId === wid && e.lifecycle !== 'REVOKED');
+      const m = state.enrolledMembers?.find((e) => e.walletId === wid && e.lifecycle !== 'REVOKED');
       if (m) recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (Patient)</option>`);
     }
 
     // Unique prescribers who wrote Rx filled at this pharmacy
     const prescriberSet = new Set();
-    rxAtPharmacy.forEach(rx => { if (rx.prescriberIndex !== undefined) prescriberSet.add(rx.prescriberIndex); });
+    rxAtPharmacy.forEach((rx) => {
+      if (rx.prescriberIndex !== undefined) prescriberSet.add(rx.prescriberIndex);
+    });
     for (const idx of prescriberSet) {
       const p = state.demoData?.prescribers?.[idx];
       if (p) recipientOptions.push(`<option value="prescriber:${idx}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</option>`);
@@ -1754,17 +1835,20 @@ export class PharmacyPhase {
             <div class="msg-privacy-note">End-to-end encrypted (X25519-ECDH + AES-256-GCM). ZK proof generated on send.</div>
           </div>
           <div id="pharmacy-send-result" class="hidden"></div>
-          ${threads.length > 0 ? `
+          ${
+            threads.length > 0
+              ? `
           <div class="msg-thread-list">
-            ${threads.map(t => {
-              const lastMsg = t.messages[t.messages.length - 1];
-              const isSent = lastMsg.senderWalletId === pharmacyWalletId;
-              const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
-              const otherName = dir[otherWid]?.displayName || otherWid.slice(0,8) + '\u2026';
-              const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
-              const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
-              return `
-              <div class="pharmacy-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(pharmacyWalletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
+            ${threads
+              .map((t) => {
+                const lastMsg = t.messages[t.messages.length - 1];
+                const isSent = lastMsg.senderWalletId === pharmacyWalletId;
+                const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
+                const otherName = dir[otherWid]?.displayName || otherWid.slice(0, 8) + '\u2026';
+                const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
+                const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
+                return `
+              <div class="pharmacy-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(pharmacyWalletId)}" data-indices="${escapeHtml(t.messages.map((m) => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
                     <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
@@ -1776,9 +1860,12 @@ export class PharmacyPhase {
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
                 <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
-            }).join('')}
+              })
+              .join('')}
           </div>
-          ` : '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">No messages yet.</div>'}
+          `
+              : '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">No messages yet.</div>'
+          }
         </div>
       </div>
     `;
@@ -1805,12 +1892,17 @@ export class PharmacyPhase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageIndices: indices, walletId }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const decrypted = await res.json();
       const dir = this.currentState?.walletDirectory || {};
 
       // every value in a message came over the network and is escaped (message-thread.js)
-      bodyDiv.innerHTML = renderMessageBubbles(decrypted, walletId, dir) + `
+      bodyDiv.innerHTML =
+        renderMessageBubbles(decrypted, walletId, dir) +
+        `
         <button class="msg-reply-btn" data-thread-id="${escapeHtml(threadId)}" style="margin-top: 8px; font-size: 11px; background: var(--accent-orange); color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer;">Reply</button>
       `;
 
@@ -1885,7 +1977,10 @@ export class PharmacyPhase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       const resultDiv = document.getElementById('pharmacy-send-result');
@@ -1914,7 +2009,10 @@ export class PharmacyPhase {
       this.app.setStatus('ready', 'Message sent');
       setTimeout(async () => {
         const fresh = await loadInteractiveState(API_BASE);
-        if (fresh) { this.currentState = fresh; this.render(this.currentState); }
+        if (fresh) {
+          this.currentState = fresh;
+          this.render(this.currentState);
+        }
       }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('pharmacy-send-result');
@@ -1977,7 +2075,7 @@ export class PharmacyPhase {
 
 function pct(current, max) {
   if (max === 0) return 0;
-  return Math.min(100, (current / max * 100)).toFixed(1);
+  return Math.min(100, (current / max) * 100).toFixed(1);
 }
 
 /**

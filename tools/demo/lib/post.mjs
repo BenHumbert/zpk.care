@@ -27,8 +27,12 @@ function capture(cmd, args) {
     const p = spawn(cmd, args, { windowsHide: true });
     let out = '';
     let err = '';
-    p.stdout.on('data', (d) => { out += d; });
-    p.stderr.on('data', (d) => { err += d; });
+    p.stdout.on('data', (d) => {
+      out += d;
+    });
+    p.stderr.on('data', (d) => {
+      err += d;
+    });
     p.on('error', reject);
     p.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`${path.basename(cmd)} exited ${code}: ${err.slice(-400)}`))));
   });
@@ -37,13 +41,26 @@ function capture(cmd, args) {
 /** Duration of a media file in ms (ffprobe), or null. */
 export async function probeMs(file) {
   if (!fs.existsSync(FFPROBE)) return null;
-  const out = await capture(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file]).catch(() => '');
+  const out = await capture(FFPROBE, [
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    file,
+  ]).catch(() => '');
   const s = parseFloat(String(out).trim());
   return Number.isFinite(s) ? Math.round(s * 1000) : null;
 }
 
 function badgeFont() {
-  for (const f of ['C:/Windows/Fonts/segoeuib.ttf', 'C:/Windows/Fonts/segoeui.ttf', 'C:/Windows/Fonts/arialbd.ttf', 'C:/Windows/Fonts/arial.ttf']) {
+  for (const f of [
+    'C:/Windows/Fonts/segoeuib.ttf',
+    'C:/Windows/Fonts/segoeui.ttf',
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+  ]) {
     if (fs.existsSync(f)) return f;
   }
   return null;
@@ -58,22 +75,33 @@ export function planPieces(take, { minSpeedUpMs = 1500 } = {}) {
   if (!(T1 > T0)) throw new Error('post: the take has no length (T1 <= T0)');
   const cuts = (take.cuts || []).filter((c) => c.at < T1).sort((a, b) => a.at - b.at);
   if (!cuts.length) throw new Error('post: the cut list is empty');
-  const ups = (take.speedups || []).filter((w) => w.to && w.to - w.from >= minSpeedUpMs && w.factor > 1)
-    .map((w) => ({ from: Math.max(T0, w.from), to: Math.min(T1, w.to), factor: w.factor })).filter((w) => w.to > w.from);
+  const ups = (take.speedups || [])
+    .filter((w) => w.to && w.to - w.from >= minSpeedUpMs && w.factor > 1)
+    .map((w) => ({ from: Math.max(T0, w.from), to: Math.min(T1, w.to), factor: w.factor }))
+    .filter((w) => w.to > w.from);
   const edges = new Set([T0, T1]);
   for (const c of cuts) if (c.at > T0 && c.at < T1) edges.add(c.at);
-  for (const w of ups) { edges.add(w.from); edges.add(w.to); }
+  for (const w of ups) {
+    edges.add(w.from);
+    edges.add(w.to);
+  }
   const times = [...edges].sort((a, b) => a - b);
   const keyAt = (t) => {
     let k = cuts[0].key;
-    for (const c of cuts) { if (c.at <= t) k = c.key; else break; }
+    for (const c of cuts) {
+      if (c.at <= t) k = c.key;
+      else break;
+    }
     return k;
   };
   const factorAt = (a, b) => ups.reduce((f, w) => (w.from <= a && w.to >= b ? Math.max(f, w.factor) : f), 1);
   const scenes = (take.scenes || []).slice().sort((a, b) => a.at - b.at);
   const sceneAt = (t) => {
     let s = scenes[0] || null;
-    for (const x of scenes) { if (x.at <= t) s = x; else break; }
+    for (const x of scenes) {
+      if (x.at <= t) s = x;
+      else break;
+    }
     return s;
   };
   const raw = [];
@@ -113,7 +141,16 @@ export function makeTimeMap(pieces) {
   };
 }
 
-export async function assemble({ outDir, take, log = () => {}, crf = 18, preset = 'medium', keepPieces = false, filmName = 'walkthrough.mp4', title = 'zpk.care walkthrough' }) {
+export async function assemble({
+  outDir,
+  take,
+  log = () => {},
+  crf = 18,
+  preset = 'medium',
+  keepPieces = false,
+  filmName = 'walkthrough.mp4',
+  title = 'zpk.care walkthrough',
+}) {
   fs.mkdirSync(outDir, { recursive: true });
   const pieceDir = path.join(outDir, 'pieces');
   fs.rmSync(pieceDir, { recursive: true, force: true });
@@ -136,15 +173,39 @@ export async function assemble({ outDir, take, log = () => {}, crf = 18, preset 
     const vf = [`setpts=(PTS-STARTPTS)/${p.factor}`, `fps=${FPS}`, 'scale=1920:1080:flags=lanczos', 'setsar=1'];
     if (p.factor > 1) {
       const txt = `sped up ${Number.isInteger(p.factor) ? p.factor : p.factor.toFixed(1)}x`;
-      vf.push(`drawtext=${font ? `fontfile='${ffPath(font)}':` : ''}text='${txt}':x=w-tw-44:y=40:fontsize=30:fontcolor=white@0.95:box=1:boxcolor=0x0c0c0e@0.62:boxborderw=12`);
+      vf.push(
+        `drawtext=${font ? `fontfile='${ffPath(font)}':` : ''}text='${txt}':x=w-tw-44:y=40:fontsize=30:fontcolor=white@0.95:box=1:boxcolor=0x0c0c0e@0.62:boxborderw=12`,
+      );
     }
     const prev = pieces[i - 1];
     const next = pieces[i + 1];
     if (prev && prev.act !== p.act) vf.push(`fade=t=in:st=0:d=${FADE}`);
     if (next && next.act !== p.act && outSec > FADE * 2) vf.push(`fade=t=out:st=${(outSec - FADE).toFixed(3)}:d=${FADE}`);
     const file = path.join(pieceDir, `piece-${String(i + 1).padStart(4, '0')}.mp4`);
-    await ffmpeg(['-ss', inSec.toFixed(3), '-i', shot.video, '-t', (inDur + 1).toFixed(3), '-vf', vf.join(','), '-an', '-r', String(FPS), '-frames:v', String(frames),
-      '-c:v', 'libx264', '-preset', preset, '-crf', String(crf), '-pix_fmt', 'yuv420p', file]);
+    await ffmpeg([
+      '-ss',
+      inSec.toFixed(3),
+      '-i',
+      shot.video,
+      '-t',
+      (inDur + 1).toFixed(3),
+      '-vf',
+      vf.join(','),
+      '-an',
+      '-r',
+      String(FPS),
+      '-frames:v',
+      String(frames),
+      '-c:v',
+      'libx264',
+      '-preset',
+      preset,
+      '-crf',
+      String(crf),
+      '-pix_fmt',
+      'yuv420p',
+      file,
+    ]);
     const actual = (await probeMs(file)) ?? Math.round(outSec * 1000);
     Object.assign(p, { file, plannedMs, outMs: actual, outStart });
     outStart += actual;
@@ -170,26 +231,73 @@ export async function assemble({ outDir, take, log = () => {}, crf = 18, preset 
   fs.writeFileSync(path.join(outDir, 'narration.srt'), srt(lines, 0));
 
   // ---------------------------------------------------------------- scenes, chapters
-  const scenes = (take.scenes || []).slice().sort((a, b) => a.at - b.at).map((s, i, all) => ({
-    key: s.key, act: s.act, title: s.title, start: Math.round(map(Math.max(take.T0, s.at))),
-    end: Math.round(i + 1 < all.length ? map(Math.max(take.T0, all[i + 1].at)) : totalMs)
-  })).filter((s) => s.end > s.start || s.start < totalMs);
+  const scenes = (take.scenes || [])
+    .slice()
+    .sort((a, b) => a.at - b.at)
+    .map((s, i, all) => ({
+      key: s.key,
+      act: s.act,
+      title: s.title,
+      start: Math.round(map(Math.max(take.T0, s.at))),
+      end: Math.round(i + 1 < all.length ? map(Math.max(take.T0, all[i + 1].at)) : totalMs),
+    }))
+    .filter((s) => s.end > s.start || s.start < totalMs);
   const acts = [];
   for (const s of scenes) {
     const last = acts[acts.length - 1];
-    if (!last || last.act !== s.act) acts.push({ act: s.act, title: (take.acts && take.acts[s.act]) || `Act ${s.act}`, start: s.start, end: s.end });
+    if (!last || last.act !== s.act)
+      acts.push({ act: s.act, title: (take.acts && take.acts[s.act]) || `Act ${s.act}`, start: s.start, end: s.end });
     else last.end = s.end;
   }
   const esc = (s) => String(s).replace(/([=;#\\\n])/g, '\\$1');
-  const meta = [';FFMETADATA1', `title=${esc(title)}`, ...acts.flatMap((a) => ['[CHAPTER]', 'TIMEBASE=1/1000', `START=${a.start}`, `END=${Math.max(a.start + 1, a.end)}`, `title=${esc(a.title)}`])].join('\n') + '\n';
+  const meta =
+    [
+      ';FFMETADATA1',
+      `title=${esc(title)}`,
+      ...acts.flatMap((a) => [
+        '[CHAPTER]',
+        'TIMEBASE=1/1000',
+        `START=${a.start}`,
+        `END=${Math.max(a.start + 1, a.end)}`,
+        `title=${esc(a.title)}`,
+      ]),
+    ].join('\n') + '\n';
   const metaFile = path.join(pieceDir, 'chapters.txt');
   fs.writeFileSync(metaFile, meta);
 
   // ---------------------------------------------------------------- the film
   const film = path.join(outDir, filmName);
   const spoken = lines.some((l) => l.file);
-  await ffmpeg(['-i', video, '-i', voices, '-i', metaFile, '-map', '0:v', '-map', '1:a', '-map_metadata', '2', '-map_chapters', '2', '-c:v', 'copy',
-    ...(spoken ? ['-af', 'loudnorm=I=-16:TP=-1.5:LRA=11'] : []), '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-t', (totalMs / 1000).toFixed(3), '-movflags', '+faststart', film]);
+  await ffmpeg([
+    '-i',
+    video,
+    '-i',
+    voices,
+    '-i',
+    metaFile,
+    '-map',
+    '0:v',
+    '-map',
+    '1:a',
+    '-map_metadata',
+    '2',
+    '-map_chapters',
+    '2',
+    '-c:v',
+    'copy',
+    ...(spoken ? ['-af', 'loudnorm=I=-16:TP=-1.5:LRA=11'] : []),
+    '-c:a',
+    'aac',
+    '-b:a',
+    '160k',
+    '-ar',
+    '48000',
+    '-t',
+    (totalMs / 1000).toFixed(3),
+    '-movflags',
+    '+faststart',
+    film,
+  ]);
 
   const summary = {
     film: filmName,
@@ -197,8 +305,16 @@ export async function assemble({ outDir, take, log = () => {}, crf = 18, preset 
     startedAt: new Date(take.T0).toISOString(),
     acts,
     scenes,
-    pieces: pieces.map((p) => ({ key: p.key, label: take.shots[p.key]?.label || p.key, act: p.act, scene: p.scene, factor: p.factor, start: p.outStart, ms: p.outMs })),
-    lines: lines.map((l) => ({ at: l.at, ms: l.ms, name: l.name, persona: l.persona, text: l.text }))
+    pieces: pieces.map((p) => ({
+      key: p.key,
+      label: take.shots[p.key]?.label || p.key,
+      act: p.act,
+      scene: p.scene,
+      factor: p.factor,
+      start: p.outStart,
+      ms: p.outMs,
+    })),
+    lines: lines.map((l) => ({ at: l.at, ms: l.ms, name: l.name, persona: l.persona, text: l.text })),
   };
   fs.writeFileSync(path.join(outDir, 'scenes.json'), JSON.stringify(summary, null, 2));
   fs.writeFileSync(path.join(outDir, 'player.html'), playerHtml(summary, title));
@@ -209,7 +325,7 @@ export async function assemble({ outDir, take, log = () => {}, crf = 18, preset 
 
 /** The listening page (adapted from demo-bid.mjs): the film, and a scene list that follows it and seeks on click. */
 export function playerHtml(summary, title) {
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const rows = summary.scenes.map((s) => ({ t: s.start / 1000, act: s.act, title: s.title, key: s.key }));
   const lines = summary.lines.map((l) => ({ t: l.at / 1000, who: l.name, text: l.text }));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>

@@ -34,34 +34,67 @@ import { Field } from 'o1js';
 import { AdjudicationService } from '../src/adjudication/interactive-service.js';
 
 const pricingOf = (quantity: number, ingredient: number) => ({
-  basis: 'NADAC', ndc: '00378410591', nadacUnitPriceE5: 60042, pricingUnit: 'EA', dispensingFeeCents: 1250, dispensingFeeSource: 'plan',
-  quantity, ingredientCostCents: ingredient, totalCostCents: ingredient + 1250,
+  basis: 'NADAC',
+  ndc: '00378410591',
+  nadacUnitPriceE5: 60042,
+  pricingUnit: 'EA',
+  dispensingFeeCents: 1250,
+  dispensingFeeSource: 'plan',
+  quantity,
+  ingredientCostCents: ingredient,
+  totalCostCents: ingredient + 1250,
 });
 const fill = (quantity: number, ingredient: number, patient: number, reversed = false) => ({
-  patientPayCents: patient, planPayCents: ingredient + 1250 - patient, totalCostCents: ingredient + 1250,
-  deductibleCreditField: Field(0), accumulatorBefore: { deductiblePaid: 50000, oopPaid: 0, benefitUsed: 0 },
+  patientPayCents: patient,
+  planPayCents: ingredient + 1250 - patient,
+  totalCostCents: ingredient + 1250,
+  deductibleCreditField: Field(0),
+  accumulatorBefore: { deductiblePaid: 50000, oopPaid: 0, benefitUsed: 0 },
   fulfillmentData: { ingredientCostCents: Field(ingredient), dispensingFeeCents: Field(1250) },
-  pricing: pricingOf(quantity, ingredient), reversed, quantityDispensed: quantity, dateOfService: '20261019',
+  pricing: pricingOf(quantity, ingredient),
+  reversed,
+  quantityDispensed: quantity,
+  dateOfService: '20261019',
 });
 
 function row(fills: unknown[]): any {
   const svc: any = Object.create(AdjudicationService.prototype);
   Object.assign(svc, {
     pendingPrescriptions: new Map(),
-    prescriptions: new Map([['RX-1', {
-      status: 'DISPENSED', pharmacyIndex: 0, prescriberIndex: 0, ndcHash: 'ndc', memberWalletId: '123',
-      quantity: 30, quantityDispensed: 30, refills: 0, refillsUsed: 0, statusHistory: [],
-      formularyEntry: { copayAmountCents: Field(1500) },
-    }]]),
+    prescriptions: new Map([
+      [
+        'RX-1',
+        {
+          status: 'DISPENSED',
+          pharmacyIndex: 0,
+          prescriberIndex: 0,
+          ndcHash: 'ndc',
+          memberWalletId: '123',
+          quantity: 30,
+          quantityDispensed: 30,
+          refills: 0,
+          refillsUsed: 0,
+          statusHistory: [],
+          formularyEntry: { copayAmountCents: Field(1500) },
+        },
+      ],
+    ]),
     fulfillments: new Map([['RX-1', fills]]),
     pharmacyWalletIds: new Map([[0, Field(55)]]),
     prescriberWalletIds: new Map([[0, Field(66)]]),
-    getMedicationByNdcHash: () => ({ brandName: 'ABACAVIR', genericName: 'ABACAVIR', strength: '300 MG', ndcFormatted: '00378-4105-91', pricingUnit: 'EA', formularyEntry: { tierLevel: 1, copayAmount: 1000 } }),
+    getMedicationByNdcHash: () => ({
+      brandName: 'ABACAVIR',
+      genericName: 'ABACAVIR',
+      strength: '300 MG',
+      ndcFormatted: '00378-4105-91',
+      pricingUnit: 'EA',
+      formularyEntry: { tierLevel: 1, copayAmount: 1000 },
+    }),
   });
   return svc.getPrescriptionsByPharmacy(0)[0];
 }
 
-describe('the engine\'s list', () => {
+describe("the engine's list", () => {
   // 30 ABACAVIR dispensed as 10 and then 20, copay phase: 600 + 1250 and 1201 + 1250, the member paying the $15 copay each time
   const twoFills = [fill(10, 600, 1500), fill(20, 1201, 1500)];
 
@@ -69,14 +102,18 @@ describe('the engine\'s list', () => {
     const r = row(twoFills);
     expect([r.ingredientCostCents, r.dispensingFeeCents, r.patientPayCents, r.planPayCents]).toEqual([1801, 2500, 3000, 1301]);
     expect(r.patientPayCents + r.planPayCents).toBe(r.ingredientCostCents + r.dispensingFeeCents);
-    expect(r.pricing).toBeNull();   // a sum has no single NADAC unit price
+    expect(r.pricing).toBeNull(); // a sum has no single NADAC unit price
     expect(r.pricingUnit).toBe('EA');
   });
 
-  test('keeps each fill\'s own amounts and pricing in fills[]', () => {
+  test("keeps each fill's own amounts and pricing in fills[]", () => {
     const r = row(twoFills);
-    expect(r.fills.map((f: any) => [f.quantityDispensed, f.ingredientCostCents, f.dispensingFeeCents, f.patientPayCents, f.planPayCents]))
-      .toEqual([[10, 600, 1250, 1500, 350], [20, 1201, 1250, 1500, 951]]);
+    expect(
+      r.fills.map((f: any) => [f.quantityDispensed, f.ingredientCostCents, f.dispensingFeeCents, f.patientPayCents, f.planPayCents]),
+    ).toEqual([
+      [10, 600, 1250, 1500, 350],
+      [20, 1201, 1250, 1500, 951],
+    ]);
     expect(r.fills[1].pricing).toEqual(pricingOf(20, 1201));
   });
 
@@ -94,7 +131,10 @@ describe('the engine\'s list', () => {
 
 describe('the pharmacy dashboard', () => {
   const NL = String.fromCharCode(10);
-  const app = fs.readFileSync('dashboard-pharmacy/app.js', 'utf8').split(String.fromCharCode(13) + NL).join(NL);
+  const app = fs
+    .readFileSync('dashboard-pharmacy/app.js', 'utf8')
+    .split(String.fromCharCode(13) + NL)
+    .join(NL);
   function lift(name: string): string {
     let at = app.indexOf(NL + '  function ' + name + '(');
     if (at < 0) at = app.indexOf(NL + '  async function ' + name + '(');
@@ -108,9 +148,12 @@ describe('the pharmacy dashboard', () => {
     vm.runInContext(names.map(lift).join(NL), ctx);
     return ctx;
   }
-  const engineRow = { ...row([fill(10, 600, 1500), fill(20, 1201, 1500)]), metadata: { ingredientCostCents: 1201, dispensingFeeCents: 1250, nadacUnitPriceE5: 60042, pricingUnit: 'EA', quantityDispensed: 20 } };
+  const engineRow = {
+    ...row([fill(10, 600, 1500), fill(20, 1201, 1500)]),
+    metadata: { ingredientCostCents: 1201, dispensingFeeCents: 1250, nadacUnitPriceE5: 60042, pricingUnit: 'EA', quantityDispensed: 20 },
+  };
 
-  test('the card\'s drug cost is the engine\'s sums, whatever ledger claim was merged beside them', () => {
+  test("the card's drug cost is the engine's sums, whatever ledger claim was merged beside them", () => {
     const p = page(['fillPricingOf', 'formatNadacUnit', 'nadacBreakdown']);
     const pricing = p.fillPricingOf(engineRow, {});
     expect(pricing.totalCostCents).toBe(engineRow.patientPayCents + engineRow.planPayCents);
@@ -119,10 +162,12 @@ describe('the pharmacy dashboard', () => {
 
   test('a fill just dispensed shows its own NADAC breakdown, with the unit after the quantity', () => {
     const p = page(['fillPricingOf', 'formatNadacUnit', 'nadacBreakdown']);
-    expect(p.nadacBreakdown(p.fillPricingOf(engineRow, { pricing: pricingOf(20, 1201) }))).toBe('NADAC $0.60042/EA x 20 EA = $12.01 + dispensing fee $12.50 = $24.51');
+    expect(p.nadacBreakdown(p.fillPricingOf(engineRow, { pricing: pricingOf(20, 1201) }))).toBe(
+      'NADAC $0.60042/EA x 20 EA = $12.01 + dispensing fee $12.50 = $24.51',
+    );
   });
 
-  test('the merge of ledger claims fills only what the engine\'s list leaves empty', () => {
+  test("the merge of ledger claims fills only what the engine's list leaves empty", () => {
     for (const field of ['patientPayCents', 'planPayCents', 'deductibleCreditCents', 'ingredientCostCents', 'dispensingFeeCents']) {
       expect(app).toContain(`if (acc.${field} != null && rx.${field} == null) rx.${field} = acc.${field};`);
     }

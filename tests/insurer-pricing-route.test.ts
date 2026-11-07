@@ -71,7 +71,13 @@ beforeAll(async () => {
   ndcHash = hashString(ABACAVIR).toString();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pricing-route' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pricing-route' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   const insurerKey = generateNodeKey('insurer-node');
@@ -81,8 +87,21 @@ beforeAll(async () => {
     asked.push(request);
     if (request.walletId !== MEMBER) return null;
     return {
-      covered: true, copayAmountCents: 1500, copayBasis: 'plan', tierLevel: 1,
-      price: { basis: 'NADAC', ndc: ABACAVIR, nadacUnitPriceE5: 64179, pricingUnit: 'EA', dispensingFeeCents: 1250, dispensingFeeSource: 'plan', quantity: 30, ingredientCostCents: 1925, totalCostCents: 3175 },
+      covered: true,
+      copayAmountCents: 1500,
+      copayBasis: 'plan',
+      tierLevel: 1,
+      price: {
+        basis: 'NADAC',
+        ndc: ABACAVIR,
+        nadacUnitPriceE5: 64179,
+        pricingUnit: 'EA',
+        dispensingFeeCents: 1250,
+        dispensingFeeSource: 'plan',
+        quantity: 30,
+        ingredientCostCents: 1925,
+        totalCostCents: 3175,
+      },
       split: { patientPayCents: 3175, planPayCents: 0, deductibleCreditCents: 3175, phase: 'deductible', familyRule: 0 },
     };
   });
@@ -92,16 +111,32 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pricing-route-'));
   dirs.push(dir);
   insurerServer = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: INSURER_ADMIN, nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: INSURER_ADMIN,
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
     rpcProxy: resolveRpcProxyPolicy({}, 'insurer node'),
   } as any);
   insurerServer.registerRoutes(buildInsurerRoutes(insurerServer));
-  insurerNode = new InsurerNode({ role: 'insurer', sequencerUrl: seqUrl, displayName: 'Insurer', clientOptions: insurerServer.sequencerClientOptions() } as any);
+  insurerNode = new InsurerNode({
+    role: 'insurer',
+    sequencerUrl: seqUrl,
+    displayName: 'Insurer',
+    clientOptions: insurerServer.sequencerClientOptions(),
+  } as any);
   // what this node sends the sequencer, as L2Client.estimateCost receives it
   const client = insurerNode.client;
   const estimate = client.estimateCost.bind(client);
-  client.estimateCost = async (params: Record<string, unknown>, signer?: unknown) => { sent.push(params); return estimate(params, signer); };
+  client.estimateCost = async (params: Record<string, unknown>, signer?: unknown) => {
+    sent.push(params);
+    return estimate(params, signer);
+  };
   insurerServer.setEntityNode(insurerNode);
   await insurerServer.start();
   insurerUrl = `http://127.0.0.1:${insurerServer.getPort()}`;
@@ -110,51 +145,87 @@ beforeAll(async () => {
 afterAll(async () => {
   await insurerServer?.stop();
   await rpcServer?.stop();
-  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of dirs) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
-beforeEach(() => { asked.length = 0; sent.length = 0; });
+beforeEach(() => {
+  asked.length = 0;
+  sent.length = 0;
+});
 
-async function estimate(body: unknown, headers: Record<string, string> = { Authorization: `Bearer ${INSURER_ADMIN}` }): Promise<{ status: number; json: any }> {
-  const r = await fetch(`${insurerUrl}/pricing/estimate`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+async function estimate(
+  body: unknown,
+  headers: Record<string, string> = { Authorization: `Bearer ${INSURER_ADMIN}` },
+): Promise<{ status: number; json: any }> {
+  const r = await fetch(`${insurerUrl}/pricing/estimate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
   return { status: r.status, json: await r.json() };
 }
 
 describe('POST /pricing/estimate', () => {
-  test('without the node\'s admin credential no quote is answered, and nothing is asked', async () => {
+  test("without the node's admin credential no quote is answered, and nothing is asked", async () => {
     const r = await estimate({ ndcHash, quantity: 30, walletId: MEMBER }, {});
-    expect(r.status).toBe(401);                                   // before: 404, no such route
+    expect(r.status).toBe(401); // before: 404, no such route
     expect(asked).toEqual([]);
     expect(sent).toEqual([]);
   });
 
-  test('a member\'s quote is the engine\'s, asked as the plan', async () => {
+  test("a member's quote is the engine's, asked as the plan", async () => {
     const r = await estimate({ ndcHash, quantity: 30, walletId: MEMBER });
     expect(r.status).toBe(200);
     expect(r.json.data).toMatchObject({
-      covered: true, drugName: 'ABACAVIR', pricingUnit: 'EA', quantity: 30, ingredientCostCents: 1925, dispensingFeeCents: 1250,
-      dispensingFeeSource: 'plan', totalCostCents: 3175, phase: 'deductible', memberPayCents: 3175, employerPayCents: 0,
+      covered: true,
+      drugName: 'ABACAVIR',
+      pricingUnit: 'EA',
+      quantity: 30,
+      ingredientCostCents: 1925,
+      dispensingFeeCents: 1250,
+      dispensingFeeSource: 'plan',
+      totalCostCents: 3175,
+      phase: 'deductible',
+      memberPayCents: 3175,
+      employerPayCents: 0,
     });
     expect(asked).toEqual([expect.objectContaining({ walletId: MEMBER, ndcHash, quantity: 30 })]);
   });
 
-  test('with no member: a plan\'s price, or the list price; no member is asked about', async () => {
+  test("with no member: a plan's price, or the list price; no member is asked about", async () => {
     const plan = await estimate({ ndcHash, quantity: 30, planId: 'PLAN-NOT-STORED' });
     expect(plan.status).toBe(200);
     expect(plan.json.data).toMatchObject({ covered: true, ingredientCostCents: 1925, dispensingFeeSource: 'network-default' });
     const list = await estimate({ ndcHash, quantity: 0.4 });
     expect(list.status).toBe(200);
-    expect(list.json.data).toMatchObject({ quantity: 0.4, ingredientCostCents: 26 });   // 0.64179 x 0.4 = 0.256716, half up
+    expect(list.json.data).toMatchObject({ quantity: 0.4, ingredientCostCents: 26 }); // 0.64179 x 0.4 = 0.256716, half up
     expect(asked).toEqual([]);
   });
 
   test('only the drug, the quantity and the member (or else the plan) are sent on', async () => {
-    await estimate({ ndcHash, quantity: 30, walletId: MEMBER, planId: 'PLAN-X', dispensingFeeCents: 1, deductibleAmountCents: 0, oopMaxCents: 0 });
+    await estimate({
+      ndcHash,
+      quantity: 30,
+      walletId: MEMBER,
+      planId: 'PLAN-X',
+      dispensingFeeCents: 1,
+      deductibleAmountCents: 0,
+      oopMaxCents: 0,
+    });
     await estimate({ ndcHash, quantity: 30, planId: 'PLAN-X', annualBenefitMaxCents: 0 });
-    expect(sent).toEqual([{ ndcHash, quantity: 30, walletId: MEMBER }, { ndcHash, quantity: 30, planId: 'PLAN-X' }]);
+    expect(sent).toEqual([
+      { ndcHash, quantity: 30, walletId: MEMBER },
+      { ndcHash, quantity: 30, planId: 'PLAN-X' },
+    ]);
   });
 
-  test('a wallet that is not a member is the sequencer\'s refusal, as a 400', async () => {
+  test("a wallet that is not a member is the sequencer's refusal, as a 400", async () => {
     const r = await estimate({ ndcHash, quantity: 30, walletId: UNKNOWN });
     expect(r.status).toBe(400);
     expect(r.json.error).toMatch(/not a member enrolled with the engine/);
@@ -180,8 +251,8 @@ describe('POST /pricing/estimate', () => {
   });
 });
 
-describe('the insurer dashboard\'s estimator', () => {
-  test('API.estimateCost posts to /pricing/estimate with the node\'s admin token, not to /rpc', async () => {
+describe("the insurer dashboard's estimator", () => {
+  test("API.estimateCost posts to /pricing/estimate with the node's admin token, not to /rpc", async () => {
     const calls: Array<{ url: string; init: any }> = [];
     const quote = { covered: true, memberPayCents: 3175 };
     const ctx: Record<string, unknown> = {
@@ -198,12 +269,12 @@ describe('the insurer dashboard\'s estimator', () => {
     const q = await API.estimateCost({ ndcHash: '1', quantity: 30, walletId: MEMBER });
     expect(q).toEqual(quote);
     expect(calls).toHaveLength(1);
-    expect([calls[0].init.method, calls[0].url]).toEqual(['POST', 'http://127.0.0.1:4004/pricing/estimate']);   // before: /rpc
+    expect([calls[0].init.method, calls[0].url]).toEqual(['POST', 'http://127.0.0.1:4004/pricing/estimate']); // before: /rpc
     expect(calls[0].init.headers.Authorization).toBe('Bearer insurer-admin-token');
     expect(JSON.parse(calls[0].init.body)).toEqual({ ndcHash: '1', quantity: 30, walletId: MEMBER });
   });
 
-  test('nothing on the insurer\'s pages asks l2_estimateCost through the proxy', () => {
+  test("nothing on the insurer's pages asks l2_estimateCost through the proxy", () => {
     for (const file of ['dashboard-insurer/rpc.js', 'dashboard-insurer/app.js']) {
       expect([file, read(file).includes("'l2_estimateCost'")]).toEqual([file, false]);
     }

@@ -96,8 +96,12 @@ function runPool<Seen>(scenario: Record<string, unknown>): Promise<PoolRun & See
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
     const guard = setTimeout(() => child.kill(), 45_000);
     child.on('close', (code) => {
       clearTimeout(guard);
@@ -122,7 +126,10 @@ for (const { kind, name } of POOLS) {
   describe(`${name}, once no worker is left`, () => {
     test('refuses the job queued behind a last worker that crashed past its restart limit, and each job after it, at once', async () => {
       const run = await runPool<LastWorkerLost>({
-        pool: kind, size: 1, options: { maxWorkerRestarts: 0 }, scenario: 'last-worker-lost',
+        pool: kind,
+        size: 1,
+        options: { maxWorkerRestarts: 0 },
+        scenario: 'last-worker-lost',
       });
       expect(run.crashing.result).toBe('refused');
       expect(run.queued.result).toBe('refused'); // before: 'pending', queued for good with no worker to take it
@@ -139,7 +146,11 @@ for (const { kind, name } of POOLS) {
 
     test('refuses them as well when the replacement for a crashed worker fails its compile, and kills that replacement', async () => {
       const run = await runPool<LastWorkerLost>({
-        pool: kind, size: 1, options: { maxWorkerRestarts: 3 }, forks: ['ready', 'compile-failed'], scenario: 'last-worker-lost',
+        pool: kind,
+        size: 1,
+        options: { maxWorkerRestarts: 3 },
+        forks: ['ready', 'compile-failed'],
+        scenario: 'last-worker-lost',
       });
       expect(run.crashing.result).toBe('refused');
       expect(run.forks).toBe(2);
@@ -153,7 +164,11 @@ for (const { kind, name } of POOLS) {
 
     test("refuses them as well when a planned recycle's replacement fails its compile, and kills that replacement", async () => {
       const run = await runPool<Recycle>({
-        pool: kind, size: 1, options: { recycleAfterJobs: 1 }, forks: ['ready', 'compile-failed'], scenario: 'recycle',
+        pool: kind,
+        size: 1,
+        options: { recycleAfterJobs: 1 },
+        forks: ['ready', 'compile-failed'],
+        scenario: 'recycle',
       });
       expect(run.first.result).toBe('proved');
       expect(run.queued.result).toBe('refused'); // before: 'pending', queued for the replacement for good

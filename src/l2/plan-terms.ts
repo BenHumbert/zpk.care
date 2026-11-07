@@ -134,12 +134,15 @@ export function planStoreError(plan: unknown): string | null {
   if (!plan || typeof plan !== 'object') return 'Missing or invalid plan parameter (requires planId, name)';
   const p = plan as Record<string, unknown>;
   if (typeof p.planId !== 'string' || typeof p.name !== 'string') return 'Missing or invalid plan parameter (requires planId, name)';
-  if (p.copayAmountCents !== undefined && !isCents(p.copayAmountCents)) return 'copayAmountCents must be a whole number of cents, 0 or more';
+  if (p.copayAmountCents !== undefined && !isCents(p.copayAmountCents))
+    return 'copayAmountCents must be a whole number of cents, 0 or more';
   for (const k of LIMIT_FIELDS) {
     if (p[k] !== undefined && !isCents(p[k])) return `${k} must be a whole number of cents, 0 or more`;
   }
-  if (p.formularyNdcs !== undefined && !isStringList(p.formularyNdcs)) return 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)';
-  if (p.networkProviderWalletIds !== undefined && !isStringList(p.networkProviderWalletIds)) return 'networkProviderWalletIds must be a list of wallet ID strings';
+  if (p.formularyNdcs !== undefined && !isStringList(p.formularyNdcs))
+    return 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)';
+  if (p.networkProviderWalletIds !== undefined && !isStringList(p.networkProviderWalletIds))
+    return 'networkProviderWalletIds must be a list of wallet ID strings';
   // NADAC pricing: the engine adds this fee to every fill on the plan
   const feeError = dispensingFeeError(p.dispensingFeeCents);
   if (feeError) return feeError;
@@ -150,7 +153,8 @@ export function planStoreError(plan: unknown): string | null {
     for (const k of LIMIT_FIELDS) {
       if (!isCents(t[k])) return `publishedTerms.${k} must be a whole number of cents, 0 or more`;
     }
-    if (typeof t.coverageType !== 'number' || !Number.isSafeInteger(t.coverageType)) return 'publishedTerms.coverageType must be a whole number';
+    if (typeof t.coverageType !== 'number' || !Number.isSafeInteger(t.coverageType))
+      return 'publishedTerms.coverageType must be a whole number';
     if (!isStringList(t.formularyNdcs)) return 'publishedTerms.formularyNdcs must be a list of NDC strings';
     if (!isStringList(t.networkProviderWalletIds)) return 'publishedTerms.networkProviderWalletIds must be a list of wallet ID strings';
     if (!isDecimal(t.formularyRoot)) return 'publishedTerms.formularyRoot must be a field element in decimal';

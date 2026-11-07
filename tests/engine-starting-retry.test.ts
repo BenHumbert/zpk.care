@@ -27,7 +27,12 @@
  * The retry itself with a fake clock; the nodes' route handlers with a fake node server and a scripted engine.
  */
 import { jest } from '@jest/globals';
-import { sendWhileEngineStarts, retryAfterMs, ENGINE_STARTING_WINDOW_MS, ENGINE_STARTING_DEFAULT_WAIT_MS } from '../src/nodes/sequencer-fetch.js';
+import {
+  sendWhileEngineStarts,
+  retryAfterMs,
+  ENGINE_STARTING_WINDOW_MS,
+  ENGINE_STARTING_DEFAULT_WAIT_MS,
+} from '../src/nodes/sequencer-fetch.js';
 import { buildPrescriberRoutes } from '../src/nodes/routes/prescriber-routes.js';
 import { buildPharmacyRoutes } from '../src/nodes/routes/pharmacy-routes.js';
 import { deriveEncryptionKeyPair } from '../src/messaging/encryption.js';
@@ -36,20 +41,32 @@ jest.setTimeout(60_000);
 
 const STARTING = 'The claims engine is still starting its provers; try again shortly.';
 const starting = (retryAfter: string | null = '1') =>
-  new Response(JSON.stringify({ error: STARTING, retryAfterSeconds: 1 }), { status: 503, headers: { 'Content-Type': 'application/json', ...(retryAfter === null ? {} : { 'Retry-After': retryAfter }) } });
-const answer = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify({ error: STARTING, retryAfterSeconds: 1 }), {
+    status: 503,
+    headers: { 'Content-Type': 'application/json', ...(retryAfter === null ? {} : { 'Retry-After': retryAfter }) },
+  });
+const answer = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 /** A clock that moves only when the retry sleeps. */
 function fakeTime() {
   let t = 1_000_000;
   const waits: number[] = [];
-  return { waits, now: () => t, sleep: async (ms: number) => { waits.push(ms); t += ms; } };
+  return {
+    waits,
+    now: () => t,
+    sleep: async (ms: number) => {
+      waits.push(ms);
+      t += ms;
+    },
+  };
 }
 
 describe('sendWhileEngineStarts', () => {
   test('waits the Retry-After the engine names and sends again until the engine answers', async () => {
     const time = fakeTime();
-    const send = jest.fn<() => Promise<Response>>()
+    const send = jest
+      .fn<() => Promise<Response>>()
       .mockResolvedValueOnce(starting('10'))
       .mockResolvedValueOnce(starting('10'))
       .mockResolvedValueOnce(answer(200, { prescriptionId: 'RX-1' }));
@@ -59,7 +76,10 @@ describe('sendWhileEngineStarts', () => {
     expect(await r.json()).toEqual({ prescriptionId: 'RX-1' });
     expect(send).toHaveBeenCalledTimes(3); // a fresh request, signed afresh, each time
     expect(time.waits).toEqual([10_000, 10_000]);
-    expect(onWait.mock.calls).toEqual([[10_000, 2], [10_000, 3]]);
+    expect(onWait.mock.calls).toEqual([
+      [10_000, 2],
+      [10_000, 3],
+    ]);
   });
 
   test('any other answer comes back at once: a refusal or a failure still fails the job', async () => {
@@ -78,7 +98,7 @@ describe('sendWhileEngineStarts', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  test('gives up when the next try would start after the window, and returns the engine\'s last 503', async () => {
+  test("gives up when the next try would start after the window, and returns the engine's last 503", async () => {
     const time = fakeTime();
     const send = jest.fn<() => Promise<Response>>().mockImplementation(async () => starting('10'));
     const r = await sendWhileEngineStarts(send, { now: time.now, sleep: time.sleep, windowMs: 25_000 });
@@ -100,7 +120,8 @@ describe('sendWhileEngineStarts', () => {
 
   test('a 503 without a Retry-After waits the default; a zero waits a second, never a tight loop', async () => {
     const time = fakeTime();
-    const send = jest.fn<() => Promise<Response>>()
+    const send = jest
+      .fn<() => Promise<Response>>()
       .mockResolvedValueOnce(starting(null))
       .mockResolvedValueOnce(starting('0'))
       .mockResolvedValueOnce(answer(202, { status: 'pending' }));
@@ -136,14 +157,19 @@ function fakeNodeServer(walletId: string, engine: (path: string, body: any) => R
   const server = {
     getEntityNode: () => node,
     getConfig: () => ({ sequencerUrl: 'http://seq.test' }),
-    getLocalState: () => ({ hasEnrollmentKey: () => true, useEnrollmentKey: (fn: (k: string) => unknown) => fn('prescriber-enrollment-key') }),
+    getLocalState: () => ({
+      hasEnrollmentKey: () => true,
+      useEnrollmentKey: (fn: (k: string) => unknown) => fn('prescriber-enrollment-key'),
+    }),
     signedFetch(u: string, init?: { body?: string }) {
       const path = new URL(u).pathname;
       const body = init?.body ? JSON.parse(init.body) : undefined;
       calls.push({ path, body });
       return Promise.resolve(engine(path, body));
     },
-    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) { sent.push({ status, ok, data, error }); },
+    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) {
+      sent.push({ status, ok, data, error });
+    },
   };
   return { server, calls, sent };
 }
@@ -169,7 +195,11 @@ describe("the prescriber node's prescribe job", () => {
     // the builder starts a PCP sync interval and timeout; fake timers keep them from holding the process open
     jest.useFakeTimers();
     let routes: Route[];
-    try { routes = buildPrescriberRoutes(fake.server as any) as unknown as Route[]; } finally { jest.useRealTimers(); }
+    try {
+      routes = buildPrescriberRoutes(fake.server as any) as unknown as Route[];
+    } finally {
+      jest.useRealTimers();
+    }
     return { ...fake, routes };
   }
   async function status(p: ReturnType<typeof prescriber>, jobKey: string) {
@@ -178,7 +208,7 @@ describe("the prescriber node's prescribe job", () => {
     return p.sent[before];
   }
 
-  test('stays pending through the engine\'s 503, sends the same prescription again after the Retry-After, and completes', async () => {
+  test("stays pending through the engine's 503, sends the same prescription again after the Retry-After, and completes", async () => {
     const p = prescriber([() => starting('1'), () => answer(200, { prescriptionId: 'RX-ENGINE' })]);
     await call(p.routes, 'POST', '/prescriptions/prescribe', rxBody);
     const accepted = p.sent[0];
@@ -195,13 +225,13 @@ describe("the prescriber node's prescribe job", () => {
     expect(done.data).toMatchObject({ status: 'complete', result: { prescriptionId: 'RX-ENGINE' } });
   });
 
-  test('any other refusal fails the job at once, with the engine\'s words', async () => {
-    const p = prescriber([() => answer(403, { error: 'This prescriber is not the member\'s primary-care prescriber' })]);
+  test("any other refusal fails the job at once, with the engine's words", async () => {
+    const p = prescriber([() => answer(403, { error: "This prescriber is not the member's primary-care prescriber" })]);
     await call(p.routes, 'POST', '/prescriptions/prescribe', rxBody);
     await sleep(200);
     expect(callsTo(p.calls, '/interactive/prescribe')).toHaveLength(1);
     const s = await status(p, p.sent[0].data.jobKey);
-    expect(s.data).toMatchObject({ status: 'error', error: 'This prescriber is not the member\'s primary-care prescriber' });
+    expect(s.data).toMatchObject({ status: 'error', error: "This prescriber is not the member's primary-care prescriber" });
   });
 });
 
@@ -212,7 +242,7 @@ describe("the pharmacy node's dispense, fill and reversal jobs", () => {
       if (path === '/interactive/resolve-indices') return answer(200, { prescriberIndex: 0, pharmacyIndex: 2 });
       const answers = script[path];
       if (!answers) return answer(500, { error: `unexpected ${path}` });
-      const i = n[path] = (n[path] ?? -1) + 1;
+      const i = (n[path] = (n[path] ?? -1) + 1);
       return answers[Math.min(i, answers.length - 1)]();
     });
     return { ...fake, routes: buildPharmacyRoutes(fake.server as any) as unknown as Route[] };
@@ -224,7 +254,9 @@ describe("the pharmacy node's dispense, fill and reversal jobs", () => {
   }
 
   test('a dispense stays pending through the 503 and is sent again after the Retry-After', async () => {
-    const p = pharmacy({ '/interactive/fill': [() => starting('1'), () => answer(200, { status: 'complete', adjudication: { patientPayCents: 1500 } })] });
+    const p = pharmacy({
+      '/interactive/fill': [() => starting('1'), () => answer(200, { status: 'complete', adjudication: { patientPayCents: 1500 } })],
+    });
     await call(p.routes, 'POST', '/dispensing/dispense', { prescriptionId: 'RX-1', quantityDispensed: 30 });
     const { jobKey } = p.sent[0].data;
     await sleep(200);
@@ -234,7 +266,10 @@ describe("the pharmacy node's dispense, fill and reversal jobs", () => {
     const sentToEngine = callsTo(p.calls, '/interactive/fill');
     expect(sentToEngine).toHaveLength(2);
     expect(sentToEngine[1].body).toEqual(sentToEngine[0].body);
-    expect(await jobStatus(p, '/dispensing/fill-status', jobKey)).toMatchObject({ status: 'complete', result: { adjudication: { patientPayCents: 1500 } } });
+    expect(await jobStatus(p, '/dispensing/fill-status', jobKey)).toMatchObject({
+      status: 'complete',
+      result: { adjudication: { patientPayCents: 1500 } },
+    });
   });
 
   test('a fill (prescribe and fill) stays pending through the 503, is sent again, and then follows its job to the end', async () => {
@@ -275,7 +310,13 @@ describe("the pharmacy node's dispense, fill and reversal jobs", () => {
     await sleep(200);
     expect(callsTo(p.calls, '/interactive/fill')).toHaveLength(1);
     expect(callsTo(p.calls, '/interactive/prescribe-and-fill')).toHaveLength(1);
-    expect(await jobStatus(p, '/dispensing/fill-status', p.sent[0].data.jobKey)).toMatchObject({ status: 'error', error: 'Prescription not found: RX-404' });
-    expect(await jobStatus(p, '/dispensing/fill-status', p.sent[1].data.jobKey)).toMatchObject({ status: 'error', error: 'The pharmacy does not set the price' });
+    expect(await jobStatus(p, '/dispensing/fill-status', p.sent[0].data.jobKey)).toMatchObject({
+      status: 'error',
+      error: 'Prescription not found: RX-404',
+    });
+    expect(await jobStatus(p, '/dispensing/fill-status', p.sent[1].data.jobKey)).toMatchObject({
+      status: 'error',
+      error: 'The pharmacy does not set the price',
+    });
   });
 });

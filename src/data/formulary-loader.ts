@@ -25,10 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const _dataDir = path.resolve(
-  process.env.ZKP_DATA_DIR ||
-  path.join(process.cwd(), 'src', 'data'),
-);
+const _dataDir = path.resolve(process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data'));
 
 export interface FormularyJson {
   ndc: string;

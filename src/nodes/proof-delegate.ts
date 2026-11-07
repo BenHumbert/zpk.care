@@ -32,9 +32,7 @@
  */
 import http from 'http';
 import { Field } from 'o1js';
-import {
-  StateTransitionProgram,
-} from '../engine/state-transition.js';
+import { StateTransitionProgram } from '../engine/state-transition.js';
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
 import { l2Stringify, l2Parse } from '../l2/l2-json.js';
@@ -177,14 +175,19 @@ export class ProofDelegateClient {
       const url = new URL(path, this.proverUrl);
       const req = http.get(url, { timeout: this.timeoutMs }, (res) => {
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => {
           if (res.statusCode === 200) resolve(data);
           else reject(new Error(`HTTP ${res.statusCode}: ${data}`));
         });
       });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
     });
   }
 
@@ -204,7 +207,9 @@ export class ProofDelegateClient {
         },
         (res) => {
           let data = '';
-          res.on('data', (chunk) => { data += chunk; });
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
           res.on('end', () => {
             if (res.statusCode === 200) resolve(data);
             else reject(new Error(`HTTP ${res.statusCode}: ${data}`));
@@ -212,7 +217,10 @@ export class ProofDelegateClient {
         },
       );
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timeout'));
+      });
       req.write(body);
       req.end();
     });
@@ -264,10 +272,7 @@ export class ProofDelegateServer {
             available: true,
             compiled: this.compiled,
             queueDepth: this.queueDepth,
-            avgProofTimeMs:
-              this.totalProofs > 0
-                ? Math.round(this.totalProofTimeMs / this.totalProofs)
-                : 0,
+            avgProofTimeMs: this.totalProofs > 0 ? Math.round(this.totalProofTimeMs / this.totalProofs) : 0,
           };
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(l2Stringify(status));
@@ -334,12 +339,8 @@ export class ProofDelegateServer {
 
     try {
       const preimage = request.params.preimage.map((s) => Field(BigInt(s)));
-      const registryWitness = WalletRegistryWitness.fromJSON(
-        JSON.parse(request.params.registryWitnessJson),
-      );
-      const lifecycleWitness = LifecycleWitness.fromJSON(
-        JSON.parse(request.params.lifecycleWitnessJson),
-      );
+      const registryWitness = WalletRegistryWitness.fromJSON(JSON.parse(request.params.registryWitnessJson));
+      const lifecycleWitness = LifecycleWitness.fromJSON(JSON.parse(request.params.lifecycleWitnessJson));
       const currentRegistryRoot = Field(BigInt(request.params.currentRegistryRoot));
       const currentLifecycleRoot = Field(BigInt(request.params.currentLifecycleRoot));
 
@@ -347,8 +348,13 @@ export class ProofDelegateServer {
 
       if (request.method === 'proveRegistration') {
         const result = await StateTransitionProgram.proveRegistration(
-          preimage[0], preimage[1], preimage[2],
-          preimage[3], preimage[4], preimage[5], preimage[6],
+          preimage[0],
+          preimage[1],
+          preimage[2],
+          preimage[3],
+          preimage[4],
+          preimage[5],
+          preimage[6],
           registryWitness,
           lifecycleWitness,
           currentRegistryRoot,
@@ -362,12 +368,20 @@ export class ProofDelegateServer {
         const currentLifecycle = Field(BigInt(request.params.currentLifecycle!));
 
         const result = await StateTransitionProgram.proveWalletUpdate(
-          preimage[0], preimage[1], preimage[2],
-          preimage[3], preimage[4], preimage[5], preimage[6],
-          oldCredentialRoot, oldNonce, newCredentialRoot,
+          preimage[0],
+          preimage[1],
+          preimage[2],
+          preimage[3],
+          preimage[4],
+          preimage[5],
+          preimage[6],
+          oldCredentialRoot,
+          oldNonce,
+          newCredentialRoot,
           registryWitness,
           lifecycleWitness,
-          currentRegistryRoot, currentLifecycleRoot,
+          currentRegistryRoot,
+          currentLifecycleRoot,
           currentLifecycle,
         );
         proofJson = JSON.stringify(result.proof.toJSON());

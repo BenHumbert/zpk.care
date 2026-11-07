@@ -42,11 +42,7 @@ const TEST_ADMIN_TOKEN = 'test-admin-token';
 // ─── Helpers ────────────────────────────────────────────────
 
 /** Create a LeviathanConfig with round-robin failover chain */
-function makeConfig(
-  partitionCount: number,
-  primaryPartition: number,
-  nodeIds: string[],
-): LeviathanConfig {
+function makeConfig(partitionCount: number, primaryPartition: number, nodeIds: string[]): LeviathanConfig {
   const failoverChain = new Map<number, string[]>();
   for (let i = 0; i < partitionCount; i++) {
     // Rotate nodeIds so partition i has nodeIds[i] first
@@ -94,11 +90,7 @@ function walletForPartition(partitionIndex: number, partitionCount: number): str
 }
 
 /** Create a mock L2Receipt for a given partition */
-function mockReceipt(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): L2Receipt {
+function mockReceipt(seqNum: bigint, partitionIndex: number, partitionCount: number): L2Receipt {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     receiptId: `l2-p${partitionIndex}-${seqNum.toString().padStart(8, '0')}`,
@@ -115,11 +107,7 @@ function mockReceipt(
 }
 
 /** Create a mock AuditEvent */
-function mockAuditEvent(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): AuditEvent {
+function mockAuditEvent(seqNum: bigint, partitionIndex: number, partitionCount: number): AuditEvent {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     sequenceNumber: seqNum,
@@ -184,14 +172,7 @@ function injectReceipts(
     const seqNum = startSeq + BigInt(i);
     const receipt = mockReceipt(seqNum, partitionIndex, partitionCount);
     const auditEvent = mockAuditEvent(seqNum, partitionIndex, partitionCount);
-    seq.applyReplicatedReceipt(
-      receipt,
-      auditEvent,
-      undefined,
-      INITIAL_REG_ROOT.toString(),
-      INITIAL_LC_ROOT.toString(),
-      '0',
-    );
+    seq.applyReplicatedReceipt(receipt, auditEvent, undefined, INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
     receipts.push(receipt);
   }
   return receipts;
@@ -223,7 +204,9 @@ function rawRpc(
       },
       (res) => {
         let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
+        res.on('data', (chunk: string) => {
+          data += chunk;
+        });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
       },
     );
@@ -496,15 +479,23 @@ describe('L2Leviathan — Replicated State & Queries', () => {
     const ae0 = mockAuditEvent(1n, 0, PARTITIONS);
     ae0.timestamp = 1000;
     seq0.applyReplicatedReceipt(
-      mockReceipt(1n, 0, PARTITIONS), ae0, undefined,
-      INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0',
+      mockReceipt(1n, 0, PARTITIONS),
+      ae0,
+      undefined,
+      INITIAL_REG_ROOT.toString(),
+      INITIAL_LC_ROOT.toString(),
+      '0',
     );
 
     const ae1 = mockAuditEvent(1n, 1, PARTITIONS);
     ae1.timestamp = 500; // Earlier timestamp
     seq1.applyReplicatedReceipt(
-      mockReceipt(1n, 1, PARTITIONS), ae1, undefined,
-      INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0',
+      mockReceipt(1n, 1, PARTITIONS),
+      ae1,
+      undefined,
+      INITIAL_REG_ROOT.toString(),
+      INITIAL_LC_ROOT.toString(),
+      '0',
     );
 
     const log = lev.getAuditLog();
@@ -626,7 +617,9 @@ describe('L2Leviathan — Lifecycle & Events', () => {
   test('handler errors do not crash the node', () => {
     const config = makeConfig(2, 0, ['a', 'b']);
     const lev = createLeviathan(config, { nodeId: 'a' });
-    lev.on(() => { throw new Error('handler crash'); });
+    lev.on(() => {
+      throw new Error('handler crash');
+    });
     expect(() => {
       lev.emit({ type: 'node:tick', timestamp: Date.now(), data: {} });
     }).not.toThrow();
@@ -689,9 +682,7 @@ describe('L2Leviathan — Heartbeat & Failover', () => {
 
     lev.promoteToLeader(1, 'b');
 
-    const promotionEvent = events.find(
-      (e) => e.type === 'leader:promoted' && e.data.action === 'leader_promotion',
-    );
+    const promotionEvent = events.find((e) => e.type === 'leader:promoted' && e.data.action === 'leader_promotion');
     expect(promotionEvent).toBeDefined();
     expect(promotionEvent.data.partitionIndex).toBe(1);
     expect(promotionEvent.data.previousLeader).toBe('b');
@@ -707,9 +698,7 @@ describe('L2Leviathan — Heartbeat & Failover', () => {
 
     lev.demoteFromLeader(1, 'b');
 
-    const demotionEvent = events.find(
-      (e) => e.type === 'leader:demoted' && e.data.action === 'leader_demotion',
-    );
+    const demotionEvent = events.find((e) => e.type === 'leader:demoted' && e.data.action === 'leader_demotion');
     expect(demotionEvent).toBeDefined();
     expect(demotionEvent.data.partitionIndex).toBe(1);
     expect(demotionEvent.data.newLeader).toBe('b');
@@ -1117,11 +1106,15 @@ describe('L2Leviathan — RPC Integration', () => {
   test('health endpoint works with leviathan', async () => {
     lev.start();
     const resp = await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      http.get(`http://127.0.0.1:${port}/health`, (res) => {
-        let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
-      }).on('error', reject);
+      http
+        .get(`http://127.0.0.1:${port}/health`, (res) => {
+          let data = '';
+          res.on('data', (chunk: string) => {
+            data += chunk;
+          });
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
+        })
+        .on('error', reject);
     });
     const parsed = JSON.parse(resp.body);
     expect(parsed.ok).toBe(true);
@@ -1136,9 +1129,7 @@ describe('L2Leviathan — RPC Integration', () => {
 describe('L2Leviathan — Multi-Leviathan Simulation', () => {
   test('three leviathans have independent partition sequencers', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
-    const levs = nodeIds.map((id, i) =>
-      createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }),
-    );
+    const levs = nodeIds.map((id, i) => createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }));
 
     // Each leads its own partition
     expect(levs[0].isLeaderFor(0)).toBe(true);
@@ -1152,9 +1143,7 @@ describe('L2Leviathan — Multi-Leviathan Simulation', () => {
 
   test('simulated gossip: receipts propagate to correct partition', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
-    const levs = nodeIds.map((id, i) =>
-      createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }),
-    );
+    const levs = nodeIds.map((id, i) => createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }));
 
     // lev-0 "accepts" a receipt for partition 0
     const receipt = mockReceipt(1n, 0, 3);
@@ -1163,17 +1152,11 @@ describe('L2Leviathan — Multi-Leviathan Simulation', () => {
     const lcRoot = INITIAL_LC_ROOT.toString();
 
     // Apply to lev-0's partition 0 sequencer
-    levs[0].getSequencer(0).applyReplicatedReceipt(
-      receipt, auditEvent, undefined, regRoot, lcRoot, '0',
-    );
+    levs[0].getSequencer(0).applyReplicatedReceipt(receipt, auditEvent, undefined, regRoot, lcRoot, '0');
 
     // Simulate gossip to lev-1 and lev-2
-    levs[1].getSequencer(0).applyReplicatedReceipt(
-      receipt, auditEvent, undefined, regRoot, lcRoot, '0',
-    );
-    levs[2].getSequencer(0).applyReplicatedReceipt(
-      receipt, auditEvent, undefined, regRoot, lcRoot, '0',
-    );
+    levs[1].getSequencer(0).applyReplicatedReceipt(receipt, auditEvent, undefined, regRoot, lcRoot, '0');
+    levs[2].getSequencer(0).applyReplicatedReceipt(receipt, auditEvent, undefined, regRoot, lcRoot, '0');
 
     // All leviathans should have the receipt in partition 0
     for (const lev of levs) {
@@ -1184,9 +1167,7 @@ describe('L2Leviathan — Multi-Leviathan Simulation', () => {
 
   test('simulated gossip: batches propagate correctly', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
-    const levs = nodeIds.map((id, i) =>
-      createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }),
-    );
+    const levs = nodeIds.map((id, i) => createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }));
 
     // lev-1 builds a batch for partition 1
     const batch = mockBatch(1n, 1n, ['r1']);
@@ -1206,9 +1187,7 @@ describe('L2Leviathan — Multi-Leviathan Simulation', () => {
 
   test('simulated failover: lev-1 dies, lev-2 takes partition 1', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
-    const levs = nodeIds.map((id, i) =>
-      createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }),
-    );
+    const levs = nodeIds.map((id, i) => createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }));
 
     // lev-2 promotes itself to lead partition 1 (failover from lev-1)
     levs[2].promoteToLeader(1, 'lev-1');
@@ -1221,9 +1200,7 @@ describe('L2Leviathan — Multi-Leviathan Simulation', () => {
 
   test('simulated recovery: original leader reclaims partition', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
-    const levs = nodeIds.map((id, i) =>
-      createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }),
-    );
+    const levs = nodeIds.map((id, i) => createLeviathan(makeConfig(3, i, nodeIds), { nodeId: id }));
 
     // lev-2 takes over partition 1
     levs[2].promoteToLeader(1, 'lev-1');

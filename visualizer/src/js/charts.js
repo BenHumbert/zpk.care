@@ -32,12 +32,14 @@ export function createTierChart(canvas) {
     type: 'doughnut',
     data: {
       labels: ['Tier 1 (Generic)', 'Tier 2 (Preferred)', 'Tier 3 (Non-Pref)', 'Tier 4 (Specialty)'],
-      datasets: [{
-        data: [0, 0, 0, 0],
-        backgroundColor: ['#66bb6a', '#4fc3f7', '#ffa726', '#ef5350'],
-        borderColor: '#16213e',
-        borderWidth: 2,
-      }],
+      datasets: [
+        {
+          data: [0, 0, 0, 0],
+          backgroundColor: ['#66bb6a', '#4fc3f7', '#ffa726', '#ef5350'],
+          borderColor: '#16213e',
+          borderWidth: 2,
+        },
+      ],
     },
     options: {
       ...CHART_DEFAULTS,

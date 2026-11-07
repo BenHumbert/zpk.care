@@ -32,13 +32,19 @@ const API = (() => {
   // again after a reload.
   let adminToken = '';
 
-  function setBaseUrl(url) { baseUrl = url.replace(/\/$/, ''); }
-  function getBaseUrl() { return baseUrl; }
+  function setBaseUrl(url) {
+    baseUrl = url.replace(/\/$/, '');
+  }
+  function getBaseUrl() {
+    return baseUrl;
+  }
   function setAdminToken(token) {
     adminToken = token || '';
-    if (sseHandlers) connectSSE(sseHandlers.onEvent, sseHandlers.onError, sseHandlers.onOpen);   // the event stream opens with the token (A-79)
+    if (sseHandlers) connectSSE(sseHandlers.onEvent, sseHandlers.onError, sseHandlers.onOpen); // the event stream opens with the token (A-79)
   }
-  function getAdminToken() { return adminToken; }
+  function getAdminToken() {
+    return adminToken;
+  }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -65,7 +71,11 @@ const API = (() => {
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   // ── Core request helper ────────────────────────────────────
@@ -83,9 +93,14 @@ const API = (() => {
     const res = await fetch(`${baseUrl}${path}`, opts);
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
-      try { const j = await res.json(); msg = j.error != null ? errMsg(j.error) : (typeof j.message === 'string' ? j.message : msg); } catch { /* use status */ }
+      try {
+        const j = await res.json();
+        msg = j.error != null ? errMsg(j.error) : typeof j.message === 'string' ? j.message : msg;
+      } catch {
+        /* use status */
+      }
       const err = new Error(msg);
-      err.status = res.status;   // a refusal the page answers differently (401: this node's admin token; 403: the patient's consent)
+      err.status = res.status; // a refusal the page answers differently (401: this node's admin token; 403: the patient's consent)
       throw err;
     }
     const json = await res.json();
@@ -96,8 +111,12 @@ const API = (() => {
     return stripBigints(json.data);
   }
 
-  async function get(path) { return request('GET', path); }
-  async function post(path, body) { return request('POST', path, body || {}); }
+  async function get(path) {
+    return request('GET', path);
+  }
+  async function post(path, body) {
+    return request('POST', path, body || {});
+  }
 
   // ── SSE ────────────────────────────────────────────────────
 
@@ -120,13 +139,15 @@ const API = (() => {
     const attempt = sseAttempt;
     request('POST', '/events/ticket', {}, true)
       .then((data) => {
-        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        if (attempt !== sseAttempt) return; // disconnected, or connected again, while the ticket was on its way
         eventSource = new EventSource(`${baseUrl}/events?ticket=${encodeURIComponent(data.ticket)}`);
         eventSource.onmessage = (e) => {
           try {
             const event = JSON.parse(e.data);
             if (onEvent) onEvent(event);
-          } catch { /* ignore parse errors */ }
+          } catch {
+            /* ignore parse errors */
+          }
         };
         eventSource.onopen = () => {
           sseReconnectDelay = 1000; // Reset on successful connection
@@ -156,7 +177,10 @@ const API = (() => {
 
   function disconnectSSE() {
     sseAttempt++;
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
     if (eventSource) {
       eventSource.close();
       eventSource = null;
@@ -178,7 +202,9 @@ const API = (() => {
 
   // ── Onboarding ─────────────────────────────────────────────
 
-  function getOnboardingStatus() { return get('/onboarding/status'); }
+  function getOnboardingStatus() {
+    return get('/onboarding/status');
+  }
 
   function acceptToken(tokenId, groupId, planId, validUntil) {
     const body = { tokenId };
@@ -206,20 +232,30 @@ const API = (() => {
     return post('/onboarding/enroll', body);
   }
 
-  function compile() { return post('/onboarding/compile'); }
+  function compile() {
+    return post('/onboarding/compile');
+  }
 
   // backupKey and restoreKey are gone. The routes they called exported and overwrote the
   // enrollment key over HTTP; see the note in src/nodes/routes/prescriber-routes.ts.
 
   // ── Proofs ─────────────────────────────────────────────────
 
-  function generateRegistrationProof() { return post('/proof/registration'); }
-  function getProofTimings() { return get('/proof-timings'); }
+  function generateRegistrationProof() {
+    return post('/proof/registration');
+  }
+  function getProofTimings() {
+    return get('/proof-timings');
+  }
 
   // ── Prescriptions ──────────────────────────────────────────
 
-  function getPrescriptions() { return get('/prescriptions'); }
-  function getPrescriptionSummary() { return get('/prescriptions/summary'); }
+  function getPrescriptions() {
+    return get('/prescriptions');
+  }
+  function getPrescriptionSummary() {
+    return get('/prescriptions/summary');
+  }
   function getPrescriptionsByRange(start, end) {
     return get(`/prescriptions/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   }
@@ -232,30 +268,52 @@ const API = (() => {
   function getPrescriptionsByPharmacy(pharmacyWalletId) {
     return get(`/prescriptions/pharmacy/${encodeURIComponent(pharmacyWalletId)}`);
   }
-  function getPatientCount() { return get('/prescriptions/patients/count'); }
-  function getPharmacyCount() { return get('/prescriptions/pharmacies/count'); }
-  function getMedicationBreakdown() { return get('/prescriptions/medications/breakdown'); }
-  function writePrescription(data) { return post('/prescriptions/write', data); }
+  function getPatientCount() {
+    return get('/prescriptions/patients/count');
+  }
+  function getPharmacyCount() {
+    return get('/prescriptions/pharmacies/count');
+  }
+  function getMedicationBreakdown() {
+    return get('/prescriptions/medications/breakdown');
+  }
+  function writePrescription(data) {
+    return post('/prescriptions/write', data);
+  }
 
   // ── Prescribe with ZK Proof (async — polls for result) ─────
 
-  function prescribeWithProof(data) { return post('/prescriptions/prescribe', data); }
-  function prescribeStatus(jobKey) { return get('/prescriptions/prescribe-status?jobKey=' + encodeURIComponent(jobKey)); }
+  function prescribeWithProof(data) {
+    return post('/prescriptions/prescribe', data);
+  }
+  function prescribeStatus(jobKey) {
+    return get('/prescriptions/prescribe-status?jobKey=' + encodeURIComponent(jobKey));
+  }
 
   // ── Provider Network ───────────────────────────────────────
 
-  function getNetworkPrescribers() { return get('/network/prescribers'); }
-  function checkNetwork(walletId) { return get(`/network/check/${encodeURIComponent(walletId)}`); }
-  function getNetworkCount() { return get('/network/count'); }
+  function getNetworkPrescribers() {
+    return get('/network/prescribers');
+  }
+  function checkNetwork(walletId) {
+    return get(`/network/check/${encodeURIComponent(walletId)}`);
+  }
+  function getNetworkCount() {
+    return get('/network/count');
+  }
 
   // ── Formulary (legacy) ──────────────────────────────────────
-  function getFormulary(planIdHash) { return get(`/formulary/${encodeURIComponent(planIdHash)}`); }
+  function getFormulary(planIdHash) {
+    return get(`/formulary/${encodeURIComponent(planIdHash)}`);
+  }
   function checkDrugCoverage(planIdHash, ndcHash) {
     return get(`/formulary/${encodeURIComponent(planIdHash)}/check/${encodeURIComponent(ndcHash)}`);
   }
 
   // ── Formulary (Option C — paginated) ──────────────────────
-  function getFormularyCategories() { return get('/formulary-categories'); }
+  function getFormularyCategories() {
+    return get('/formulary-categories');
+  }
   function getFormularyPage(params) {
     var qs = [];
     if (params.namePrefix) qs.push('namePrefix=' + encodeURIComponent(params.namePrefix));
@@ -267,11 +325,21 @@ const API = (() => {
     if (params.limit != null) qs.push('limit=' + params.limit);
     return get('/formulary-page' + (qs.length ? '?' + qs.join('&') : ''));
   }
-  function getFormularyDrug(ndcHash) { return get(`/formulary-drug/${encodeURIComponent(ndcHash)}`); }
-  function getFormularyRoutes() { return get('/formulary-routes'); }
-  function getFormularyDrugCount() { return get('/formulary-drug-count'); }
-  function getFormularyRoot() { return get('/formulary-root'); }
-  function getFormularyWitness(ndcHash) { return get(`/formulary-witness/${encodeURIComponent(ndcHash)}`); }
+  function getFormularyDrug(ndcHash) {
+    return get(`/formulary-drug/${encodeURIComponent(ndcHash)}`);
+  }
+  function getFormularyRoutes() {
+    return get('/formulary-routes');
+  }
+  function getFormularyDrugCount() {
+    return get('/formulary-drug-count');
+  }
+  function getFormularyRoot() {
+    return get('/formulary-root');
+  }
+  function getFormularyWitness(ndcHash) {
+    return get(`/formulary-witness/${encodeURIComponent(ndcHash)}`);
+  }
 
   // ── Providers ─────────────────────────────────────────────
 
@@ -282,23 +350,42 @@ const API = (() => {
 
   // ── PCP ────────────────────────────────────────────────────
 
-  function getPcpPatients() { return get('/pcp/patients'); }
+  function getPcpPatients() {
+    return get('/pcp/patients');
+  }
 
   // ── Messaging ──────────────────────────────────────────────
 
-  function sendMessage(message, payload) { return post('/messaging/send', { message, payload }); }
-  function getInbox() { return get('/messaging/inbox'); }
-  function getSent() { return get('/messaging/sent'); }
-  function getThread(threadIdHash) { return get(`/messaging/thread/${encodeURIComponent(threadIdHash)}`); }
+  function sendMessage(message, payload) {
+    return post('/messaging/send', { message, payload });
+  }
+  function getInbox() {
+    return get('/messaging/inbox');
+  }
+  function getSent() {
+    return get('/messaging/sent');
+  }
+  function getThread(threadIdHash) {
+    return get(`/messaging/thread/${encodeURIComponent(threadIdHash)}`);
+  }
 
   // ── Cost Estimation (proxied through Nautilus → sequencer RPC) ──
   // A patient's own price answers this node's administrator: the token goes with every quote
-  function estimateCost(params) { return request('POST', '/estimate-cost', params || {}, true); }
+  function estimateCost(params) {
+    return request('POST', '/estimate-cost', params || {}, true);
+  }
 
   // ── Prior authorization (this node's administrator; the node asks the engine as the prescriber) ──
-  function requestPriorAuth(params) { return request('POST', '/prior-auth/request', params || {}, true); }
+  function requestPriorAuth(params) {
+    return request('POST', '/prior-auth/request', params || {}, true);
+  }
   function getPriorAuthStatus(walletId, ndcHash) {
-    return request('GET', '/prior-auth/status?walletId=' + encodeURIComponent(walletId) + '&ndcHash=' + encodeURIComponent(ndcHash), undefined, true);
+    return request(
+      'GET',
+      '/prior-auth/status?walletId=' + encodeURIComponent(walletId) + '&ndcHash=' + encodeURIComponent(ndcHash),
+      undefined,
+      true,
+    );
   }
 
   // ── Public API ─────────────────────────────────────────────

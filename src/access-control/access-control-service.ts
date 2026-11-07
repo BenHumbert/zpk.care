@@ -59,16 +59,8 @@ export class AccessControlService {
    * @param forest — the MerkleForest to insert into
    * @param paLeafIndex — leaf index in the ACCESS_CONTROL tree (must be > 0; leaf 0 is eligibility data)
    */
-  createPriorAuth(
-    priorAuth: PriorAuthData,
-    forest: MerkleForest,
-    paLeafIndex: bigint,
-  ): { paCommitment: Field; newForestRoot: Field } {
-    forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      paLeafIndex,
-      priorAuth.commitment(),
-    );
+  createPriorAuth(priorAuth: PriorAuthData, forest: MerkleForest, paLeafIndex: bigint): { paCommitment: Field; newForestRoot: Field } {
+    forest.setLeaf(ForestDomain.ACCESS_CONTROL, paLeafIndex, priorAuth.commitment());
     return {
       paCommitment: priorAuth.commitment(),
       newForestRoot: forest.getForestRoot(),
@@ -93,16 +85,12 @@ export class AccessControlService {
     currentDate: Field = Field(0),
   ) {
     const forestRoots = ForestRoots.fromForest(forest);
-    const eligForestWitness = forest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      eligLeafIndex,
-    );
+    const eligForestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, eligLeafIndex);
     const formularyEntry = this.formularyRegistry.getEntry(formularyEntryIndex);
     if (!formularyEntry) {
       throw new Error(`No formulary entry at index ${formularyEntryIndex}`);
     }
-    const formularyWitness =
-      this.formularyRegistry.getEntryWitness(formularyEntryIndex);
+    const formularyWitness = this.formularyRegistry.getEntryWitness(formularyEntryIndex);
 
     const result = await AccessControlProgram.proveFormularyAccess(
       credentialData,
@@ -142,20 +130,13 @@ export class AccessControlService {
     requestedQuantity: Field,
   ) {
     const forestRoots = ForestRoots.fromForest(forest);
-    const eligForestWitness = forest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      eligLeafIndex,
-    );
-    const paForestWitness = forest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      paLeafIndex,
-    );
+    const eligForestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, eligLeafIndex);
+    const paForestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, paLeafIndex);
     const formularyEntry = this.formularyRegistry.getEntry(formularyEntryIndex);
     if (!formularyEntry) {
       throw new Error(`No formulary entry at index ${formularyEntryIndex}`);
     }
-    const formularyWitness =
-      this.formularyRegistry.getEntryWitness(formularyEntryIndex);
+    const formularyWitness = this.formularyRegistry.getEntryWitness(formularyEntryIndex);
 
     const result = await AccessControlProgram.provePriorAuth(
       credentialData,

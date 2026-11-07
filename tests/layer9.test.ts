@@ -16,21 +16,9 @@
 
 import { Field, Poseidon } from 'o1js';
 import { DOMAIN_TAG_PHARMACY } from '../src/wallets/wallet-derivation.js';
-import {
-  FulfillmentData,
-  buildFulfillmentData,
-  ReversalData,
-  buildReversalData,
-} from '../src/fulfillment/fulfillment-data.js';
-import type {
-  FulfillmentLocalData,
-  ReversalLocalData,
-} from '../src/fulfillment/fulfillment-data.js';
-import {
-  FulfillmentProgram,
-  FULFILL_OP_CLAIM,
-  FULFILL_OP_REVERSAL,
-} from '../src/fulfillment/fulfillment-program.js';
+import { FulfillmentData, buildFulfillmentData, ReversalData, buildReversalData } from '../src/fulfillment/fulfillment-data.js';
+import type { FulfillmentLocalData, ReversalLocalData } from '../src/fulfillment/fulfillment-data.js';
+import { FulfillmentProgram, FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from '../src/fulfillment/fulfillment-program.js';
 import { FulfillmentService } from '../src/fulfillment/fulfillment-service.js';
 import { FulfillmentVerificationService } from '../src/fulfillment/fulfillment-verification-service.js';
 import {
@@ -45,17 +33,9 @@ import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { FormularyEntry } from '../src/access-control/formulary-entry.js';
 import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
-import {
-  hashString,
-  dateToField,
-  centsToField,
-  quantityToField,
-} from '../src/zkp/hash-utils.js';
+import { hashString, dateToField, centsToField, quantityToField } from '../src/zkp/hash-utils.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WalletRegistry,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
+import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { MerkleTree } from 'o1js';
 
 // ─── Test Data ──────────────────────────────────────────────
@@ -106,18 +86,14 @@ function createTestFulfillmentData(rxCommitment: Field): FulfillmentData {
     pharmacyWalletId,
     ndcHash,
     quantityDispensed: quantityToField(30),
-    ingredientCostCents: centsToField(5000),  // $50.00 ingredient cost
-    dispensingFeeCents: centsToField(500),     // $5.00 dispensing fee
+    ingredientCostCents: centsToField(5000), // $50.00 ingredient cost
+    dispensingFeeCents: centsToField(500), // $5.00 dispensing fee
     dateOfService: dateToField('20260215'),
   });
 }
 
 /** Compute settlement commitment matching what the ZK circuit stores in the TRANSACTION tree. */
-function computeSettlementCommitment(
-  fulfillment: FulfillmentData,
-  patientPayCents: Field,
-  planPayCents: Field,
-): Field {
+function computeSettlementCommitment(fulfillment: FulfillmentData, patientPayCents: Field, planPayCents: Field): Field {
   return Poseidon.hash([fulfillment.commitment(), patientPayCents, planPayCents]);
 }
 
@@ -195,7 +171,6 @@ function setupFilledPrescription(): {
 // ─── Tests ──────────────────────────────────────────────────
 
 describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
-
   // ── FulfillmentData Model ─────────────────────────────────
 
   describe('FulfillmentData Model', () => {
@@ -323,11 +298,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     beforeEach(() => {
       const { registry } = createTestWalletRegistry();
       const formularyRegistry = createTestFormularyRegistry();
-      service = new FulfillmentService(
-        new InMemoryStore(),
-        registry,
-        formularyRegistry,
-      );
+      service = new FulfillmentService(new InMemoryStore(), registry, formularyRegistry);
     });
 
     it('copay matches formulary for generic tier', () => {
@@ -335,10 +306,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       const fulfillment = createTestFulfillmentData(rxHash);
       const formulary = createTestFormularyEntry();
 
-      const { patientPayCents, planPayCents } = service.calculateAmounts(
-        fulfillment,
-        formulary,
-      );
+      const { patientPayCents, planPayCents } = service.calculateAmounts(fulfillment, formulary);
 
       // copay = $10 (1000 cents), total = $55 (5500 cents)
       // patientPay = 1000, planPay = 5500 - 1000 = 4500
@@ -354,15 +322,12 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         ndcHash,
         quantityDispensed: quantityToField(30),
         ingredientCostCents: centsToField(10000), // $100
-        dispensingFeeCents: centsToField(1500),    // $15
+        dispensingFeeCents: centsToField(1500), // $15
         dateOfService: dateToField('20260215'),
       });
       const formulary = createTestFormularyEntry(); // copay = $10
 
-      const { patientPayCents, planPayCents } = service.calculateAmounts(
-        fulfillment,
-        formulary,
-      );
+      const { patientPayCents, planPayCents } = service.calculateAmounts(fulfillment, formulary);
 
       // total = 11500, copay = 1000
       // patientPay = 1000, planPay = 10500
@@ -377,16 +342,13 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         pharmacyWalletId,
         ndcHash,
         quantityDispensed: quantityToField(5),
-        ingredientCostCents: centsToField(300),  // $3
-        dispensingFeeCents: centsToField(200),    // $2
+        ingredientCostCents: centsToField(300), // $3
+        dispensingFeeCents: centsToField(200), // $2
         dateOfService: dateToField('20260215'),
       });
       const formulary = createTestFormularyEntry(); // copay = $10
 
-      const { patientPayCents, planPayCents } = service.calculateAmounts(
-        fulfillment,
-        formulary,
-      );
+      const { patientPayCents, planPayCents } = service.calculateAmounts(fulfillment, formulary);
 
       // total = 500, copay = 1000. total < copay
       // patientPay = 500 (total), planPay = 0
@@ -401,11 +363,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     it('rejects fulfillment for non-filled prescription', async () => {
       const { registry } = createTestWalletRegistry();
       const formularyRegistry = createTestFormularyRegistry();
-      const service = new FulfillmentService(
-        new InMemoryStore(),
-        registry,
-        formularyRegistry,
-      );
+      const service = new FulfillmentService(new InMemoryStore(), registry, formularyRegistry);
 
       const rxData = createTestPrescriptionData();
       const forest = new MerkleForest();
@@ -497,18 +455,11 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
       const fulfillment = createTestFulfillmentData(rxData.commitment());
       // Settlement commitment: copay=1000, total=5500 → patientPay=1000, planPay=4500
-      const settlementLeaf = computeSettlementCommitment(
-        fulfillment, centsToField(1000), centsToField(4500),
-      );
+      const settlementLeaf = computeSettlementCommitment(fulfillment, centsToField(1000), centsToField(4500));
       // Put fulfillment at index 2 (after ACTIVE at 0, FILLED at 1)
       forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
 
-      const history = verificationService.extractClaimHistory(
-        forest,
-        2,
-        [fulfillment],
-        [settlementLeaf],
-      );
+      const history = verificationService.extractClaimHistory(forest, 2, [fulfillment], [settlementLeaf]);
 
       expect(history).toHaveLength(1);
       expect(history[0]!.type).toBe('fulfillment');
@@ -528,19 +479,12 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         reversedByWalletId: pharmacyWalletId,
       });
 
-      const settlementLeaf = computeSettlementCommitment(
-        fulfillment, centsToField(1000), centsToField(4500),
-      );
+      const settlementLeaf = computeSettlementCommitment(fulfillment, centsToField(1000), centsToField(4500));
       const forest = new MerkleForest();
       forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
       forest.setLeaf(ForestDomain.TRANSACTION, 3n, reversal.commitment());
 
-      const history = verificationService.extractClaimHistory(
-        forest,
-        2,
-        [fulfillment, reversal],
-        [settlementLeaf, reversal.commitment()],
-      );
+      const history = verificationService.extractClaimHistory(forest, 2, [fulfillment, reversal], [settlementLeaf, reversal.commitment()]);
 
       expect(history).toHaveLength(2);
       expect(history[0]!.type).toBe('fulfillment');
@@ -755,9 +699,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
 
         // Insert settlement commitment at TRANSACTION index 2
         // copay=1000, total=5500 → patientPay=1000, planPay=4500
-        const settlementLeaf = computeSettlementCommitment(
-          fulfillment, centsToField(1000), centsToField(4500),
-        );
+        const settlementLeaf = computeSettlementCommitment(fulfillment, centsToField(1000), centsToField(4500));
         forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
 
         // Update CredentialData with new forest root
@@ -820,9 +762,7 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         const fulfillment = createTestFulfillmentData(rxData.commitment());
 
         // Insert settlement commitment (correct amounts)
-        const settlementLeaf = computeSettlementCommitment(
-          fulfillment, centsToField(1000), centsToField(4500),
-        );
+        const settlementLeaf = computeSettlementCommitment(fulfillment, centsToField(1000), centsToField(4500));
         forest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementLeaf);
 
         const credentialDataPostFulfill = new CredentialData({
@@ -963,15 +903,10 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
     }, 180_000);
 
     it('full claim lifecycle: fill → submit fulfillment → verify amounts', async () => {
-      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } =
-        setupFilledPrescription();
+      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } = setupFilledPrescription();
 
       const formularyRegistry = createTestFormularyRegistry();
-      const service = new FulfillmentService(
-        new InMemoryStore(),
-        registry,
-        formularyRegistry,
-      );
+      const service = new FulfillmentService(new InMemoryStore(), registry, formularyRegistry);
 
       const fulfillment = createTestFulfillmentData(rxData.commitment());
 
@@ -982,9 +917,9 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         filledStatus,
         fulfillment,
         forest,
-        0n,  // rxLeafIndex
-        1n,  // latestStatusIndex (FILLED at index 1)
-        0n,  // formularyEntryIndex
+        0n, // rxLeafIndex
+        1n, // latestStatusIndex (FILLED at index 1)
+        0n, // formularyEntryIndex
         inventory,
         credentialSlotIndex,
         [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],
@@ -998,27 +933,19 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
       expect(result.fulfillmentIndex).toBe(2n);
 
       // Verify credential forestRoot changed
-      expect(result.newCredentialData.forestRoot.toString())
-        .not.toBe(credentialData.forestRoot.toString());
+      expect(result.newCredentialData.forestRoot.toString()).not.toBe(credentialData.forestRoot.toString());
 
       // Verify the settlement commitment (not raw fulfillment) is in the TRANSACTION tree
       const storedLeaf = forest.getLeaf(ForestDomain.TRANSACTION, 2n);
-      const expectedSettlement = computeSettlementCommitment(
-        fulfillment, result.patientPayCents, result.planPayCents,
-      );
+      const expectedSettlement = computeSettlementCommitment(fulfillment, result.patientPayCents, result.planPayCents);
       expect(storedLeaf.toString()).toBe(expectedSettlement.toString());
     }, 120_000);
 
     it('full reversal lifecycle: fulfill → reverse → verify refund', async () => {
-      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } =
-        setupFilledPrescription();
+      const { rxData, credentialData, forest, filledStatus, inventory, credentialSlotIndex, registry } = setupFilledPrescription();
 
       const formularyRegistry = createTestFormularyRegistry();
-      const service = new FulfillmentService(
-        new InMemoryStore(),
-        registry,
-        formularyRegistry,
-      );
+      const service = new FulfillmentService(new InMemoryStore(), registry, formularyRegistry);
 
       const fulfillment = createTestFulfillmentData(rxData.commitment());
 
@@ -1057,8 +984,8 @@ describe('Layer 9 — Fulfillment (Use Cases E + F)', () => {
         reversalData,
         forest,
         0n,
-        2n,  // fulfillment at index 2
-        0n,  // formularyEntryIndex
+        2n, // fulfillment at index 2
+        0n, // formularyEntryIndex
         inventory,
         credentialSlotIndex,
         [PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH],

@@ -87,7 +87,9 @@ export function enrollmentCodeRoutingPrefix(employerId: string): string {
   if (typeof employerId !== 'string' || employerId.length === 0) {
     throw new Error('enrollmentCodeRoutingPrefix: employerId is required');
   }
-  const digest = createHash('sha256').update(ROUTING_DOMAIN + employerId, 'utf8').digest();
+  const digest = createHash('sha256')
+    .update(ROUTING_DOMAIN + employerId, 'utf8')
+    .digest();
   return encodeBase32(digest).slice(0, ROUTING_PREFIX_LENGTH);
 }
 
@@ -95,10 +97,7 @@ export function enrollmentCodeRoutingPrefix(employerId: string): string {
  * Generate a fresh code for an employer. 10 random bytes are exactly 16 base32 characters, so no
  * bit is wasted and no character is biased.
  */
-export function generateEnrollmentCode(
-  employerId: string,
-  rng: (bytes: number) => Buffer = randomBytes,
-): string {
+export function generateEnrollmentCode(employerId: string, rng: (bytes: number) => Buffer = randomBytes): string {
   const prefix = enrollmentCodeRoutingPrefix(employerId);
   const random = encodeBase32(rng(10)).slice(0, RANDOM_CHARS);
   return groupCode(prefix + random);

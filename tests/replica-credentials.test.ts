@@ -43,34 +43,71 @@ const leaderKey = generateNodeKey('sequencer');
 const replicaKey = generateNodeKey('replica-1');
 const strangerKey = generateNodeKey('stranger');
 
-interface Side { node: L2Node; server: L2RpcServer; peerNet: L2PeerNetwork; url: string; seen: GossipMessage[] }
+interface Side {
+  node: L2Node;
+  server: L2RpcServer;
+  peerNet: L2PeerNetwork;
+  url: string;
+  seen: GossipMessage[];
+}
 let leader: Side;
 let replica: Side;
 
 async function makeSide(role: 'sequencer' | 'replica', key: { nodeId: string; seedHex: string }, withOperator: boolean): Promise<Side> {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: key.nodeId, role }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: key.nodeId, role },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   const server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', enableSSE: false, ...(withOperator ? { adminToken: OPERATOR } : {}) });
-  const peerNet = new L2PeerNetwork({ nodeId: key.nodeId, role, gossipRelayEnabled: true, announceIntervalMs: 999_999, syncOnConnect: false, nodeKey: key });
+  const peerNet = new L2PeerNetwork({
+    nodeId: key.nodeId,
+    role,
+    gossipRelayEnabled: true,
+    announceIntervalMs: 999_999,
+    syncOnConnect: false,
+    nodeKey: key,
+  });
   const seen: GossipMessage[] = [];
-  peerNet.on((m) => { seen.push(m); });
+  peerNet.on((m) => {
+    seen.push(m);
+  });
   server.setPeerNetwork(peerNet);
   await server.start();
   return { node, server, peerNet, url: `http://127.0.0.1:${server.getPort()}`, seen };
 }
 
-interface RpcReply { status: number; error?: { code: number; message: string }; result?: any }
+interface RpcReply {
+  status: number;
+  error?: { code: number; message: string };
+  result?: any;
+}
 async function rpcWith(url: string, headers: Record<string, string>, body: string): Promise<RpcReply> {
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
   const text = await r.text();
   let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { parsed = null; }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
   return { status: r.status, error: parsed?.error, result: parsed?.result };
 }
 const envelope = (method: string, params: Record<string, unknown> = {}) => JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
 const byKey = (key: { nodeId: string; seedHex: string }, body: string) =>
   signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
-const announce = (from: string) => ({ message: { messageId: `${from}-${Date.now()}-${Math.random()}`, type: 'peer:announce', senderId: from, timestamp: Date.now(), payload: { peerId: from, url: '', role: 'replica' } } });
+const announce = (from: string) => ({
+  message: {
+    messageId: `${from}-${Date.now()}-${Math.random()}`,
+    type: 'peer:announce',
+    senderId: from,
+    timestamp: Date.now(),
+    payload: { peerId: from, url: '', role: 'replica' },
+  },
+});
 
 beforeAll(async () => {
   leader = await makeSide('sequencer', leaderKey, true);
@@ -87,8 +124,8 @@ afterAll(async () => {
   await replica.server.stop();
 });
 
-describe('the replica\'s server', () => {
-  test('refuses an unsigned relay, the operator\'s token and a stranger\'s key; accepts the leader\'s signature', async () => {
+describe("the replica's server", () => {
+  test("refuses an unsigned relay, the operator's token and a stranger's key; accepts the leader's signature", async () => {
     const body = envelope('l2_gossipRelay', announce('probe'));
     expect((await rpcWith(replica.url, {}, body)).error?.code).toBe(RPC_UNAUTHORIZED);
     const asOperator = await rpcWith(replica.url, bearer, body);
@@ -100,14 +137,14 @@ describe('the replica\'s server', () => {
     expect(fromLeader.result).toEqual({ accepted: true });
   });
 
-  test('the leader\'s key opens gossip only: an operator method is 403', async () => {
+  test("the leader's key opens gossip only: an operator method is 403", async () => {
     const body = envelope('l2_forceBatch');
     expect((await rpcWith(replica.url, byKey(leaderKey, body), body)).error?.code).toBe(RPC_FORBIDDEN);
   });
 });
 
-describe('the leader\'s server', () => {
-  test('accepts the replica\'s gossip and its snapshot request; refuses the replica an operator method', async () => {
+describe("the leader's server", () => {
+  test("accepts the replica's gossip and its snapshot request; refuses the replica an operator method", async () => {
     const relay = envelope('l2_gossipRelay', announce(replicaKey.nodeId));
     const relayed = await rpcWith(leader.url, byKey(replicaKey, relay), relay);
     expect(relayed.error).toBeUndefined();
@@ -123,22 +160,40 @@ describe('the leader\'s server', () => {
 });
 
 describe('gossip over the peer network', () => {
-  test('the leader\'s broadcast reaches the replica, signed with the leader\'s key', async () => {
+  test("the leader's broadcast reaches the replica, signed with the leader's key", async () => {
     await leader.peerNet.connectToPeer(replica.url);
     expect(leader.peerNet.getConnectedPeers().length).toBe(1);
     const before = replica.seen.length;
-    const message = { messageId: `b-${Date.now()}`, type: 'peer:announce', senderId: leaderKey.nodeId, timestamp: Date.now(), payload: { peerId: leaderKey.nodeId, url: leader.url, role: 'sequencer' } } as unknown as GossipMessage;
+    const message = {
+      messageId: `b-${Date.now()}`,
+      type: 'peer:announce',
+      senderId: leaderKey.nodeId,
+      timestamp: Date.now(),
+      payload: { peerId: leaderKey.nodeId, url: leader.url, role: 'sequencer' },
+    } as unknown as GossipMessage;
     await leader.peerNet.broadcast(message);
     expect(replica.seen.length).toBe(before + 1);
     expect(replica.seen[replica.seen.length - 1].messageId).toBe(message.messageId);
   });
 
   test('a peer network without a key cannot deliver to a keyed replica', async () => {
-    const keyless = new L2PeerNetwork({ nodeId: 'keyless', role: 'sequencer', gossipRelayEnabled: true, announceIntervalMs: 999_999, syncOnConnect: false });
+    const keyless = new L2PeerNetwork({
+      nodeId: 'keyless',
+      role: 'sequencer',
+      gossipRelayEnabled: true,
+      announceIntervalMs: 999_999,
+      syncOnConnect: false,
+    });
     try {
       await keyless.connectToPeer(replica.url);
       const before = replica.seen.length;
-      await keyless.broadcast({ messageId: `k-${Date.now()}`, type: 'peer:announce', senderId: 'keyless', timestamp: Date.now(), payload: {} } as unknown as GossipMessage);
+      await keyless.broadcast({
+        messageId: `k-${Date.now()}`,
+        type: 'peer:announce',
+        senderId: 'keyless',
+        timestamp: Date.now(),
+        payload: {},
+      } as unknown as GossipMessage);
       expect(replica.seen.length).toBe(before);
     } finally {
       keyless.stop();
@@ -146,7 +201,7 @@ describe('gossip over the peer network', () => {
   });
 });
 
-describe('the invariant monitor on the leader\'s status', () => {
+describe("the invariant monitor on the leader's status", () => {
   test('l2_getStatus carries the report when a monitor is attached', async () => {
     const monitor = new InvariantMonitor({
       leader: () => snapshotOf(leader.node.getStatus(), leaderKey.nodeId),
@@ -155,7 +210,11 @@ describe('the invariant monitor on the leader\'s status', () => {
     });
     leader.server.setInvariantMonitor(monitor);
     const status = await rpcWith(leader.url, {}, envelope('l2_getStatus'));
-    expect(status.result?.invariants).toMatchObject({ ok: true, replicas: [{ nodeId: replicaKey.nodeId, inSync: true }], batch: { stalled: false } });
+    expect(status.result?.invariants).toMatchObject({
+      ok: true,
+      replicas: [{ nodeId: replicaKey.nodeId, inSync: true }],
+      batch: { stalled: false },
+    });
     leader.server.setInvariantMonitor(null);
     expect((await rpcWith(leader.url, {}, envelope('l2_getStatus'))).result?.invariants).toBeUndefined();
   });

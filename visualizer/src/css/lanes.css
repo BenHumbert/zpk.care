@@ -160,44 +160,95 @@
 /* ─── Actor Colors ───────────────────────────────────── */
 
 .chip-member .chip-dot,
-.chip-member .chip-progress { background: #4fc3f7; }
-.chip-member .chip-actor { color: #4fc3f7; }
+.chip-member .chip-progress {
+  background: #4fc3f7;
+}
+.chip-member .chip-actor {
+  color: #4fc3f7;
+}
 
 .chip-prescriber .chip-dot,
-.chip-prescriber .chip-progress { background: #66bb6a; }
-.chip-prescriber .chip-actor { color: #66bb6a; }
+.chip-prescriber .chip-progress {
+  background: #66bb6a;
+}
+.chip-prescriber .chip-actor {
+  color: #66bb6a;
+}
 
 .chip-pharmacy .chip-dot,
-.chip-pharmacy .chip-progress { background: #ffa726; }
-.chip-pharmacy .chip-actor { color: #ffa726; }
+.chip-pharmacy .chip-progress {
+  background: #ffa726;
+}
+.chip-pharmacy .chip-actor {
+  color: #ffa726;
+}
 
 .chip-insurer .chip-dot,
-.chip-insurer .chip-progress { background: #ab47bc; }
-.chip-insurer .chip-actor { color: #ab47bc; }
+.chip-insurer .chip-progress {
+  background: #ab47bc;
+}
+.chip-insurer .chip-actor {
+  color: #ab47bc;
+}
 
 .chip-employer .chip-dot,
-.chip-employer .chip-progress { background: #78909c; }
-.chip-employer .chip-actor { color: #78909c; }
+.chip-employer .chip-progress {
+  background: #78909c;
+}
+.chip-employer .chip-actor {
+  color: #78909c;
+}
 
 /* ─── Lane Icon Colors ───────────────────────────────── */
 
-.lane-enrollment .lane-icon { background: #1565c0; color: #fff; }
-.lane-eligibility .lane-icon { background: #2e7d32; color: #fff; }
-.lane-prescription .lane-icon { background: #e65100; color: #fff; }
-.lane-fulfillment .lane-icon { background: #ad1457; color: #fff; }
-.lane-messaging .lane-icon { background: #6a1b9a; color: #fff; }
-.lane-batch .lane-icon { background: #37474f; color: #fff; }
+.lane-enrollment .lane-icon {
+  background: #1565c0;
+  color: #fff;
+}
+.lane-eligibility .lane-icon {
+  background: #2e7d32;
+  color: #fff;
+}
+.lane-prescription .lane-icon {
+  background: #e65100;
+  color: #fff;
+}
+.lane-fulfillment .lane-icon {
+  background: #ad1457;
+  color: #fff;
+}
+.lane-messaging .lane-icon {
+  background: #6a1b9a;
+  color: #fff;
+}
+.lane-batch .lane-icon {
+  background: #37474f;
+  color: #fff;
+}
 
 /* ─── Animations ─────────────────────────────────────── */
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.3); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.3);
+  }
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .chip {
@@ -240,12 +291,30 @@
   flex-shrink: 0;
 }
 
-.event-badge-enrollment { background: #1565c0; color: #fff; }
-.event-badge-eligibility { background: #2e7d32; color: #fff; }
-.event-badge-prescription { background: #e65100; color: #fff; }
-.event-badge-fulfillment { background: #ad1457; color: #fff; }
-.event-badge-messaging { background: #6a1b9a; color: #fff; }
-.event-badge-batch { background: #37474f; color: #fff; }
+.event-badge-enrollment {
+  background: #1565c0;
+  color: #fff;
+}
+.event-badge-eligibility {
+  background: #2e7d32;
+  color: #fff;
+}
+.event-badge-prescription {
+  background: #e65100;
+  color: #fff;
+}
+.event-badge-fulfillment {
+  background: #ad1457;
+  color: #fff;
+}
+.event-badge-messaging {
+  background: #6a1b9a;
+  color: #fff;
+}
+.event-badge-batch {
+  background: #37474f;
+  color: #fff;
+}
 
 .event-text {
   color: #ccc;
@@ -256,8 +325,18 @@
   font-weight: 600;
 }
 
-.event-actor-member { color: #4fc3f7; }
-.event-actor-prescriber { color: #66bb6a; }
-.event-actor-pharmacy { color: #ffa726; }
-.event-actor-insurer { color: #ab47bc; }
-.event-actor-employer { color: #78909c; }
+.event-actor-member {
+  color: #4fc3f7;
+}
+.event-actor-prescriber {
+  color: #66bb6a;
+}
+.event-actor-pharmacy {
+  color: #ffa726;
+}
+.event-actor-insurer {
+  color: #ab47bc;
+}
+.event-actor-employer {
+  color: #78909c;
+}

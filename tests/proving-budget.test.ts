@@ -37,12 +37,21 @@ let dir: string;
 beforeAll(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proving-budget-'));
   const config: NautilusAppConfig = {
-    role: 'member', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1',
-    stateDir: dir, enableSSE: false, maxSseConnections: 0, allowedOrigins: [],
+    role: 'member',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
     requestTimeoutMs: 400,
   };
   server = new NautilusAppServer(config);
-  const slow = (ms: number) => async (_req: unknown, res: import('http').ServerResponse) => { await sleep(ms); server.sendResponse(res, 200, true, { slept: ms }); };
+  const slow = (ms: number) => async (_req: unknown, res: import('http').ServerResponse) => {
+    await sleep(ms);
+    server.sendResponse(res, 200, true, { slept: ms });
+  };
   const routes: RouteRegistration[] = [
     { method: 'GET', path: '/quick', handler: slow(10) },
     { method: 'GET', path: '/slow', handler: slow(1200) },
@@ -59,7 +68,7 @@ afterAll(async () => {
 
 async function get(p: string) {
   const r = await fetch(`http://127.0.0.1:${server.getPort()}${p}`);
-  return { status: r.status, json: await r.json().catch(() => null) as any };
+  return { status: r.status, json: (await r.json().catch(() => null)) as any };
 }
 
 describe('the request budget', () => {

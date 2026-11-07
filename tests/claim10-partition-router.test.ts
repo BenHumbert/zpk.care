@@ -49,11 +49,7 @@ const TEST_ADMIN_TOKEN = 'test-admin-token';
 // ─── Helpers ────────────────────────────────────────────────
 
 /** Create a LeviathanConfig with round-robin failover chain */
-function makeConfig(
-  partitionCount: number,
-  primaryPartition: number,
-  nodeIds: string[],
-): LeviathanConfig {
+function makeConfig(partitionCount: number, primaryPartition: number, nodeIds: string[]): LeviathanConfig {
   const failoverChain = new Map<number, string[]>();
   for (let i = 0; i < partitionCount; i++) {
     const chain = [...nodeIds.slice(i), ...nodeIds.slice(0, i)];
@@ -261,20 +257,10 @@ describe('Claim 10: Deterministic Partition Router', () => {
    * Proves determinism is a property of the algorithm, not router instance state.
    */
   test('10-Y03: independent router instances produce identical routing for same walletIds', () => {
-    const urls = [
-      'http://lev-0:3030',
-      'http://lev-1:3030',
-      'http://lev-2:3030',
-      'http://lev-3:3030',
-      'http://lev-4:3030',
-    ];
+    const urls = ['http://lev-0:3030', 'http://lev-1:3030', 'http://lev-2:3030', 'http://lev-3:3030', 'http://lev-4:3030'];
 
     // Create 3 independent routers with same config
-    const routers = [
-      new PartitionRouter(5),
-      new PartitionRouter(5),
-      new PartitionRouter(5),
-    ];
+    const routers = [new PartitionRouter(5), new PartitionRouter(5), new PartitionRouter(5)];
     for (const router of routers) {
       for (let i = 0; i < 5; i++) {
         router.setPartition(i, urls[i]);

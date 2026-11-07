@@ -60,9 +60,18 @@ export class StatsPanel {
     if (accumPanel) accumPanel.innerHTML = '';
 
     // Charts (destroy old + recreate)
-    if (this.tierChart) { this.tierChart.destroy(); this.tierChart = null; }
-    if (this.cumulativeChart) { this.cumulativeChart.destroy(); this.cumulativeChart = null; }
-    if (this.costChart) { this.costChart.destroy(); this.costChart = null; }
+    if (this.tierChart) {
+      this.tierChart.destroy();
+      this.tierChart = null;
+    }
+    if (this.cumulativeChart) {
+      this.cumulativeChart.destroy();
+      this.cumulativeChart = null;
+    }
+    if (this.costChart) {
+      this.costChart.destroy();
+      this.costChart = null;
+    }
 
     this.initCharts();
   }
@@ -193,19 +202,9 @@ export class StatsPanel {
     panel.innerHTML = '';
     for (const [name, acc] of this.accumulators) {
       // Deductible row
-      panel.appendChild(this.makeAccumRow(
-        `${name} — Deductible`,
-        acc.dedPaidVal,
-        acc.dedMaxVal,
-        '#4fc3f7',
-      ));
+      panel.appendChild(this.makeAccumRow(`${name} — Deductible`, acc.dedPaidVal, acc.dedMaxVal, '#4fc3f7'));
       // OOPM row
-      panel.appendChild(this.makeAccumRow(
-        `${name} — OOPM`,
-        acc.oopPaidVal,
-        acc.oopMaxVal,
-        '#ffa726',
-      ));
+      panel.appendChild(this.makeAccumRow(`${name} — OOPM`, acc.oopPaidVal, acc.oopMaxVal, '#ffa726'));
     }
   }
 

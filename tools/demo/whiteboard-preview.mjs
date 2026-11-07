@@ -37,9 +37,22 @@ fs.mkdirSync(RAW, { recursive: true });
 const voices = parseVoices(args.voices);
 const narratorVoice = voices.narrator || null;
 if (narratorVoice && !knownVoice(narratorVoice)) throw new Error(`--voices: unknown voice ${narratorVoice}`);
-const PERSONS = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [k, { ...p, voice: voices[k] || narratorVoice || 'kokoro:bm_george' }]));
-const sceneKeys = args.scenes ? String(args.scenes).split(',').map((s) => s.trim()).filter(Boolean) : [];
-for (const k of sceneKeys) if (!SCENES.some((s) => s.key === k && s.kind === 'board')) throw new Error(`--scenes: "${k}" is not a board scene (${SCENES.filter((s) => s.kind === 'board').map((s) => s.key).join(', ')})`);
+const PERSONS = Object.fromEntries(
+  Object.entries(PEOPLE).map(([k, p]) => [k, { ...p, voice: voices[k] || narratorVoice || 'kokoro:bm_george' }]),
+);
+const sceneKeys = args.scenes
+  ? String(args.scenes)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : [];
+for (const k of sceneKeys)
+  if (!SCENES.some((s) => s.key === k && s.kind === 'board'))
+    throw new Error(
+      `--scenes: "${k}" is not a board scene (${SCENES.filter((s) => s.kind === 'board')
+        .map((s) => s.key)
+        .join(', ')})`,
+    );
 
 const browser = await launchBrowser();
 const ctx = await directorContext(browser, { recordVideoDir: RAW });
@@ -74,7 +87,10 @@ const T0 = Date.now();
 const narr = PERSONS.narrator;
 if (!sceneKeys.length) {
   // ---------------------------------------------------------------- the quick pass: a few cards, fixed pacing
-  const cards = String(args.cards || '2b,7b,10').split(',').map((s) => s.trim()).filter(Boolean);
+  const cards = String(args.cards || '2b,7b,10')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   camera.scene('quick', { act: 1, title: 'Whiteboard preview' });
   await camera.cut('board');
   await board.setTitle('Whiteboard preview: written stroke by stroke');
@@ -124,15 +140,18 @@ if (!sceneKeys.length) {
     for (const [, lines] of Object.entries(S[key] || {})) {
       for (const line of lines) {
         const write = (line.board || []).find((a) => a.do === 'write');
-        const during = line.board && line.board.length ? async (clip) => {
-          if (write && !midDone) {
-            midDone = true;
-            const more = line.board.some((a) => a.do !== 'write');
-            const ms = write.ms ?? Math.max(1500, Math.round((more ? 0.62 : 0.8) * clip.ms));
-            setTimeout(() => shoot(`mid-${key}`).catch(() => {}), Math.round(ms * 0.5));
-          }
-          await runner.run(line.board, clip);
-        } : undefined;
+        const during =
+          line.board && line.board.length
+            ? async (clip) => {
+                if (write && !midDone) {
+                  midDone = true;
+                  const more = line.board.some((a) => a.do !== 'write');
+                  const ms = write.ms ?? Math.max(1500, Math.round((more ? 0.62 : 0.8) * clip.ms));
+                  setTimeout(() => shoot(`mid-${key}`).catch(() => {}), Math.round(ms * 0.5));
+                }
+                await runner.run(line.board, clip);
+              }
+            : undefined;
         await narrator.say(() => camera.page(), PERSONS[line.who] || narr, line, { during });
       }
     }
@@ -145,17 +164,41 @@ if (!sceneKeys.length) {
 if (card) {
   // ---------------------------------------------------------------- one cut to the status card, with a sped-up wait
   camera.scene('status', { act: 2, title: 'Status card (preview values)' });
-  await card.update('setTitle', { title: 'Status card preview', subtitle: 'Placeholder values: the real card is filled from the network’s read-only answers' });
-  await card.update('upsertRow', { id: 'a', label: 'Wallet-update proof', value: 'accepted · 4f1c0b2a…9e01d3', tone: 'ok', source: 'l2_getReceiptsByWallet (preview value)' });
-  await card.update('upsertRow', { id: 'b', label: 'Wallet updates waiting for the phone', value: '1', tone: 'wait', source: '/interactive/state pendingWalletUpdates (preview value)' });
+  await card.update('setTitle', {
+    title: 'Status card preview',
+    subtitle: 'Placeholder values: the real card is filled from the network’s read-only answers',
+  });
+  await card.update('upsertRow', {
+    id: 'a',
+    label: 'Wallet-update proof',
+    value: 'accepted · 4f1c0b2a…9e01d3',
+    tone: 'ok',
+    source: 'l2_getReceiptsByWallet (preview value)',
+  });
+  await card.update('upsertRow', {
+    id: 'b',
+    label: 'Wallet updates waiting for the phone',
+    value: '1',
+    tone: 'wait',
+    source: '/interactive/state pendingWalletUpdates (preview value)',
+  });
   await card.update('countdown', { id: 'c', label: 'Next batch', ms: 12000, source: 'l2_getStatus nextBatchInMs (preview value)' });
   await camera.cut('status');
   await sleep(1500);
-  await camera.speedWhile(async () => {
-    await sleep(3000);
-    await card.update('upsertRow', { id: 'b', label: 'Wallet updates waiting for the phone', value: '0', tone: 'ok', source: '/interactive/state pendingWalletUpdates (preview value)' });
-    await sleep(3000);
-  }, { factor: 4 });
+  await camera.speedWhile(
+    async () => {
+      await sleep(3000);
+      await card.update('upsertRow', {
+        id: 'b',
+        label: 'Wallet updates waiting for the phone',
+        value: '0',
+        tone: 'ok',
+        source: '/interactive/state pendingWalletUpdates (preview value)',
+      });
+      await sleep(3000);
+    },
+    { factor: 4 },
+  );
   await sleep(1500);
   await card.page.screenshot({ path: path.join(OUT, 'end-status.png') });
   shots.push(path.join(OUT, 'end-status.png'));
@@ -169,9 +212,15 @@ await ctx.close();
 await browser.close();
 const cam = camera.toJSON();
 const take = {
-  T0, T1, preview: true, acts: { 1: 'Whiteboard', 2: 'Status card' },
-  shots: cam.shots, cuts: cam.cuts, speedups: cam.speedups, scenes: cam.scenes,
-  lines: narrator.lines.map((l) => ({ at: l.at, ms: l.ms, name: l.name, persona: l.persona, text: l.text, file: l.file }))
+  T0,
+  T1,
+  preview: true,
+  acts: { 1: 'Whiteboard', 2: 'Status card' },
+  shots: cam.shots,
+  cuts: cam.cuts,
+  speedups: cam.speedups,
+  scenes: cam.scenes,
+  lines: narrator.lines.map((l) => ({ at: l.at, ms: l.ms, name: l.name, persona: l.persona, text: l.text, file: l.file })),
 };
 fs.writeFileSync(path.join(OUT, 'take.json'), JSON.stringify(take, null, 2));
 if (!args['no-post']) {

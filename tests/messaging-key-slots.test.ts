@@ -48,12 +48,16 @@ beforeAll(async () => {
   const { AdjudicationService } = await import('../src/adjudication/interactive-service.js');
   const empty = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
   node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-key-slots' }, new InMemoryStore(), empty, empty, Field(0));
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
 });
 
 const registry = () => node.getSequencer().getStateTrees().registry;
 
-describe('the engine\'s messaging keys', () => {
+describe("the engine's messaging keys", () => {
   test('the seed has more than ten prescribers', () => {
     expect(PRESCRIBERS.length).toBe(12);
     expect(PHARMACIES.length).toBe(8);
@@ -75,7 +79,7 @@ describe('the engine\'s messaging keys', () => {
     expect(svc.keyRegistry.count).toBe(20);
   });
 
-  test('a message from prescriber 10 to pharmacy 1 is sealed with their keys, not pharmacy 0\'s', () => {
+  test("a message from prescriber 10 to pharmacy 1 is sealed with their keys, not pharmacy 0's", () => {
     const sender: Field = svc.prescriberWalletIds.get(10);
     const recipient: Field = svc.pharmacyWalletIds.get(1);
     const idx: bigint = svc.sendInternalMessage(sender, recipient, Field(1), 'eScript', 'Rx test');
@@ -100,15 +104,23 @@ describe('the engine\'s messaging keys', () => {
     expect(src).not.toMatch(/10 \+ (i|idx|index|opts\.pharmacyIndex)\b/);
   });
 
-  test('a member whose saved walletIndex names a pharmacy\'s slot keys at its own live registry index', () => {
+  test("a member whose saved walletIndex names a pharmacy's slot keys at its own live registry index", () => {
     const reg = registry();
     const pharmacySlot = Number(reg.getIndex(svc.pharmacyWalletIds.get(0)));
     const wid = Field(77_000_001n);
-    node.getSequencer().adminMutate('test: provision a member', ({ provision }: any) => { provision(wid, LIFECYCLE_ELIGIBLE); });
+    node.getSequencer().adminMutate('test: provision a member', ({ provision }: any) => {
+      provision(wid, LIFECYCLE_ELIGIBLE);
+    });
     const live = Number(reg.getIndex(wid));
     expect(live).not.toBe(pharmacySlot);
     // as a checkpoint restore leaves it: the member's saved index is now a provider's live slot
-    svc.enrolledMembers.set(wid.toString(), { walletId: wid, walletIdStr: wid.toString(), walletIndex: pharmacySlot, lifecycle: 'ELIGIBLE', displayName: 'R' });
+    svc.enrolledMembers.set(wid.toString(), {
+      walletId: wid,
+      walletIdStr: wid.toString(),
+      walletIndex: pharmacySlot,
+      lifecycle: 'ELIGIBLE',
+      displayName: 'R',
+    });
     try {
       expect(svc.findKeyIndexForWallet(wid)).toBe(live);
       expect(svc.resolveWalletId('member', undefined, wid.toString()).keyIndex).toBe(live);

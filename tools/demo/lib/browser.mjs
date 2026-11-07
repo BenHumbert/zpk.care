@@ -9,8 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 
-const PW_ROOT = process.env.PLAYWRIGHT_BROWSERS_PATH
-  || path.join(process.env.LOCALAPPDATA || path.join(process.env.HOME || '', '.cache'), 'ms-playwright');
+const PW_ROOT =
+  process.env.PLAYWRIGHT_BROWSERS_PATH ||
+  path.join(process.env.LOCALAPPDATA || path.join(process.env.HOME || '', '.cache'), 'ms-playwright');
 export const PINNED_CHROMIUM = path.join(PW_ROOT, 'chromium-1200', 'chrome-win64', 'chrome.exe');
 
 export function chromiumPath() {
@@ -26,10 +27,19 @@ export function chromiumPath() {
     // fall through to the installed builds
   }
   const dirs = fs.existsSync(PW_ROOT)
-    ? fs.readdirSync(PW_ROOT).filter((d) => /^chromium-\d+$/.test(d)).sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))
+    ? fs
+        .readdirSync(PW_ROOT)
+        .filter((d) => /^chromium-\d+$/.test(d))
+        .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))
     : [];
   for (const d of dirs) {
-    for (const rel of ['chrome-win64/chrome.exe', 'chrome-win/chrome.exe', 'chrome-linux64/chrome', 'chrome-linux/chrome', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
+    for (const rel of [
+      'chrome-win64/chrome.exe',
+      'chrome-win/chrome.exe',
+      'chrome-linux64/chrome',
+      'chrome-linux/chrome',
+      'chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+    ]) {
       const p = path.join(PW_ROOT, d, rel);
       if (fs.existsSync(p)) return p;
     }
@@ -43,6 +53,11 @@ export function launchBrowser({ headless = true, args = [] } = {}) {
     executablePath: chromiumPath(),
     headless,
     // keep hidden pages painting and their timers running: every person's page records the whole take
-    args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', ...args]
+    args: [
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      ...args,
+    ],
   });
 }

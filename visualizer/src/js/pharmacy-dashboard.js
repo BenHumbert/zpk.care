@@ -39,12 +39,7 @@ import {
   startAutoRefresh,
 } from './node-common.js';
 
-import {
-  checkInteractions,
-  getDurStatus,
-  renderDurBadge,
-  renderInteractionAlerts,
-} from './drug-interactions.js';
+import { checkInteractions, getDurStatus, renderDurBadge, renderInteractionAlerts } from './drug-interactions.js';
 
 // NADAC per unit as the engine computes it (src/fulfillment/nadac-pricing.ts): the console's copy, which
 // tests/console-nadac-preview.test.ts holds to the engine's results for every drug in the catalog.
@@ -54,19 +49,19 @@ import { nadacPerUnitLabel, nadacUnitPriceE5 } from './interactive/nadac-price.j
 // State
 // ============================================================================
 
-let state = null;           // Full /node/state response
-let selectedIndex = 0;      // Currently selected pharmacy index
-let pharmacies = [];        // state.pharmacies array
-let prescriptions = [];     // state.prescriptions (all)
-let medications = [];       // state.medications
-let enrolledMembers = [];   // state.enrolledMembers
-let prescribers = [];       // state.prescribers (if available)
+let state = null; // Full /node/state response
+let selectedIndex = 0; // Currently selected pharmacy index
+let pharmacies = []; // state.pharmacies array
+let prescriptions = []; // state.prescriptions (all)
+let medications = []; // state.medications
+let enrolledMembers = []; // state.enrolledMembers
+let prescribers = []; // state.prescribers (if available)
 
 // Rx Queue state
-let queueFilter = 'ALL';               // Current status filter
-let selectedRxId = null;               // Currently selected prescription ID
-let scannedMemberWalletId = null;       // Member whose NFC/credential was scanned
-let scannedCredentialJson = null;       // The raw credential JSON (optional, for patient lookup)
+let queueFilter = 'ALL'; // Current status filter
+let selectedRxId = null; // Currently selected prescription ID
+let scannedMemberWalletId = null; // Member whose NFC/credential was scanned
+let scannedCredentialJson = null; // The raw credential JSON (optional, for patient lookup)
 
 // ============================================================================
 // Bootstrap
@@ -76,8 +71,7 @@ async function init() {
   try {
     state = await fetchJson('/node/state');
   } catch (err) {
-    document.querySelector('.dashboard-grid').innerHTML =
-      `<div style="color: var(--color-accent-red); text-align: center; padding: 48px;">
+    document.querySelector('.dashboard-grid').innerHTML = `<div style="color: var(--color-accent-red); text-align: center; padding: 48px;">
         Failed to connect to sequencer: ${err.message}
       </div>`;
     return;
@@ -90,8 +84,7 @@ async function init() {
   prescribers = state.prescribers || [];
 
   if (pharmacies.length === 0) {
-    document.querySelector('.dashboard-grid').innerHTML =
-      `<div style="color: var(--text-secondary); text-align: center; padding: 48px;">
+    document.querySelector('.dashboard-grid').innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 48px;">
         No pharmacies enrolled yet. Run a scenario first.
       </div>`;
     return;
@@ -194,9 +187,7 @@ function renderAll() {
 // ============================================================================
 
 function getMyPrescriptions() {
-  return prescriptions.filter(
-    (rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex),
-  );
+  return prescriptions.filter((rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex));
 }
 
 // Build flat claim views from prescriptions
@@ -229,13 +220,13 @@ function buildClaimViews(rxList) {
 function lookupMedName(index) {
   if (index == null || !medications.length) return '--';
   const med = medications[Number(index)];
-  return med ? (med.brandName || med.name || `Med #${index}`) : `Med #${index}`;
+  return med ? med.brandName || med.name || `Med #${index}` : `Med #${index}`;
 }
 
 function lookupTherapeuticClass(index) {
   if (index == null || !medications.length) return '';
   const med = medications[Number(index)];
-  return med ? (med.therapeuticClass || '') : '';
+  return med ? med.therapeuticClass || '' : '';
 }
 
 function lookupTier(index) {
@@ -282,30 +273,28 @@ const RX_STATUS_ORDER = ['ACTIVE', 'DISPENSED', 'PARTIALLY_FILLED', 'FILLED', 'C
 
 // Which transitions a pharmacy can perform via Change Status
 const PHARMACY_TRANSITIONS = {
-  'ACTIVE': ['DISPENSED', 'REJECTED'],
-  'DISPENSED': ['REJECTED'],
-  'PARTIALLY_FILLED': ['REJECTED'],
-  'FILLED': ['COMPLETED'],
+  ACTIVE: ['DISPENSED', 'REJECTED'],
+  DISPENSED: ['REJECTED'],
+  PARTIALLY_FILLED: ['REJECTED'],
+  FILLED: ['COMPLETED'],
 };
 
 function rxStatusBadge(status) {
   const map = {
-    'ACTIVE': 'pending',
-    'DISPENSED': 'dispensed',
-    'PARTIALLY_FILLED': 'pcp',
-    'FILLED': 'fill',
-    'COMPLETED': 'settled',
-    'CANCELLED': 'reversal',
-    'REJECTED': 'reversal',
-    'REVERSED': 'reversal',
+    ACTIVE: 'pending',
+    DISPENSED: 'dispensed',
+    PARTIALLY_FILLED: 'pcp',
+    FILLED: 'fill',
+    COMPLETED: 'settled',
+    CANCELLED: 'reversal',
+    REJECTED: 'reversal',
+    REVERSED: 'reversal',
   };
   return renderBadge(status, map[status] || 'pending');
 }
 
 function getQueuePrescriptions() {
-  const myRx = prescriptions.filter(
-    (rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex),
-  );
+  const myRx = prescriptions.filter((rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex));
 
   // Apply status filter
   let filtered = myRx;
@@ -322,9 +311,7 @@ function getQueuePrescriptions() {
 }
 
 function renderRxQueue() {
-  const myRx = prescriptions.filter(
-    (rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex),
-  );
+  const myRx = prescriptions.filter((rx) => rx.pharmacyIndex === selectedIndex || rx.pharmacyIndex === String(selectedIndex));
 
   // Status counts for filter chips
   const counts = { ALL: myRx.length };
@@ -333,12 +320,15 @@ function renderRxQueue() {
   }
 
   // Filter chips
-  const filterChips = ['ALL', ...RX_STATUS_ORDER].map((s) => {
-    const active = queueFilter === s ? ' active' : '';
-    const count = counts[s] || 0;
-    if (s !== 'ALL' && count === 0) return ''; // hide empty statuses
-    return `<button class="rx-filter-chip${active}" data-filter="${s}">${s.replace('_', ' ')} <span class="chip-count">${count}</span></button>`;
-  }).filter(Boolean).join('');
+  const filterChips = ['ALL', ...RX_STATUS_ORDER]
+    .map((s) => {
+      const active = queueFilter === s ? ' active' : '';
+      const count = counts[s] || 0;
+      if (s !== 'ALL' && count === 0) return ''; // hide empty statuses
+      return `<button class="rx-filter-chip${active}" data-filter="${s}">${s.replace('_', ' ')} <span class="chip-count">${count}</span></button>`;
+    })
+    .filter(Boolean)
+    .join('');
 
   // NFC / Patient Lookup area (optional filter — NOT required for dispensing)
   const scanArea = `
@@ -355,18 +345,22 @@ function renderRxQueue() {
         <button id="rx-scan-btn" class="btn-action pharmacy" style="white-space: nowrap;">Scan / Lookup</button>
         ${scannedMemberWalletId ? `<button id="rx-clear-scan-btn" class="btn-action" style="background: var(--bg-tertiary); color: var(--text-secondary); white-space: nowrap;">Clear Filter</button>` : ''}
       </div>
-      ${scannedMemberWalletId ? `
+      ${
+        scannedMemberWalletId
+          ? `
         <div class="rx-scan-result" style="margin-top: 8px;">
           <span class="rx-scan-verified">Verified</span>
           Patient: <span class="mono">${truncHash(scannedMemberWalletId, 8)}</span>
           — showing ${getQueuePrescriptions().length} script(s)
           <span style="margin-left: 12px; font-size: 11px; color: var(--text-secondary);">(filter only — not required for dispensing)</span>
         </div>
-      ` : `
+      `
+          : `
         <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">
           Optional: scan NFC card or enter wallet ID to filter prescriptions by patient
         </div>
-      `}
+      `
+      }
     </div>
   `;
 
@@ -378,35 +372,36 @@ function renderRxQueue() {
       ${myRx.length === 0 ? 'No prescriptions for this pharmacy yet' : 'No prescriptions match the current filter'}
     </div>`;
   } else {
-    const rows = filtered.map((rx) => {
-      const med = medications[Number(rx.medicationIndex)] || {};
-      const tier = med.tier != null ? med.tier : (med.tierLevel != null ? med.tierLevel : null);
-      const maxDaySupply = med.maxDaySupply || '--';
-      const refillsRemaining = (rx.refills || 0) - (rx.refillsUsed || 0);
-      const transitions = PHARMACY_TRANSITIONS[rx.status] || [];
+    const rows = filtered
+      .map((rx) => {
+        const med = medications[Number(rx.medicationIndex)] || {};
+        const tier = med.tier != null ? med.tier : med.tierLevel != null ? med.tierLevel : null;
+        const maxDaySupply = med.maxDaySupply || '--';
+        const refillsRemaining = (rx.refills || 0) - (rx.refillsUsed || 0);
+        const transitions = PHARMACY_TRANSITIONS[rx.status] || [];
 
-      // Action button(s) — no credential required (fills are reversible)
-      let actionHtml = '';
-      if (rx.status === 'DISPENSED') {
-        actionHtml += `<button class="btn-action pharmacy btn-sm rx-fill-btn" data-rx-id="${rx.id}">Fill</button> `;
-      }
-      if (rx.status === 'FILLED') {
-        actionHtml += `<button class="btn-action btn-sm rx-complete-btn" data-rx-id="${rx.id}" style="background: var(--color-accent-green);">Complete (PoS)</button> `;
-      }
-      if (transitions.length > 0) {
-        const opts = transitions.map((t) => `<option value="${t}">${t}</option>`).join('');
-        actionHtml += `
+        // Action button(s) — no credential required (fills are reversible)
+        let actionHtml = '';
+        if (rx.status === 'DISPENSED') {
+          actionHtml += `<button class="btn-action pharmacy btn-sm rx-fill-btn" data-rx-id="${rx.id}">Fill</button> `;
+        }
+        if (rx.status === 'FILLED') {
+          actionHtml += `<button class="btn-action btn-sm rx-complete-btn" data-rx-id="${rx.id}" style="background: var(--color-accent-green);">Complete (PoS)</button> `;
+        }
+        if (transitions.length > 0) {
+          const opts = transitions.map((t) => `<option value="${t}">${t}</option>`).join('');
+          actionHtml += `
           <select class="rx-status-select btn-sm" data-rx-id="${rx.id}">
             <option value="">Change...</option>
             ${opts}
           </select>`;
-      }
-      if (!actionHtml) {
-        actionHtml = '<span style="color: var(--text-secondary); font-size: 11px;">—</span>';
-      }
+        }
+        if (!actionHtml) {
+          actionHtml = '<span style="color: var(--text-secondary); font-size: 11px;">—</span>';
+        }
 
-      const isSelected = selectedRxId === rx.id;
-      return `
+        const isSelected = selectedRxId === rx.id;
+        return `
         <tr class="rx-row${isSelected ? ' rx-row-selected' : ''}" data-rx-id="${rx.id}" style="cursor: pointer;${isSelected ? ' background: var(--bg-tertiary); outline: 2px solid var(--color-pharmacy);' : ''}">
           <td class="mono" style="font-size: 11px;">${truncHash(rx.id, 6)}</td>
           <td>${med.brandName || rx.medication || '--'}${med.strength ? ` <span style="color:var(--text-secondary);font-size:11px;">${med.strength}</span>` : ''}</td>
@@ -419,7 +414,8 @@ function renderRxQueue() {
           <td class="rx-action-cell">${actionHtml}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     tableHtml = `
       <table class="sortable-table rx-queue-table">
@@ -453,8 +449,11 @@ function renderRxQueue() {
     </div>
   `;
 
-  document.getElementById('section-rx-queue').innerHTML =
-    renderSectionCard(`Prescription Queue (${filtered.length}/${myRx.length})`, 'pharmacy', content);
+  document.getElementById('section-rx-queue').innerHTML = renderSectionCard(
+    `Prescription Queue (${filtered.length}/${myRx.length})`,
+    'pharmacy',
+    content,
+  );
 
   // Attach event listeners
   attachQueueListeners();
@@ -548,7 +547,7 @@ function renderRxDetailPanel(rxList) {
   const med = medications[Number(rx.medicationIndex)] || {};
   const member = enrolledMembers.find((m) => m.walletId === rx.memberWalletId);
   const prescriber = lookupPrescriberName(rx.prescriberIndex);
-  const tier = med.tier != null ? med.tier : (med.tierLevel != null ? med.tierLevel : null);
+  const tier = med.tier != null ? med.tier : med.tierLevel != null ? med.tierLevel : null;
   const refillsRemaining = (rx.refills || 0) - (rx.refillsUsed || 0);
   const transitions = PHARMACY_TRANSITIONS[rx.status] || [];
 
@@ -609,11 +608,15 @@ function renderRxDetailPanel(rxList) {
         <div class="label">Prescriber</div>
         <div class="value">${prescriber}</div>
       </div>
-      ${actionsHtml ? `
+      ${
+        actionsHtml
+          ? `
         <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border-primary); display: flex; gap: 8px; flex-wrap: wrap;">
           ${actionsHtml}
         </div>
-      ` : ''}
+      `
+          : ''
+      }
     </div>
   `;
 }
@@ -666,7 +669,10 @@ async function handleCredentialScan() {
 
 async function handleFill(rxId) {
   const btn = document.querySelector(`.rx-fill-btn[data-rx-id="${rxId}"]`);
-  if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+  }
 
   try {
     // Kick off async fill — no credential required (fills are reversible)
@@ -681,7 +687,7 @@ async function handleFill(rxId) {
     const startTime = Date.now();
 
     while (Date.now() - startTime < POLL_TIMEOUT) {
-      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
       const elapsed = Math.round((Date.now() - startTime) / 1000);
       if (btn) btn.textContent = `Proving... (${elapsed}s)`;
 
@@ -703,13 +709,19 @@ async function handleFill(rxId) {
     throw new Error('Fill timed out after 3 minutes');
   } catch (err) {
     alert(`Fill failed: ${err.message}`);
-    if (btn) { btn.disabled = false; btn.textContent = 'Fill'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Fill';
+    }
   }
 }
 
 async function handleComplete(rxId) {
   const btn = document.querySelector(`.rx-complete-btn[data-rx-id="${rxId}"]`);
-  if (btn) { btn.disabled = true; btn.textContent = 'Completing...'; }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Completing...';
+  }
 
   try {
     await postJson('/interactive/update-rx-status', {
@@ -727,7 +739,10 @@ async function handleComplete(rxId) {
     renderRxQueue();
   } catch (err) {
     alert(`Complete failed: ${err.message}`);
-    if (btn) { btn.disabled = false; btn.textContent = 'Complete (PoS)'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Complete (PoS)';
+    }
   }
 }
 
@@ -767,8 +782,7 @@ function renderIdentity() {
     { label: 'Location', value: `${pharm.city || '--'}, ${pharm.state || '--'}` },
   ];
 
-  document.getElementById('section-identity').innerHTML =
-    renderSectionCard('Identity & Status', 'pharmacy', renderDataGrid(entries));
+  document.getElementById('section-identity').innerHTML = renderSectionCard('Identity & Status', 'pharmacy', renderDataGrid(entries));
 }
 
 // ============================================================================
@@ -779,9 +793,11 @@ function renderDurSection() {
   // Build patient dropdown options from enrolled members
   let memberOptions = '';
   if (enrolledMembers && enrolledMembers.length > 0) {
-    memberOptions = enrolledMembers.map((m) => {
-      return `<option value="${m.walletId}">${truncHash(m.walletId, 8)}</option>`;
-    }).join('');
+    memberOptions = enrolledMembers
+      .map((m) => {
+        return `<option value="${m.walletId}">${truncHash(m.walletId, 8)}</option>`;
+      })
+      .join('');
   }
 
   const searchHtml = `
@@ -805,8 +821,7 @@ function renderDurSection() {
     </div>
   `;
 
-  document.getElementById('section-dur').innerHTML =
-    renderSectionCard('Drug Utilization Review (DUR)', 'pharmacy', searchHtml);
+  document.getElementById('section-dur').innerHTML = renderSectionCard('Drug Utilization Review (DUR)', 'pharmacy', searchHtml);
 
   // Attach event listeners
   const searchBtn = document.getElementById('dur-search-btn');
@@ -888,7 +903,8 @@ async function performDur(memberWalletId) {
       ndcHash: leaf.ndcHash || leaf.medicationIndex || '',
       brandName: metadata.brandName || leaf.brandName || lookupMedName(leaf.medicationIndex),
       therapeuticClass: metadata.therapeuticClass || leaf.therapeuticClass || lookupTherapeuticClass(leaf.medicationIndex),
-      tierLevel: metadata.tierLevel != null ? metadata.tierLevel : (leaf.tierLevel != null ? leaf.tierLevel : lookupTier(leaf.medicationIndex)),
+      tierLevel:
+        metadata.tierLevel != null ? metadata.tierLevel : leaf.tierLevel != null ? leaf.tierLevel : lookupTier(leaf.medicationIndex),
       pharmacyWalletId: leaf.pharmacyWalletId || '',
       prescriberWalletId: leaf.prescriberWalletId || '',
       daysSupply: metadata.daysSupply || leaf.daysSupply || '',
@@ -959,7 +975,11 @@ function renderCrossPharmacyClaimTable(views) {
   const columns = [
     { key: 'dateOfService', label: 'Date', format: (v) => formatDate(String(v)) },
     { key: 'brandName', label: 'Medication' },
-    { key: 'operationType', label: 'Type', format: (v) => v === 'reversal' ? renderBadge('Reversal', 'reversal') : renderBadge('Fill', 'fill') },
+    {
+      key: 'operationType',
+      label: 'Type',
+      format: (v) => (v === 'reversal' ? renderBadge('Reversal', 'reversal') : renderBadge('Fill', 'fill')),
+    },
     { key: 'pharmacyWalletId', label: 'Pharmacy', format: (v) => truncHash(v, 4) },
     { key: 'patientPayCents', label: 'Patient Pay', format: (v) => formatCents(v), align: 'right' },
     { key: 'planPayCents', label: 'Plan Pay', format: (v) => formatCents(v), align: 'right' },
@@ -989,8 +1009,7 @@ function renderDispensingHistory() {
   ];
 
   const table = renderSortableTable('dispensing-history', columns, views);
-  document.getElementById('section-history').innerHTML =
-    renderSectionCard(`Dispensing History (${views.length})`, 'pharmacy', table);
+  document.getElementById('section-history').innerHTML = renderSectionCard(`Dispensing History (${views.length})`, 'pharmacy', table);
 }
 
 // ============================================================================
@@ -1012,8 +1031,7 @@ function renderActivitySummary() {
     { label: 'Unique Medications', value: summary.uniqueMedications, color: 'var(--color-accent-blue)' },
   ];
 
-  document.getElementById('section-activity').innerHTML =
-    renderSectionCard('Activity Summary', 'pharmacy', renderMetricRow(metrics));
+  document.getElementById('section-activity').innerHTML = renderSectionCard('Activity Summary', 'pharmacy', renderMetricRow(metrics));
 }
 
 // ============================================================================
@@ -1032,8 +1050,7 @@ function renderPatientBreakdown() {
   ];
 
   const table = renderSortableTable('patient-breakdown', columns, breakdown);
-  document.getElementById('section-patients').innerHTML =
-    renderSectionCard(`Patient Breakdown (${breakdown.length})`, 'pharmacy', table);
+  document.getElementById('section-patients').innerHTML = renderSectionCard(`Patient Breakdown (${breakdown.length})`, 'pharmacy', table);
 }
 
 // ============================================================================
@@ -1056,8 +1073,7 @@ function renderPrescriberBreakdown() {
   ];
 
   const table = renderSortableTable('prescriber-breakdown', columns, rows);
-  document.getElementById('section-prescribers').innerHTML =
-    renderSectionCard(`Prescriber Breakdown (${rows.length})`, 'pharmacy', table);
+  document.getElementById('section-prescribers').innerHTML = renderSectionCard(`Prescriber Breakdown (${rows.length})`, 'pharmacy', table);
 }
 
 // ============================================================================
@@ -1076,8 +1092,11 @@ function renderMedicationBreakdown() {
   ];
 
   const table = renderSortableTable('medication-breakdown', columns, breakdown);
-  document.getElementById('section-medications').innerHTML =
-    renderSectionCard(`Medication Breakdown (${breakdown.length})`, 'pharmacy', table);
+  document.getElementById('section-medications').innerHTML = renderSectionCard(
+    `Medication Breakdown (${breakdown.length})`,
+    'pharmacy',
+    table,
+  );
 }
 
 // ============================================================================
@@ -1086,9 +1105,11 @@ function renderMedicationBreakdown() {
 
 function renderFormulary() {
   if (!medications || medications.length === 0) {
-    document.getElementById('section-formulary').innerHTML =
-      renderSectionCard('Formulary', 'pharmacy',
-        '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No formulary data available</div>');
+    document.getElementById('section-formulary').innerHTML = renderSectionCard(
+      'Formulary',
+      'pharmacy',
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No formulary data available</div>',
+    );
     return;
   }
 
@@ -1113,8 +1134,9 @@ function renderFormulary() {
   }));
 
   const table = renderSortableTable('formulary-table', columns, rows);
-  document.getElementById('section-formulary').innerHTML =
-    renderSectionCard(`Formulary (${rows.length} medications)`, 'pharmacy', table, { collapsed: true });
+  document.getElementById('section-formulary').innerHTML = renderSectionCard(`Formulary (${rows.length} medications)`, 'pharmacy', table, {
+    collapsed: true,
+  });
 }
 
 // ============================================================================
@@ -1124,13 +1146,15 @@ function renderFormulary() {
 function renderReceipts() {
   // Receipts are L2 sequencer receipts; pharmacy nodes do not have per-pharmacy receipts directly.
   // Show a note directing users to the L2 Chain tab for receipt details.
-  document.getElementById('section-receipts').innerHTML =
-    renderSectionCard('L2 Receipts', 'pharmacy',
-      `<div style="color: var(--text-secondary); padding: 16px; text-align: center;">
+  document.getElementById('section-receipts').innerHTML = renderSectionCard(
+    'L2 Receipts',
+    'pharmacy',
+    `<div style="color: var(--text-secondary); padding: 16px; text-align: center;">
         Pharmacy receipt data is tracked at the L2 sequencer level.
         See the L2 Chain tab in the interactive dashboard for receipt details.
       </div>`,
-      { collapsed: true });
+    { collapsed: true },
+  );
 }
 
 // ============================================================================
@@ -1140,27 +1164,31 @@ function renderReceipts() {
 function renderNodeInfo() {
   let chainInfo = '';
 
-  fetchJson('/node/chain-state').then((chainState) => {
-    const entries = [
-      { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
-      { label: 'Registry Root', value: truncHash(chainState.registryRoot, 8) },
-      { label: 'Lifecycle Root', value: truncHash(chainState.lifecycleRoot, 8) },
-      { label: 'Wallet Count', value: chainState.walletCount != null ? String(chainState.walletCount) : '--' },
-      { label: 'Pharmacies', value: String(pharmacies.length) },
-      { label: 'Total Prescriptions', value: String(prescriptions.length) },
-    ];
-    document.getElementById('section-info').innerHTML =
-      renderSectionCard('Node Info', 'pharmacy', renderDataGrid(entries), { collapsed: true });
-  }).catch(() => {
-    const entries = [
-      { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
-      { label: 'Status', value: renderBadge('Unavailable', 'reversal'), mono: false },
-      { label: 'Pharmacies', value: String(pharmacies.length) },
-      { label: 'Total Prescriptions', value: String(prescriptions.length) },
-    ];
-    document.getElementById('section-info').innerHTML =
-      renderSectionCard('Node Info', 'pharmacy', renderDataGrid(entries), { collapsed: true });
-  });
+  fetchJson('/node/chain-state')
+    .then((chainState) => {
+      const entries = [
+        { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
+        { label: 'Registry Root', value: truncHash(chainState.registryRoot, 8) },
+        { label: 'Lifecycle Root', value: truncHash(chainState.lifecycleRoot, 8) },
+        { label: 'Wallet Count', value: chainState.walletCount != null ? String(chainState.walletCount) : '--' },
+        { label: 'Pharmacies', value: String(pharmacies.length) },
+        { label: 'Total Prescriptions', value: String(prescriptions.length) },
+      ];
+      document.getElementById('section-info').innerHTML = renderSectionCard('Node Info', 'pharmacy', renderDataGrid(entries), {
+        collapsed: true,
+      });
+    })
+    .catch(() => {
+      const entries = [
+        { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
+        { label: 'Status', value: renderBadge('Unavailable', 'reversal'), mono: false },
+        { label: 'Pharmacies', value: String(pharmacies.length) },
+        { label: 'Total Prescriptions', value: String(prescriptions.length) },
+      ];
+      document.getElementById('section-info').innerHTML = renderSectionCard('Node Info', 'pharmacy', renderDataGrid(entries), {
+        collapsed: true,
+      });
+    });
 }
 
 // ============================================================================

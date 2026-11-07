@@ -15,32 +15,11 @@
  */
 
 import { Field, Poseidon, MerkleTree } from 'o1js';
-import {
-  ProviderNetworkRegistry,
-  NetworkMerkleWitness,
-  NETWORK_TREE_HEIGHT,
-} from '../src/eligibility/provider-network-registry.js';
-import {
-  EligibilityData,
-  COVERAGE_PHARMACY,
-  buildEligibilityData,
-} from '../src/eligibility/eligibility-data.js';
-import {
-  InNetworkProgram,
-  InNetworkOutput,
-} from '../src/eligibility/eligibility-program.js';
-import {
-  LIFECYCLE_ELIGIBLE,
-  LIFECYCLE_ACTIVE,
-  lifecycleLeafCommitment,
-  LifecycleWitness,
-} from '../src/engine/lifecycle.js';
-import {
-  derivePrescriberWalletId,
-  derivePharmacyWalletId,
-  prescriberWalletPreimage,
-  ProofGateProgram,
-} from '../src/wallets/index.js';
+import { ProviderNetworkRegistry, NetworkMerkleWitness, NETWORK_TREE_HEIGHT } from '../src/eligibility/provider-network-registry.js';
+import { EligibilityData, COVERAGE_PHARMACY, buildEligibilityData } from '../src/eligibility/eligibility-data.js';
+import { InNetworkProgram, InNetworkOutput } from '../src/eligibility/eligibility-program.js';
+import { LIFECYCLE_ELIGIBLE, LIFECYCLE_ACTIVE, lifecycleLeafCommitment, LifecycleWitness } from '../src/engine/lifecycle.js';
+import { derivePrescriberWalletId, derivePharmacyWalletId, prescriberWalletPreimage, ProofGateProgram } from '../src/wallets/index.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
@@ -109,8 +88,7 @@ describe('Provider Network by Plan (GAP 2)', () => {
       const registry = new ProviderNetworkRegistry();
       registry.addProvider(prescriberWalletId);
 
-      expect(() => registry.addProvider(prescriberWalletId))
-        .toThrow('Provider already in network');
+      expect(() => registry.addProvider(prescriberWalletId)).toThrow('Provider already in network');
     });
 
     test('isInNetwork returns correct status', () => {
@@ -141,8 +119,7 @@ describe('Provider Network by Plan (GAP 2)', () => {
 
     test('getWitness throws for unregistered provider', () => {
       const registry = new ProviderNetworkRegistry();
-      expect(() => registry.getWitness(prescriberWalletId))
-        .toThrow('Provider not in network');
+      expect(() => registry.getWitness(prescriberWalletId)).toThrow('Provider not in network');
     });
 
     test('supports up to 2048 providers', () => {
@@ -296,10 +273,7 @@ describe('Provider Network by Plan (GAP 2)', () => {
       const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const result = await InNetworkProgram.proveInNetwork(
         pgResult.proof,
@@ -335,20 +309,10 @@ describe('Provider Network by Plan (GAP 2)', () => {
       const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
       const preimage = prescriberWalletPreimage(outsidePrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        outsidePrescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(outsidePrescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       await expect(
-        InNetworkProgram.proveInNetwork(
-          pgResult.proof,
-          LIFECYCLE_ACTIVE,
-          lcWitness,
-          lcTree.getRoot(),
-          networkRoot,
-          dummyWitness,
-        ),
+        InNetworkProgram.proveInNetwork(pgResult.proof, LIFECYCLE_ACTIVE, lcWitness, lcTree.getRoot(), networkRoot, dummyWitness),
       ).rejects.toThrow();
     });
 
@@ -357,10 +321,7 @@ describe('Provider Network by Plan (GAP 2)', () => {
       const lcWitness = new LifecycleWitness(lcTree.getWitness(0n));
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       // networkRoot=0 + dummy witness → should still pass
       const emptyTree = new MerkleTree(NETWORK_TREE_HEIGHT);

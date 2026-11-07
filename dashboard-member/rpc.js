@@ -30,9 +30,15 @@ const RPC = (() => {
   let lastOnEvent = null;
   let rpcId = 0;
 
-  function setBaseUrl(url) { baseUrl = url.replace(/\/+$/, ''); }
-  function setInsurerUrl(url) { insurerUrl = url.replace(/\/+$/, ''); }
-  function setProverUrl(url) { proverUrl = url.replace(/\/+$/, ''); }
+  function setBaseUrl(url) {
+    baseUrl = url.replace(/\/+$/, '');
+  }
+  function setInsurerUrl(url) {
+    insurerUrl = url.replace(/\/+$/, '');
+  }
+  function setProverUrl(url) {
+    proverUrl = url.replace(/\/+$/, '');
+  }
 
   /*
    * A5: the device session, issued by /onboarding/unlock once it has verified the PIN.
@@ -46,8 +52,12 @@ const RPC = (() => {
    * to another party would be exactly the credential leak the item exists to stop.
    */
   let deviceSession = '';
-  function setDeviceSession(token) { deviceSession = token || ''; }
-  function hasDeviceSession() { return Boolean(deviceSession); }
+  function setDeviceSession(token) {
+    deviceSession = token || '';
+  }
+  function hasDeviceSession() {
+    return Boolean(deviceSession);
+  }
 
   /*
    * A session lasts an hour. When one expires mid-use the node answers 401, and without this the
@@ -55,7 +65,9 @@ const RPC = (() => {
    * asks for the PIN again.
    */
   let onDeviceLocked = null;
-  function setDeviceLockedHandler(fn) { onDeviceLocked = fn; }
+  function setDeviceLockedHandler(fn) {
+    onDeviceLocked = fn;
+  }
   function noteDeviceLocked() {
     deviceSession = '';
     if (typeof onDeviceLocked === 'function') onDeviceLocked();
@@ -69,7 +81,9 @@ const RPC = (() => {
   }
 
   /** Headers for a request to anyone else. Never carries the session. */
-  function headers() { return { 'Content-Type': 'application/json' }; }
+  function headers() {
+    return { 'Content-Type': 'application/json' };
+  }
 
   // Normalize a value into a safe error message string (avoids "[object Object]")
   function errMsg(e) {
@@ -78,7 +92,11 @@ const RPC = (() => {
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
@@ -103,7 +121,8 @@ const RPC = (() => {
   async function call(method, params) {
     rpcId++;
     const res = await fetch(baseUrl + '/rpc', {
-      method: 'POST', headers: deviceHeaders(),
+      method: 'POST',
+      headers: deviceHeaders(),
       body: JSON.stringify({ jsonrpc: '2.0', id: rpcId, method, params: params || {} }),
     });
     if (res.status === 401) {
@@ -115,7 +134,11 @@ const RPC = (() => {
     }
     const text = await res.text();
     let data;
-    try { data = JSON.parse(text); } catch { throw new Error('Invalid JSON response from sequencer'); }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Invalid JSON response from sequencer');
+    }
     if (data && data.error) {
       const err = new Error(data.error.message || JSON.stringify(data.error));
       err.code = data.error.code;
@@ -133,19 +156,37 @@ const RPC = (() => {
   }
 
   // ── Chain ────────────────────────────────────────────
-  function getStatus() { return call('l2_getStatus'); }
-  function getChainState() { return call('l2_getChainState'); }
+  function getStatus() {
+    return call('l2_getStatus');
+  }
+  function getChainState() {
+    return call('l2_getChainState');
+  }
 
   // ── Receipts ─────────────────────────────────────────
-  function getReceiptsByWallet(w) { return call('l2_getReceiptsByWallet', { walletId: w }); }
-  function getReceipt(id) { return call('l2_getReceipt', { receiptId: id }); }
+  function getReceiptsByWallet(w) {
+    return call('l2_getReceiptsByWallet', { walletId: w });
+  }
+  function getReceipt(id) {
+    return call('l2_getReceipt', { receiptId: id });
+  }
 
   // ── Claims ───────────────────────────────────────────
-  function getClaimsByMember(w) { return call('l2_getClaimsByMember', { walletId: w }); }
-  function getClaimsByPharmacy(w) { return call('l2_getClaimsByPharmacy', { walletId: w }); }
-  function getClaimsByPrescriber(w) { return call('l2_getClaimsByPrescriber', { walletId: w }); }
-  function getClaimsByNdc(n) { return call('l2_getClaimsByNdc', { ndcHash: n }); }
-  function getClaimAccumulatorRoot() { return call('l2_getClaimAccumulatorRoot'); }
+  function getClaimsByMember(w) {
+    return call('l2_getClaimsByMember', { walletId: w });
+  }
+  function getClaimsByPharmacy(w) {
+    return call('l2_getClaimsByPharmacy', { walletId: w });
+  }
+  function getClaimsByPrescriber(w) {
+    return call('l2_getClaimsByPrescriber', { walletId: w });
+  }
+  function getClaimsByNdc(n) {
+    return call('l2_getClaimsByNdc', { ndcHash: n });
+  }
+  function getClaimAccumulatorRoot() {
+    return call('l2_getClaimAccumulatorRoot');
+  }
 
   // ── Accumulator ──────────────────────────────────────
   function reconstructAccumulator(w, planIdHash) {
@@ -155,21 +196,33 @@ const RPC = (() => {
   }
 
   // ── Plan Limits ─────────────────────────────────────
-  function getPlanLimits(planId) { return call('l2_getPlanLimits', { planId: planId }); }
+  function getPlanLimits(planId) {
+    return call('l2_getPlanLimits', { planId: planId });
+  }
 
   // ── Cost Estimation ────────────────────────────────
-  function estimateCost(params) { return call('l2_estimateCost', params); }
+  function estimateCost(params) {
+    return call('l2_estimateCost', params);
+  }
 
   // ── Formulary (legacy) ────────────────────────────────
-  function getFormulary(planIdHash) { return call('l2_getFormulary', { planIdHash }); }
+  function getFormulary(planIdHash) {
+    return call('l2_getFormulary', { planIdHash });
+  }
 
   // ── Formulary (Option C — paginated) ─────────────────
   function getFormularyPage(filter, offset, limit) {
     return call('l2_getFormularyPage', { filter: filter || {}, offset: offset || 0, limit: limit || 100 });
   }
-  function getFormularyDrugCount() { return call('l2_getFormularyDrugCount', {}); }
-  function getFormularyRoutes() { return call('l2_getFormularyRoutes', {}); }
-  function getFormularyRoot() { return call('l2_getFormularyRoot', {}); }
+  function getFormularyDrugCount() {
+    return call('l2_getFormularyDrugCount', {});
+  }
+  function getFormularyRoutes() {
+    return call('l2_getFormularyRoutes', {});
+  }
+  function getFormularyRoot() {
+    return call('l2_getFormularyRoot', {});
+  }
 
   // ── Providers ────────────────────────────────────────
   function getNetworkProviders(role) {
@@ -179,41 +232,58 @@ const RPC = (() => {
   }
 
   // ── Messages ─────────────────────────────────────────
-  function getMessagesByWallet(w) { return call('l2_getMessagesByWallet', { walletId: w }); }
-  function getMessagesByThread(h) { return call('l2_getMessagesByThread', { threadIdHash: h }); }
-  function getMessagesBySender(w) { return call('l2_getMessagesBySender', { walletId: w }); }
-  function getMessagesByRecipient(w) { return call('l2_getMessagesByRecipient', { walletId: w }); }
+  function getMessagesByWallet(w) {
+    return call('l2_getMessagesByWallet', { walletId: w });
+  }
+  function getMessagesByThread(h) {
+    return call('l2_getMessagesByThread', { threadIdHash: h });
+  }
+  function getMessagesBySender(w) {
+    return call('l2_getMessagesBySender', { walletId: w });
+  }
+  function getMessagesByRecipient(w) {
+    return call('l2_getMessagesByRecipient', { walletId: w });
+  }
   /** Send a message via the member node's server-side encryption (E2E) */
   async function sendEncryptedMessage(recipientWalletId, body) {
     var res = await fetch(baseUrl + '/messaging/send', {
-      method: 'POST', headers: deviceHeaders(),
+      method: 'POST',
+      headers: deviceHeaders(),
       body: JSON.stringify({ recipientWalletId: recipientWalletId, body: body }),
     });
     var data = await res.json();
     if (data.error) throw new Error(errMsg(data.error) || 'Unknown error');
     return stripBigints(data.data || data);
   }
-  function getMessageStoreRoot() { return call('l2_getMessageStoreRoot'); }
+  function getMessageStoreRoot() {
+    return call('l2_getMessageStoreRoot');
+  }
 
   // ── NFC Attestation ──────────────────────────────────
   /** Ask the member node for the NFC attestation; the node signs the request as the wallet (A10b). */
   async function requestAttestation(_w, expiry) {
     var res = await fetch(baseUrl + '/attestation/request', {
-      method: 'POST', headers: deviceHeaders(),
+      method: 'POST',
+      headers: deviceHeaders(),
       body: JSON.stringify(expiry ? { expirySeconds: expiry } : {}),
     });
     var data = await res.json();
     if (data.error) throw new Error(errMsg(data.error) || 'Attestation request failed');
     return stripBigints(data.data || data);
   }
-  function getAttestation(w) { return call('l2_getAttestation', { walletId: w }); }
-  function getAttestationPublicKey() { return call('l2_getAttestationPublicKey'); }
+  function getAttestation(w) {
+    return call('l2_getAttestation', { walletId: w });
+  }
+  function getAttestationPublicKey() {
+    return call('l2_getAttestationPublicKey');
+  }
 
   // ── Enrollment (via local Nautilus node) ─────────────
   async function enrollWithInsurer(walletId, tokenId) {
     // Route through local Nautilus node instead of directly to insurer
     const res = await fetch(location.origin + '/onboarding/enroll', {
-      method: 'POST', headers: deviceHeaders(),
+      method: 'POST',
+      headers: deviceHeaders(),
       body: JSON.stringify({ walletId, tokenId }),
     });
     const json = await res.json();
@@ -231,7 +301,8 @@ const RPC = (() => {
   async function delegateProof(method, params) {
     if (!proverUrl) throw new Error('Prover URL not configured');
     const res = await fetch(proverUrl + '/prove', {
-      method: 'POST', headers: headers(),
+      method: 'POST',
+      headers: headers(),
       body: JSON.stringify({ method, params }),
     });
     return res.json();
@@ -241,14 +312,26 @@ const RPC = (() => {
   function assignPcp(prescriberWalletId) {
     var today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     return fetch(location.origin + '/pcp/assign', {
-      method: 'POST', headers: deviceHeaders(),
+      method: 'POST',
+      headers: deviceHeaders(),
       body: JSON.stringify({ pcpWalletId: prescriberWalletId, effectiveDate: today }),
-    }).then(function(r) { return r.json(); }).then(function(j) { return j.data || j; });
+    })
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (j) {
+        return j.data || j;
+      });
   }
 
   function getCurrentPcp() {
     return fetch(location.origin + '/pcp/current', { headers: deviceHeaders() })
-      .then(function(r) { return r.json(); }).then(function(j) { return j.data != null ? j.data : null; });
+      .then(function (r) {
+        return r.json();
+      })
+      .then(function (j) {
+        return j.data != null ? j.data : null;
+      });
   }
 
   // ── Proof Submission ─────────────────────────────────
@@ -257,7 +340,9 @@ const RPC = (() => {
     return call('l2_submitProof', { proofJson });
   }
 
-  function getRegistrationWitnesses() { return call('l2_getRegistrationWitnesses'); }
+  function getRegistrationWitnesses() {
+    return call('l2_getRegistrationWitnesses');
+  }
 
   // ── SSE ──────────────────────────────────────────────
   /*
@@ -278,18 +363,25 @@ const RPC = (() => {
         return res.json();
       })
       .then(function (json) {
-        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        if (attempt !== sseAttempt) return; // disconnected, or connected again, while the ticket was on its way
         sseConn = new EventSource(location.origin + '/events?ticket=' + encodeURIComponent(json.data.ticket));
         sseConn.onopen = function () {
           sseReconnectDelay = 1000;
-          sseListeners.forEach(function (fn) { fn('connected'); });
+          sseListeners.forEach(function (fn) {
+            fn('connected');
+          });
         };
         sseConn.onmessage = function (ev) {
-          try { if (onEvent) onEvent(JSON.parse(ev.data)); }
-          catch { if (onEvent) onEvent({ raw: ev.data }); }
+          try {
+            if (onEvent) onEvent(JSON.parse(ev.data));
+          } catch {
+            if (onEvent) onEvent({ raw: ev.data });
+          }
         };
         sseConn.onerror = function () {
-          sseListeners.forEach(function (fn) { fn('disconnected'); });
+          sseListeners.forEach(function (fn) {
+            fn('disconnected');
+          });
           sseConn.close();
           sseConn = null;
           reconnectSSE();
@@ -297,35 +389,88 @@ const RPC = (() => {
       })
       .catch(function () {
         if (attempt !== sseAttempt) return;
-        sseListeners.forEach(function (fn) { fn('disconnected'); });
+        sseListeners.forEach(function (fn) {
+          fn('disconnected');
+        });
         reconnectSSE();
       });
   }
   function reconnectSSE() {
-    sseReconnectTimer = setTimeout(function () { connectSSE(lastOnEvent); }, sseReconnectDelay);
+    sseReconnectTimer = setTimeout(function () {
+      connectSSE(lastOnEvent);
+    }, sseReconnectDelay);
     sseReconnectDelay = Math.min(sseReconnectDelay * 2, 30000);
   }
   function disconnectSSE() {
     sseAttempt++;
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
-    if (sseConn) { sseConn.close(); sseConn = null; }
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
+    if (sseConn) {
+      sseConn.close();
+      sseConn = null;
+    }
   }
-  function onConnectionChange(fn) { sseListeners.push(fn); }
-  async function checkConnection() { try { await getHealth(); return true; } catch { return false; } }
+  function onConnectionChange(fn) {
+    sseListeners.push(fn);
+  }
+  async function checkConnection() {
+    try {
+      await getHealth();
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   return {
-    setDeviceSession, hasDeviceSession, deviceHeaders, setDeviceLockedHandler,
-    setBaseUrl, setInsurerUrl, setProverUrl,
-    call, getHealth, getStatus, getChainState,
-    getReceiptsByWallet, getReceipt,
-    getClaimsByMember, getClaimsByPharmacy, getClaimsByPrescriber, getClaimsByNdc, getClaimAccumulatorRoot,
-    reconstructAccumulator, getPlanLimits, estimateCost, getFormulary, getFormularyPage, getFormularyDrugCount, getFormularyRoutes, getFormularyRoot,
+    setDeviceSession,
+    hasDeviceSession,
+    deviceHeaders,
+    setDeviceLockedHandler,
+    setBaseUrl,
+    setInsurerUrl,
+    setProverUrl,
+    call,
+    getHealth,
+    getStatus,
+    getChainState,
+    getReceiptsByWallet,
+    getReceipt,
+    getClaimsByMember,
+    getClaimsByPharmacy,
+    getClaimsByPrescriber,
+    getClaimsByNdc,
+    getClaimAccumulatorRoot,
+    reconstructAccumulator,
+    getPlanLimits,
+    estimateCost,
+    getFormulary,
+    getFormularyPage,
+    getFormularyDrugCount,
+    getFormularyRoutes,
+    getFormularyRoot,
     getNetworkProviders,
-    getMessagesByWallet, getMessagesByThread, getMessagesBySender, getMessagesByRecipient,
-    sendEncryptedMessage, getMessageStoreRoot,
-    requestAttestation, getAttestation, getAttestationPublicKey,
-    enrollWithInsurer, assignPcp, getCurrentPcp,
-    getProverStatus, delegateProof, submitProof, getRegistrationWitnesses,
-    connectSSE, disconnectSSE, onConnectionChange, checkConnection,
+    getMessagesByWallet,
+    getMessagesByThread,
+    getMessagesBySender,
+    getMessagesByRecipient,
+    sendEncryptedMessage,
+    getMessageStoreRoot,
+    requestAttestation,
+    getAttestation,
+    getAttestationPublicKey,
+    enrollWithInsurer,
+    assignPcp,
+    getCurrentPcp,
+    getProverStatus,
+    delegateProof,
+    submitProof,
+    getRegistrationWitnesses,
+    connectSSE,
+    disconnectSSE,
+    onConnectionChange,
+    checkConnection,
   };
 })();

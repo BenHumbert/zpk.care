@@ -46,7 +46,15 @@ function lift(name: string): string {
 
 /** A dispensed, proven script on the workstation; the lifted functions run in a strict vm whose globals are the page stubs. */
 function counter() {
-  const claim = { prescriptionId: 'RX-1', status: 'DISPENSED', medication: 'Metformin 500 mg', memberWalletId: '7001', prescriberWalletId: '5001', patientPayCents: '1801', planPayCents: '0' };
+  const claim = {
+    prescriptionId: 'RX-1',
+    status: 'DISPENSED',
+    medication: 'Metformin 500 mg',
+    memberWalletId: '7001',
+    prescriberWalletId: '5001',
+    patientPayCents: '1801',
+    planPayCents: '0',
+  };
   const toasts: Array<[string, string]> = [];
   const stored: Record<string, string> = {};
   const fetch = jest.fn();
@@ -54,11 +62,22 @@ function counter() {
     scriptWorkflow: { 'RX-1': { proofStatus: 'complete' } },
     scriptKey: (c: { prescriptionId: string }) => c.prescriptionId,
     findClaimByKey: (k: string) => (k === claim.prescriptionId ? claim : undefined),
-    getScriptIssue: () => null, isScriptVerified: () => false,
-    truncate: String, formatDate: String, formatCents: String, escapeHtml: String,
+    getScriptIssue: () => null,
+    isScriptVerified: () => false,
+    truncate: String,
+    formatDate: String,
+    formatCents: String,
+    escapeHtml: String,
     renderWorkstationColumns: () => {},
-    toast: (m: string, t: string) => { toasts.push([m, t]); },
-    sessionStorage: { getItem: (k: string) => stored[k] ?? null, setItem: (k: string, v: string) => { stored[k] = v; } },
+    toast: (m: string, t: string) => {
+      toasts.push([m, t]);
+    },
+    sessionStorage: {
+      getItem: (k: string) => stored[k] ?? null,
+      setItem: (k: string, v: string) => {
+        stored[k] = v;
+      },
+    },
     API: {}, // no node routes: a call to one would throw
     fetch,
   };
@@ -79,7 +98,7 @@ describe('Payment Received records the payment at the counter and says only that
     expect(ctx.scriptWorkflow['RX-1'].paymentReceived).toBe(true);
     expect(Object.keys(JSON.parse(stored.zkt_pharmacy_payments))).toEqual(['RX-1']); // a refresh shows it again
     expect(fetch).not.toHaveBeenCalled();
-    expect(toasts).toEqual([['Payment recorded', 'success']]);                       // before: 'Payment confirmed — claim lifecycle complete'
+    expect(toasts).toEqual([['Payment recorded', 'success']]); // before: 'Payment confirmed — claim lifecycle complete'
     expect(toasts[0][0]).not.toMatch(/complete|lifecycle|settle/i);
   });
 

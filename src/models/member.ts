@@ -46,13 +46,7 @@ export class MemberData extends Struct({
    * This is the value stored as a Merkle tree leaf.
    */
   commitment(): Field {
-    return Poseidon.hash([
-      this.cardholderIdHash,
-      this.dateOfBirth,
-      this.genderCode,
-      this.firstNameHash,
-      this.lastNameHash,
-    ]);
+    return Poseidon.hash([this.cardholderIdHash, this.dateOfBirth, this.genderCode, this.firstNameHash, this.lastNameHash]);
   }
 }
 
@@ -61,9 +55,9 @@ export class MemberData extends Struct({
  * Never transmitted on-chain. Used to generate MemberData commitments.
  */
 export interface MemberLocalData {
-  cardholderId: string;    // 302-C2
-  dateOfBirth: string;     // 304-C4 (CCYYMMDD)
-  genderCode: number;      // 305-C5
-  firstName: string;       // 310-CA
-  lastName: string;        // 311-CB
+  cardholderId: string; // 302-C2
+  dateOfBirth: string; // 304-C4 (CCYYMMDD)
+  genderCode: number; // 305-C5
+  firstName: string; // 310-CA
+  lastName: string; // 311-CB
 }

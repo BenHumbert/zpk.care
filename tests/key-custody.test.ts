@@ -66,7 +66,10 @@ async function makeTempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-interface HttpResult { status: number; body: unknown }
+interface HttpResult {
+  status: number;
+  body: unknown;
+}
 
 /**
  * A5 made every member route but unlock require a device session, so these tests obtain one the
@@ -92,7 +95,10 @@ function request(port: number, method: string, urlPath: string, body?: unknown):
     if (deviceSession) headers['X-Device-Session'] = deviceSession;
     const req = http.request(
       {
-        hostname: '127.0.0.1', port, path: urlPath, method,
+        hostname: '127.0.0.1',
+        port,
+        path: urlPath,
+        method,
         // No keep-alive: a pooled socket on the global agent keeps the event loop open and
         // leaves jest hanging after the assertions have all passed.
         agent: false,
@@ -100,10 +106,16 @@ function request(port: number, method: string, urlPath: string, body?: unknown):
       },
       (res) => {
         let data = '';
-        res.on('data', (c) => { data += c; });
+        res.on('data', (c) => {
+          data += c;
+        });
         res.on('end', () => {
           let parsed: unknown = data;
-          try { parsed = JSON.parse(data); } catch { /* keep the raw text */ }
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* keep the raw text */
+          }
           resolve({ status: res.statusCode ?? 0, body: parsed });
         });
       },
@@ -126,16 +138,21 @@ const ROUTE_BUILDERS: Array<{
 async function makeServer(role: NautilusAppConfig['role']): Promise<NautilusAppServer> {
   const stateDir = await makeTempDir(`keycustody-${role}-`);
   const config: NautilusAppConfig = {
-    role, port: 0, host: '127.0.0.1',
+    role,
+    port: 0,
+    host: '127.0.0.1',
     sequencerUrl: 'http://127.0.0.1:1', // never reached by these tests
-    stateDir, enableSSE: false, maxSseConnections: 0,
+    stateDir,
+    enableSSE: false,
+    maxSseConnections: 0,
     allowedOrigins: ['http://localhost:4001'],
   };
   const server = new NautilusAppServer(config);
   madeServers.push(server);
   await server.getLocalState().unlock(TEST_PIN);
   await server.getLocalState().save({
-    version: 1, role,
+    version: 1,
+    role,
     onboarding: { phase: 'awaiting_token' },
     lastSavedAt: new Date().toISOString(),
   });
@@ -144,10 +161,18 @@ async function makeServer(role: NautilusAppConfig['role']): Promise<NautilusAppS
 
 afterAll(async () => {
   for (const server of madeServers) {
-    try { await server.stop(); } catch { /* never started, or already stopped */ }
+    try {
+      await server.stop();
+    } catch {
+      /* never started, or already stopped */
+    }
   }
   for (const dir of tempDirs) {
-    try { await fs.promises.rm(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
@@ -195,11 +220,15 @@ describe('generate-key ignores a key supplied by the caller', () => {
     await obtainDeviceSession(port);
   });
 
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => {
+    await server.stop();
+  });
 
   test('the route accepts the request and does not fail on the extra field', async () => {
     const accepted = await request(port, 'POST', '/onboarding/accept-token', {
-      tokenId: 'TOKEN-KEYCUSTODY-001', groupId: 'ACME-CORP', planId: 'PLAN-GOLD-2026',
+      tokenId: 'TOKEN-KEYCUSTODY-001',
+      groupId: 'ACME-CORP',
+      planId: 'PLAN-GOLD-2026',
     });
     expect(accepted.status).toBe(200);
 
@@ -274,7 +303,8 @@ describe('generate-key ignores a key supplied by the caller', () => {
 
   test('a restore cannot be attempted', async () => {
     const res = await request(port, 'POST', '/onboarding/restore-key', {
-      backup: { v: 2, ct: 'deadbeef' }, pin: TEST_PIN,
+      backup: { v: 2, ct: 'deadbeef' },
+      pin: TEST_PIN,
     });
     expect(res.status).toBe(404);
   });
@@ -316,11 +346,15 @@ describe('a device can set its own key in-process, and the wallet follows it', (
     await obtainDeviceSession(port);
   });
 
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => {
+    await server.stop();
+  });
 
   test('the wallet is derived under the key the device set, not the one generate-key made', async () => {
     const accepted = await request(port, 'POST', '/onboarding/accept-token', {
-      tokenId: 'TOKEN-SEED-001', groupId: 'ACME-CORP', planId: 'PLAN-GOLD-2026',
+      tokenId: 'TOKEN-SEED-001',
+      groupId: 'ACME-CORP',
+      planId: 'PLAN-GOLD-2026',
     });
     expect(accepted.status).toBe(200);
 

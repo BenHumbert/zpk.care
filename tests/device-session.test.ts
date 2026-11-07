@@ -50,7 +50,11 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
-interface Res { status: number; body: unknown; headers: http.IncomingHttpHeaders }
+interface Res {
+  status: number;
+  body: unknown;
+  headers: http.IncomingHttpHeaders;
+}
 
 function request(
   port: number,
@@ -67,18 +71,21 @@ function request(
     }
     if (opts.session) headers['X-Device-Session'] = opts.session;
     if (opts.bearer) headers['Authorization'] = `Bearer ${opts.bearer}`;
-    const req = http.request(
-      { hostname: '127.0.0.1', port, path: urlPath, method, agent: false, headers },
-      (res) => {
-        let data = '';
-        res.on('data', (c) => { data += c; });
-        res.on('end', () => {
-          let parsed: unknown = data;
-          try { parsed = JSON.parse(data); } catch { /* keep raw */ }
-          resolve({ status: res.statusCode ?? 0, body: parsed, headers: res.headers });
-        });
-      },
-    );
+    const req = http.request({ hostname: '127.0.0.1', port, path: urlPath, method, agent: false, headers }, (res) => {
+      let data = '';
+      res.on('data', (c) => {
+        data += c;
+      });
+      res.on('end', () => {
+        let parsed: unknown = data;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          /* keep raw */
+        }
+        resolve({ status: res.statusCode ?? 0, body: parsed, headers: res.headers });
+      });
+    });
     req.on('error', reject);
     if (payload) req.write(payload);
     req.end();
@@ -94,7 +101,8 @@ async function startMemberNode(adminToken?: string): Promise<{ port: number; dir
   const seed = new NautilusLocalState(dir);
   await seed.unlock(PIN);
   const state: NautilusStateData = {
-    version: 1, role: 'member',
+    version: 1,
+    role: 'member',
     walletId: '12345678901234567890',
     onboarding: {
       phase: 'ready',
@@ -106,9 +114,13 @@ async function startMemberNode(adminToken?: string): Promise<{ port: number; dir
   seed.lock();
 
   const config: NautilusAppConfig = {
-    role: 'member', port: 0, host: '127.0.0.1',
+    role: 'member',
+    port: 0,
+    host: '127.0.0.1',
     sequencerUrl: 'http://127.0.0.1:1',
-    stateDir: dir, enableSSE: false, maxSseConnections: 0,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
     allowedOrigins: ['http://localhost:4001'],
     ...(adminToken ? { adminToken } : {}),
   };
@@ -121,10 +133,18 @@ async function startMemberNode(adminToken?: string): Promise<{ port: number; dir
 
 afterAll(async () => {
   for (const s of servers) {
-    try { await s.stop(); } catch { /* not started */ }
+    try {
+      await s.stop();
+    } catch {
+      /* not started */
+    }
   }
   for (const dir of tempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
@@ -133,7 +153,9 @@ afterAll(async () => {
 describe('member routes refuse a caller with no session', () => {
   let port: number;
 
-  beforeAll(async () => { ({ port } = await startMemberNode()); });
+  beforeAll(async () => {
+    ({ port } = await startMemberNode());
+  });
 
   // One per route family that reads or writes member data.
   test.each([
@@ -280,7 +302,9 @@ describe('an operator credential also works, so a node is not locked out of itse
   let port: number;
   const TOKEN = 'operator-token-for-tests';
 
-  beforeAll(async () => { ({ port } = await startMemberNode(TOKEN)); });
+  beforeAll(async () => {
+    ({ port } = await startMemberNode(TOKEN));
+  });
 
   test('the admin bearer satisfies a device-only route', async () => {
     const res = await request(port, 'GET', '/receipts', { bearer: TOKEN });
@@ -312,7 +336,9 @@ describe('eject authorises on the PIN rather than a session', () => {
   let port: number;
   let dir: string;
 
-  beforeAll(async () => { ({ port, dir } = await startMemberNode()); });
+  beforeAll(async () => {
+    ({ port, dir } = await startMemberNode());
+  });
 
   const stateFile = (): string => path.join(dir, 'nautilus-state.enc');
 
@@ -346,7 +372,8 @@ describe('only member nodes withhold identity on the open endpoints', () => {
     const seed = new NautilusLocalState(dir);
     await seed.unlock(PIN);
     await seed.save({
-      version: 1, role: 'prescriber',
+      version: 1,
+      role: 'prescriber',
       walletId: '55555555555555555555',
       onboarding: { phase: 'ready' },
       lastSavedAt: new Date().toISOString(),
@@ -354,9 +381,13 @@ describe('only member nodes withhold identity on the open endpoints', () => {
     seed.lock();
 
     const config: NautilusAppConfig = {
-      role: 'prescriber', port: 0, host: '127.0.0.1',
+      role: 'prescriber',
+      port: 0,
+      host: '127.0.0.1',
       sequencerUrl: 'http://127.0.0.1:1',
-      stateDir: dir, enableSSE: false, maxSseConnections: 0,
+      stateDir: dir,
+      enableSSE: false,
+      maxSseConnections: 0,
       allowedOrigins: ['http://localhost:4002'],
     };
     const server = new NautilusAppServer(config);

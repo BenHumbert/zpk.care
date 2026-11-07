@@ -24,7 +24,16 @@
  */
 import net from 'net';
 import { parseEnv } from 'util';
-import { SECRETS, SETTINGS, newLocalEnv, portIsFree, firstFreePort, networkPorts, readLocalEnv, launchArgs } from '../scripts/local/profile.js';
+import {
+  SECRETS,
+  SETTINGS,
+  newLocalEnv,
+  portIsFree,
+  firstFreePort,
+  networkPorts,
+  readLocalEnv,
+  launchArgs,
+} from '../scripts/local/profile.js';
 import { isThisCheckout } from '../scripts/dev/kill-ports-lib.js';
 import { SAMPLE_ROSTER, rosterCsv, sampleLetterPdf, writeSamples } from '../scripts/local/samples.js';
 import { guideText } from '../scripts/local/guide.js';
@@ -82,7 +91,7 @@ describe('the ports', () => {
     expect(await portIsFree(held)).toBe(true);
   });
 
-  test('npm start launches the network and the HR Tool so that npm stop knows them as this checkout\'s', () => {
+  test("npm start launches the network and the HR Tool so that npm stop knows them as this checkout's", () => {
     // live, 2026-11-07: with relative script paths npm stop left the sequencer and the HR Tool running
     const root = path.resolve(__dirname, '..');
     const { network, hrTool } = launchArgs(root);
@@ -91,7 +100,7 @@ describe('the ports', () => {
     }
   });
 
-  test('the network\'s ports include the explorer\'s, wherever setup moved it, and the HR Tool\'s', () => {
+  test("the network's ports include the explorer's, wherever setup moved it, and the HR Tool's", () => {
     const ports = networkPorts(8010).map((p) => p.port);
     expect(ports).toEqual(expect.arrayContaining([3030, 3031, 3032, 4001, 4002, 4003, 4004, 4040, 8010, 5050]));
     expect(ports).not.toContain(8000);
@@ -104,7 +113,7 @@ describe('the sample files', () => {
     expect(records).toHaveLength(SAMPLE_ROSTER.length);
     expect(records.map((r) => r.employeeId)).toEqual(SAMPLE_ROSTER.map((r) => r.employee_id));
     for (const row of SAMPLE_ROSTER) {
-      expect(normalizeMobile(row.mobile)).toMatch(/^\+1608555010\d$/);   // 555-0100 to 555-0199: set aside for fiction
+      expect(normalizeMobile(row.mobile)).toMatch(/^\+1608555010\d$/); // 555-0100 to 555-0199: set aside for fiction
       expect(row.dob).toMatch(/^\d{8}$/);
       if (row.email) expect(row.email).toMatch(/@example\.test$/);
     }
@@ -118,7 +127,11 @@ describe('the sample files', () => {
     expect(text).toContain('fictional');
     // every object sits at the offset the cross-reference table gives it
     const xrefAt = Number(/startxref\n(\d+)\n/.exec(text)![1]);
-    const offsets = text.slice(xrefAt).split('\n').filter((l) => / 00000 n $/.test(l)).map((l) => Number(l.slice(0, 10)));
+    const offsets = text
+      .slice(xrefAt)
+      .split('\n')
+      .filter((l) => / 00000 n $/.test(l))
+      .map((l) => Number(l.slice(0, 10)));
     offsets.forEach((offset, i) => expect(text.slice(offset).startsWith(`${i + 1} 0 obj`)).toBe(true));
   });
 
@@ -136,7 +149,16 @@ describe('the guide', () => {
 
   test('names every dashboard and the tab that takes each token, with the values only when asked', () => {
     const quiet = guideText(env, false);
-    for (const url of ['http://localhost:4004/', 'http://localhost:4004/marketplace/', 'http://localhost:5050/', 'http://localhost:4001/', 'http://localhost:4002/', 'http://localhost:4003/', 'http://localhost:3030/', 'http://localhost:8010/']) {
+    for (const url of [
+      'http://localhost:4004/',
+      'http://localhost:4004/marketplace/',
+      'http://localhost:5050/',
+      'http://localhost:4001/',
+      'http://localhost:4002/',
+      'http://localhost:4003/',
+      'http://localhost:3030/',
+      'http://localhost:8010/',
+    ]) {
       expect(quiet).toContain(url);
     }
     expect(quiet).toContain('Admin tab');

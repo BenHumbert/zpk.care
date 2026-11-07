@@ -14,10 +14,7 @@
  * limitations under the License.
  */
 
-import {
-  AccessControlProgram,
-  AccessControlProof,
-} from './access-control-program.js';
+import { AccessControlProgram, AccessControlProof } from './access-control-program.js';
 
 /**
  * Result of verifying an access control proof.
@@ -68,9 +65,7 @@ export class AccessVerificationService {
    * Checks that the medication is on the formulary and quantity limits
    * are satisfied. Returns tier/copay information for the pharmacy POS.
    */
-  async verifyFormularyAccess(
-    proof: InstanceType<typeof AccessControlProof>,
-  ): Promise<AccessVerificationResult> {
+  async verifyFormularyAccess(proof: InstanceType<typeof AccessControlProof>): Promise<AccessVerificationResult> {
     try {
       const ok = await AccessControlProgram.verify(proof);
       if (!ok) {
@@ -101,9 +96,7 @@ export class AccessVerificationService {
    *
    * Checks that a valid prior authorization exists for the medication.
    */
-  async verifyPriorAuth(
-    proof: InstanceType<typeof AccessControlProof>,
-  ): Promise<AccessVerificationResult> {
+  async verifyPriorAuth(proof: InstanceType<typeof AccessControlProof>): Promise<AccessVerificationResult> {
     try {
       const ok = await AccessControlProgram.verify(proof);
       if (!ok) {
@@ -160,19 +153,13 @@ export class AccessVerificationService {
     if (priorAuthProof) {
       const paResult = await this.verifyPriorAuth(priorAuthProof);
       priorAuthValid = paResult.isValid;
-      details.push(
-        paResult.isValid
-          ? 'Prior auth: verified'
-          : `Prior auth: FAILED (${paResult.reason})`,
-      );
+      details.push(paResult.isValid ? 'Prior auth: verified' : `Prior auth: FAILED (${paResult.reason})`);
     } else if (priorAuthNeeded) {
       details.push('Prior auth: MISSING (required but not provided)');
     }
 
     // 4. Overall: formulary valid AND (PA not needed OR PA valid)
-    const overallValid =
-      formResult.isValid &&
-      (!priorAuthNeeded || priorAuthValid === true);
+    const overallValid = formResult.isValid && (!priorAuthNeeded || priorAuthValid === true);
 
     return {
       formularyAccessValid: formResult.isValid,

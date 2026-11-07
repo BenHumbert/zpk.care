@@ -29,7 +29,13 @@
  * Runs on: insurer backend server.
  */
 import type { L2Receipt, L2Batch, L2ChainProofResponse } from '../l2/l2-types.js';
-import type { AuditLog, FullAuditReport, ChainIntegrityResult, FinancialBalanceResult, DuplicateDetectionResult } from '../audit/audit-types.js';
+import type {
+  AuditLog,
+  FullAuditReport,
+  ChainIntegrityResult,
+  FinancialBalanceResult,
+  DuplicateDetectionResult,
+} from '../audit/audit-types.js';
 import type { MessageStoreEntry } from '../l2/message-store-types.js';
 import type {
   ReportFilter,
@@ -54,10 +60,7 @@ import type {
 import { ReportingService } from '../reporting/reporting-service.js';
 import { AuditService } from '../audit/audit-service.js';
 import { EntityNodeBase } from './entity-node-base.js';
-import type {
-  InsurerNodeConfig,
-  EntityClaimView,
-} from './entity-node-types.js';
+import type { InsurerNodeConfig, EntityClaimView } from './entity-node-types.js';
 import type { BenefitPlanConfig } from '../l2/l2-types.js';
 import type { L2Client } from '../l2/l2-client.js';
 import { publishedTermsFrom, publishedTermsOf } from '../l2/plan-terms.js';
@@ -74,9 +77,7 @@ function sameBindingTerms(a: BenefitPlanConfig, b: BenefitPlanConfig): boolean {
  * and /enrollment/complete refuses them until the insurer publishes them again.
  */
 export function plansNeedingRepublish(plans: BenefitPlanConfig[]): Array<{ planId: string; name: string }> {
-  return plans
-    .filter((p) => p && p.published === true && !publishedTermsOf(p))
-    .map((p) => ({ planId: p.planId, name: p.name }));
+  return plans.filter((p) => p && p.published === true && !publishedTermsOf(p)).map((p) => ({ planId: p.planId, name: p.name }));
 }
 
 export class InsurerNode extends EntityNodeBase {
@@ -154,7 +155,12 @@ export class InsurerNode extends EntityNodeBase {
    * holding the edit, which is not published until the plan is published again. The returned record's `published`
    * says which happened.
    */
-  async markPlanPublished(planId: string, formularyRoot: string, networkRoot: string, source?: BenefitPlanConfig): Promise<BenefitPlanConfig> {
+  async markPlanPublished(
+    planId: string,
+    formularyRoot: string,
+    networkRoot: string,
+    source?: BenefitPlanConfig,
+  ): Promise<BenefitPlanConfig> {
     const plan = await this.client.getPlan(planId);
     if (!plan) throw new Error(`Plan ${planId} not found`);
     const now = Date.now();
@@ -180,7 +186,9 @@ export class InsurerNode extends EntityNodeBase {
     const stale = plansNeedingRepublish(Array.isArray(plans) ? plans : []);
     for (const p of stale) {
       const name = String(p.name ?? '').replace(/[\r\n\t]+/g, ' ');
-      log(`[insurer] Plan ${p.planId} (${name}) is marked published but has no published terms: members cannot be bound to it until the insurer publishes it again`);
+      log(
+        `[insurer] Plan ${p.planId} (${name}) is marked published but has no published terms: members cannot be bound to it until the insurer publishes it again`,
+      );
     }
     return stale;
   }
@@ -216,8 +224,16 @@ export class InsurerNode extends EntityNodeBase {
    * price; with neither, the list price. Only the drug, the quantity and one of the two are sent: a fee or limits sent
    * here would not be used, so none are.
    */
-  async estimateCost(params: { ndcHash: string; quantity: number; walletId?: string; planId?: string }): ReturnType<L2Client['estimateCost']> {
-    const request: { ndcHash: string; quantity: number; walletId?: string; planId?: string } = { ndcHash: params.ndcHash, quantity: params.quantity };
+  async estimateCost(params: {
+    ndcHash: string;
+    quantity: number;
+    walletId?: string;
+    planId?: string;
+  }): ReturnType<L2Client['estimateCost']> {
+    const request: { ndcHash: string; quantity: number; walletId?: string; planId?: string } = {
+      ndcHash: params.ndcHash,
+      quantity: params.quantity,
+    };
     if (params.walletId) request.walletId = params.walletId;
     else if (params.planId) request.planId = params.planId;
     return this.client.estimateCost(request);
@@ -232,17 +248,13 @@ export class InsurerNode extends EntityNodeBase {
   }
 
   /** Get all claims for a specific prescriber */
-  async getPrescriberClaims(
-    prescriberWalletId: string,
-  ): Promise<EntityClaimView[]> {
+  async getPrescriberClaims(prescriberWalletId: string): Promise<EntityClaimView[]> {
     const entries = await this.client.getClaimsByPrescriber(prescriberWalletId);
     return this.toClaimViews(entries);
   }
 
   /** Get all claims for a specific pharmacy */
-  async getPharmacyClaims(
-    pharmacyWalletId: string,
-  ): Promise<EntityClaimView[]> {
+  async getPharmacyClaims(pharmacyWalletId: string): Promise<EntityClaimView[]> {
     const entries = await this.client.getClaimsByPharmacy(pharmacyWalletId);
     return this.toClaimViews(entries);
   }
@@ -263,101 +275,58 @@ export class InsurerNode extends EntityNodeBase {
   // ─── Reporting (12 types) ───────────────────────────────
 
   /** 1. Claims register — chronological list of all claims */
-  generateClaimsRegister(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): ClaimsRegisterReport {
+  generateClaimsRegister(claims: VerifiedClaim[], filter?: ReportFilter): ClaimsRegisterReport {
     return this.reportingService.generateClaimsRegister(claims, filter);
   }
 
   /** 2. Pharmacy activity report */
-  generatePharmacyReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): PharmacyActivityReport {
+  generatePharmacyReport(claims: VerifiedClaim[], filter?: ReportFilter): PharmacyActivityReport {
     return this.reportingService.generatePharmacyActivity(claims, filter);
   }
 
   /** 3. Prescriber activity report */
-  generatePrescriberReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): PrescriberActivityReport {
+  generatePrescriberReport(claims: VerifiedClaim[], filter?: ReportFilter): PrescriberActivityReport {
     return this.reportingService.generatePrescriberActivity(claims, filter);
   }
 
   /** 4. Member activity report */
-  generateMemberReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): MemberActivityReport {
+  generateMemberReport(claims: VerifiedClaim[], filter?: ReportFilter): MemberActivityReport {
     return this.reportingService.generateMemberActivity(claims, filter);
   }
 
   /** 5. Medication utilization report */
-  generateMedicationUtilization(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): MedicationUtilizationReport {
+  generateMedicationUtilization(claims: VerifiedClaim[], filter?: ReportFilter): MedicationUtilizationReport {
     return this.reportingService.generateMedicationUtilization(claims, filter);
   }
 
   /** 6. Financial summary report */
-  generateFinancialSummary(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): FinancialSummaryReport {
+  generateFinancialSummary(claims: VerifiedClaim[], filter?: ReportFilter): FinancialSummaryReport {
     return this.reportingService.generateFinancialSummary(claims, filter);
   }
 
   /** 7. Prior authorization report */
-  generatePriorAuthReport(
-    claims: VerifiedClaim[],
-    priorAuths: PriorAuthContext[],
-    filter?: ReportFilter,
-  ): PriorAuthReport {
-    return this.reportingService.generatePriorAuthReport(
-      claims,
-      priorAuths,
-      filter,
-    );
+  generatePriorAuthReport(claims: VerifiedClaim[], priorAuths: PriorAuthContext[], filter?: ReportFilter): PriorAuthReport {
+    return this.reportingService.generatePriorAuthReport(claims, priorAuths, filter);
   }
 
   /** 8. Reversal report */
-  generateReversalReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): ReversalReport {
+  generateReversalReport(claims: VerifiedClaim[], filter?: ReportFilter): ReversalReport {
     return this.reportingService.generateReversalReport(claims, filter);
   }
 
   /** 9. Tier analysis report */
-  generateTierAnalysis(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): TierAnalysisReport {
+  generateTierAnalysis(claims: VerifiedClaim[], filter?: ReportFilter): TierAnalysisReport {
     return this.reportingService.generateTierAnalysis(claims, filter);
   }
 
   /** 10. Therapeutic class report */
-  generateTherapeuticClassReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): TherapeuticClassReport {
+  generateTherapeuticClassReport(claims: VerifiedClaim[], filter?: ReportFilter): TherapeuticClassReport {
     return this.reportingService.generateTherapeuticClassReport(claims, filter);
   }
 
   /** 11. Time series report */
-  generateTimeSeries(
-    claims: VerifiedClaim[],
-    bucket?: TimeBucket,
-    filter?: ReportFilter,
-  ): TimeSeriesReport {
-    return this.reportingService.generateTimeSeries(
-      claims,
-      bucket ?? 'daily',
-      filter,
-    );
+  generateTimeSeries(claims: VerifiedClaim[], bucket?: TimeBucket, filter?: ReportFilter): TimeSeriesReport {
+    return this.reportingService.generateTimeSeries(claims, bucket ?? 'daily', filter);
   }
 
   /** 12. Cross-tab (pivot table) report */
@@ -368,13 +337,7 @@ export class InsurerNode extends EntityNodeBase {
     measure: CrossTabMeasure,
     filter?: ReportFilter,
   ): CrossTabReport {
-    return this.reportingService.generateCrossTab(
-      claims,
-      row,
-      col,
-      measure,
-      filter,
-    );
+    return this.reportingService.generateCrossTab(claims, row, col, measure, filter);
   }
 
   // ─── Audit ──────────────────────────────────────────────
@@ -404,12 +367,7 @@ export class InsurerNode extends EntityNodeBase {
   ): Promise<FullAuditReport> {
     const log = await this.client.getAuditLog();
     const batches = await this.client.getAllBatches();
-    return AuditService.runFullAudit(
-      log,
-      batches,
-      onChainState,
-      rosterEntries,
-    );
+    return AuditService.runFullAudit(log, batches, onChainState, rosterEntries);
   }
 
   // ─── Admin Operations ───────────────────────────────────

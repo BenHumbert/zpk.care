@@ -37,9 +37,7 @@ import { StateTransitionProgram } from '../engine/state-transition.js';
 
 /** Parent to worker. */
 export type VerifyRequest =
-  | { type: 'compile'; expectedVkHash?: string }
-  | { type: 'verify'; id: string; proofJson: unknown }
-  | { type: 'shutdown' };
+  { type: 'compile'; expectedVkHash?: string } | { type: 'verify'; id: string; proofJson: unknown } | { type: 'shutdown' };
 
 /** Worker to parent. */
 export type VerifyResponse =

@@ -34,7 +34,16 @@ import { privateKeyFromSeedHex } from './signed-request.js';
 
 export type NodeRole = 'operator' | 'insurer' | 'member' | 'prescriber' | 'pharmacy' | 'replica' | 'sequencer' | 'employer';
 
-export const NODE_ROLES: readonly NodeRole[] = ['operator', 'insurer', 'member', 'prescriber', 'pharmacy', 'replica', 'sequencer', 'employer'];
+export const NODE_ROLES: readonly NodeRole[] = [
+  'operator',
+  'insurer',
+  'member',
+  'prescriber',
+  'pharmacy',
+  'replica',
+  'sequencer',
+  'employer',
+];
 
 export function isNodeRole(value: unknown): value is NodeRole {
   return typeof value === 'string' && (NODE_ROLES as readonly string[]).includes(value);
@@ -117,9 +126,7 @@ export const ROUTES_BY_ROLE: Readonly<Record<Exclude<NodeRole, 'operator'>, Read
   employer: new Set<string>(),
 };
 
-export type AuthScope =
-  | { kind: 'rpc'; method: string }
-  | { kind: 'route'; method: string; path: string };
+export type AuthScope = { kind: 'rpc'; method: string } | { kind: 'route'; method: string; path: string };
 
 /** Whether a role may perform the scoped action. The operator may do everything. */
 export function roleMayCall(role: NodeRole, scope: AuthScope): boolean {
@@ -141,7 +148,9 @@ const NODE_ADMIN_TOKEN_LABEL = 'zpk.care/node-admin/v1\n';
 export function deriveNodeAdminToken(operatorToken: string, nodeId: string): string {
   if (!operatorToken) throw new Error('deriveNodeAdminToken: the operator token is empty');
   if (!nodeId || nodeId.includes('\n')) throw new Error('deriveNodeAdminToken: nodeId is required and may not contain a newline');
-  return createHmac('sha256', operatorToken).update(NODE_ADMIN_TOKEN_LABEL + nodeId, 'utf8').digest('hex');
+  return createHmac('sha256', operatorToken)
+    .update(NODE_ADMIN_TOKEN_LABEL + nodeId, 'utf8')
+    .digest('hex');
 }
 
 // ─── Node keys ─────────────────────────────────────────────────────────────────

@@ -92,9 +92,7 @@ export class PartitionRouter {
   /** Register a sequencer URL for a partition index */
   setPartition(partitionIndex: number, url: string): void {
     if (partitionIndex < 0 || partitionIndex >= this.partitionCount) {
-      throw new Error(
-        `partitionIndex ${partitionIndex} out of range [0, ${this.partitionCount})`,
-      );
+      throw new Error(`partitionIndex ${partitionIndex} out of range [0, ${this.partitionCount})`);
     }
     this.partitionMap.set(partitionIndex, url);
   }

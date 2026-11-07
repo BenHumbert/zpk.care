@@ -25,7 +25,7 @@
 import { withOperatorToken } from './interactive/operator-auth.js';
 
 const RECONNECT_DELAY_MS = 2000;
-const REPLAY_STAGGER_MS = 30;  // 30ms per replayed event (~33/sec visual catch-up)
+const REPLAY_STAGGER_MS = 30; // 30ms per replayed event (~33/sec visual catch-up)
 
 export class EventBus {
   constructor(baseUrl = 'http://127.0.0.1:3030') {
@@ -45,7 +45,7 @@ export class EventBus {
   subscribe(callback) {
     this.subscribers.push(callback);
     return () => {
-      this.subscribers = this.subscribers.filter(s => s !== callback);
+      this.subscribers = this.subscribers.filter((s) => s !== callback);
     };
   }
 
@@ -82,17 +82,27 @@ export class EventBus {
 
     // Listen for all viz event types
     const vizTypes = [
-      'viz:token:generated', 'viz:token:consumed',
-      'viz:enrollment:started', 'viz:enrollment:complete',
-      'viz:eligibility:check', 'viz:eligibility:verified',
-      'viz:formulary:check', 'viz:formulary:verified',
-      'viz:prescription:written', 'viz:prescription:sent',
-      'viz:prescription:received', 'viz:prescription:status',
-      'viz:fulfillment:started', 'viz:fulfillment:settled',
-      'viz:accumulator:updated', 'viz:reversal:processed',
-      'viz:message:sent', 'viz:message:received',
+      'viz:token:generated',
+      'viz:token:consumed',
+      'viz:enrollment:started',
+      'viz:enrollment:complete',
+      'viz:eligibility:check',
+      'viz:eligibility:verified',
+      'viz:formulary:check',
+      'viz:formulary:verified',
+      'viz:prescription:written',
+      'viz:prescription:sent',
+      'viz:prescription:received',
+      'viz:prescription:status',
+      'viz:fulfillment:started',
+      'viz:fulfillment:settled',
+      'viz:accumulator:updated',
+      'viz:reversal:processed',
+      'viz:message:sent',
+      'viz:message:received',
       'viz:delegation:created',
-      'viz:batch:submitted', 'viz:batch:settled',
+      'viz:batch:submitted',
+      'viz:batch:settled',
     ];
 
     for (const type of vizTypes) {
@@ -112,7 +122,9 @@ export class EventBus {
             // Live event — dispatch immediately
             this.dispatch(event);
           }
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
       });
     }
 
@@ -143,7 +155,9 @@ export class EventBus {
           }
           this.dispatch({ type: 'bus:connected', timestamp: Date.now(), source: 'viz', buffered });
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
   }
 
@@ -154,7 +168,9 @@ export class EventBus {
 
     if (queue.length === 0) return;
 
-    console.log(`[EventBus] Replaying ${queue.length} buffered events (${Math.round(queue.length * REPLAY_STAGGER_MS / 1000)}s catch-up)`);
+    console.log(
+      `[EventBus] Replaying ${queue.length} buffered events (${Math.round((queue.length * REPLAY_STAGGER_MS) / 1000)}s catch-up)`,
+    );
 
     queue.forEach((event, i) => {
       setTimeout(() => this.dispatch(event), i * REPLAY_STAGGER_MS);
@@ -169,10 +185,17 @@ export class EventBus {
     this.chainSource = source;
 
     const chainTypes = [
-      'node:started', 'node:stopped', 'node:tick',
-      'proof:accepted', 'proof:rejected',
-      'batch:building', 'batch:built', 'batch:empty',
-      'batch:settling', 'batch:settled', 'batch:failed',
+      'node:started',
+      'node:stopped',
+      'node:tick',
+      'proof:accepted',
+      'proof:rejected',
+      'batch:building',
+      'batch:built',
+      'batch:empty',
+      'batch:settling',
+      'batch:settled',
+      'batch:failed',
       'audit:event',
     ];
 
@@ -181,7 +204,9 @@ export class EventBus {
         try {
           const event = JSON.parse(e.data);
           this.dispatch({ ...event, source: 'chain' });
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       });
     }
 

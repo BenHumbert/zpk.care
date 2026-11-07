@@ -76,7 +76,11 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const run of launched) await stop(run);
   for (const dir of stateDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
@@ -89,19 +93,32 @@ async function launch(role: string, settings: Record<string, string>): Promise<L
   for (const k of ['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'USERPROFILE', 'HOME', 'APPDATA', 'LOCALAPPDATA']) {
     if (process.env[k] !== undefined) env[k] = process.env[k];
   }
-  Object.assign(env, {
-    ZKTRIDENT_PORT: '0', ZKTRIDENT_STATE_DIR: stateDir, ZKTRIDENT_SEQUENCER_URL: `http://127.0.0.1:${noSequencerPort}`,
-    ZKTRIDENT_SSE: 'false',
-  }, settings);
+  Object.assign(
+    env,
+    {
+      ZKTRIDENT_PORT: '0',
+      ZKTRIDENT_STATE_DIR: stateDir,
+      ZKTRIDENT_SEQUENCER_URL: `http://127.0.0.1:${noSequencerPort}`,
+      ZKTRIDENT_SSE: 'false',
+    },
+    settings,
+  );
   const script = path.join(REPO, 'src', 'nodes', `start-${role}-nautilus.ts`);
   const child = spawn(process.execPath, ['--import', 'tsx', script], {
-    cwd: REPO, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    cwd: REPO,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
   const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
   const run: Launch = { exitCode: null, port: null, output: '', child, closed };
   launched.push(run);
-  child.stdout?.on('data', (d: Buffer) => { run.output += d.toString(); });
-  child.stderr?.on('data', (d: Buffer) => { run.output += d.toString(); });
+  child.stdout?.on('data', (d: Buffer) => {
+    run.output += d.toString();
+  });
+  child.stderr?.on('data', (d: Buffer) => {
+    run.output += d.toString();
+  });
   const deadline = Date.now() + 90_000;
   for (;;) {
     const api = /API: +https?:\/\/\S*:(\d+)/.exec(run.output);
@@ -110,7 +127,7 @@ async function launch(role: string, settings: Record<string, string>): Promise<L
       return run;
     }
     if (child.exitCode !== null) {
-      await run.closed;   // everything it wrote has been read
+      await run.closed; // everything it wrote has been read
       run.exitCode = child.exitCode;
       return run;
     }
@@ -122,7 +139,12 @@ async function launch(role: string, settings: Record<string, string>): Promise<L
 async function stop(run: Launch): Promise<void> {
   if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill();
   let timer: NodeJS.Timeout | undefined;
-  await Promise.race([run.closed, new Promise<void>((resolve) => { timer = setTimeout(resolve, 5000); })]);
+  await Promise.race([
+    run.closed,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 5000);
+    }),
+  ]);
   clearTimeout(timer);
 }
 
@@ -144,12 +166,14 @@ describe('the whole-network launcher', () => {
   // network launched with a wider bind came up with both of them refusing it and exiting.
   test('starts its prescriber and pharmacy children on loopback, with none of its own public names or proxies', () => {
     const boot = fs.readFileSync(path.join(REPO, 'src', 'nodes', 'start-leviathan.ts'), 'utf8').replace(/\r\n/g, '\n');
-    expect(boot).toContain("const PROVIDER_LISTENER = { ZKTRIDENT_HOST: '127.0.0.1', ZKTRIDENT_PUBLIC_HOSTS: '', ZKTRIDENT_TRUSTED_PROXIES: '' };");
+    expect(boot).toContain(
+      "const PROVIDER_LISTENER = { ZKTRIDENT_HOST: '127.0.0.1', ZKTRIDENT_PUBLIC_HOSTS: '', ZKTRIDENT_TRUSTED_PROXIES: '' };",
+    );
     for (const role of ROLES) {
       const at = boot.indexOf(`spawnEntity('${role}'`);
       expect([role, at > 0]).toEqual([role, true]);
       const call = boot.slice(at, boot.indexOf('});', at));
-      expect([role, call.includes('...PROVIDER_LISTENER')]).toEqual([role, true]);   // before: the child inherited the launcher's bind
+      expect([role, call.includes('...PROVIDER_LISTENER')]).toEqual([role, true]); // before: the child inherited the launcher's bind
     }
   });
 });
@@ -159,21 +183,21 @@ describe.each(ROLES)('the %s launcher', (role) => {
 
   /** The refusal says why the node may not be reached from elsewhere, and what to do instead. */
   const expectReasonAndRemedy = (output: string): void => {
-    expect(output).toContain('Until provider sign-in (B4) its routes answer anyone who reaches its port');   // before: no such line
-    expect(output).toContain('so it must not be reachable beyond this machine');                             // before: no such line
-    expect(output).toContain('Unset ZKTRIDENT_HOST or set it to 127.0.0.1, ::1 or localhost, and use the dashboard on this machine');   // before: no such line
-    expect(output).toContain('Do not put a reverse proxy in front of it either: until then the node answers no public name');   // before: no such line
+    expect(output).toContain('Until provider sign-in (B4) its routes answer anyone who reaches its port'); // before: no such line
+    expect(output).toContain('so it must not be reachable beyond this machine'); // before: no such line
+    expect(output).toContain('Unset ZKTRIDENT_HOST or set it to 127.0.0.1, ::1 or localhost, and use the dashboard on this machine'); // before: no such line
+    expect(output).toContain('Do not put a reverse proxy in front of it either: until then the node answers no public name'); // before: no such line
   };
 
   test.each(['0.0.0.0', '::'])('bound to the wildcard %s it exits before it listens, and says why and what to do instead', async (host) => {
     const run = await launch(role, { ZKTRIDENT_HOST: host });
     try {
-      expect(run.port).toBeNull();                                    // before: it served on every interface
-      expect(run.exitCode).toBe(1);                                   // before: it served, and did not exit
-      expect(run.output).toContain(refusal(host));                    // before: a warning, and it went on
+      expect(run.port).toBeNull(); // before: it served on every interface
+      expect(run.exitCode).toBe(1); // before: it served, and did not exit
+      expect(run.output).toContain(refusal(host)); // before: a warning, and it went on
       expectReasonAndRemedy(run.output);
       // The refusal does not come with the general advice to name the host other machines reach it by.
-      expect(run.output).not.toContain('name the host they reach it by in ZKTRIDENT_PUBLIC_HOSTS');   // before: the warning said so
+      expect(run.output).not.toContain('name the host they reach it by in ZKTRIDENT_PUBLIC_HOSTS'); // before: the warning said so
     } finally {
       await stop(run);
     }
@@ -182,9 +206,9 @@ describe.each(ROLES)('the %s launcher', (role) => {
   test('an empty ZKTRIDENT_HOST, which Node binds to every interface, is refused the same way', async () => {
     const run = await launch(role, { ZKTRIDENT_HOST: '' });
     try {
-      expect(run.port).toBeNull();                                    // before: it served on every interface, without a word
-      expect(run.exitCode).toBe(1);                                   // before: it served, and did not exit
-      expect(run.output).toContain(refusal(''));                      // before: no such line
+      expect(run.port).toBeNull(); // before: it served on every interface, without a word
+      expect(run.exitCode).toBe(1); // before: it served, and did not exit
+      expect(run.output).toContain(refusal('')); // before: no such line
       expectReasonAndRemedy(run.output);
     } finally {
       await stop(run);
@@ -196,8 +220,8 @@ describe.each(ROLES)('the %s launcher', (role) => {
     try {
       expect(run.port).toBeNull();
       expect(run.exitCode).toBe(1);
-      expect(run.output).toContain(refusal('192.0.2.10'));            // before: it tried to bind the address (EADDRNOTAVAIL on a machine without it)
-      expect(run.output).not.toContain('EADDRNOTAVAIL');              // before: listen EADDRNOTAVAIL
+      expect(run.output).toContain(refusal('192.0.2.10')); // before: it tried to bind the address (EADDRNOTAVAIL on a machine without it)
+      expect(run.output).not.toContain('EADDRNOTAVAIL'); // before: listen EADDRNOTAVAIL
       expectReasonAndRemedy(run.output);
     } finally {
       await stop(run);
@@ -220,18 +244,18 @@ describe.each(ROLES)('the %s launcher', (role) => {
   test('it answers no public name: a request naming one gets 421, and the boot log says why', async () => {
     const run = await launch(role, { ZKTRIDENT_PUBLIC_HOSTS: 'pharmacy.example,proxy.example:8443' });
     try {
-      expect(run.port).not.toBeNull();                                 // a public name alone does not stop the node
+      expect(run.port).not.toBeNull(); // a public name alone does not stop the node
       const port = run.port!;
-      expect(await healthStatus(port, 'pharmacy.example')).toBe(421);              // before: 200, the Host a proxy passes on from its client
-      expect(await healthStatus(port, `pharmacy.example:${port}`)).toBe(421);      // before: 200
-      expect(await healthStatus(port, 'proxy.example:8443')).toBe(421);            // before: 200
+      expect(await healthStatus(port, 'pharmacy.example')).toBe(421); // before: 200, the Host a proxy passes on from its client
+      expect(await healthStatus(port, `pharmacy.example:${port}`)).toBe(421); // before: 200
+      expect(await healthStatus(port, 'proxy.example:8443')).toBe(421); // before: 200
       expect(await healthStatus(port, `localhost:${port}`)).toBe(200);
       expect(run.output).toContain(
         `[net] ${role} node: ZKTRIDENT_PUBLIC_HOSTS lists pharmacy.example, proxy.example:8443, and this node answers none of them.`,
-      );                                                                           // before: no such line
-      expect(run.output).toContain('so no reverse proxy may bring other machines to it');   // before: no such line
+      ); // before: no such line
+      expect(run.output).toContain('so no reverse proxy may bring other machines to it'); // before: no such line
       // Nor does the boot log ask for the proxy to be trusted, as it does on a node that answers a public name.
-      expect(run.output).not.toContain('so those requests come through a reverse proxy on this host');   // before: it asked for ZKTRIDENT_TRUSTED_PROXIES
+      expect(run.output).not.toContain('so those requests come through a reverse proxy on this host'); // before: it asked for ZKTRIDENT_TRUSTED_PROXIES
     } finally {
       await stop(run);
     }

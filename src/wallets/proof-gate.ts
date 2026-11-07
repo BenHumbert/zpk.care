@@ -15,12 +15,7 @@
  */
 
 import { Field, Poseidon, ZkProgram } from 'o1js';
-import {
-  DOMAIN_TAG_MEMBER,
-  DOMAIN_TAG_PRESCRIBER,
-  DOMAIN_TAG_PHARMACY,
-  DOMAIN_TAG_REPRESENTATIVE,
-} from './wallet-derivation.js';
+import { DOMAIN_TAG_MEMBER, DOMAIN_TAG_PRESCRIBER, DOMAIN_TAG_PHARMACY, DOMAIN_TAG_REPRESENTATIVE } from './wallet-derivation.js';
 
 /**
  * ProofGate — ZkProgram that proves wallet ownership.
@@ -86,18 +81,8 @@ export const ProofGateProgram = ZkProgram({
      */
     verifyPrescriber: {
       privateInputs: [Field, Field, Field],
-      async method(
-        walletIdentity: Field,
-        qualifierCode: Field,
-        prescriberIdHash: Field,
-        enrollmentKeyHash: Field,
-      ) {
-        const computed = Poseidon.hash([
-          DOMAIN_TAG_PRESCRIBER,
-          qualifierCode,
-          prescriberIdHash,
-          enrollmentKeyHash,
-        ]);
+      async method(walletIdentity: Field, qualifierCode: Field, prescriberIdHash: Field, enrollmentKeyHash: Field) {
+        const computed = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, qualifierCode, prescriberIdHash, enrollmentKeyHash]);
         computed.assertEquals(walletIdentity);
       },
     },
@@ -108,18 +93,8 @@ export const ProofGateProgram = ZkProgram({
      */
     verifyPharmacy: {
       privateInputs: [Field, Field, Field],
-      async method(
-        walletIdentity: Field,
-        qualifierCode: Field,
-        serviceProviderIdHash: Field,
-        enrollmentKeyHash: Field,
-      ) {
-        const computed = Poseidon.hash([
-          DOMAIN_TAG_PHARMACY,
-          qualifierCode,
-          serviceProviderIdHash,
-          enrollmentKeyHash,
-        ]);
+      async method(walletIdentity: Field, qualifierCode: Field, serviceProviderIdHash: Field, enrollmentKeyHash: Field) {
+        const computed = Poseidon.hash([DOMAIN_TAG_PHARMACY, qualifierCode, serviceProviderIdHash, enrollmentKeyHash]);
         computed.assertEquals(walletIdentity);
       },
     },
@@ -130,18 +105,8 @@ export const ProofGateProgram = ZkProgram({
      */
     verifyRepresentative: {
       privateInputs: [Field, Field, Field],
-      async method(
-        walletIdentity: Field,
-        qualifierCode: Field,
-        representativeIdHash: Field,
-        enrollmentKeyHash: Field,
-      ) {
-        const computed = Poseidon.hash([
-          DOMAIN_TAG_REPRESENTATIVE,
-          qualifierCode,
-          representativeIdHash,
-          enrollmentKeyHash,
-        ]);
+      async method(walletIdentity: Field, qualifierCode: Field, representativeIdHash: Field, enrollmentKeyHash: Field) {
+        const computed = Poseidon.hash([DOMAIN_TAG_REPRESENTATIVE, qualifierCode, representativeIdHash, enrollmentKeyHash]);
         computed.assertEquals(walletIdentity);
       },
     },

@@ -28,7 +28,9 @@
   function getSelectedPharmacy() {
     var saved = localStorage.getItem(PHARMACY_KEY);
     if (saved) {
-      var found = PHARMACIES.find(function (p) { return p.npi === saved; });
+      var found = PHARMACIES.find(function (p) {
+        return p.npi === saved;
+      });
       if (found) return found;
     }
     return PHARMACIES[0];
@@ -54,15 +56,21 @@
   // Verified member wallet for the Filled column — keyed by pharmacy NPI
   // Restore verified member wallets from sessionStorage (survives refresh, clears on tab close)
   let verifiedMemberWallets = {};
-  try { verifiedMemberWallets = JSON.parse(sessionStorage.getItem('zkt_pharmacy_verified') || '{}'); } catch { verifiedMemberWallets = {}; }
+  try {
+    verifiedMemberWallets = JSON.parse(sessionStorage.getItem('zkt_pharmacy_verified') || '{}');
+  } catch {
+    verifiedMemberWallets = {};
+  }
   function getVerifiedMemberWallet() {
     var pharm = getSelectedPharmacy();
-    return pharm ? (verifiedMemberWallets[pharm.npi] || null) : null;
+    return pharm ? verifiedMemberWallets[pharm.npi] || null : null;
   }
   function setVerifiedMemberWallet(walletId) {
     var pharm = getSelectedPharmacy();
     if (pharm) verifiedMemberWallets[pharm.npi] = walletId;
-    try { sessionStorage.setItem('zkt_pharmacy_verified', JSON.stringify(verifiedMemberWallets)); } catch {}
+    try {
+      sessionStorage.setItem('zkt_pharmacy_verified', JSON.stringify(verifiedMemberWallets));
+    } catch {}
   }
 
   // The verify line under the scan box: what the last verification said, and the member it verified. The count of her
@@ -75,8 +83,12 @@
 
   // ── Utilities ────────────────────────────────────────────────
 
-  function $(sel) { return document.querySelector(sel); }
-  function $$(sel) { return document.querySelectorAll(sel); }
+  function $(sel) {
+    return document.querySelector(sel);
+  }
+  function $$(sel) {
+    return document.querySelectorAll(sel);
+  }
 
   function toast(msg, type) {
     type = type || 'info';
@@ -89,7 +101,9 @@
     setTimeout(function () {
       el.style.opacity = '0';
       el.style.transition = 'opacity 0.3s';
-      setTimeout(function () { el.remove(); }, 300);
+      setTimeout(function () {
+        el.remove();
+      }, 300);
     }, 4000);
   }
 
@@ -187,10 +201,14 @@
     var key = scriptKey(claim);
     // For transient states (filling, dispensing), store in workflow
     if (status === 'filling' || status === 'dispensing') {
-      scriptWorkflow[key] = Object.assign(scriptWorkflow[key] || {}, {
-        _transientStatus: status,
-        updatedAt: Date.now(),
-      }, extra || {});
+      scriptWorkflow[key] = Object.assign(
+        scriptWorkflow[key] || {},
+        {
+          _transientStatus: status,
+          updatedAt: Date.now(),
+        },
+        extra || {},
+      );
     } else {
       // For permanent states, update the claim object directly
       // (it will be overwritten on next server poll)
@@ -219,7 +237,10 @@
     if (!TABS.includes(tab)) tab = 'workstation';
     currentTab = tab;
     location.hash = '#' + tab;
-    if (window._overviewTimer) { clearInterval(window._overviewTimer); window._overviewTimer = null; }
+    if (window._overviewTimer) {
+      clearInterval(window._overviewTimer);
+      window._overviewTimer = null;
+    }
 
     $$('.nav-tab').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -234,12 +255,23 @@
 
   function onTabEnter(tab) {
     switch (tab) {
-      case 'workstation': loadWorkstation(); break;
-      case 'history': loadHistory(); break;
-      case 'dur': break;
-      case 'messaging': loadMessaging(); break;
-      case 'onboarding': loadOnboarding(); break;
-      case 'proofs': loadProofs(); break;
+      case 'workstation':
+        loadWorkstation();
+        break;
+      case 'history':
+        loadHistory();
+        break;
+      case 'dur':
+        break;
+      case 'messaging':
+        loadMessaging();
+        break;
+      case 'onboarding':
+        loadOnboarding();
+        break;
+      case 'proofs':
+        loadProofs();
+        break;
     }
   }
 
@@ -295,21 +327,25 @@
       onboardingStatus = status;
       const wid = status.walletId || status.wallet || '--';
       setText('#header-wallet', truncate(wid, 16));
-    } catch (_) { }
+    } catch (_) {}
 
     // FIRST: fetch server-side prescription state (the source of truth)
     // THEN: merge with claim accumulator data for settlement details on completed claims
-    var rxPromise = API.prescriptions.list().catch(function () { return []; });
-    var claimsPromise = API.dispensing.list().catch(function () { return []; });
+    var rxPromise = API.prescriptions.list().catch(function () {
+      return [];
+    });
+    var claimsPromise = API.dispensing.list().catch(function () {
+      return [];
+    });
     var results = await Promise.all([rxPromise, claimsPromise]);
 
     // Process prescriptions from server (source of truth for status)
     var rxData = results[0];
-    var prescriptions = Array.isArray(rxData) ? rxData : (rxData.prescriptions || rxData.data || []);
+    var prescriptions = Array.isArray(rxData) ? rxData : rxData.prescriptions || rxData.data || [];
 
     // Process claims from accumulator (settlement data for completed claims)
     var claimsData = results[1];
-    var accumulatorClaims = Array.isArray(claimsData) ? claimsData : (claimsData.claims || claimsData.history || []);
+    var accumulatorClaims = Array.isArray(claimsData) ? claimsData : claimsData.claims || claimsData.history || [];
 
     // Build a lookup of accumulator claims by key for merging settlement data
     var accumulatorByKey = {};
@@ -377,15 +413,21 @@
 
     // Restore payment state from sessionStorage
     var savedPayments = {};
-    try { savedPayments = JSON.parse(sessionStorage.getItem('zkt_pharmacy_payments') || '{}'); } catch {}
+    try {
+      savedPayments = JSON.parse(sessionStorage.getItem('zkt_pharmacy_payments') || '{}');
+    } catch {}
 
     // Reconcile server-side terminal states into scriptWorkflow
     // so dispensed/reversed/completed prescriptions render correctly after page refresh
     allClaims.forEach(function (rx) {
       var key = scriptKey(rx);
       var serverStatus = (rx.status || '').toUpperCase();
-      if (serverStatus === 'DISPENSED' || serverStatus === 'REVERSED' || serverStatus === 'COMPLETED' ||
-          serverStatus === 'PARTIALLY_FILLED') {
+      if (
+        serverStatus === 'DISPENSED' ||
+        serverStatus === 'REVERSED' ||
+        serverStatus === 'COMPLETED' ||
+        serverStatus === 'PARTIALLY_FILLED'
+      ) {
         if (!scriptWorkflow[key]) scriptWorkflow[key] = {};
         if (!scriptWorkflow[key].proofStatus) {
           scriptWorkflow[key].proofStatus = rx.proofStatus || 'complete';
@@ -429,7 +471,8 @@
     const dispensed = [];
     const history = [];
     let completedToday = 0;
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
     allClaims.forEach(function (claim) {
       const status = getScriptStatus(claim);
@@ -518,101 +561,169 @@
       return;
     }
 
-    container.innerHTML = claims.map(function (claim) {
-      const issue = getScriptIssue(claim);
-      const recordingError = scriptWorkflow[scriptKey(claim)]?.recordingError || null;
-      const proofStatus = scriptWorkflow[scriptKey(claim)]?.proofStatus || null;
-      const currentClaimStatus = getScriptStatus(claim);
-      const isFilling = currentClaimStatus === 'filling';
-      const isDispensing = currentClaimStatus === 'dispensing';
-      const isEscript = !!claim._isEscript;
-      const medLabel = claim.brandName ? claim.brandName : (claim.ndcHash || claim.medication || '');
-      const med = truncate(medLabel, 20);
-      const patient = truncate(claim.memberWalletId || claim.patient || claim.patientWalletId, 14);
-      const prescriber = truncate(claim.prescriberWalletId || claim.prescriber, 14);
-      const date = formatDate(claim.dateOfService || claim.date);
-      // Use workflow data first (from proof result), then server data. Use != null to preserve $0.00 amounts.
-      var wf = scriptWorkflow[scriptKey(claim)] || {};
-      var pricing = fillPricingOf(claim, wf);
-      // The prescribed quantity in the drug's NADAC pricing unit (EA, ML or GM)
-      var qtyUnit = claim.pricingUnit || (pricing && pricing.pricingUnit) || '';
-      var qtyText = claim.quantity != null ? String(claim.quantity) + (qtyUnit ? ' ' + qtyUnit : '') : '';
-      const patientPayVal = wf.patientPayCents != null ? wf.patientPayCents : (claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay);
-      const patientPay = isEscript ? 'Pending' : formatCents(patientPayVal);
-      const planPayVal = wf.planPayCents != null ? wf.planPayCents : (claim.planPayCents != null ? claim.planPayCents : claim.planPay);
-      const planPay = isEscript ? '' : formatCents(planPayVal);
-      const key = scriptKey(claim);
+    container.innerHTML = claims
+      .map(function (claim) {
+        const issue = getScriptIssue(claim);
+        const recordingError = scriptWorkflow[scriptKey(claim)]?.recordingError || null;
+        const proofStatus = scriptWorkflow[scriptKey(claim)]?.proofStatus || null;
+        const currentClaimStatus = getScriptStatus(claim);
+        const isFilling = currentClaimStatus === 'filling';
+        const isDispensing = currentClaimStatus === 'dispensing';
+        const isEscript = !!claim._isEscript;
+        const medLabel = claim.brandName ? claim.brandName : claim.ndcHash || claim.medication || '';
+        const med = truncate(medLabel, 20);
+        const patient = truncate(claim.memberWalletId || claim.patient || claim.patientWalletId, 14);
+        const prescriber = truncate(claim.prescriberWalletId || claim.prescriber, 14);
+        const date = formatDate(claim.dateOfService || claim.date);
+        // Use workflow data first (from proof result), then server data. Use != null to preserve $0.00 amounts.
+        var wf = scriptWorkflow[scriptKey(claim)] || {};
+        var pricing = fillPricingOf(claim, wf);
+        // The prescribed quantity in the drug's NADAC pricing unit (EA, ML or GM)
+        var qtyUnit = claim.pricingUnit || (pricing && pricing.pricingUnit) || '';
+        var qtyText = claim.quantity != null ? String(claim.quantity) + (qtyUnit ? ' ' + qtyUnit : '') : '';
+        const patientPayVal =
+          wf.patientPayCents != null ? wf.patientPayCents : claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay;
+        const patientPay = isEscript ? 'Pending' : formatCents(patientPayVal);
+        const planPayVal = wf.planPayCents != null ? wf.planPayCents : claim.planPayCents != null ? claim.planPayCents : claim.planPay;
+        const planPay = isEscript ? '' : formatCents(planPayVal);
+        const key = scriptKey(claim);
 
-      let actionsHtml = '';
-      if (columnType === 'adjudicated') {
-        // A PENDING script is still being adjudicated (the prescriber's proofs): no Fill until the engine says ADJUDICATED.
-        actionsHtml =
-          (currentClaimStatus === 'pending'
-            ? '<span class="btn btn-sm" style="background:#f59e0b;color:#fff;cursor:default;font-size:10px">Adjudicating…</span>'
-            : '<button class="btn btn-sm btn-primary" data-act="fillScript" data-key="' + escapeHtml(key) + '">Fill</button>') +
-          '<button class="btn btn-sm btn-danger" data-act="rejectScript" data-key="' + escapeHtml(key) + '">Reject</button>' +
-          '<button class="btn btn-sm" data-act="transferScript" data-key="' + escapeHtml(key) + '">Transfer</button>';
-      } else if (columnType === 'filled') {
-        var memberVerified = isScriptVerified(claim);
-        actionsHtml =
-          (memberVerified
-            ? '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Verified</span>'
-            : '<button class="btn btn-sm" data-act="verifyMemberForScript" data-key="' + escapeHtml(key) + '">Verify Member</button>') +
-          '<button class="btn btn-sm btn-primary" data-act="dispenseScript" data-key="' + escapeHtml(key) + '"' +
-            (memberVerified ? '' : ' disabled title="Verify member first"') + '>Dispense</button>';
-      } else if (columnType === 'dispensed') {
-        var paymentReceived = scriptWorkflow[key]?.paymentReceived;
-        actionsHtml =
-          (!paymentReceived
-            ? '<button class="btn btn-sm btn-primary" data-act="confirmPayment" data-key="' + escapeHtml(key) + '">Payment Received</button>'
-            : '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Paid</span>') +
-          '<button class="btn btn-sm btn-reverse" data-act="reverseScript" data-key="' + escapeHtml(key) + '">Reverse</button>';
-      }
-      // history column: no action buttons
+        let actionsHtml = '';
+        if (columnType === 'adjudicated') {
+          // A PENDING script is still being adjudicated (the prescriber's proofs): no Fill until the engine says ADJUDICATED.
+          actionsHtml =
+            (currentClaimStatus === 'pending'
+              ? '<span class="btn btn-sm" style="background:#f59e0b;color:#fff;cursor:default;font-size:10px">Adjudicating…</span>'
+              : '<button class="btn btn-sm btn-primary" data-act="fillScript" data-key="' + escapeHtml(key) + '">Fill</button>') +
+            '<button class="btn btn-sm btn-danger" data-act="rejectScript" data-key="' +
+            escapeHtml(key) +
+            '">Reject</button>' +
+            '<button class="btn btn-sm" data-act="transferScript" data-key="' +
+            escapeHtml(key) +
+            '">Transfer</button>';
+        } else if (columnType === 'filled') {
+          var memberVerified = isScriptVerified(claim);
+          actionsHtml =
+            (memberVerified
+              ? '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Verified</span>'
+              : '<button class="btn btn-sm" data-act="verifyMemberForScript" data-key="' + escapeHtml(key) + '">Verify Member</button>') +
+            '<button class="btn btn-sm btn-primary" data-act="dispenseScript" data-key="' +
+            escapeHtml(key) +
+            '"' +
+            (memberVerified ? '' : ' disabled title="Verify member first"') +
+            '>Dispense</button>';
+        } else if (columnType === 'dispensed') {
+          var paymentReceived = scriptWorkflow[key]?.paymentReceived;
+          actionsHtml =
+            (!paymentReceived
+              ? '<button class="btn btn-sm btn-primary" data-act="confirmPayment" data-key="' +
+                escapeHtml(key) +
+                '">Payment Received</button>'
+              : '<span class="btn btn-sm" style="background:#10b981;color:#fff;cursor:default;font-size:10px">Paid</span>') +
+            '<button class="btn btn-sm btn-reverse" data-act="reverseScript" data-key="' +
+            escapeHtml(key) +
+            '">Reverse</button>';
+        }
+        // history column: no action buttons
 
-      return '<div class="script-card' + (issue ? ' has-issue' : '') + (isEscript ? ' is-escript' : '') + (isDispensing || isFilling ? ' is-dispensing' : '') + '" data-key="' + escapeHtml(key) + '" data-act="showScriptDetail">' +
-        '<div class="script-card-top">' +
-          '<span class="script-med">' + escapeHtml(med) + '</span>' +
-          (isFilling ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Filling...</span>' : '') +
-          (isDispensing ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Dispensing...</span>' : '') +
+        return (
+          '<div class="script-card' +
+          (issue ? ' has-issue' : '') +
+          (isEscript ? ' is-escript' : '') +
+          (isDispensing || isFilling ? ' is-dispensing' : '') +
+          '" data-key="' +
+          escapeHtml(key) +
+          '" data-act="showScriptDetail">' +
+          '<div class="script-card-top">' +
+          '<span class="script-med">' +
+          escapeHtml(med) +
+          '</span>' +
+          (isFilling
+            ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Filling...</span>'
+            : '') +
+          (isDispensing
+            ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff;animation:pulse 2s infinite">Dispensing...</span>'
+            : '') +
           (isEscript ? '<span class="script-issue-badge" style="background:#0ea5e9;color:#fff">eRx</span>' : '') +
           (issue ? '<span class="script-issue-badge">' + escapeHtml(issue) + '</span>' : '') +
-          (recordingError ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' + escapeHtml(recordingError) + '">Not Recorded</span>' : '') +
-          (proofStatus === 'pending' ? '<span class="script-issue-badge" style="background:#f59e0b;color:#fff;animation:pulse 2s infinite">Proving...</span>' : '') +
+          (recordingError
+            ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' +
+              escapeHtml(recordingError) +
+              '">Not Recorded</span>'
+            : '') +
+          (proofStatus === 'pending'
+            ? '<span class="script-issue-badge" style="background:#f59e0b;color:#fff;animation:pulse 2s infinite">Proving...</span>'
+            : '') +
           (proofStatus === 'complete' ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">ZK Proved</span>' : '') +
-          (proofStatus === 'error' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' + escapeHtml(scriptWorkflow[scriptKey(claim)]?.proofError || 'Unknown') + '">Proof Failed</span>' : '') +
+          (proofStatus === 'error'
+            ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff" title="' +
+              escapeHtml(scriptWorkflow[scriptKey(claim)]?.proofError || 'Unknown') +
+              '">Proof Failed</span>'
+            : '') +
           (proofStatus === 'timeout' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Proof Timeout</span>' : '') +
-          (columnType === 'filled' && isScriptVerified(claim) ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Member Verified</span>' : '') +
-          (columnType === 'dispensed' ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Settlement Complete</span>' : '') +
-          (columnType === 'history' && currentClaimStatus === 'reversed' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Reversed</span>' : '') +
-          (columnType === 'history' && currentClaimStatus === 'rejected' ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Rejected</span>' : '') +
-          (columnType === 'history' && currentClaimStatus === 'transferred' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Transferred</span>' : '') +
-          (columnType === 'history' && currentClaimStatus === 'cancelled' ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Cancelled</span>' : '') +
-        '</div>' +
-        '<div class="script-card-meta">' +
-          '<span class="script-patient" title="Patient">' + escapeHtml(patient) + '</span>' +
-          '<span class="script-prescriber" title="Prescriber">' + escapeHtml(prescriber) + '</span>' +
-          '<span>' + escapeHtml(date) + '</span>' +
-          (qtyText ? '<span title="Quantity prescribed, in the drug\'s NADAC pricing unit">' + escapeHtml(qtyText) + '</span>' : '') +
-        '</div>' +
-        '<div class="script-card-bottom">' +
-          '<div class="script-pricing">' +
-            '<span class="script-price-tag patient-pay" title="Member Copay">' + escapeHtml(patientPay) + '</span>' +
-            '<span class="script-price-tag plan-pay" title="Plan Pays">' + escapeHtml(planPay) + '</span>' +
-            (pricing
-              ? '<span class="script-price-tag drug-cost" title="' + escapeHtml(nadacBreakdown(pricing)) + '">' + escapeHtml(formatCents(pricing.totalCostCents)) + '</span>'
-              : '') +
+          (columnType === 'filled' && isScriptVerified(claim)
+            ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Member Verified</span>'
+            : '') +
+          (columnType === 'dispensed'
+            ? '<span class="script-issue-badge" style="background:#10b981;color:#fff">Settlement Complete</span>'
+            : '') +
+          (columnType === 'history' && currentClaimStatus === 'reversed'
+            ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Reversed</span>'
+            : '') +
+          (columnType === 'history' && currentClaimStatus === 'rejected'
+            ? '<span class="script-issue-badge" style="background:#dc2626;color:#fff">Rejected</span>'
+            : '') +
+          (columnType === 'history' && currentClaimStatus === 'transferred'
+            ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Transferred</span>'
+            : '') +
+          (columnType === 'history' && currentClaimStatus === 'cancelled'
+            ? '<span class="script-issue-badge" style="background:#6b7280;color:#fff">Cancelled</span>'
+            : '') +
           '</div>' +
-          '<div class="script-actions" data-act="none">' + actionsHtml + '</div>' +
-        '</div>' +
-      '</div>';
-    }).join('');
+          '<div class="script-card-meta">' +
+          '<span class="script-patient" title="Patient">' +
+          escapeHtml(patient) +
+          '</span>' +
+          '<span class="script-prescriber" title="Prescriber">' +
+          escapeHtml(prescriber) +
+          '</span>' +
+          '<span>' +
+          escapeHtml(date) +
+          '</span>' +
+          (qtyText ? '<span title="Quantity prescribed, in the drug\'s NADAC pricing unit">' + escapeHtml(qtyText) + '</span>' : '') +
+          '</div>' +
+          '<div class="script-card-bottom">' +
+          '<div class="script-pricing">' +
+          '<span class="script-price-tag patient-pay" title="Member Copay">' +
+          escapeHtml(patientPay) +
+          '</span>' +
+          '<span class="script-price-tag plan-pay" title="Plan Pays">' +
+          escapeHtml(planPay) +
+          '</span>' +
+          (pricing
+            ? '<span class="script-price-tag drug-cost" title="' +
+              escapeHtml(nadacBreakdown(pricing)) +
+              '">' +
+              escapeHtml(formatCents(pricing.totalCostCents)) +
+              '</span>'
+            : '') +
+          '</div>' +
+          '<div class="script-actions" data-act="none">' +
+          actionsHtml +
+          '</div>' +
+          '</div>' +
+          '</div>'
+        );
+      })
+      .join('');
   }
 
   // ── Workstation Actions ──────────────────────────────────────
 
   function findClaimByKey(key) {
-    var found = allClaims.find(function (c) { return scriptKey(c) === key; });
+    var found = allClaims.find(function (c) {
+      return scriptKey(c) === key;
+    });
     // Fallback: if allClaims was refreshed and lost the reference, check workflow backup
     if (!found && scriptWorkflow[key] && scriptWorkflow[key]._claim) {
       found = scriptWorkflow[key]._claim;
@@ -632,9 +743,13 @@
     var p = (wf && wf.pricing) || claim.pricing || null;
     if (!p && Array.isArray(claim.fills) && claim.ingredientCostCents != null && claim.dispensingFeeCents != null) {
       p = {
-        pricingUnit: claim.pricingUnit, quantity: claim.quantityDispensed,
-        ingredientCostCents: claim.ingredientCostCents, dispensingFeeCents: claim.dispensingFeeCents,
-        fillCount: claim.fills.filter(function (f) { return !f.reversed; }).length,
+        pricingUnit: claim.pricingUnit,
+        quantity: claim.quantityDispensed,
+        ingredientCostCents: claim.ingredientCostCents,
+        dispensingFeeCents: claim.dispensingFeeCents,
+        fillCount: claim.fills.filter(function (f) {
+          return !f.reversed;
+        }).length,
       };
     }
     if (!p) {
@@ -642,9 +757,12 @@
       var fee = meta.dispensingFeeCents != null ? meta.dispensingFeeCents : claim.dispensingFeeCents;
       if (ingredient == null || fee == null) return null;
       p = {
-        nadacUnitPriceE5: meta.nadacUnitPriceE5, pricingUnit: meta.pricingUnit || claim.pricingUnit, dispensingFeeSource: meta.dispensingFeeSource,
-        quantity: meta.quantityDispensed != null ? meta.quantityDispensed : (claim.quantityDispensed || claim.quantity),
-        ingredientCostCents: ingredient, dispensingFeeCents: fee,
+        nadacUnitPriceE5: meta.nadacUnitPriceE5,
+        pricingUnit: meta.pricingUnit || claim.pricingUnit,
+        dispensingFeeSource: meta.dispensingFeeSource,
+        quantity: meta.quantityDispensed != null ? meta.quantityDispensed : claim.quantityDispensed || claim.quantity,
+        ingredientCostCents: ingredient,
+        dispensingFeeCents: fee,
       };
     }
     return Object.assign({}, p, { totalCostCents: Number(p.ingredientCostCents) + Number(p.dispensingFeeCents) });
@@ -660,11 +778,30 @@
   /** "NADAC $0.60042/EA x 30 EA = $18.01 + dispensing fee $12.50 = $30.51"; several fills: "Ingredient $43.01 (2 fills) + ..." */
   function nadacBreakdown(p) {
     var unit = p.pricingUnit || 'unit';
-    var ingredient = p.nadacUnitPriceE5 != null
-      ? 'NADAC ' + formatNadacUnit(p.nadacUnitPriceE5) + '/' + unit + ' x ' + p.quantity + ' ' + unit + ' = ' + formatCents(p.ingredientCostCents)
-      : 'Ingredient ' + formatCents(p.ingredientCostCents) + (p.fillCount > 1 ? ' (' + p.fillCount + ' fills, ' + p.quantity + ' ' + unit + ')' : '');
-    return ingredient + ' + dispensing fee' + (p.fillCount > 1 ? 's ' : ' ') + formatCents(p.dispensingFeeCents) +
-      (p.dispensingFeeSource === 'network-default' ? ' (network default)' : '') + ' = ' + formatCents(p.totalCostCents);
+    var ingredient =
+      p.nadacUnitPriceE5 != null
+        ? 'NADAC ' +
+          formatNadacUnit(p.nadacUnitPriceE5) +
+          '/' +
+          unit +
+          ' x ' +
+          p.quantity +
+          ' ' +
+          unit +
+          ' = ' +
+          formatCents(p.ingredientCostCents)
+        : 'Ingredient ' +
+          formatCents(p.ingredientCostCents) +
+          (p.fillCount > 1 ? ' (' + p.fillCount + ' fills, ' + p.quantity + ' ' + unit + ')' : '');
+    return (
+      ingredient +
+      ' + dispensing fee' +
+      (p.fillCount > 1 ? 's ' : ' ') +
+      formatCents(p.dispensingFeeCents) +
+      (p.dispensingFeeSource === 'network-default' ? ' (network default)' : '') +
+      ' = ' +
+      formatCents(p.totalCostCents)
+    );
   }
 
   async function dispenseScript(key) {
@@ -710,32 +847,36 @@
       renderWorkstationColumns();
       return;
     }
-    API.dispensing.dispense({
-      prescriptionId: prescriptionId,
-      quantityDispensed: quantityDispensed,
-    }).then(function (result) {
-      var jobKey = result.jobKey;
-      if (!jobKey) {
+    API.dispensing
+      .dispense({
+        prescriptionId: prescriptionId,
+        quantityDispensed: quantityDispensed,
+      })
+      .then(function (result) {
+        var jobKey = result.jobKey;
+        if (!jobKey) {
+          scriptWorkflow[key].proofStatus = 'error';
+          scriptWorkflow[key].proofError = 'No job key returned';
+          setScriptStatus(claim, 'filled'); // back to filled on error
+          renderWorkstationColumns();
+          return;
+        }
+        scriptWorkflow[key].fillJobKey = jobKey;
+        pollDispenseStatus(jobKey, key);
+      })
+      .catch(function (err) {
+        console.warn('[Dispense] Proof pipeline failed:', err);
         scriptWorkflow[key].proofStatus = 'error';
-        scriptWorkflow[key].proofError = 'No job key returned';
+        scriptWorkflow[key].proofError = err.message || 'Proof generation failed';
         setScriptStatus(claim, 'filled'); // back to filled on error
         renderWorkstationColumns();
-        return;
-      }
-      scriptWorkflow[key].fillJobKey = jobKey;
-      pollDispenseStatus(jobKey, key);
-    }).catch(function (err) {
-      console.warn('[Dispense] Proof pipeline failed:', err);
-      scriptWorkflow[key].proofStatus = 'error';
-      scriptWorkflow[key].proofError = err.message || 'Proof generation failed';
-      setScriptStatus(claim, 'filled'); // back to filled on error
-      renderWorkstationColumns();
-    });
+      });
   }
 
   function pollDispenseStatus(jobKey, key, attempts) {
     attempts = attempts || 0;
-    if (attempts >= 120) { // 120 × 5s = 10 min timeout
+    if (attempts >= 120) {
+      // 120 × 5s = 10 min timeout
       if (scriptWorkflow[key]) {
         scriptWorkflow[key].proofStatus = 'timeout';
         scriptWorkflow[key].proofError = 'Proof generation timed out';
@@ -746,57 +887,60 @@
     }
 
     setTimeout(function () {
-      API.dispensing.fillStatus(jobKey).then(function (resp) {
-        if (resp.status === 'complete') {
-          var r = resp.result || resp;
-          // Normalize: unwrap nested result.result from sequencer proxy layer
-          var inner = r.result || r;
-          // Extract prescriptionId from any level for reversal
-          var rxId = inner.prescriptionId || r.prescriptionId || '';
-          // Extract adjudication data from any level
-          var adj = inner.adjudication || r.adjudication || inner;
+      API.dispensing
+        .fillStatus(jobKey)
+        .then(function (resp) {
+          if (resp.status === 'complete') {
+            var r = resp.result || resp;
+            // Normalize: unwrap nested result.result from sequencer proxy layer
+            var inner = r.result || r;
+            // Extract prescriptionId from any level for reversal
+            var rxId = inner.prescriptionId || r.prescriptionId || '';
+            // Extract adjudication data from any level
+            var adj = inner.adjudication || r.adjudication || inner;
 
-          if (scriptWorkflow[key]) {
-            scriptWorkflow[key].proofStatus = 'complete';
-            scriptWorkflow[key].proofResult = resp.result;
-            if (rxId) scriptWorkflow[key].prescriptionId = rxId;
-            // Store adjudication in workflow (not on mutable claim object)
-            if (adj.patientPayCents != null) scriptWorkflow[key].patientPayCents = String(adj.patientPayCents);
-            if (adj.planPayCents != null) scriptWorkflow[key].planPayCents = String(adj.planPayCents);
-            if (adj.phase) scriptWorkflow[key].adjudicationPhase = adj.phase;
-            if (adj.pricing) scriptWorkflow[key].pricing = adj.pricing; // NADAC x quantity + fee, as the engine priced the fill
+            if (scriptWorkflow[key]) {
+              scriptWorkflow[key].proofStatus = 'complete';
+              scriptWorkflow[key].proofResult = resp.result;
+              if (rxId) scriptWorkflow[key].prescriptionId = rxId;
+              // Store adjudication in workflow (not on mutable claim object)
+              if (adj.patientPayCents != null) scriptWorkflow[key].patientPayCents = String(adj.patientPayCents);
+              if (adj.planPayCents != null) scriptWorkflow[key].planPayCents = String(adj.planPayCents);
+              if (adj.phase) scriptWorkflow[key].adjudicationPhase = adj.phase;
+              if (adj.pricing) scriptWorkflow[key].pricing = adj.pricing; // NADAC x quantity + fee, as the engine priced the fill
+            }
+            var claim = findClaimByKey(key);
+            if (claim) {
+              claim._isEscript = false;
+              setScriptStatus(claim, 'dispensed'); // terminal — settlement complete
+            }
+            renderWorkstationColumns();
+            toast('Dispensed — ZK settlement proof submitted', 'success');
+          } else if (resp.status === 'error') {
+            if (scriptWorkflow[key]) {
+              scriptWorkflow[key].proofStatus = 'error';
+              scriptWorkflow[key].proofError = resp.error || 'Proof failed';
+            }
+            setScriptStatus(findClaimByKey(key), 'filled'); // back to filled on error
+            renderWorkstationColumns();
+          } else if (resp.status === 'not_started') {
+            // Job was already processed and cleaned up by the sequencer.
+            // Refresh from server to get the current prescription status.
+            if (scriptWorkflow[key]) {
+              scriptWorkflow[key].proofStatus = 'complete';
+            }
+            loadWorkstation();
+            toast('Dispense completed (confirmed by sequencer)', 'success');
+          } else {
+            // Still pending — update elapsed time and poll again
+            renderWorkstationColumns();
+            pollDispenseStatus(jobKey, key, attempts + 1);
           }
-          var claim = findClaimByKey(key);
-          if (claim) {
-            claim._isEscript = false;
-            setScriptStatus(claim, 'dispensed'); // terminal — settlement complete
-          }
-          renderWorkstationColumns();
-          toast('Dispensed — ZK settlement proof submitted', 'success');
-        } else if (resp.status === 'error') {
-          if (scriptWorkflow[key]) {
-            scriptWorkflow[key].proofStatus = 'error';
-            scriptWorkflow[key].proofError = resp.error || 'Proof failed';
-          }
-          setScriptStatus(findClaimByKey(key), 'filled'); // back to filled on error
-          renderWorkstationColumns();
-        } else if (resp.status === 'not_started') {
-          // Job was already processed and cleaned up by the sequencer.
-          // Refresh from server to get the current prescription status.
-          if (scriptWorkflow[key]) {
-            scriptWorkflow[key].proofStatus = 'complete';
-          }
-          loadWorkstation();
-          toast('Dispense completed (confirmed by sequencer)', 'success');
-        } else {
-          // Still pending — update elapsed time and poll again
-          renderWorkstationColumns();
+        })
+        .catch(function () {
+          // Network error — retry
           pollDispenseStatus(jobKey, key, attempts + 1);
-        }
-      }).catch(function () {
-        // Network error — retry
-        pollDispenseStatus(jobKey, key, attempts + 1);
-      });
+        });
     }, 5000);
   }
 
@@ -806,7 +950,9 @@
     const reason = prompt('Rejection reason (optional):');
     setScriptStatus(claim, 'rejected', { issue: reason || 'Rejected' });
     renderWorkstationColumns();
-    API.dispensing.summary().catch(function () { /* best effort refresh */ });
+    API.dispensing.summary().catch(function () {
+      /* best effort refresh */
+    });
   }
 
   function transferScript(key) {
@@ -818,10 +964,19 @@
 
     // Attempt API call (best effort)
     var myWallet = onboardingStatus?.walletId || onboardingStatus?.wallet || '';
-    API.messaging.send({
-      message: { messageCommitment: '0', senderWalletId: myWallet, recipientWalletId: pharmacyId, messageType: '4', threadIdHash: '0' },
-      payload: { ciphertext: btoa('SCRIPT_TRANSFER:' + (claim.ndcHash || '') + ':' + (claim.memberWalletId || '') + ':' + (claim.leafIndex || '')), iv: '0', tag: '0', timestamp: Date.now() },
-    }).catch(function () { /* best effort */ });
+    API.messaging
+      .send({
+        message: { messageCommitment: '0', senderWalletId: myWallet, recipientWalletId: pharmacyId, messageType: '4', threadIdHash: '0' },
+        payload: {
+          ciphertext: btoa('SCRIPT_TRANSFER:' + (claim.ndcHash || '') + ':' + (claim.memberWalletId || '') + ':' + (claim.leafIndex || '')),
+          iv: '0',
+          tag: '0',
+          timestamp: Date.now(),
+        },
+      })
+      .catch(function () {
+        /* best effort */
+      });
 
     renderWorkstationColumns();
   }
@@ -912,8 +1067,7 @@
     if (reason === null) return; // cancelled
 
     // Need a prescriptionId from the fill proof result or the original claim
-    var prescriptionId = scriptWorkflow[key]?.prescriptionId
-      || claim.rxId || claim.prescriptionId || claim.id;
+    var prescriptionId = scriptWorkflow[key]?.prescriptionId || claim.rxId || claim.prescriptionId || claim.id;
     if (!prescriptionId) {
       toast('Cannot reverse: no prescription ID available', 'error');
       return;
@@ -926,25 +1080,28 @@
     renderWorkstationColumns();
 
     // Fire async ZK reversal proof via pharmacy route → sequencer
-    API.dispensing.reverse({
-      prescriptionId: prescriptionId,
-      reason: reason || 'Pharmacy reversal',
-    }).then(function (result) {
-      var jobKey = result.jobKey;
-      if (!jobKey) {
-        if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'error';
+    API.dispensing
+      .reverse({
+        prescriptionId: prescriptionId,
+        reason: reason || 'Pharmacy reversal',
+      })
+      .then(function (result) {
+        var jobKey = result.jobKey;
+        if (!jobKey) {
+          if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'error';
+          renderWorkstationColumns();
+          return;
+        }
+        pollReversalStatus(jobKey, key);
+      })
+      .catch(function (err) {
+        console.warn('[Reverse] Reversal proof failed:', err);
+        if (scriptWorkflow[key]) {
+          scriptWorkflow[key].reversalStatus = 'error';
+          scriptWorkflow[key].reversalError = err.message || 'Reversal failed';
+        }
         renderWorkstationColumns();
-        return;
-      }
-      pollReversalStatus(jobKey, key);
-    }).catch(function (err) {
-      console.warn('[Reverse] Reversal proof failed:', err);
-      if (scriptWorkflow[key]) {
-        scriptWorkflow[key].reversalStatus = 'error';
-        scriptWorkflow[key].reversalError = err.message || 'Reversal failed';
-      }
-      renderWorkstationColumns();
-    });
+      });
   }
 
   function pollReversalStatus(jobKey, key, attempts) {
@@ -956,24 +1113,27 @@
     }
 
     setTimeout(function () {
-      API.dispensing.reverseStatus(jobKey).then(function (resp) {
-        if (resp.status === 'complete') {
-          if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'complete';
-          setScriptStatus(findClaimByKey(key), 'reversed', { issue: 'Reversed — ZK proof verified' });
-          renderWorkstationColumns();
-          toast('Reversal ZK proof verified', 'success');
-        } else if (resp.status === 'error') {
-          if (scriptWorkflow[key]) {
-            scriptWorkflow[key].reversalStatus = 'error';
-            scriptWorkflow[key].reversalError = resp.error || 'Reversal proof failed';
+      API.dispensing
+        .reverseStatus(jobKey)
+        .then(function (resp) {
+          if (resp.status === 'complete') {
+            if (scriptWorkflow[key]) scriptWorkflow[key].reversalStatus = 'complete';
+            setScriptStatus(findClaimByKey(key), 'reversed', { issue: 'Reversed — ZK proof verified' });
+            renderWorkstationColumns();
+            toast('Reversal ZK proof verified', 'success');
+          } else if (resp.status === 'error') {
+            if (scriptWorkflow[key]) {
+              scriptWorkflow[key].reversalStatus = 'error';
+              scriptWorkflow[key].reversalError = resp.error || 'Reversal proof failed';
+            }
+            renderWorkstationColumns();
+          } else {
+            pollReversalStatus(jobKey, key, attempts + 1);
           }
-          renderWorkstationColumns();
-        } else {
+        })
+        .catch(function () {
           pollReversalStatus(jobKey, key, attempts + 1);
-        }
-      }).catch(function () {
-        pollReversalStatus(jobKey, key, attempts + 1);
-      });
+        });
     }, 5000);
   }
 
@@ -1007,7 +1167,8 @@
     var statusEl = $('#ws-verify-status');
     if (!statusEl || !verifyLine) return;
     var member = getVerifiedMemberWallet();
-    if (member !== verifyLine.walletId) { // another pharmacy is selected: this verification is not its own
+    if (member !== verifyLine.walletId) {
+      // another pharmacy is selected: this verification is not its own
       verifyLine = null;
       statusEl.classList.add('hidden');
       return;
@@ -1015,14 +1176,20 @@
     var mine = allClaims.filter(function (claim) {
       return (claim.memberWalletId || claim.patient || claim.patientWalletId || '') === member;
     });
-    var ready = mine.filter(function (claim) { return getScriptStatus(claim) === 'filled'; }).length;
+    var ready = mine.filter(function (claim) {
+      return getScriptStatus(claim) === 'filled';
+    }).length;
     // a script being dispensed stays in the Filled column until its proof is done
-    var dispensing = mine.filter(function (claim) { return getScriptStatus(claim) === 'dispensing'; }).length;
-    statusEl.textContent = verifyLine.text + (ready > 0
-      ? ' — ' + ready + ' script(s) ready for dispensing'
-      : dispensing > 0
-        ? ' — ' + dispensing + ' script(s) being dispensed'
-        : ' — no filled scripts awaiting pickup');
+    var dispensing = mine.filter(function (claim) {
+      return getScriptStatus(claim) === 'dispensing';
+    }).length;
+    statusEl.textContent =
+      verifyLine.text +
+      (ready > 0
+        ? ' — ' + ready + ' script(s) ready for dispensing'
+        : dispensing > 0
+          ? ' — ' + dispensing + ' script(s) being dispensed'
+          : ' — no filled scripts awaiting pickup');
   }
 
   // NFC Scan / Verify Member
@@ -1131,7 +1298,9 @@
     var qty = meta.quantityDispensed || claim.quantityDispensed || claim.quantity;
     // Every quantity in the drug's NADAC pricing unit (EA, ML or GM)
     var unit = claim.pricingUnit || meta.pricingUnit || (pricing && pricing.pricingUnit) || '';
-    var withUnit = function (q) { return q == null || q === '' ? '--' : String(q) + (unit ? ' ' + unit : ''); };
+    var withUnit = function (q) {
+      return q == null || q === '' ? '--' : String(q) + (unit ? ' ' + unit : '');
+    };
 
     const fields = [
       ['Leaf Index', claim.leafIndex || claim.index],
@@ -1149,10 +1318,27 @@
     // NADAC pricing breakdown: NADAC per unit x quantity = ingredient, + the plan's (or the network default) dispensing fee
     if (pricing) {
       fields.push(['--- COST BREAKDOWN ---', '']);
-      if (pricing.nadacUnitPriceE5 != null) fields.push(['NADAC Unit Price', formatNadacUnit(pricing.nadacUnitPriceE5) + ' / ' + (pricing.pricingUnit || 'unit')]);
+      if (pricing.nadacUnitPriceE5 != null)
+        fields.push(['NADAC Unit Price', formatNadacUnit(pricing.nadacUnitPriceE5) + ' / ' + (pricing.pricingUnit || 'unit')]);
       // a claim recorded before NADAC pricing has no unit price: its ingredient cost is not labelled NADAC
-      fields.push([pricing.nadacUnitPriceE5 != null ? 'Ingredient (NADAC x ' + withUnit(pricing.quantity != null ? pricing.quantity : qty) + ')' : (pricing.fillCount > 1 ? 'Ingredient (' + pricing.fillCount + ' fills)' : 'Ingredient'), formatCents(pricing.ingredientCostCents)]);
-      fields.push(['Dispensing Fee' + (pricing.fillCount > 1 ? 's' : '') + (pricing.dispensingFeeSource === 'network-default' ? ' (network default)' : pricing.dispensingFeeSource === 'plan' ? ' (plan)' : ''), formatCents(pricing.dispensingFeeCents)]);
+      fields.push([
+        pricing.nadacUnitPriceE5 != null
+          ? 'Ingredient (NADAC x ' + withUnit(pricing.quantity != null ? pricing.quantity : qty) + ')'
+          : pricing.fillCount > 1
+            ? 'Ingredient (' + pricing.fillCount + ' fills)'
+            : 'Ingredient',
+        formatCents(pricing.ingredientCostCents),
+      ]);
+      fields.push([
+        'Dispensing Fee' +
+          (pricing.fillCount > 1 ? 's' : '') +
+          (pricing.dispensingFeeSource === 'network-default'
+            ? ' (network default)'
+            : pricing.dispensingFeeSource === 'plan'
+              ? ' (plan)'
+              : ''),
+        formatCents(pricing.dispensingFeeCents),
+      ]);
       fields.push(['Total Drug Cost', formatCents(pricing.totalCostCents)]);
     }
     // Each fill's own pricing and split, beside the prescription's sums above
@@ -1160,13 +1346,28 @@
       fields.push(['--- FILLS ---', '']);
       claim.fills.forEach(function (f) {
         var fp = f.pricing || null;
-        var cost = fp && fp.nadacUnitPriceE5 != null
-          ? 'NADAC ' + formatNadacUnit(fp.nadacUnitPriceE5) + '/' + (fp.pricingUnit || unit || 'unit') + ' x ' + withUnit(f.quantityDispensed) + ' = ' + formatCents(f.ingredientCostCents)
-          : 'Ingredient ' + formatCents(f.ingredientCostCents) + ' for ' + withUnit(f.quantityDispensed);
+        var cost =
+          fp && fp.nadacUnitPriceE5 != null
+            ? 'NADAC ' +
+              formatNadacUnit(fp.nadacUnitPriceE5) +
+              '/' +
+              (fp.pricingUnit || unit || 'unit') +
+              ' x ' +
+              withUnit(f.quantityDispensed) +
+              ' = ' +
+              formatCents(f.ingredientCostCents)
+            : 'Ingredient ' + formatCents(f.ingredientCostCents) + ' for ' + withUnit(f.quantityDispensed);
         fields.push([
           'Fill ' + (Number(f.fillIndex) + 1) + (f.reversed ? ' (reversed)' : ''),
-          cost + ' + fee ' + formatCents(f.dispensingFeeCents) + ' = ' + formatCents(f.totalCostCents) +
-            '; patient ' + formatCents(f.patientPayCents) + ', plan ' + formatCents(f.planPayCents),
+          cost +
+            ' + fee ' +
+            formatCents(f.dispensingFeeCents) +
+            ' = ' +
+            formatCents(f.totalCostCents) +
+            '; patient ' +
+            formatCents(f.patientPayCents) +
+            ', plan ' +
+            formatCents(f.planPayCents),
         ]);
       });
     }
@@ -1175,7 +1376,10 @@
     // the prescription's sums over its standing fills, $0.00 included (patient + plan = the total drug cost above)
     fields.push(['Patient Copay', formatCents(claim.patientPayCents != null ? claim.patientPayCents : claim.patientPay)]);
     fields.push(['Plan Pays', formatCents(claim.planPayCents != null ? claim.planPayCents : claim.planPay)]);
-    fields.push(['Deductible Credit', formatCents(claim.deductibleCreditCents != null ? claim.deductibleCreditCents : claim.deductibleCredit)]);
+    fields.push([
+      'Deductible Credit',
+      formatCents(claim.deductibleCreditCents != null ? claim.deductibleCreditCents : claim.deductibleCredit),
+    ]);
     fields.push(['Workflow Status', status.toUpperCase()]);
     fields.push(['Member Verified', isScriptVerified(claim) ? 'YES' : 'NO']);
 
@@ -1201,14 +1405,27 @@
             fields.push(['Family Pooling', adj.familyPoolingReason || 'Applied']);
           }
           if (acc.after) {
-            fields.push(['Deductible After', formatCents(acc.after.deductiblePaidCents) + ' / ' + formatCents((acc.limits || {}).deductibleAmountCents)]);
+            fields.push([
+              'Deductible After',
+              formatCents(acc.after.deductiblePaidCents) + ' / ' + formatCents((acc.limits || {}).deductibleAmountCents),
+            ]);
             fields.push(['OOP After', formatCents(acc.after.oopPaidCents) + ' / ' + formatCents((acc.limits || {}).oopMaxCents)]);
           }
           if (timings.total) {
-            fields.push(['Proof Time', (timings.total / 1000).toFixed(1) + 's (' +
-              'Gate:' + (timings.proofGate / 1000).toFixed(1) + 's + ' +
-              'Rx:' + (timings.prescriptionStatus / 1000).toFixed(1) + 's + ' +
-              'Claim:' + (timings.accumulatorFulfillment / 1000).toFixed(1) + 's)']);
+            fields.push([
+              'Proof Time',
+              (timings.total / 1000).toFixed(1) +
+                's (' +
+                'Gate:' +
+                (timings.proofGate / 1000).toFixed(1) +
+                's + ' +
+                'Rx:' +
+                (timings.prescriptionStatus / 1000).toFixed(1) +
+                's + ' +
+                'Claim:' +
+                (timings.accumulatorFulfillment / 1000).toFixed(1) +
+                's)',
+            ]);
           }
         }
       } else if (w.proofStatus === 'error') {
@@ -1218,12 +1435,20 @@
       }
     }
 
-    let html = fields.map(function (f) {
-      return '<div class="modal-row">' +
-        '<span class="modal-row-label">' + escapeHtml(f[0]) + '</span>' +
-        '<span class="modal-row-value">' + escapeHtml(formatField(f[1])) + '</span>' +
-        '</div>';
-    }).join('');
+    let html = fields
+      .map(function (f) {
+        return (
+          '<div class="modal-row">' +
+          '<span class="modal-row-label">' +
+          escapeHtml(f[0]) +
+          '</span>' +
+          '<span class="modal-row-value">' +
+          escapeHtml(formatField(f[1])) +
+          '</span>' +
+          '</div>'
+        );
+      })
+      .join('');
 
     // Actions
     html += '<div class="modal-actions">';
@@ -1235,10 +1460,17 @@
     if (status === 'filled') {
       var isVerified = isScriptVerified(claim);
       if (isVerified) {
-        var toDispense = Math.max(0, Math.round(Number(claim.quantity || 0) * 1000) - Math.round(Number(claim.quantityDispensed || 0) * 1000)) / 1000;
-        html += '<button class="btn btn-primary" data-act="dispenseScript" data-key="' + escapeHtml(key) + '" data-close>Dispense' + (toDispense > 0 ? ' ' + escapeHtml(withUnit(toDispense)) : '') + ' (Collect Payment + Settle)</button>';
+        var toDispense =
+          Math.max(0, Math.round(Number(claim.quantity || 0) * 1000) - Math.round(Number(claim.quantityDispensed || 0) * 1000)) / 1000;
+        html +=
+          '<button class="btn btn-primary" data-act="dispenseScript" data-key="' +
+          escapeHtml(key) +
+          '" data-close>Dispense' +
+          (toDispense > 0 ? ' ' + escapeHtml(withUnit(toDispense)) : '') +
+          ' (Collect Payment + Settle)</button>';
       } else {
-        html += '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable dispensing</div>';
+        html +=
+          '<div style="color:var(--text-muted);font-size:12px;margin:8px 0">Verify member (NFC/attestation) to enable dispensing</div>';
         html += '<button class="btn" data-act="verifyMemberForScript" data-key="' + escapeHtml(key) + '" data-close>Verify Member</button>';
       }
     }
@@ -1300,7 +1532,7 @@
       if (summary.totalPlanPayCents !== undefined || summary.totalPlanPay !== undefined) {
         setText('#hist-plan-pay', formatCents(summary.totalPlanPayCents || summary.totalPlanPay));
       }
-    } catch (_) { }
+    } catch (_) {}
 
     await loadHistoryTable(params);
   }
@@ -1323,11 +1555,15 @@
         claims = await API.dispensing.list();
       }
 
-      const arr = Array.isArray(claims) ? claims : (claims.claims || claims.history || []);
+      const arr = Array.isArray(claims) ? claims : claims.claims || claims.history || [];
 
       // Filter by status if set
       const statusFilter = params?.statusFilter;
-      const filtered = statusFilter ? arr.filter(function (c) { return getScriptStatus(c) === statusFilter; }) : arr;
+      const filtered = statusFilter
+        ? arr.filter(function (c) {
+            return getScriptStatus(c) === statusFilter;
+          })
+        : arr;
 
       setText('#hist-count', filtered.length + ' scripts');
 
@@ -1336,20 +1572,42 @@
         return;
       }
 
-      tbody.innerHTML = filtered.map(function (c) {
-        const status = getScriptStatus(c);
-        const statusClass = 'status-' + status;
-        return '<tr>' +
-          '<td class="mono muted">' + escapeHtml(formatField(c.leafIndex || c.index)) + '</td>' +
-          '<td class="mono truncate">' + escapeHtml(truncate(c.memberWalletId || c.patient || c.patientWalletId, 16)) + '</td>' +
-          '<td class="mono truncate">' + escapeHtml(truncate(c.ndcHash || c.medication, 16)) + '</td>' +
-          '<td class="mono truncate">' + escapeHtml(truncate(c.prescriberWalletId || c.prescriber, 16)) + '</td>' +
-          '<td class="muted">' + escapeHtml(formatDate(c.dateOfService || c.date)) + '</td>' +
-          '<td class="text-yellow">' + escapeHtml(formatCents(c.patientPayCents || c.patientPay)) + '</td>' +
-          '<td class="text-blue">' + escapeHtml(formatCents(c.planPayCents || c.planPay)) + '</td>' +
-          '<td><span class="script-status-badge ' + statusClass + '">' + escapeHtml(status) + '</span></td>' +
-          '</tr>';
-      }).join('');
+      tbody.innerHTML = filtered
+        .map(function (c) {
+          const status = getScriptStatus(c);
+          const statusClass = 'status-' + status;
+          return (
+            '<tr>' +
+            '<td class="mono muted">' +
+            escapeHtml(formatField(c.leafIndex || c.index)) +
+            '</td>' +
+            '<td class="mono truncate">' +
+            escapeHtml(truncate(c.memberWalletId || c.patient || c.patientWalletId, 16)) +
+            '</td>' +
+            '<td class="mono truncate">' +
+            escapeHtml(truncate(c.ndcHash || c.medication, 16)) +
+            '</td>' +
+            '<td class="mono truncate">' +
+            escapeHtml(truncate(c.prescriberWalletId || c.prescriber, 16)) +
+            '</td>' +
+            '<td class="muted">' +
+            escapeHtml(formatDate(c.dateOfService || c.date)) +
+            '</td>' +
+            '<td class="text-yellow">' +
+            escapeHtml(formatCents(c.patientPayCents || c.patientPay)) +
+            '</td>' +
+            '<td class="text-blue">' +
+            escapeHtml(formatCents(c.planPayCents || c.planPay)) +
+            '</td>' +
+            '<td><span class="script-status-badge ' +
+            statusClass +
+            '">' +
+            escapeHtml(status) +
+            '</span></td>' +
+            '</tr>'
+          );
+        })
+        .join('');
     } catch (err) {
       tbody.innerHTML = '<tr><td colspan="8" class="text-red">Error: ' + escapeHtml(err.message) + '</td></tr>';
     }
@@ -1363,7 +1621,10 @@
 
     const params = {};
     if (patient) params.patient = patient;
-    if (start && end) { params.start = start; params.end = end; }
+    if (start && end) {
+      params.start = start;
+      params.end = end;
+    }
     if (statusFilter) params.statusFilter = statusFilter;
 
     loadHistoryTable(Object.keys(params).length > 0 ? params : null);
@@ -1394,20 +1655,36 @@
 
     try {
       const active = await API.dur.activeMedications(walletId);
-      const meds = Array.isArray(active) ? active : (active.medications || active.activeMedications || []);
+      const meds = Array.isArray(active) ? active : active.medications || active.activeMedications || [];
       setText('#dur-active-count', String(meds.length));
 
       if (meds.length === 0) {
-        setHTML('#dur-active-meds', '<li class="empty-state" style="padding:24px;"><div class="empty-state-desc">No active medications</div></li>');
+        setHTML(
+          '#dur-active-meds',
+          '<li class="empty-state" style="padding:24px;"><div class="empty-state-desc">No active medications</div></li>',
+        );
       } else {
-        setHTML('#dur-active-meds', meds.map(function (m) {
-          const remaining = m.daysRemaining !== undefined ? m.daysRemaining + ' days remaining' : '';
-          return '<li class="dur-med-item">' +
-            '<div><div class="dur-med-name">' + escapeHtml(truncate(m.ndcHash || m.medication || m.name, 20)) + '</div>' +
-            '<div class="dur-med-detail">' + (m.pharmacy ? 'Pharmacy: ' + escapeHtml(truncate(m.pharmacy || m.pharmacyWalletId, 16)) : '') + '</div></div>' +
-            '<div>' + (remaining ? '<span class="badge badge-green">' + escapeHtml(remaining) + '</span>' : '') + '</div>' +
-            '</li>';
-        }).join(''));
+        setHTML(
+          '#dur-active-meds',
+          meds
+            .map(function (m) {
+              const remaining = m.daysRemaining !== undefined ? m.daysRemaining + ' days remaining' : '';
+              return (
+                '<li class="dur-med-item">' +
+                '<div><div class="dur-med-name">' +
+                escapeHtml(truncate(m.ndcHash || m.medication || m.name, 20)) +
+                '</div>' +
+                '<div class="dur-med-detail">' +
+                (m.pharmacy ? 'Pharmacy: ' + escapeHtml(truncate(m.pharmacy || m.pharmacyWalletId, 16)) : '') +
+                '</div></div>' +
+                '<div>' +
+                (remaining ? '<span class="badge badge-green">' + escapeHtml(remaining) + '</span>' : '') +
+                '</div>' +
+                '</li>'
+              );
+            })
+            .join(''),
+        );
       }
     } catch (err) {
       setHTML('#dur-active-meds', '<li class="dur-alert dur-alert-warn">Unable to load: ' + escapeHtml(err.message) + '</li>');
@@ -1415,23 +1692,44 @@
 
     try {
       const history = await API.dur.fullHistory(walletId);
-      const claims = Array.isArray(history) ? history : (history.claims || history.history || []);
+      const claims = Array.isArray(history) ? history : history.claims || history.history || [];
       setText('#dur-history-count', String(claims.length));
 
       if (claims.length === 0) {
         setHTML('#dur-history-table', '<tr><td colspan="6" class="muted">No cross-pharmacy history found</td></tr>');
       } else {
-        setHTML('#dur-history-table', claims.map(function (c) {
-          const idx = c.leafIndex || c.index || '';
-          return '<tr>' +
-            '<td class="mono truncate">' + escapeHtml(truncate(c.ndcHash || c.medication, 16)) + '</td>' +
-            '<td class="mono truncate">' + escapeHtml(truncate(c.pharmacyWalletId || c.pharmacy, 16)) + '</td>' +
-            '<td class="muted">' + escapeHtml(formatDate(c.dateOfService || c.date)) + '</td>' +
-            '<td class="text-yellow">' + escapeHtml(formatCents(c.patientPayCents || c.patientPay)) + '</td>' +
-            '<td class="text-blue">' + escapeHtml(formatCents(c.planPayCents || c.planPay)) + '</td>' +
-            '<td>' + (idx !== '' ? '<button class="btn btn-sm" data-act="durClaimDetail" data-key="' + escapeHtml(String(idx)) + '">View</button>' : '--') + '</td>' +
-            '</tr>';
-        }).join(''));
+        setHTML(
+          '#dur-history-table',
+          claims
+            .map(function (c) {
+              const idx = c.leafIndex || c.index || '';
+              return (
+                '<tr>' +
+                '<td class="mono truncate">' +
+                escapeHtml(truncate(c.ndcHash || c.medication, 16)) +
+                '</td>' +
+                '<td class="mono truncate">' +
+                escapeHtml(truncate(c.pharmacyWalletId || c.pharmacy, 16)) +
+                '</td>' +
+                '<td class="muted">' +
+                escapeHtml(formatDate(c.dateOfService || c.date)) +
+                '</td>' +
+                '<td class="text-yellow">' +
+                escapeHtml(formatCents(c.patientPayCents || c.patientPay)) +
+                '</td>' +
+                '<td class="text-blue">' +
+                escapeHtml(formatCents(c.planPayCents || c.planPay)) +
+                '</td>' +
+                '<td>' +
+                (idx !== ''
+                  ? '<button class="btn btn-sm" data-act="durClaimDetail" data-key="' + escapeHtml(String(idx)) + '">View</button>'
+                  : '--') +
+                '</td>' +
+                '</tr>'
+              );
+            })
+            .join(''),
+        );
 
         // Multi-pharmacy alert
         var medPharmMap = {};
@@ -1446,9 +1744,13 @@
         var alertHtml = '';
         Object.keys(medPharmMap).forEach(function (med) {
           if (medPharmMap[med].size > 1) {
-            alertHtml += '<div class="dur-alert dur-alert-warn">' +
-              '<span class="fw-600">[MULTI-PHARMACY]</span> ' + escapeHtml(truncate(med, 20)) +
-              ' dispensed at ' + medPharmMap[med].size + ' pharmacies' +
+            alertHtml +=
+              '<div class="dur-alert dur-alert-warn">' +
+              '<span class="fw-600">[MULTI-PHARMACY]</span> ' +
+              escapeHtml(truncate(med, 20)) +
+              ' dispensed at ' +
+              medPharmMap[med].size +
+              ' pharmacies' +
               '</div>';
           }
         });
@@ -1473,19 +1775,23 @@
         var detail = '';
         if (result.existingClaim || result.claim) {
           var c = result.existingClaim || result.claim;
-          detail = ' — Last filled at ' + truncate(c.pharmacyWalletId || c.pharmacy, 16) +
-            ' on ' + formatDate(c.dateOfService || c.date);
+          detail = ' — Last filled at ' + truncate(c.pharmacyWalletId || c.pharmacy, 16) + ' on ' + formatDate(c.dateOfService || c.date);
         }
-        setHTML('#dur-check-result',
+        setHTML(
+          '#dur-check-result',
           '<div class="dur-alert dur-alert-danger">' +
-          '<span class="fw-600">[DUPLICATE THERAPY]</span> Active claim exists.' + escapeHtml(detail) + '</div>');
+            '<span class="fw-600">[DUPLICATE THERAPY]</span> Active claim exists.' +
+            escapeHtml(detail) +
+            '</div>',
+        );
       } else {
-        setHTML('#dur-check-result',
-          '<div class="dur-alert dur-alert-ok"><span class="fw-600">[CLEAR]</span> No duplicate therapy found.</div>');
+        setHTML(
+          '#dur-check-result',
+          '<div class="dur-alert dur-alert-ok"><span class="fw-600">[CLEAR]</span> No duplicate therapy found.</div>',
+        );
       }
     } catch (err) {
-      setHTML('#dur-check-result',
-        '<div class="dur-alert dur-alert-warn">Error: ' + escapeHtml(err.message) + '</div>');
+      setHTML('#dur-check-result', '<div class="dur-alert dur-alert-warn">Error: ' + escapeHtml(err.message) + '</div>');
     }
   }
 
@@ -1511,16 +1817,22 @@
       ];
 
       fields.forEach(function (f) {
-        html += '<div class="modal-row">' +
-          '<span class="modal-row-label">' + f[0] + '</span>' +
-          '<span class="modal-row-value">' + escapeHtml(formatField(f[1])) + '</span></div>';
+        html +=
+          '<div class="modal-row">' +
+          '<span class="modal-row-label">' +
+          f[0] +
+          '</span>' +
+          '<span class="modal-row-value">' +
+          escapeHtml(formatField(f[1])) +
+          '</span></div>';
       });
       html += '</div>';
 
       if (detail.merkleProof || detail.proof || detail.witness || detail.witnessJson) {
         var proof = detail.merkleProof || detail.proof || detail.witness || detail.witnessJson;
         html += '<div class="mb-8 fw-600 text-secondary">Merkle Proof</div>';
-        html += '<div style="background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; font-family:var(--font-mono); font-size:10px; max-height:180px; overflow-y:auto; word-break:break-all;">';
+        html +=
+          '<div style="background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px; font-family:var(--font-mono); font-size:10px; max-height:180px; overflow-y:auto; word-break:break-all;">';
         html += escapeHtml(typeof proof === 'string' ? proof : JSON.stringify(proof, null, 2));
         html += '</div>';
       }
@@ -1539,10 +1851,10 @@
     // Load all messages and build contact list
     try {
       var data = await API.messaging.inbox();
-      var inbox = Array.isArray(data) ? data : (data.messages || []);
+      var inbox = Array.isArray(data) ? data : data.messages || [];
 
       var sentData = await API.messaging.sent();
-      var sent = Array.isArray(sentData) ? sentData : (sentData.messages || []);
+      var sent = Array.isArray(sentData) ? sentData : sentData.messages || [];
 
       var allMessages = inbox.concat(sent);
 
@@ -1556,29 +1868,34 @@
       });
 
       // Build contacts from threads
-      msgContacts = Object.keys(threadMap).map(function (tid) {
-        var msgs = threadMap[tid].sort(function (a, b) {
-          return (b.timestamp || 0) - (a.timestamp || 0);
+      msgContacts = Object.keys(threadMap)
+        .map(function (tid) {
+          var msgs = threadMap[tid].sort(function (a, b) {
+            return (b.timestamp || 0) - (a.timestamp || 0);
+          });
+          var latest = msgs[0];
+          var other = latest.senderWalletId || latest.sender || latest.from || '';
+          if (other === (onboardingStatus?.walletId || onboardingStatus?.wallet)) {
+            other = latest.recipientWalletId || latest.recipient || latest.to || '';
+          }
+          return {
+            threadId: tid,
+            otherWallet: other,
+            latestMessage: latest.message || latest.body || latest.content || latest.subject || '',
+            latestTime: latest.timestamp,
+            messageCount: msgs.length,
+          };
+        })
+        .sort(function (a, b) {
+          return (b.latestTime || 0) - (a.latestTime || 0);
         });
-        var latest = msgs[0];
-        var other = latest.senderWalletId || latest.sender || latest.from || '';
-        if (other === (onboardingStatus?.walletId || onboardingStatus?.wallet)) {
-          other = latest.recipientWalletId || latest.recipient || latest.to || '';
-        }
-        return {
-          threadId: tid,
-          otherWallet: other,
-          latestMessage: latest.message || latest.body || latest.content || latest.subject || '',
-          latestTime: latest.timestamp,
-          messageCount: msgs.length,
-        };
-      }).sort(function (a, b) {
-        return (b.latestTime || 0) - (a.latestTime || 0);
-      });
 
       renderContactsList();
     } catch (err) {
-      setHTML('#msg-contacts-list', '<div class="empty-state"><div class="empty-state-desc text-red">Error: ' + escapeHtml(err.message) + '</div></div>');
+      setHTML(
+        '#msg-contacts-list',
+        '<div class="empty-state"><div class="empty-state-desc text-red">Error: ' + escapeHtml(err.message) + '</div></div>',
+      );
     }
   }
 
@@ -1589,19 +1906,35 @@
       return;
     }
 
-    container.innerHTML = msgContacts.map(function (c) {
-      var initial = (c.otherWallet || '?').slice(0, 2).toUpperCase();
-      var time = c.latestTime ? new Date(c.latestTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
-      var active = msgActiveThread === c.threadId ? ' active' : '';
-      return '<div class="msg-contact-item' + active + '" data-thread="' + escapeHtml(c.threadId) + '">' +
-        '<div class="msg-contact-avatar">' + escapeHtml(initial) + '</div>' +
-        '<div class="msg-contact-info">' +
-          '<div class="msg-contact-name">' + escapeHtml(truncate(c.otherWallet, 20)) + '</div>' +
-          '<div class="msg-contact-preview">' + escapeHtml(truncate(c.latestMessage, 30)) + '</div>' +
-        '</div>' +
-        '<span class="msg-contact-time">' + escapeHtml(time) + '</span>' +
-      '</div>';
-    }).join('');
+    container.innerHTML = msgContacts
+      .map(function (c) {
+        var initial = (c.otherWallet || '?').slice(0, 2).toUpperCase();
+        var time = c.latestTime ? new Date(c.latestTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+        var active = msgActiveThread === c.threadId ? ' active' : '';
+        return (
+          '<div class="msg-contact-item' +
+          active +
+          '" data-thread="' +
+          escapeHtml(c.threadId) +
+          '">' +
+          '<div class="msg-contact-avatar">' +
+          escapeHtml(initial) +
+          '</div>' +
+          '<div class="msg-contact-info">' +
+          '<div class="msg-contact-name">' +
+          escapeHtml(truncate(c.otherWallet, 20)) +
+          '</div>' +
+          '<div class="msg-contact-preview">' +
+          escapeHtml(truncate(c.latestMessage, 30)) +
+          '</div>' +
+          '</div>' +
+          '<span class="msg-contact-time">' +
+          escapeHtml(time) +
+          '</span>' +
+          '</div>'
+        );
+      })
+      .join('');
 
     // Click handlers
     container.querySelectorAll('.msg-contact-item').forEach(function (el) {
@@ -1616,14 +1949,16 @@
     msgActiveThread = threadIdHash;
     renderContactsList();
 
-    var contact = msgContacts.find(function (c) { return c.threadId === threadIdHash; });
+    var contact = msgContacts.find(function (c) {
+      return c.threadId === threadIdHash;
+    });
     setText('#msg-conv-title', contact ? truncate(contact.otherWallet, 28) : 'Thread');
     showEl('#msg-conv-input');
     setHTML('#msg-conv-body', '<div class="loading">Loading...</div>');
 
     try {
       var data = await API.messaging.thread(threadIdHash);
-      var messages = Array.isArray(data) ? data : (data.messages || []);
+      var messages = Array.isArray(data) ? data : data.messages || [];
 
       var myWallet = onboardingStatus?.walletId || onboardingStatus?.wallet || '';
 
@@ -1633,18 +1968,28 @@
       }
 
       // Sort oldest first
-      messages.sort(function (a, b) { return (a.timestamp || 0) - (b.timestamp || 0); });
+      messages.sort(function (a, b) {
+        return (a.timestamp || 0) - (b.timestamp || 0);
+      });
 
-      var html = messages.map(function (m) {
-        var sender = m.senderWalletId || m.sender || m.from || '';
-        var isOutgoing = sender === myWallet;
-        var time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
-        var body = m.message || m.body || m.content || '';
-        return '<div class="msg-bubble ' + (isOutgoing ? 'outgoing' : 'incoming') + '">' +
-          escapeHtml(body) +
-          '<div class="msg-bubble-meta">' + escapeHtml(time) + '</div>' +
-        '</div>';
-      }).join('');
+      var html = messages
+        .map(function (m) {
+          var sender = m.senderWalletId || m.sender || m.from || '';
+          var isOutgoing = sender === myWallet;
+          var time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+          var body = m.message || m.body || m.content || '';
+          return (
+            '<div class="msg-bubble ' +
+            (isOutgoing ? 'outgoing' : 'incoming') +
+            '">' +
+            escapeHtml(body) +
+            '<div class="msg-bubble-meta">' +
+            escapeHtml(time) +
+            '</div>' +
+            '</div>'
+          );
+        })
+        .join('');
 
       setHTML('#msg-conv-body', html);
 
@@ -1661,7 +2006,9 @@
     var text = $('#msg-input-text').value.trim();
     if (!text) return;
 
-    var contact = msgContacts.find(function (c) { return c.threadId === msgActiveThread; });
+    var contact = msgContacts.find(function (c) {
+      return c.threadId === msgActiveThread;
+    });
     if (!contact) return;
 
     $('#msg-input-text').value = '';
@@ -1669,7 +2016,13 @@
     try {
       var myWallet = onboardingStatus?.walletId || onboardingStatus?.wallet || '';
       await API.messaging.send({
-        message: { messageCommitment: '0', senderWalletId: myWallet, recipientWalletId: contact.otherWallet, messageType: '1', threadIdHash: msgActiveThread },
+        message: {
+          messageCommitment: '0',
+          senderWalletId: myWallet,
+          recipientWalletId: contact.otherWallet,
+          messageType: '1',
+          threadIdHash: msgActiveThread,
+        },
         payload: { ciphertext: btoa(text), iv: '0', tag: '0', timestamp: Date.now() },
       });
       // Reload thread
@@ -1768,8 +2121,12 @@
       var statsEl = $('#wiz-done-stats');
       if (statsEl) {
         statsEl.innerHTML =
-          '<div class="stat-card"><div class="stat-label">Phase</div><div class="stat-value accent">' + escapeHtml(status.phase || 'READY') + '</div></div>' +
-          '<div class="stat-card"><div class="stat-label">Wallet</div><div class="stat-value text-mono" style="font-size:11px; word-break:break-all;">' + escapeHtml(status.walletId || status.wallet || '--') + '</div></div>';
+          '<div class="stat-card"><div class="stat-label">Phase</div><div class="stat-value accent">' +
+          escapeHtml(status.phase || 'READY') +
+          '</div></div>' +
+          '<div class="stat-card"><div class="stat-label">Wallet</div><div class="stat-value text-mono" style="font-size:11px; word-break:break-all;">' +
+          escapeHtml(status.walletId || status.wallet || '--') +
+          '</div></div>';
       }
     }
   }
@@ -1831,7 +2188,9 @@
         resultEl.classList.remove('error');
         resultEl.textContent = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
       }
-      setTimeout(function () { loadOnboarding(); }, 800);
+      setTimeout(function () {
+        loadOnboarding();
+      }, 800);
     } catch (err) {
       if (resultEl) {
         resultEl.classList.add('error');
@@ -1850,10 +2209,21 @@
     try {
       var status = await API.onboarding.status();
       var html = '<div>';
-      html += '<div class="flex justify-between mb-8"><span class="text-secondary">Phase</span><span class="fw-600 text-accent">' + escapeHtml(status.phase || '--') + '</span></div>';
-      html += '<div class="flex justify-between mb-8"><span class="text-secondary">Wallet</span><span class="fw-600 text-mono" style="font-size:11px;">' + escapeHtml(truncate(status.walletId || status.wallet, 28)) + '</span></div>';
+      html +=
+        '<div class="flex justify-between mb-8"><span class="text-secondary">Phase</span><span class="fw-600 text-accent">' +
+        escapeHtml(status.phase || '--') +
+        '</span></div>';
+      html +=
+        '<div class="flex justify-between mb-8"><span class="text-secondary">Wallet</span><span class="fw-600 text-mono" style="font-size:11px;">' +
+        escapeHtml(truncate(status.walletId || status.wallet, 28)) +
+        '</span></div>';
       if (status.compiled !== undefined) {
-        html += '<div class="flex justify-between mb-8"><span class="text-secondary">Compiled</span><span class="fw-600 ' + (status.compiled ? 'text-green' : 'text-red') + '">' + (status.compiled ? 'Yes' : 'No') + '</span></div>';
+        html +=
+          '<div class="flex justify-between mb-8"><span class="text-secondary">Compiled</span><span class="fw-600 ' +
+          (status.compiled ? 'text-green' : 'text-red') +
+          '">' +
+          (status.compiled ? 'Yes' : 'No') +
+          '</span></div>';
       }
       html += '</div>';
       setHTML('#proof-status', html);
@@ -1863,25 +2233,48 @@
 
     try {
       var timings = await API.proof.timings();
-      var entries = Array.isArray(timings) ? timings : (timings.timings || Object.entries(timings || {}).map(function (e) { return { name: e[0], ms: e[1] }; }));
+      var entries = Array.isArray(timings)
+        ? timings
+        : timings.timings ||
+          Object.entries(timings || {}).map(function (e) {
+            return { name: e[0], ms: e[1] };
+          });
 
       if (entries.length === 0) {
         setHTML('#proof-timings', '<div class="text-muted">No proof timings recorded yet.</div>');
         return;
       }
 
-      var maxMs = Math.max.apply(null, entries.map(function (e) { return e.ms || e.duration || e.time || 0; }));
+      var maxMs = Math.max.apply(
+        null,
+        entries.map(function (e) {
+          return e.ms || e.duration || e.time || 0;
+        }),
+      );
 
-      setHTML('#proof-timings', entries.map(function (e) {
-        var ms = e.ms || e.duration || e.time || 0;
-        var pct = maxMs > 0 ? Math.max(2, (ms / maxMs) * 100) : 2;
-        var label = e.name || e.label || e.program || '--';
-        var secs = (ms / 1000).toFixed(2);
-        return '<div class="timing-bar">' +
-          '<div class="timing-label">' + escapeHtml(label) + '</div>' +
-          '<div class="timing-track"><div class="timing-fill" style="width:' + pct + '%;">' + secs + 's</div></div>' +
-          '</div>';
-      }).join(''));
+      setHTML(
+        '#proof-timings',
+        entries
+          .map(function (e) {
+            var ms = e.ms || e.duration || e.time || 0;
+            var pct = maxMs > 0 ? Math.max(2, (ms / maxMs) * 100) : 2;
+            var label = e.name || e.label || e.program || '--';
+            var secs = (ms / 1000).toFixed(2);
+            return (
+              '<div class="timing-bar">' +
+              '<div class="timing-label">' +
+              escapeHtml(label) +
+              '</div>' +
+              '<div class="timing-track"><div class="timing-fill" style="width:' +
+              pct +
+              '%;">' +
+              secs +
+              's</div></div>' +
+              '</div>'
+            );
+          })
+          .join(''),
+      );
     } catch (_) {
       setHTML('#proof-timings', '<div class="text-muted">No proof timings available.</div>');
     }
@@ -1958,7 +2351,10 @@
       verifyMember();
     });
     $('#ws-verify-wallet').addEventListener('keypress', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); verifyMember(); }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        verifyMember();
+      }
     });
     $('#ws-verify-wallet').addEventListener('input', function () {
       // Auto-resize textarea for JSON attestation payloads
@@ -2009,7 +2405,10 @@
     for (var i = 0; i <= 4; i++) {
       (function (step) {
         var btn = $('#wiz-btn-' + step);
-        if (btn) btn.addEventListener('click', function () { wizardAction(step); });
+        if (btn)
+          btn.addEventListener('click', function () {
+            wizardAction(step);
+          });
       })(i);
     }
 
@@ -2024,10 +2423,19 @@
     if (!sel) return;
     var current = getSelectedPharmacy();
     sel.innerHTML = PHARMACIES.map(function (p) {
-      var loc = p.city ? (p.city + ', ' + p.state) : (p.state || '');
-      return '<option value="' + p.npi + '"' + (p.npi === current.npi ? ' selected' : '') + '>' +
-        escapeHtml(p.name) + ' — ' + escapeHtml(p.type || 'Pharmacy') + (loc ? ' (' + escapeHtml(loc) + ')' : '') +
-        '</option>';
+      var loc = p.city ? p.city + ', ' + p.state : p.state || '';
+      return (
+        '<option value="' +
+        p.npi +
+        '"' +
+        (p.npi === current.npi ? ' selected' : '') +
+        '>' +
+        escapeHtml(p.name) +
+        ' — ' +
+        escapeHtml(p.type || 'Pharmacy') +
+        (loc ? ' (' + escapeHtml(loc) + ')' : '') +
+        '</option>'
+      );
     }).join('');
     sel.addEventListener('change', function () {
       switchPharmacy(sel.value);
@@ -2065,7 +2473,9 @@
 
     btn.addEventListener('click', function () {
       var p = getSelectedPharmacy();
-      var idx = PHARMACIES.findIndex(function (x) { return x.npi === p.npi; });
+      var idx = PHARMACIES.findIndex(function (x) {
+        return x.npi === p.npi;
+      });
       showBadgeModal(p, idx >= 0 ? idx : 0);
     });
 
@@ -2095,7 +2505,9 @@
     stepEls.forEach(function (el) {
       el.classList.remove('active', 'done', 'error');
       var spans = el.querySelectorAll('.step-time, .step-error');
-      spans.forEach(function (s) { s.remove(); });
+      spans.forEach(function (s) {
+        s.remove();
+      });
     });
     result.style.display = 'none';
     result.innerHTML = '';
@@ -2143,7 +2555,9 @@
     }
 
     function sleep(ms) {
-      return new Promise(function (resolve) { setTimeout(resolve, ms); });
+      return new Promise(function (resolve) {
+        setTimeout(resolve, ms);
+      });
     }
 
     // Step 1: Tap
@@ -2206,19 +2620,34 @@
 
       if (data.authenticated) {
         card.classList.add('badge-authenticated');
-        var sessionEvt = events.find(function (e) { return e.type === 'badge:session'; });
-        var proofEvt = events.find(function (e) { return e.type === 'badge:proof'; });
+        var sessionEvt = events.find(function (e) {
+          return e.type === 'badge:session';
+        });
+        var proofEvt = events.find(function (e) {
+          return e.type === 'badge:proof';
+        });
         result.style.display = 'block';
         result.innerHTML =
           '<div class="badge-result-success">' +
           '<div class="badge-result-title">Authenticated</div>' +
-          '<div class="badge-result-detail">Pharmacy: ' + escapeHtml(pharmacy.name) + '</div>' +
-          '<div class="badge-result-detail">Wallet: ' + escapeHtml((events.find(function (e) { return e.type === 'badge:derive'; }) || {}).data?.walletId?.slice(0, 20) || '--') + '...</div>' +
-          (proofEvt && proofEvt.data && proofEvt.data.proofHash ? '<div class="badge-result-detail">ZK Proof: ' + escapeHtml(proofEvt.data.proofHash) + '</div>' : '') +
+          '<div class="badge-result-detail">Pharmacy: ' +
+          escapeHtml(pharmacy.name) +
+          '</div>' +
+          '<div class="badge-result-detail">Wallet: ' +
+          escapeHtml(
+            (
+              events.find(function (e) {
+                return e.type === 'badge:derive';
+              }) || {}
+            ).data?.walletId?.slice(0, 20) || '--',
+          ) +
+          '...</div>' +
+          (proofEvt && proofEvt.data && proofEvt.data.proofHash
+            ? '<div class="badge-result-detail">ZK Proof: ' + escapeHtml(proofEvt.data.proofHash) + '</div>'
+            : '') +
           (sessionEvt ? '<div class="badge-result-detail">Session: 8h shift</div>' : '') +
           '</div>';
       }
-
     } catch (err) {
       errorStep('decrypt', err.message || 'Network error');
       result.style.display = 'block';
@@ -2233,7 +2662,9 @@
       if (json.ok && Array.isArray(json.data)) {
         PHARMACIES = json.data;
       }
-    } catch (_) { /* server not ready — PHARMACIES stays empty */ }
+    } catch (_) {
+      /* server not ready — PHARMACIES stays empty */
+    }
   }
 
   async function init() {
@@ -2253,5 +2684,4 @@
   } else {
     init();
   }
-
 })();

@@ -53,11 +53,7 @@ const TEST_ADMIN_TOKEN = 'test-admin-token';
 // ─── Helpers ────────────────────────────────────────────────
 
 /** Create a LeviathanConfig with round-robin failover chain */
-function makeConfig(
-  partitionCount: number,
-  primaryPartition: number,
-  nodeIds: string[],
-): LeviathanConfig {
+function makeConfig(partitionCount: number, primaryPartition: number, nodeIds: string[]): LeviathanConfig {
   const failoverChain = new Map<number, string[]>();
   for (let i = 0; i < partitionCount; i++) {
     const chain = [...nodeIds.slice(i), ...nodeIds.slice(0, i)];
@@ -129,11 +125,7 @@ function walletForPartition(partitionIndex: number, partitionCount: number): str
 }
 
 /** Create a mock L2Receipt for a given partition */
-function mockReceipt(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): L2Receipt {
+function mockReceipt(seqNum: bigint, partitionIndex: number, partitionCount: number): L2Receipt {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     receiptId: `l2-p${partitionIndex}-${seqNum.toString().padStart(8, '0')}`,
@@ -150,11 +142,7 @@ function mockReceipt(
 }
 
 /** Create a mock AuditEvent for a given partition */
-function mockAuditEvent(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): AuditEvent {
+function mockAuditEvent(seqNum: bigint, partitionIndex: number, partitionCount: number): AuditEvent {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     sequenceNumber: seqNum,
@@ -437,7 +425,9 @@ describe('Claim 8: Partitioned Sequencer Network', () => {
     );
     leviathan.start();
 
-    const cleanupLev = async () => { await leviathan.stop(); };
+    const cleanupLev = async () => {
+      await leviathan.stop();
+    };
 
     try {
       // Collect events to verify partition routing
@@ -449,9 +439,7 @@ describe('Claim 8: Partitioned Sequencer Network', () => {
       expect(batch0).toBeNull(); // No pending proofs
 
       // Verify batch:empty event targets partition 0
-      const emptyP0 = events.find(
-        (e) => e.type === 'batch:empty' && e.data.partitionIndex === 0,
-      );
+      const emptyP0 = events.find((e) => e.type === 'batch:empty' && e.data.partitionIndex === 0);
       expect(emptyP0).toBeDefined();
 
       // forceBatch on partition 1 — executeBatchCycle doesn't check leadership
@@ -459,9 +447,7 @@ describe('Claim 8: Partitioned Sequencer Network', () => {
       const batch1 = await leviathan.forceBatch(1);
       expect(batch1).toBeNull(); // No pending proofs
 
-      const emptyP1 = events.find(
-        (e) => e.type === 'batch:empty' && e.data.partitionIndex === 1,
-      );
+      const emptyP1 = events.find((e) => e.type === 'batch:empty' && e.data.partitionIndex === 1);
       expect(emptyP1).toBeDefined();
 
       // Verify l2Only flag

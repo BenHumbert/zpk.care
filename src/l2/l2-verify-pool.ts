@@ -159,9 +159,7 @@ export class VerifyPool {
    * that fails before it is ready refuses the start and is not replaced: the boot stops instead.
    */
   async start(): Promise<{ vkHash: string; compileMs: number }> {
-    const results = await Promise.all(
-      Array.from({ length: this.size }, () => this.spawn({ initial: true })),
-    );
+    const results = await Promise.all(Array.from({ length: this.size }, () => this.spawn({ initial: true })));
     this.vkHash = results[0].vkHash;
     return { vkHash: results[0].vkHash, compileMs: Math.max(...results.map((r) => r.compileMs)) };
   }
@@ -187,7 +185,9 @@ export class VerifyPool {
       if (w.readyTimer) clearTimeout(w.readyTimer);
       try {
         w.child.send({ type: 'shutdown' } satisfies VerifyRequest);
-      } catch { /* already gone */ }
+      } catch {
+        /* already gone */
+      }
     }
     this.workers = [];
   }
@@ -200,10 +200,7 @@ export class VerifyPool {
     return async (proof: StateTransitionProof): Promise<void> => {
       const valid = await this.verifyProof(proof.toJSON());
       if (!valid) {
-        throw new ProofRejected(
-          'invalid',
-          "Proof rejected: not valid against this deployment's verification key",
-        );
+        throw new ProofRejected('invalid', "Proof rejected: not valid against this deployment's verification key");
       }
     };
   }
@@ -267,8 +264,16 @@ export class VerifyPool {
       env: childEnvironment(process.env, {}), // A9: a verifier holds no credential
     });
     const worker: Worker = {
-      id, child, ready: false, jobs: 0, busy: false, retired: false,
-      initial: role.initial ?? false, readyTimer: null, replaces: role.replaces ?? null, recycleAbandoned: false,
+      id,
+      child,
+      ready: false,
+      jobs: 0,
+      busy: false,
+      retired: false,
+      initial: role.initial ?? false,
+      readyTimer: null,
+      replaces: role.replaces ?? null,
+      recycleAbandoned: false,
     };
     this.workers.push(worker);
 
@@ -311,7 +316,9 @@ export class VerifyPool {
               if (this.verified === 1 || this.verified % 50 === 0) {
                 console.log(
                   '  [verify] %d verified, %d ms last, %d ms mean',
-                  this.verified, msg.verifyMs, Math.round(this.totalMs / this.verified),
+                  this.verified,
+                  msg.verifyMs,
+                  Math.round(this.totalMs / this.verified),
                 );
               }
               entry.resolve(msg.valid);
@@ -322,13 +329,7 @@ export class VerifyPool {
           case 'error': {
             worker.busy = false;
             worker.jobs++;
-            this.fail(
-              msg.id,
-              new ProofRejected(
-                msg.undecodable ? 'undecodable' : 'invalid',
-                `Proof rejected: ${msg.message}`,
-              ),
-            );
+            this.fail(msg.id, new ProofRejected(msg.undecodable ? 'undecodable' : 'invalid', `Proof rejected: ${msg.message}`));
             this.afterJob(worker);
             break;
           }
@@ -415,7 +416,9 @@ export class VerifyPool {
     if (this.recycleAfterJobs <= 0 || worker.jobs < this.recycleAfterJobs) return;
     if (this.workers.length > this.size) return;
     console.log('  [verify] recycling worker %d after %d verifications', worker.id, worker.jobs);
-    this.spawn({ replaces: worker }).catch(() => { /* failed() has dealt with it, and said so */ });
+    this.spawn({ replaces: worker }).catch(() => {
+      /* failed() has dealt with it, and said so */
+    });
   }
 
   /**
@@ -428,7 +431,11 @@ export class VerifyPool {
     const worker = this.workers.find((w) => w.id === workerId);
     if (!worker) return; // its exit came first, and dealt with it
     if (worker.retired) {
-      try { worker.child.kill(); } catch { /* already gone */ }
+      try {
+        worker.child.kill();
+      } catch {
+        /* already gone */
+      }
       return;
     }
     this.failed(worker, reason);
@@ -453,7 +460,11 @@ export class VerifyPool {
     if (this.shuttingDown || worker.retired) return;
     const neverReady = worker.readyTimer !== null;
     this.retire(worker);
-    try { worker.child.kill(); } catch { /* already gone */ }
+    try {
+      worker.child.kill();
+    } catch {
+      /* already gone */
+    }
     for (const [jobId, entry] of [...this.pending]) {
       if (entry.workerId === worker.id) {
         this.fail(jobId, new ProofRejected('timeout', 'Proof rejected: verifier process unavailable'));
@@ -464,10 +475,7 @@ export class VerifyPool {
     const predecessor = worker.replaces;
     if (predecessor) {
       worker.replaces = null;
-      console.error(
-        '  [verify] the replacement for worker %d failed (%s); worker %d serves on',
-        predecessor.id, reason, predecessor.id,
-      );
+      console.error('  [verify] the replacement for worker %d failed (%s); worker %d serves on', predecessor.id, reason, predecessor.id);
       if (!this.spendRestart(reason, `Worker ${predecessor.id} serves on and is no longer recycled.`)) {
         predecessor.recycleAbandoned = true;
       }
@@ -495,7 +503,9 @@ export class VerifyPool {
   private stop(worker: Worker): void {
     try {
       worker.child.send({ type: 'shutdown' } satisfies VerifyRequest);
-    } catch { /* already gone */ }
+    } catch {
+      /* already gone */
+    }
   }
 
   /**
@@ -506,10 +516,7 @@ export class VerifyPool {
    */
   private spendRestart(reason: string, consequence: string): boolean {
     if (this.restarts >= this.maxRestarts) {
-      console.error(
-        '  [verify] worker replacement limit reached (%d). %s Last reason: %s',
-        this.maxRestarts, consequence, reason,
-      );
+      console.error('  [verify] worker replacement limit reached (%d). %s Last reason: %s', this.maxRestarts, consequence, reason);
       return false;
     }
     this.restarts++;

@@ -42,18 +42,18 @@ import HID from 'node-hid';
 
 // ─── LPCUSBSIO Constants ────────────────────────────────────
 
-const LPCUSBSIO_VID = 0x1FC9;
+const LPCUSBSIO_VID = 0x1fc9;
 const LPCUSBSIO_PID = 0x0088;
 
 // I2C request types
-const HID_I2C_REQ_INIT_PORT    = 0x01;
+const HID_I2C_REQ_INIT_PORT = 0x01;
 const HID_I2C_REQ_DEVICE_WRITE = 0x03;
-const HID_I2C_REQ_DEVICE_READ  = 0x04;
+const HID_I2C_REQ_DEVICE_READ = 0x04;
 
 // I2C transfer options
-const I2C_TRANSFER_START_BIT  = 0x01;
-const I2C_TRANSFER_STOP_BIT   = 0x02;
-const I2C_TRANSFER_NACK_LAST  = 0x08;
+const I2C_TRANSFER_START_BIT = 0x01;
+const I2C_TRANSFER_STOP_BIT = 0x02;
+const I2C_TRANSFER_NACK_LAST = 0x08;
 
 // PN7150 I2C slave address (7-bit)
 const PN7150_I2C_ADDR = 0x28;
@@ -61,35 +61,35 @@ const PN7150_I2C_ADDR = 0x28;
 // ─── NCI Constants ──────────────────────────────────────────
 
 // Message Types (MT) — upper 3 bits of byte 0
-const NCI_MT_CMD  = 0x20;
-const NCI_MT_NTF  = 0x60;
+const NCI_MT_CMD = 0x20;
+const NCI_MT_NTF = 0x60;
 const NCI_MT_DATA = 0x00;
 
 // Group IDs (GID) — lower 4 bits of byte 0
 const NCI_GID_CORE = 0x00;
-const NCI_GID_RF   = 0x01;
+const NCI_GID_RF = 0x01;
 
 // Opcode Identifiers (OID)
-const NCI_OID_CORE_RESET       = 0x00;
-const NCI_OID_CORE_INIT        = 0x01;
-const NCI_OID_RF_DISCOVER_MAP  = 0x00;
-const NCI_OID_RF_DISCOVER      = 0x03;
-const NCI_OID_RF_DEACTIVATE    = 0x06;
+const NCI_OID_CORE_RESET = 0x00;
+const NCI_OID_CORE_INIT = 0x01;
+const NCI_OID_RF_DISCOVER_MAP = 0x00;
+const NCI_OID_RF_DISCOVER = 0x03;
+const NCI_OID_RF_DEACTIVATE = 0x06;
 
 // RF Interface Activated Notification
 const NCI_RF_INTF_ACTIVATED_NTF_OID = 0x05;
 
 // Deactivation types
-const NCI_DEACTIVATE_IDLE      = 0x00;
+const NCI_DEACTIVATE_IDLE = 0x00;
 const NCI_DEACTIVATE_DISCOVERY = 0x03;
 
 // T2T commands (sent via NCI Data Message)
-const T2T_CMD_READ  = 0x30;
-const T2T_CMD_WRITE = 0xA2;
+const T2T_CMD_READ = 0x30;
+const T2T_CMD_WRITE = 0xa2;
 
 // NDEF TLV
-const NDEF_TLV_TYPE       = 0x03;
-const NDEF_TLV_TERMINATOR = 0xFE;
+const NDEF_TLV_TYPE = 0x03;
+const NDEF_TLV_TERMINATOR = 0xfe;
 
 // NCI status codes
 const NCI_STATUS_OK = 0x00;
@@ -103,9 +103,7 @@ export type { NfcBridgeState, NfcBridgeStatus, NfcTagEvent, NdefPayload };
 
 /** Result of parsing an NDEF message from a tag */
 export type ParsedNdefPayload =
-  | { type: 'member-id'; walletId: string }
-  | { type: 'credential-attestation'; attestation: Record<string, unknown> }
-  | null;
+  { type: 'member-id'; walletId: string } | { type: 'credential-attestation'; attestation: Record<string, unknown> } | null;
 
 interface PendingWrite {
   payload: NdefPayload;
@@ -142,14 +140,10 @@ function _buildMemberIdNdef(walletId: string): Buffer {
   const payloadBytes = Buffer.from(json, 'utf8');
   const langCode = Buffer.from('en', 'ascii');
   const statusByte = 0x02; // UTF-8, language code length = 2
-  const textPayload = Buffer.concat([
-    Buffer.from([statusByte]),
-    langCode,
-    payloadBytes,
-  ]);
+  const textPayload = Buffer.concat([Buffer.from([statusByte]), langCode, payloadBytes]);
 
   // Flags: MB=1, ME=1, CF=0, SR=1, IL=0, TNF=0x01 (Well-Known)
-  const flags = 0xD1;
+  const flags = 0xd1;
   const typeField = Buffer.from('T', 'ascii');
   const payloadLen = textPayload.length;
 
@@ -157,11 +151,7 @@ function _buildMemberIdNdef(walletId: string): Buffer {
     throw new Error(`Member-ID payload too large: ${payloadLen} bytes (max 255)`);
   }
 
-  return Buffer.concat([
-    Buffer.from([flags, typeField.length, payloadLen]),
-    typeField,
-    textPayload,
-  ]);
+  return Buffer.concat([Buffer.from([flags, typeField.length, payloadLen]), typeField, textPayload]);
 }
 
 /**
@@ -182,24 +172,20 @@ function _buildAttestationNdef(attestation: Record<string, unknown>): Buffer {
   if (payloadLen <= 255) {
     // Short Record (SR=1): 1-byte payload length
     // Flags: MB=1, ME=1, CF=0, SR=1, IL=0, TNF=0x04 (External)
-    const flags = 0xD4;
-    return Buffer.concat([
-      Buffer.from([flags, typeField.length, payloadLen]),
-      typeField,
-      payloadBytes,
-    ]);
+    const flags = 0xd4;
+    return Buffer.concat([Buffer.from([flags, typeField.length, payloadLen]), typeField, payloadBytes]);
   } else {
     // Long Record (SR=0): 4-byte payload length
     // Flags: MB=1, ME=1, CF=0, SR=0, IL=0, TNF=0x04 (External)
-    const flags = 0xC4;
+    const flags = 0xc4;
     return Buffer.concat([
       Buffer.from([
         flags,
         typeField.length,
-        (payloadLen >> 24) & 0xFF,
-        (payloadLen >> 16) & 0xFF,
-        (payloadLen >> 8) & 0xFF,
-        payloadLen & 0xFF,
+        (payloadLen >> 24) & 0xff,
+        (payloadLen >> 16) & 0xff,
+        (payloadLen >> 8) & 0xff,
+        payloadLen & 0xff,
       ]),
       typeField,
       payloadBytes,
@@ -214,14 +200,10 @@ function _buildAttestationNdef(attestation: Record<string, unknown>): Buffer {
 function wrapNdefTlv(ndefMessage: Buffer): Buffer {
   const len = ndefMessage.length;
   if (len < 255) {
-    return Buffer.concat([
-      Buffer.from([NDEF_TLV_TYPE, len]),
-      ndefMessage,
-      Buffer.from([NDEF_TLV_TERMINATOR]),
-    ]);
+    return Buffer.concat([Buffer.from([NDEF_TLV_TYPE, len]), ndefMessage, Buffer.from([NDEF_TLV_TERMINATOR])]);
   } else {
     return Buffer.concat([
-      Buffer.from([NDEF_TLV_TYPE, 0xFF, (len >> 8) & 0xFF, len & 0xFF]),
+      Buffer.from([NDEF_TLV_TYPE, 0xff, (len >> 8) & 0xff, len & 0xff]),
       ndefMessage,
       Buffer.from([NDEF_TLV_TERMINATOR]),
     ]);
@@ -236,7 +218,8 @@ function parseNdefTlv(data: Buffer): Buffer | null {
   while (offset < data.length) {
     const type = data[offset];
     if (type === NDEF_TLV_TERMINATOR) break;
-    if (type === 0x00) { // NULL TLV (padding)
+    if (type === 0x00) {
+      // NULL TLV (padding)
       offset++;
       continue;
     }
@@ -245,7 +228,7 @@ function parseNdefTlv(data: Buffer): Buffer | null {
     if (offset >= data.length) break;
 
     let length: number;
-    if (data[offset] === 0xFF) {
+    if (data[offset] === 0xff) {
       if (offset + 2 >= data.length) break;
       length = (data[offset + 1] << 8) | data[offset + 2];
       offset += 3;
@@ -297,7 +280,7 @@ function parseNdefPayload(ndefMessage: Buffer): ParsedNdefPayload {
 
   if (tnf === 0x01 && typeField === 'T') {
     const statusByte = payload[0];
-    const langLen = statusByte & 0x3F;
+    const langLen = statusByte & 0x3f;
     const textStart = 1 + langLen;
     if (textStart >= payload.length) return null;
     const text = payload.subarray(textStart).toString('utf8');
@@ -306,7 +289,9 @@ function parseNdefPayload(ndefMessage: Buffer): ParsedNdefPayload {
       if (parsed.v === 1 && parsed.t === 'member-id' && typeof parsed.w === 'string') {
         return { type: 'member-id', walletId: parsed.w };
       }
-    } catch { /* not valid JSON */ }
+    } catch {
+      /* not valid JSON */
+    }
   } else if (tnf === 0x04) {
     const text = payload.toString('utf8');
     try {
@@ -317,7 +302,9 @@ function parseNdefPayload(ndefMessage: Buffer): ParsedNdefPayload {
       if (parsed.v === 1 && parsed.t === 'member-id' && typeof parsed.w === 'string') {
         return { type: 'member-id', walletId: parsed.w };
       }
-    } catch { /* not valid JSON */ }
+    } catch {
+      /* not valid JSON */
+    }
   }
 
   return null;
@@ -336,7 +323,9 @@ function nciData(connId: number, data: number[]): number[] {
 }
 
 /** Extract the message type from byte 0 */
-function nciMsgType(byte0: number): number { return byte0 & 0xE0; }
+function nciMsgType(byte0: number): number {
+  return byte0 & 0xe0;
+}
 
 // ─── LPCUSBSIO I2C Transport ───────────────────────────────
 
@@ -357,7 +346,11 @@ class LpcUsbSioTransport {
     const warmup = new Array(65).fill(0);
     warmup[0] = 0x00; // HID Report ID
     this.device.write(warmup);
-    try { this.device.readTimeout(500); } catch { /* expected: no response */ }
+    try {
+      this.device.readTimeout(500);
+    } catch {
+      /* expected: no response */
+    }
 
     this._i2cInit();
   }
@@ -365,7 +358,11 @@ class LpcUsbSioTransport {
   /** Close the HID device. */
   close(): void {
     if (this.device) {
-      try { this.device.close(); } catch { /* ignore */ }
+      try {
+        this.device.close();
+      } catch {
+        /* ignore */
+      }
       this.device = null;
     }
   }
@@ -426,7 +423,7 @@ class LpcUsbSioTransport {
 
   private _i2cInit(): void {
     // Clock: 400kHz = 0x61A80 → LE: [0x80, 0x1A, 0x06, 0x00]
-    const clockRateLE = [0x80, 0x1A, 0x06, 0x00];
+    const clockRateLE = [0x80, 0x1a, 0x06, 0x00];
     const optionsLE = [0x00, 0x00, 0x00, 0x00];
     const resp = this._sendHidCommand(HID_I2C_REQ_INIT_PORT, [...clockRateLE, ...optionsLE]);
     const parsed = this._parseHidResponse(resp);
@@ -437,13 +434,7 @@ class LpcUsbSioTransport {
 
   private _i2cWrite(slaveAddr: number, data: number[]): void {
     const options = I2C_TRANSFER_START_BIT | I2C_TRANSFER_STOP_BIT;
-    const params = [
-      data.length & 0xFF,
-      (data.length >> 8) & 0xFF,
-      options,
-      slaveAddr,
-      ...data,
-    ];
+    const params = [data.length & 0xff, (data.length >> 8) & 0xff, options, slaveAddr, ...data];
     const resp = this._sendHidCommand(HID_I2C_REQ_DEVICE_WRITE, params);
     const parsed = this._parseHidResponse(resp);
     if (parsed.status !== 0x00) {
@@ -453,12 +444,7 @@ class LpcUsbSioTransport {
 
   private _i2cRead(slaveAddr: number, readLen: number): Buffer {
     const options = I2C_TRANSFER_START_BIT | I2C_TRANSFER_STOP_BIT | I2C_TRANSFER_NACK_LAST;
-    const params = [
-      readLen & 0xFF,
-      (readLen >> 8) & 0xFF,
-      options,
-      slaveAddr,
-    ];
+    const params = [readLen & 0xff, (readLen >> 8) & 0xff, options, slaveAddr];
     const resp = this._sendHidCommand(HID_I2C_REQ_DEVICE_READ, params);
     const parsed = this._parseHidResponse(resp);
     if (parsed.status !== 0x00) {
@@ -515,7 +501,9 @@ class LpcUsbSioTransport {
 
   private _busyWait(ms: number): void {
     const end = Date.now() + ms;
-    while (Date.now() < end) { /* spin */ }
+    while (Date.now() < end) {
+      /* spin */
+    }
   }
 }
 
@@ -543,16 +531,14 @@ export class NfcBridge extends EventEmitter implements NfcReader {
 
     // Find the LPCUSBSIO HID device
     const allDevices = HID.devices();
-    const nfcDevices = allDevices.filter(
-      d => d.vendorId === LPCUSBSIO_VID && d.productId === LPCUSBSIO_PID
-    );
+    const nfcDevices = allDevices.filter((d) => d.vendorId === LPCUSBSIO_VID && d.productId === LPCUSBSIO_PID);
 
     if (nfcDevices.length === 0) {
       this._setState('disconnected');
       throw new Error(
         'No MIKROE-2540 NFC reader found. ' +
-        `Looking for USB HID VID:0x${LPCUSBSIO_VID.toString(16).toUpperCase()} PID:0x${LPCUSBSIO_PID.toString(16).toUpperCase()}. ` +
-        'Check that the dongle is plugged in and appears in Device Manager → Human Interface Devices.'
+          `Looking for USB HID VID:0x${LPCUSBSIO_VID.toString(16).toUpperCase()} PID:0x${LPCUSBSIO_PID.toString(16).toUpperCase()}. ` +
+          'Check that the dongle is plugged in and appears in Device Manager → Human Interface Devices.',
       );
     }
 
@@ -589,7 +575,9 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     if (this.transport && this.transport.isOpen) {
       try {
         this._stopPolling();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       this.transport.close();
     }
     this.transport = null;
@@ -603,9 +591,9 @@ export class NfcBridge extends EventEmitter implements NfcReader {
       devicePath: this.transport?.devicePath ?? null,
       tagUid: this.tagUid,
       pendingWrite: this.pendingWrite
-        ? (this.pendingWrite.payload.type === 'member-id'
+        ? this.pendingWrite.payload.type === 'member-id'
           ? this.pendingWrite.payload.walletId
-          : (this.pendingWrite.payload.attestation as any).w ?? 'attestation')
+          : ((this.pendingWrite.payload.attestation as any).w ?? 'attestation')
         : null,
       error: this.lastError,
     };
@@ -645,9 +633,7 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     if (!this.transport) throw new Error('Transport not open');
 
     // 1. CORE_RESET (keep config)
-    const resetRsp = this.transport.nciCommandSync(
-      nciCmd(NCI_GID_CORE, NCI_OID_CORE_RESET, [0x01])
-    );
+    const resetRsp = this.transport.nciCommandSync(nciCmd(NCI_GID_CORE, NCI_OID_CORE_RESET, [0x01]));
     if (resetRsp.length < 4 || resetRsp[3] !== NCI_STATUS_OK) {
       throw new Error(`CORE_RESET failed: status ${resetRsp[3]?.toString(16)}`);
     }
@@ -656,10 +642,7 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     await this._delay(50);
 
     // 2. CORE_INIT
-    const initRsp = this.transport.nciCommandSync(
-      nciCmd(NCI_GID_CORE, NCI_OID_CORE_INIT, []),
-      3000, 64
-    );
+    const initRsp = this.transport.nciCommandSync(nciCmd(NCI_GID_CORE, NCI_OID_CORE_INIT, []), 3000, 64);
     if (initRsp.length < 4 || initRsp[3] !== NCI_STATUS_OK) {
       throw new Error(`CORE_INIT failed: status ${initRsp[3]?.toString(16)}`);
     }
@@ -667,11 +650,11 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     // 3. RF_DISCOVER_MAP — map NFC-A Poll to Frame RF Interface
     const mapRsp = this.transport.nciCommandSync(
       nciCmd(NCI_GID_RF, NCI_OID_RF_DISCOVER_MAP, [
-        0x01,  // 1 mapping entry
-        0x00,  // RF Technology: NFC-A
-        0x01,  // Mode: Poll
-        0x02,  // RF Interface: Frame (for T2T)
-      ])
+        0x01, // 1 mapping entry
+        0x00, // RF Technology: NFC-A
+        0x01, // Mode: Poll
+        0x02, // RF Interface: Frame (for T2T)
+      ]),
     );
     if (mapRsp.length < 4 || mapRsp[3] !== NCI_STATUS_OK) {
       throw new Error(`RF_DISCOVER_MAP failed: status ${mapRsp[3]?.toString(16)}`);
@@ -684,10 +667,10 @@ export class NfcBridge extends EventEmitter implements NfcReader {
 
     const discoverRsp = this.transport.nciCommandSync(
       nciCmd(NCI_GID_RF, NCI_OID_RF_DISCOVER, [
-        0x01,  // 1 config
-        0x00,  // RF Technology: NFC-A
-        0x01,  // Discovery frequency: every cycle
-      ])
+        0x01, // 1 config
+        0x00, // RF Technology: NFC-A
+        0x01, // Discovery frequency: every cycle
+      ]),
     );
     if (discoverRsp.length < 4 || discoverRsp[3] !== NCI_STATUS_OK) {
       throw new Error(`RF_DISCOVER failed: status ${discoverRsp[3]?.toString(16)}`);
@@ -699,11 +682,10 @@ export class NfcBridge extends EventEmitter implements NfcReader {
   private _stopPolling(): void {
     if (!this.transport) return;
     try {
-      this.transport.nciCommandSync(
-        nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_IDLE]),
-        1000
-      );
-    } catch { /* ignore — may already be idle */ }
+      this.transport.nciCommandSync(nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_IDLE]), 1000);
+    } catch {
+      /* ignore — may already be idle */
+    }
   }
 
   // ─── Private: Tag Handling ──────────────────────────────
@@ -725,7 +707,9 @@ export class NfcBridge extends EventEmitter implements NfcReader {
         const nfcid1Len = payload[10];
         if (nfcid1Len > 0 && payload.length >= 11 + nfcid1Len) {
           const uidBytes = payload.subarray(11, 11 + nfcid1Len);
-          uid = Array.from(uidBytes).map(b => b.toString(16).padStart(2, '0')).join(':');
+          uid = Array.from(uidBytes)
+            .map((b) => b.toString(16).padStart(2, '0'))
+            .join(':');
         }
       }
     }
@@ -796,9 +780,7 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     this.pendingWrite = null;
     this._setState('writing');
 
-    const walletId = payload.type === 'member-id'
-      ? payload.walletId
-      : (payload.attestation as any).w ?? null;
+    const walletId = payload.type === 'member-id' ? payload.walletId : ((payload.attestation as any).w ?? null);
 
     try {
       this._writeNdef(payload);
@@ -830,18 +812,18 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     if (data.length !== 4) throw new Error('T2T WRITE requires exactly 4 bytes');
 
     // Send T2T WRITE via NCI Data Message and wait for ACK
-    const rsp = this._sendNciAndRead(
-      nciData(this.connId, [T2T_CMD_WRITE, page, data[0], data[1], data[2], data[3]])
-    );
+    const rsp = this._sendNciAndRead(nciData(this.connId, [T2T_CMD_WRITE, page, data[0], data[1], data[2], data[3]]));
 
     // Check for ACK (0x0A) in the response
-    if (rsp.length >= 4 && rsp[3] !== 0x0A) {
+    if (rsp.length >= 4 && rsp[3] !== 0x0a) {
       throw new Error(`T2T WRITE NACK for page ${page}: ${rsp[3]?.toString(16)}`);
     }
 
     // Delay for NTAG write (~5ms per write)
     const end = Date.now() + 10;
-    while (Date.now() < end) { /* spin */ }
+    while (Date.now() < end) {
+      /* spin */
+    }
   }
 
   /** Send NCI packet and poll for response. */
@@ -853,13 +835,17 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     // Poll for response
     const deadline = Date.now() + timeoutMs;
     const end10 = Date.now() + 10;
-    while (Date.now() < end10) { /* initial delay */ }
+    while (Date.now() < end10) {
+      /* initial delay */
+    }
 
     while (Date.now() < deadline) {
       const frame = this.transport.nciRead(readLen);
       if (frame) return frame;
       const end5 = Date.now() + 5;
-      while (Date.now() < end5) { /* spin */ }
+      while (Date.now() < end5) {
+        /* spin */
+      }
     }
     throw new Error('NCI response timeout');
   }
@@ -891,9 +877,7 @@ export class NfcBridge extends EventEmitter implements NfcReader {
 
   /** Read a page using write-then-poll pattern. */
   private _readPageDirect(page: number): Buffer {
-    const rsp = this._sendNciAndRead(
-      nciData(this.connId, [T2T_CMD_READ, page])
-    );
+    const rsp = this._sendNciAndRead(nciData(this.connId, [T2T_CMD_READ, page]));
     if (rsp.length < 3) throw new Error(`Short read response for page ${page}`);
     const payloadLen = rsp[2];
     if (payloadLen < 1) throw new Error(`Empty read response for page ${page}`);
@@ -950,7 +934,7 @@ export class NfcBridge extends EventEmitter implements NfcReader {
   /** Route an NCI frame to the appropriate handler. */
   private _handleNciFrame(frame: Buffer): void {
     const mt = nciMsgType(frame[0]);
-    const gid = frame[0] & 0x0F;
+    const gid = frame[0] & 0x0f;
     const oid = frame[1];
 
     if (mt === NCI_MT_NTF) {
@@ -967,18 +951,14 @@ export class NfcBridge extends EventEmitter implements NfcReader {
     if (!this.transport) return;
 
     try {
-      this.transport.nciCommandSync(
-        nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_DISCOVERY]),
-        1000
-      );
+      this.transport.nciCommandSync(nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_DISCOVERY]), 1000);
     } catch {
       try {
-        this.transport.nciCommandSync(
-          nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_IDLE]),
-          1000
-        );
+        this.transport.nciCommandSync(nciCmd(NCI_GID_RF, NCI_OID_RF_DEACTIVATE, [NCI_DEACTIVATE_IDLE]), 1000);
         const end = Date.now() + 50;
-        while (Date.now() < end) { /* spin */ }
+        while (Date.now() < end) {
+          /* spin */
+        }
         this._startPollingNci();
       } catch {
         this.lastError = 'Failed to resume polling';
@@ -1004,6 +984,6 @@ export class NfcBridge extends EventEmitter implements NfcReader {
   }
 
   private _delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -23,15 +23,10 @@ import {
   buildFormularyEntry,
 } from '../src/access-control/formulary-entry.js';
 import type { FormularyEntryLocalData } from '../src/access-control/formulary-entry.js';
-import {
-  PriorAuthData,
-  buildPriorAuthData,
-} from '../src/access-control/prior-auth-data.js';
+import { PriorAuthData, buildPriorAuthData } from '../src/access-control/prior-auth-data.js';
 import type { PriorAuthLocalData } from '../src/access-control/prior-auth-data.js';
 import { FormularyRegistry, FORMULARY_TREE_HEIGHT } from '../src/access-control/formulary-registry.js';
-import {
-  AccessControlProgram,
-} from '../src/access-control/access-control-program.js';
+import { AccessControlProgram } from '../src/access-control/access-control-program.js';
 import { AccessControlService } from '../src/access-control/access-control-service.js';
 import { AccessVerificationService } from '../src/access-control/access-verification-service.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
@@ -47,7 +42,7 @@ import { InMemoryStore } from '../src/storage/local-store.js';
 const lisinoprilLocal: FormularyEntryLocalData = {
   ndc: '00071015523',
   tierLevel: 1,
-  copayAmount: 1000,  // $10
+  copayAmount: 1000, // $10
   requiresPriorAuth: false,
   maxQuantityPerFill: 90,
   maxDaySupply: 90,
@@ -58,7 +53,7 @@ const lisinoprilLocal: FormularyEntryLocalData = {
 const ozempicLocal: FormularyEntryLocalData = {
   ndc: '00169416212',
   tierLevel: 3,
-  copayAmount: 5000,  // $50
+  copayAmount: 5000, // $50
   requiresPriorAuth: true,
   maxQuantityPerFill: 4,
   maxDaySupply: 28,
@@ -66,12 +61,12 @@ const ozempicLocal: FormularyEntryLocalData = {
 };
 
 const samplePALocal: PriorAuthLocalData = {
-  ndc: '00169416212',  // matches Ozempic
+  ndc: '00169416212', // matches Ozempic
   memberWalletId: '12345678901234567890',
   prescriberWalletId: '98765432109876543210',
   approvalDate: '20260101',
   expirationDate: '20261231',
-  approvedQuantity: 12,  // 12 units approved for the year
+  approvedQuantity: 12, // 12 units approved for the year
   authorizationCode: 'PA-2026-OZEM-001',
 };
 
@@ -98,10 +93,7 @@ function createTestEligibilityData(formularyRoot: Field): EligibilityData {
 }
 
 /** Helper: create a MerkleForest with eligibility data and optional PA */
-function createTestForest(
-  eligData: EligibilityData,
-  paData?: PriorAuthData,
-): MerkleForest {
+function createTestForest(eligData: EligibilityData, paData?: PriorAuthData): MerkleForest {
   const forest = new MerkleForest();
   forest.setLeaf(ForestDomain.MEMBER, 0n, Poseidon.hash([Field(42)]));
   forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, eligData.commitment());
@@ -127,7 +119,6 @@ function createTestCredential(forest: MerkleForest): CredentialData {
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
-
   // ─── FormularyEntry Model ───────────────────────────────
   describe('FormularyEntry Model', () => {
     it('commitment is deterministic', () => {
@@ -184,9 +175,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
     it('buildPriorAuthData from local data', () => {
       const pa = buildPriorAuthData(samplePALocal);
       expect(pa.ndcHash.toString()).toBe(hashString('00169416212').toString());
-      expect(pa.memberWalletId.toString()).toBe(
-        Field(BigInt('12345678901234567890')).toString(),
-      );
+      expect(pa.memberWalletId.toString()).toBe(Field(BigInt('12345678901234567890')).toString());
       expect(pa.approvalDate.toString()).toBe('20260101');
       expect(pa.expirationDate.toString()).toBe('20261231');
     });
@@ -265,9 +254,9 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
         entry,
         formularyWitness,
         entry.ndcHash,
-        quantityToField(30),  // 30 units requested (within 90 max)
-        Field(30),            // 30 day supply (within 90 max)
-        Field(20260101),      // currentDate
+        quantityToField(30), // 30 units requested (within 90 max)
+        Field(30), // 30 day supply (within 90 max)
+        Field(20260101), // currentDate
       );
 
       const output = result.proof.publicOutput;
@@ -289,9 +278,15 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const formularyWitness = registry.getEntryWitness(lisinoprilIdx);
 
       const result = await AccessControlProgram.proveFormularyAccess(
-        credentialData, eligData, forestRoots, eligWitness,
-        entry, formularyWitness,
-        entry.ndcHash, quantityToField(30), Field(30),
+        credentialData,
+        eligData,
+        forestRoots,
+        eligWitness,
+        entry,
+        formularyWitness,
+        entry.ndcHash,
+        quantityToField(30),
+        Field(30),
         Field(20260101),
       );
 
@@ -320,9 +315,15 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
 
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          credentialData, eligData, forestRoots, eligWitness,
-          entry, formularyWitness,
-          entry.ndcHash, quantityToField(30), Field(30),
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          entry,
+          formularyWitness,
+          entry.ndcHash,
+          quantityToField(30),
+          Field(30),
           Field(20260101),
         ),
       ).rejects.toThrow();
@@ -341,9 +342,15 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 120 units, max is 90
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          credentialData, eligData, forestRoots, eligWitness,
-          entry, formularyWitness,
-          entry.ndcHash, quantityToField(120), Field(30),
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          entry,
+          formularyWitness,
+          entry.ndcHash,
+          quantityToField(120),
+          Field(30),
           Field(20260101),
         ),
       ).rejects.toThrow();
@@ -362,9 +369,15 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 120 day supply, max is 90
       await expect(
         AccessControlProgram.proveFormularyAccess(
-          credentialData, eligData, forestRoots, eligWitness,
-          entry, formularyWitness,
-          entry.ndcHash, quantityToField(30), Field(120),
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          entry,
+          formularyWitness,
+          entry.ndcHash,
+          quantityToField(30),
+          Field(120),
           Field(20260101),
         ),
       ).rejects.toThrow();
@@ -386,11 +399,16 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const formularyWitness = registry.getEntryWitness(ozempicIdx);
 
       const result = await AccessControlProgram.provePriorAuth(
-        credentialData, eligData, forestRoots,
-        eligWitness, paWitness, paData,
-        entry, formularyWitness,
-        Field(20260615),  // current date mid-year
-        quantityToField(4),  // 4 units (within 12 approved)
+        credentialData,
+        eligData,
+        forestRoots,
+        eligWitness,
+        paWitness,
+        paData,
+        entry,
+        formularyWitness,
+        Field(20260615), // current date mid-year
+        quantityToField(4), // 4 units (within 12 approved)
       );
 
       const output = result.proof.publicOutput;
@@ -416,9 +434,14 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Date past expiration (20270115 > 20261231)
       await expect(
         AccessControlProgram.provePriorAuth(
-          credentialData, eligData, forestRoots,
-          eligWitness, paWitness, paData,
-          entry, formularyWitness,
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          paWitness,
+          paData,
+          entry,
+          formularyWitness,
           Field(20270115),
           quantityToField(4),
         ),
@@ -440,9 +463,14 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Request 20 units, only 12 approved
       await expect(
         AccessControlProgram.provePriorAuth(
-          credentialData, eligData, forestRoots,
-          eligWitness, paWitness, paData,
-          entry, formularyWitness,
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          paWitness,
+          paData,
+          entry,
+          formularyWitness,
           Field(20260615),
           quantityToField(20),
         ),
@@ -455,7 +483,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // PA for Lisinopril (which does NOT require PA)
       const paLocal: PriorAuthLocalData = {
         ...samplePALocal,
-        ndc: '00071015523',  // Lisinopril NDC
+        ndc: '00071015523', // Lisinopril NDC
       };
       const paData = buildPriorAuthData(paLocal);
       const forest = createTestForest(eligData, paData);
@@ -469,9 +497,14 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // Lisinopril has requiresPriorAuth = 0 — should reject
       await expect(
         AccessControlProgram.provePriorAuth(
-          credentialData, eligData, forestRoots,
-          eligWitness, paWitness, paData,
-          entry, formularyWitness,
+          credentialData,
+          eligData,
+          forestRoots,
+          eligWitness,
+          paWitness,
+          paData,
+          entry,
+          formularyWitness,
           Field(20260615),
           quantityToField(30),
         ),
@@ -525,8 +558,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       expect(paCommitment.toString()).toBe(paData.commitment().toString());
       expect(newForestRoot.toString()).not.toBe(rootBefore);
       // Verify the PA leaf is set
-      expect(forest.getLeaf(ForestDomain.ACCESS_CONTROL, 1n).toString())
-        .toBe(paData.commitment().toString());
+      expect(forest.getLeaf(ForestDomain.ACCESS_CONTROL, 1n).toString()).toBe(paData.commitment().toString());
     });
 
     it('proveFormularyAccess generates verifiable proof', async () => {
@@ -536,8 +568,14 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const entry = registry.getEntry(lisinoprilIdx)!;
 
       const proof = await service.proveFormularyAccess(
-        credentialData, eligData, forest, 0n, lisinoprilIdx,
-        entry.ndcHash, quantityToField(30), Field(30),
+        credentialData,
+        eligData,
+        forest,
+        0n,
+        lisinoprilIdx,
+        entry.ndcHash,
+        quantityToField(30),
+        Field(30),
         Field(20260101),
       );
 
@@ -552,8 +590,13 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const credentialData = createTestCredential(forest);
 
       const proof = await service.provePriorAuth(
-        credentialData, eligData, forest, 0n, 1n,
-        paData, ozempicIdx,
+        credentialData,
+        eligData,
+        forest,
+        0n,
+        1n,
+        paData,
+        ozempicIdx,
         Field(20260615),
         quantityToField(4),
       );
@@ -568,12 +611,8 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const freshService = new AccessControlService(store, freshRegistry);
 
       // 1. Add medications to formulary
-      const { index: lIdx } = freshService.addFormularyEntry(
-        buildFormularyEntry(lisinoprilLocal),
-      );
-      const { index: oIdx } = freshService.addFormularyEntry(
-        buildFormularyEntry(ozempicLocal),
-      );
+      const { index: lIdx } = freshService.addFormularyEntry(buildFormularyEntry(lisinoprilLocal));
+      const { index: oIdx } = freshService.addFormularyEntry(buildFormularyEntry(ozempicLocal));
 
       // 2. Create eligibility data with formulary root
       const eligData = createTestEligibilityData(freshRegistry.getRoot());
@@ -591,16 +630,27 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       // 6. Prove formulary access for Lisinopril (no PA needed)
       const lisinoprilEntry = freshRegistry.getEntry(lIdx)!;
       const formularyProof = await freshService.proveFormularyAccess(
-        credentialData, eligData, forest, 0n, lIdx,
-        lisinoprilEntry.ndcHash, quantityToField(30), Field(30),
+        credentialData,
+        eligData,
+        forest,
+        0n,
+        lIdx,
+        lisinoprilEntry.ndcHash,
+        quantityToField(30),
+        Field(30),
         Field(20260101),
       );
       expect(formularyProof.publicOutput.priorAuthRequired.toString()).toBe('0');
 
       // 7. Prove PA for Ozempic
       const paProof = await freshService.provePriorAuth(
-        credentialData, eligData, forest, 0n, 1n,
-        paData, oIdx,
+        credentialData,
+        eligData,
+        forest,
+        0n,
+        1n,
+        paData,
+        oIdx,
         Field(20260615),
         quantityToField(4),
       );
@@ -629,9 +679,15 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const lisinoprilEntry = registry.getEntry(lisinoprilIdx)!;
       const lisinoprilWitness = registry.getEntryWitness(lisinoprilIdx);
       const r1 = await AccessControlProgram.proveFormularyAccess(
-        credentialData, eligData, forestRoots, eligWitness,
-        lisinoprilEntry, lisinoprilWitness,
-        lisinoprilEntry.ndcHash, quantityToField(30), Field(30),
+        credentialData,
+        eligData,
+        forestRoots,
+        eligWitness,
+        lisinoprilEntry,
+        lisinoprilWitness,
+        lisinoprilEntry.ndcHash,
+        quantityToField(30),
+        Field(30),
         Field(20260101),
       );
       formularyProofNoPA = r1.proof;
@@ -640,19 +696,31 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       const ozempicEntry = registry.getEntry(ozempicIdx)!;
       const ozempicWitness = registry.getEntryWitness(ozempicIdx);
       const r2 = await AccessControlProgram.proveFormularyAccess(
-        credentialData, eligData, forestRoots, eligWitness,
-        ozempicEntry, ozempicWitness,
-        ozempicEntry.ndcHash, quantityToField(2), Field(28),
+        credentialData,
+        eligData,
+        forestRoots,
+        eligWitness,
+        ozempicEntry,
+        ozempicWitness,
+        ozempicEntry.ndcHash,
+        quantityToField(2),
+        Field(28),
         Field(20260101),
       );
       formularyProofWithPA = r2.proof;
 
       // PA proof for Ozempic
       const r3 = await AccessControlProgram.provePriorAuth(
-        credentialData, eligData, forestRoots,
-        eligWitness, paWitness, paData,
-        ozempicEntry, ozempicWitness,
-        Field(20260615), quantityToField(4),
+        credentialData,
+        eligData,
+        forestRoots,
+        eligWitness,
+        paWitness,
+        paData,
+        ozempicEntry,
+        ozempicWitness,
+        Field(20260615),
+        quantityToField(4),
       );
       paProof = r3.proof;
     }, 180_000);
@@ -686,7 +754,7 @@ describe('Layer 6 — Access Control / Medication Access (Use Case B)', () => {
       expect(result.priorAuthNeeded).toBe(true);
       expect(result.priorAuthValid).toBeUndefined();
       expect(result.overallValid).toBe(false);
-      expect(result.details.some(d => d.includes('MISSING'))).toBe(true);
+      expect(result.details.some((d) => d.includes('MISSING'))).toBe(true);
     });
   });
 });

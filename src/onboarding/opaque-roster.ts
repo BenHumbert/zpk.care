@@ -109,10 +109,7 @@ export interface RosterEntryLocalData {
  * @param walletId — the member's wallet ID (already a Field/hash)
  * @param local — raw plan/group/date identifiers
  */
-export function buildRosterEntry(
-  walletId: Field,
-  local: RosterEntryLocalData,
-): RosterEntry {
+export function buildRosterEntry(walletId: Field, local: RosterEntryLocalData): RosterEntry {
   return new RosterEntry({
     walletId,
     planIdHash: hashString(local.planId),
@@ -173,9 +170,7 @@ export class OpaqueRoster {
    */
   addEntry(entry: RosterEntry): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_ROSTER_ENTRIES)) {
-      throw new Error(
-        `Roster full: cannot exceed ${MAX_ROSTER_ENTRIES} entries`,
-      );
+      throw new Error(`Roster full: cannot exceed ${MAX_ROSTER_ENTRIES} entries`);
     }
 
     const walletKey = entry.walletId.toString();
@@ -211,9 +206,7 @@ export class OpaqueRoster {
   }
 
   /** Look up a roster entry by walletId */
-  getEntryByWallet(
-    walletId: Field,
-  ): { entry: RosterEntry; index: bigint } | undefined {
+  getEntryByWallet(walletId: Field): { entry: RosterEntry; index: bigint } | undefined {
     const key = walletId.toString();
     const index = this.walletIndices.get(key);
     if (index === undefined) return undefined;
@@ -228,9 +221,7 @@ export class OpaqueRoster {
   }
 
   /** Get all roster entries for a given group (for group-level operations) */
-  getEntriesByGroup(
-    groupIdHash: Field,
-  ): { entry: RosterEntry; index: bigint }[] {
+  getEntriesByGroup(groupIdHash: Field): { entry: RosterEntry; index: bigint }[] {
     const groupKey = groupIdHash.toString();
     const indices = this.groupMembers.get(groupKey);
     if (!indices) return [];
@@ -243,9 +234,7 @@ export class OpaqueRoster {
   }
 
   /** Get all roster entries for a given family (for family-level operations) */
-  getEntriesByFamily(
-    familyIdHash: Field,
-  ): { entry: RosterEntry; index: bigint }[] {
+  getEntriesByFamily(familyIdHash: Field): { entry: RosterEntry; index: bigint }[] {
     const familyKey = familyIdHash.toString();
     const indices = this.familyMembers.get(familyKey);
     if (!indices) return [];

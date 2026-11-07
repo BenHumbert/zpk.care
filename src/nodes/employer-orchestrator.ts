@@ -96,7 +96,8 @@ function ensureKeepaliveRunning(): void {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_registerEmployerNode',
             params: {
               employerId: tenant.employerId,
@@ -139,12 +140,7 @@ async function allocateEphemeralPort(): Promise<number> {
 
 // ─── Health Polling ────────────────────────────────────────
 
-async function pollUntilHealthy(
-  url: string,
-  matcher: (body: any) => boolean,
-  timeoutMs: number,
-  label: string,
-): Promise<void> {
+async function pollUntilHealthy(url: string, matcher: (body: any) => boolean, timeoutMs: number, label: string): Promise<void> {
   const start = Date.now();
   let lastError: string | null = null;
   while (Date.now() - start < timeoutMs) {
@@ -158,7 +154,7 @@ async function pollUntilHealthy(
     } catch (e: any) {
       lastError = e?.message || String(e);
     }
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`${label} did not become healthy within ${timeoutMs}ms (last error: ${lastError})`);
 }
@@ -207,7 +203,11 @@ export interface TenantRegistration {
 let tenantKeys: { keys: TenantKeySource; registry: SealedRecordStore<TenantRegistration>; stateDir: string } | null = null;
 
 /** Called once the plan's node is unlocked: from now on tenants are keyed, registered, and brought back after a restart. */
-export function configureTenantKeys(opts: { keys: TenantKeySource; registry: SealedRecordStore<TenantRegistration>; stateDir: string }): void {
+export function configureTenantKeys(opts: {
+  keys: TenantKeySource;
+  registry: SealedRecordStore<TenantRegistration>;
+  stateDir: string;
+}): void {
   tenantKeys = opts;
 }
 
@@ -300,7 +300,11 @@ function tenantEnvironment(base: NodeJS.ProcessEnv, tenant: TenantSettings): Rec
     ZKTRIDENT_SEQUENCER_URL: tenant.sequencerUrl,
     ZKTRIDENT_INSURER_URL: tenant.insurerUrl,
     ...(tenant.keyed
-      ? { ZKTRIDENT_ADMIN_TOKEN_SHA256: tenant.keyed.adminTokenSha256, ZKTRIDENT_TENANT_KEYS: 'stdin', ZKTRIDENT_STATE_DIR: tenant.keyed.stateDir }
+      ? {
+          ZKTRIDENT_ADMIN_TOKEN_SHA256: tenant.keyed.adminTokenSha256,
+          ZKTRIDENT_TENANT_KEYS: 'stdin',
+          ZKTRIDENT_STATE_DIR: tenant.keyed.stateDir,
+        }
       : { ZKTRIDENT_ADMIN_TOKEN: tenant.adminToken }),
     ZKTRIDENT_PARENT_PID: String(process.pid),
     // No ZKTRIDENT_CORS_ORIGINS: the spawned node resolves the local dashboard
@@ -368,12 +372,13 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
+        jsonrpc: '2.0',
+        id: 1,
         method: 'l2_getEmployerNode',
         params: { employerId },
       }),
     });
-    const json = await resp.json() as any;
+    const json = (await resp.json()) as any;
     if (json.result && json.result.employerId === employerId) {
       existingRegistry = json.result;
     }
@@ -389,13 +394,15 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
     try {
       const hResp = await fetch(`${existingRegistry.employerNodeUrl}/health`, { signal: AbortSignal.timeout(1500) });
       alive = hResp.ok;
-    } catch { /* unreachable → treat as dead */ }
+    } catch {
+      /* unreachable → treat as dead */
+    }
 
     if (alive) {
       throw new Error(
         `Tenant "${employerId}" is already running at ${existingRegistry.employerNodeUrl}. ` +
-        `The admin token was shown once at the initial activation and is not recoverable. ` +
-        `To issue a new admin token, an insurer admin must first call l2_deregisterEmployerNode and terminate the existing process.`,
+          `The admin token was shown once at the initial activation and is not recoverable. ` +
+          `To issue a new admin token, an insurer admin must first call l2_deregisterEmployerNode and terminate the existing process.`,
       );
     }
 
@@ -405,7 +412,8 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: '2.0', id: 2,
+          jsonrpc: '2.0',
+          id: 2,
           method: 'l2_deregisterEmployerNode',
           params: { employerId },
         }),
@@ -421,17 +429,20 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
+        jsonrpc: '2.0',
+        id: 1,
         method: 'l2_getEmployerAttestation',
         params: { employerId },
       }),
     });
-    const json = await resp.json() as any;
+    const json = (await resp.json()) as any;
     if (!json.result || json.result.employerId !== employerId) {
       throw new Error(`No attestation on sequencer for employerId=${employerId}. Sign the agreement first.`);
     }
     if ((json.result.publicKeyHex || '').toLowerCase() !== employerPubKeyHex.toLowerCase()) {
-      throw new Error(`Attestation public key mismatch for employerId=${employerId}. The activation pubkey does not match the signed attestation.`);
+      throw new Error(
+        `Attestation public key mismatch for employerId=${employerId}. The activation pubkey does not match the signed attestation.`,
+      );
     }
   } catch (e: any) {
     throw new Error(`Cannot verify attestation: ${e?.message || e}`);
@@ -444,17 +455,30 @@ export async function spawnEmployerTenant(opts: SpawnTenantOptions): Promise<Spa
 
   // ─── Steps 4 to 6: start it, register it, track it ───
   const tenant = await startTenantProcess({
-    employerId, employerPubKeyHex, sequencerUrl, insurerUrl, signSequencerRequest, port: employerPort, adminTokenSha256,
+    employerId,
+    employerPubKeyHex,
+    sequencerUrl,
+    insurerUrl,
+    signSequencerRequest,
+    port: employerPort,
+    adminTokenSha256,
     ...(tenantKeys ? {} : { adminToken }),
   });
 
   // A-136: the plan's sealed registry, which brings the tenant back after the plan's restart. The token itself is kept
   // only until the employer collects it (markTenantCredentialsCollected).
   tenantKeys?.registry.put(employerId, {
-    employerId, employerPubKeyHex, port: employerPort, adminTokenSha256, activatedAt: tenant.startedAt, pendingAdminToken: adminToken,
+    employerId,
+    employerPubKeyHex,
+    port: employerPort,
+    adminTokenSha256,
+    activatedAt: tenant.startedAt,
+    pendingAdminToken: adminToken,
   });
 
-  console.log(`[orchestrator] Tenant "${employerId}" spawned — employer node: ${tenant.employerNodeUrl}. The HR Tool runs on the employer's machine.`);
+  console.log(
+    `[orchestrator] Tenant "${employerId}" spawned — employer node: ${tenant.employerNodeUrl}. The HR Tool runs on the employer's machine.`,
+  );
 
   return {
     employerId,
@@ -493,8 +517,14 @@ async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
   const employerChild = spawn(process.execPath, ['--import', 'tsx', employerScript], {
     cwd: process.cwd(),
     env: tenantEnvironment(process.env, {
-      port: t.port, employerId, employerPubKeyHex, sequencerUrl, insurerUrl,
-      ...(keys ? { keyed: { adminTokenSha256: t.adminTokenSha256, stateDir: tenantStateDir(keys.stateDir, employerId) } } : { adminToken: t.adminToken }),
+      port: t.port,
+      employerId,
+      employerPubKeyHex,
+      sequencerUrl,
+      insurerUrl,
+      ...(keys
+        ? { keyed: { adminTokenSha256: t.adminTokenSha256, stateDir: tenantStateDir(keys.stateDir, employerId) } }
+        : { adminToken: t.adminToken }),
     }),
     stdio: [keys ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -513,14 +543,11 @@ async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
 
   // Wait for the employer node to boot and load its attestation
   try {
-    await pollUntilHealthy(
-      `${employerNodeUrl}/health`,
-      (body) => body?.ok && body?.data?.phase === 'ready',
-      60000,
-      'employer node',
-    );
+    await pollUntilHealthy(`${employerNodeUrl}/health`, (body) => body?.ok && body?.data?.phase === 'ready', 60000, 'employer node');
   } catch (e) {
-    try { employerChild.kill('SIGTERM'); } catch {}
+    try {
+      employerChild.kill('SIGTERM');
+    } catch {}
     throw e;
   }
 
@@ -530,7 +557,8 @@ async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
+        jsonrpc: '2.0',
+        id: 1,
         method: 'l2_registerEmployerNode',
         params: {
           employerId,
@@ -540,12 +568,14 @@ async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
         },
       }),
     });
-    const json = await resp.json() as any;
+    const json = (await resp.json()) as any;
     if (json.error) {
       throw new Error(json.error.message || String(json.error));
     }
   } catch (e: any) {
-    try { employerChild.kill('SIGTERM'); } catch {}
+    try {
+      employerChild.kill('SIGTERM');
+    } catch {}
     throw new Error(`Failed to register tenant on sequencer: ${e?.message || e}`);
   }
 
@@ -571,7 +601,8 @@ async function startTenantProcess(t: TenantStart): Promise<LiveTenant> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jsonrpc: '2.0', id: 1,
+        jsonrpc: '2.0',
+        id: 1,
         method: 'l2_deregisterEmployerNode',
         params: { employerId },
       }),
@@ -610,7 +641,9 @@ export async function respawnRegisteredTenants(opts: {
     if (!free) {
       port = await allocateEphemeralPort();
       keys.registry.put(registration.employerId, { ...registration, port });
-      console.warn(`[orchestrator] Port ${registration.port} of tenant "${registration.employerId}" is taken; it comes back on ${port}, and its HR Tool needs the new URL`);
+      console.warn(
+        `[orchestrator] Port ${registration.port} of tenant "${registration.employerId}" is taken; it comes back on ${port}, and its HR Tool needs the new URL`,
+      );
     }
     try {
       const tenant = await startTenantProcess({
@@ -626,7 +659,12 @@ export async function respawnRegisteredTenants(opts: {
       results.push({ employerId: registration.employerId, employerNodeUrl: tenant.employerNodeUrl, ok: true });
     } catch (e: any) {
       console.error(`[orchestrator] Tenant "${registration.employerId}" could not be brought back: ${e?.message || e}`);
-      results.push({ employerId: registration.employerId, employerNodeUrl: `http://127.0.0.1:${port}`, ok: false, error: e?.message || String(e) });
+      results.push({
+        employerId: registration.employerId,
+        employerNodeUrl: `http://127.0.0.1:${port}`,
+        ok: false,
+        error: e?.message || String(e),
+      });
     }
   }
   return results;
@@ -642,7 +680,7 @@ export function hrToolSetupFor(employerNodeUrl: string): HrToolSetup {
     command: 'npm run start:hr-tool',
     employerNodeUrl,
     steps: [
-      'On the HR administrator\'s own machine, in a checkout of this repository, run: npm run start:hr-tool',
+      "On the HR administrator's own machine, in a checkout of this repository, run: npm run start:hr-tool",
       'Open http://localhost:5050 and choose "Set up a workspace"',
       'Enter this employer node URL, the admin token shown once with it, and a passphrase of at least 12 characters',
       'The token and every employee record stay encrypted on that machine; only hashes reach the employer node',
@@ -657,7 +695,9 @@ export function shutdownAllTenants(): void {
     keepaliveTimer = null;
   }
   for (const [id, tenant] of liveTenants.entries()) {
-    try { tenant.employerChild.kill('SIGTERM'); } catch {}
+    try {
+      tenant.employerChild.kill('SIGTERM');
+    } catch {}
     console.log(`[orchestrator] Tenant "${id}" shut down`);
   }
   liveTenants.clear();
@@ -665,7 +705,7 @@ export function shutdownAllTenants(): void {
 
 /** For the leviathan startup banner + diagnostics. */
 export function listLiveTenants(): Array<{ employerId: string; employerNodeUrl: string; startedAt: number }> {
-  return Array.from(liveTenants.values()).map(t => ({
+  return Array.from(liveTenants.values()).map((t) => ({
     employerId: t.employerId,
     employerNodeUrl: t.employerNodeUrl,
     startedAt: t.startedAt,

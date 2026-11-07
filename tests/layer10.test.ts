@@ -17,22 +17,9 @@
 import { Field, Poseidon } from 'o1js';
 import { ReportingService } from '../src/reporting/reporting-service.js';
 import { hashString } from '../src/zkp/hash-utils.js';
-import type {
-  VerifiedClaim,
-  ClaimContext,
-  PriorAuthContext,
-  DateRange,
-  ReportFilter,
-} from '../src/reporting/report-types.js';
-import {
-  FulfillmentOutput,
-  FULFILL_OP_CLAIM,
-  FULFILL_OP_REVERSAL,
-} from '../src/fulfillment/fulfillment-program.js';
-import {
-  MSG_TYPE_SUPPORT,
-  MSG_TYPE_SUPPORT_SUMMARY,
-} from '../src/messaging/message-data.js';
+import type { VerifiedClaim, ClaimContext, PriorAuthContext, DateRange, ReportFilter } from '../src/reporting/report-types.js';
+import { FulfillmentOutput, FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from '../src/fulfillment/fulfillment-program.js';
+import { MSG_TYPE_SUPPORT, MSG_TYPE_SUPPORT_SUMMARY } from '../src/messaging/message-data.js';
 
 // ─── Test Data ──────────────────────────────────────────────
 
@@ -451,13 +438,13 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       expect(report.pharmacies).toHaveLength(2);
 
-      const pharmacy1 = report.pharmacies.find(p => p.pharmacyWalletId === pharmacyWalletId1);
+      const pharmacy1 = report.pharmacies.find((p) => p.pharmacyWalletId === pharmacyWalletId1);
       expect(pharmacy1).toBeDefined();
       expect(pharmacy1!.claimCount).toBe(2); // claims 1 and 2
       expect(pharmacy1!.reversalCount).toBe(1); // reversal of claim 2
       expect(pharmacy1!.uniqueMembers).toBe(2); // member1 and member2
 
-      const pharmacy2 = report.pharmacies.find(p => p.pharmacyWalletId === pharmacyWalletId2);
+      const pharmacy2 = report.pharmacies.find((p) => p.pharmacyWalletId === pharmacyWalletId2);
       expect(pharmacy2).toBeDefined();
       expect(pharmacy2!.claimCount).toBe(1); // claim 3
       expect(pharmacy2!.reversalCount).toBe(0);
@@ -467,7 +454,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildTestClaims();
       const report = service.generatePharmacyActivity(claims);
 
-      const pharmacy1 = report.pharmacies.find(p => p.pharmacyWalletId === pharmacyWalletId1)!;
+      const pharmacy1 = report.pharmacies.find((p) => p.pharmacyWalletId === pharmacyWalletId1)!;
       expect(pharmacy1.uniqueMedications).toBe(2); // ndcHash1 and ndcHash2
     });
   });
@@ -481,7 +468,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       expect(report.prescribers).toHaveLength(2);
 
-      const prescriber1 = report.prescribers.find(p => p.prescriberWalletId === prescriberWalletId1);
+      const prescriber1 = report.prescribers.find((p) => p.prescriberWalletId === prescriberWalletId1);
       expect(prescriber1).toBeDefined();
       expect(prescriber1!.claimCount).toBe(2);
       expect(prescriber1!.uniqueMembers).toBe(2);
@@ -491,7 +478,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildTestClaims();
       const report = service.generatePrescriberActivity(claims);
 
-      const prescriber1 = report.prescribers.find(p => p.prescriberWalletId === prescriberWalletId1)!;
+      const prescriber1 = report.prescribers.find((p) => p.prescriberWalletId === prescriberWalletId1)!;
       // Prescriber1 has 3 entries (claim1, claim2, reversal of claim2) with 2 unique prescriptionHashes
       expect(prescriber1.prescriptionCount).toBe(2);
     });
@@ -506,7 +493,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       expect(report.members).toHaveLength(2);
 
-      const member1 = report.members.find(m => m.memberWalletId === memberWalletId1);
+      const member1 = report.members.find((m) => m.memberWalletId === memberWalletId1);
       expect(member1).toBeDefined();
       expect(member1!.claimCount).toBe(2); // claims 1 and 3
       expect(member1!.reversalCount).toBe(0);
@@ -517,7 +504,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildTestClaims();
       const report = service.generateMemberActivity(claims);
 
-      const member2 = report.members.find(m => m.memberWalletId === memberWalletId2);
+      const member2 = report.members.find((m) => m.memberWalletId === memberWalletId2);
       expect(member2).toBeDefined();
       expect(member2!.claimCount).toBe(1); // claim 2
       expect(member2!.reversalCount).toBe(1); // reversal of claim 2
@@ -545,11 +532,11 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildTestClaims();
       const report = service.generateMedicationUtilization(claims);
 
-      const ndc1 = report.medications.find(m => m.ndcHash === ndcHash1)!;
+      const ndc1 = report.medications.find((m) => m.ndcHash === ndcHash1)!;
       // Two fulfillments at 30000 each
       expect(ndc1.totalQuantity).toBe('60000');
 
-      const ndc2 = report.medications.find(m => m.ndcHash === ndcHash2)!;
+      const ndc2 = report.medications.find((m) => m.ndcHash === ndcHash2)!;
       // One fulfillment at 60000 (reversal doesn't add)
       expect(ndc2.totalQuantity).toBe('60000');
     });
@@ -566,7 +553,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
       expect(report.totalReversalCount).toBe(1);
 
       // Gross cost from 3 fulfillments
-      const grossCost = (4500 + 500) + (4000 + 1000) + (6000 + 500);
+      const grossCost = 4500 + 500 + (4000 + 1000) + (6000 + 500);
       expect(report.costBreakdown.totalGrossCostCents).toBe(grossCost);
 
       // Average claim cost = gross / 3 fulfillments
@@ -577,8 +564,8 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildTestClaims();
       const report = service.generateFinancialSummary(claims);
 
-      const grossCost = (4500 + 500) + (4000 + 1000) + (6000 + 500);
-      const reversalCost = (4000 + 1000); // reversed claim 2
+      const grossCost = 4500 + 500 + (4000 + 1000) + (6000 + 500);
+      const reversalCost = 4000 + 1000; // reversed claim 2
       expect(report.costBreakdown.netCostCents).toBe(grossCost - reversalCost);
     });
   });
@@ -588,14 +575,16 @@ describe('Layer 10 — On-Chain Reporting', () => {
   describe('Prior Auth Report', () => {
     test('cross-references PAs with claims', () => {
       const claims = buildTestClaims();
-      const priorAuths: PriorAuthContext[] = [{
-        ndcHash: ndcHash1,
-        memberWalletId: memberWalletId1,
-        prescriberWalletId: prescriberWalletId1,
-        approvalDate: 20260101,
-        expirationDate: 20270101,
-        approvedQuantity: '90000', // 90 units x1000
-      }];
+      const priorAuths: PriorAuthContext[] = [
+        {
+          ndcHash: ndcHash1,
+          memberWalletId: memberWalletId1,
+          prescriberWalletId: prescriberWalletId1,
+          approvalDate: 20260101,
+          expirationDate: 20270101,
+          approvedQuantity: '90000', // 90 units x1000
+        },
+      ];
 
       const report = service.generatePriorAuthReport(claims, priorAuths);
 
@@ -610,14 +599,16 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
     test('reports zero utilization for unused PA', () => {
       const claims = buildTestClaims();
-      const priorAuths: PriorAuthContext[] = [{
-        ndcHash: Poseidon.hash([Field(99999n)]).toString(), // Non-existent NDC
-        memberWalletId: memberWalletId1,
-        prescriberWalletId: prescriberWalletId1,
-        approvalDate: 20260101,
-        expirationDate: 20270101,
-        approvedQuantity: '90000',
-      }];
+      const priorAuths: PriorAuthContext[] = [
+        {
+          ndcHash: Poseidon.hash([Field(99999n)]).toString(), // Non-existent NDC
+          memberWalletId: memberWalletId1,
+          prescriberWalletId: prescriberWalletId1,
+          approvalDate: 20260101,
+          expirationDate: 20270101,
+          approvedQuantity: '90000',
+        },
+      ];
 
       const report = service.generatePriorAuthReport(claims, priorAuths);
 
@@ -697,11 +688,14 @@ describe('Layer 10 — On-Chain Reporting', () => {
     });
 
     test('only reversals produce valid reports', () => {
-      const onlyReversals = [makeReversal(), makeReversal({
-        entryCommitment: Poseidon.hash([Field(3003)]).toString(),
-        patientPayCents: 500,
-        planPayCents: 1500,
-      })];
+      const onlyReversals = [
+        makeReversal(),
+        makeReversal({
+          entryCommitment: Poseidon.hash([Field(3003)]).toString(),
+          patientPayCents: 500,
+          planPayCents: 1500,
+        }),
+      ];
 
       const register = service.generateClaimsRegister(onlyReversals);
       expect(register.totalClaimCount).toBe(0);
@@ -737,7 +731,10 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = [
         makeClaim({ patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500 }),
         makeClaim({
-          patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500,
+          patientPayCents: 3000,
+          planPayCents: 4000,
+          ingredientCostCents: 6500,
+          dispensingFeeCents: 500,
           entryCommitment: Poseidon.hash([Field(9999)]).toString(),
         }),
         makeReversal({ patientPayCents: 3000, planPayCents: 4000, ingredientCostCents: 6500, dispensingFeeCents: 500 }),
@@ -749,7 +746,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       // Net cost breakdown accounts for reversals
       expect(financial.costBreakdown.totalPatientPayCents).toBe(3000); // 3000+3000-3000
-      expect(financial.costBreakdown.totalPlanPayCents).toBe(4000);    // 4000+4000-4000
+      expect(financial.costBreakdown.totalPlanPayCents).toBe(4000); // 4000+4000-4000
 
       // Averages should use fulfillment-only data (not net)
       // Before H7 fix: averagePatientPay = 3000 / 2 = 1500 (net / count, WRONG)
@@ -1065,7 +1062,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       // Pharmacy2: C and D
       expect(report.claims).toHaveLength(2);
-      expect(report.claims.every(c => c.pharmacyWalletId === pharmacyWalletId2)).toBe(true);
+      expect(report.claims.every((c) => c.pharmacyWalletId === pharmacyWalletId2)).toBe(true);
     });
 
     test('applyFilters by tierLevels', () => {
@@ -1075,7 +1072,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
 
       // Tier 1: A, C
       expect(report.claims).toHaveLength(2);
-      expect(report.claims.every(c => c.tierLevel === 1)).toBe(true);
+      expect(report.claims.every((c) => c.tierLevel === 1)).toBe(true);
     });
 
     test('applyFilters by therapeuticClasses', () => {
@@ -1159,10 +1156,44 @@ describe('Layer 10 — On-Chain Reporting', () => {
   describe('Tier Analysis Report', () => {
     function buildEnrichedClaims(): VerifiedClaim[] {
       return [
-        makeClaim({ tierLevel: 1, therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), tierLevel: 1, therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500, memberWalletId: memberWalletId2 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), tierLevel: 2, therapeuticClass: 'SGLT2 Inhibitors', ndcHash: ndcHash2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1004)]).toString(), tierLevel: 4, therapeuticClass: 'TNF Inhibitors', ndcHash: Poseidon.hash([Field(99)]).toString(), patientPayCents: 15000, planPayCents: 135000, ingredientCostCents: 145000, dispensingFeeCents: 5000 }),
+        makeClaim({
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          tierLevel: 1,
+          therapeuticClass: 'ACE Inhibitors',
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+          memberWalletId: memberWalletId2,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1003)]).toString(),
+          tierLevel: 2,
+          therapeuticClass: 'SGLT2 Inhibitors',
+          ndcHash: ndcHash2,
+          patientPayCents: 3000,
+          planPayCents: 7000,
+          ingredientCostCents: 9000,
+          dispensingFeeCents: 1000,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1004)]).toString(),
+          tierLevel: 4,
+          therapeuticClass: 'TNF Inhibitors',
+          ndcHash: Poseidon.hash([Field(99)]).toString(),
+          patientPayCents: 15000,
+          planPayCents: 135000,
+          ingredientCostCents: 145000,
+          dispensingFeeCents: 5000,
+        }),
       ];
     }
 
@@ -1183,12 +1214,12 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildEnrichedClaims();
       const report = service.generateTierAnalysis(claims);
 
-      const tier1 = report.tiers.find(t => t.tierLevel === 1)!;
+      const tier1 = report.tiers.find((t) => t.tierLevel === 1)!;
       expect(tier1.claimCount).toBe(2);
       expect(tier1.uniqueMembers).toBe(2);
       expect(tier1.costBreakdown.totalGrossCostCents).toBe(10000); // 2 * 5000
 
-      const tier4 = report.tiers.find(t => t.tierLevel === 4)!;
+      const tier4 = report.tiers.find((t) => t.tierLevel === 4)!;
       expect(tier4.claimCount).toBe(1);
       expect(tier4.costBreakdown.totalGrossCostCents).toBe(150000);
     });
@@ -1218,9 +1249,30 @@ describe('Layer 10 — On-Chain Reporting', () => {
   describe('Therapeutic Class Report', () => {
     test('groups claims by therapeutic class', () => {
       const claims = [
-        makeClaim({ therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), therapeuticClass: 'ACE Inhibitors', patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), therapeuticClass: 'SGLT2 Inhibitors', ndcHash: ndcHash2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
+        makeClaim({
+          therapeuticClass: 'ACE Inhibitors',
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          therapeuticClass: 'ACE Inhibitors',
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1003)]).toString(),
+          therapeuticClass: 'SGLT2 Inhibitors',
+          ndcHash: ndcHash2,
+          patientPayCents: 3000,
+          planPayCents: 7000,
+          ingredientCostCents: 9000,
+          dispensingFeeCents: 1000,
+        }),
       ];
 
       const report = service.generateTherapeuticClassReport(claims);
@@ -1249,9 +1301,29 @@ describe('Layer 10 — On-Chain Reporting', () => {
   describe('Time Series Report', () => {
     test('aggregates by monthly bucket', () => {
       const claims = [
-        makeClaim({ dateOfService: 20260115, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), dateOfService: 20260120, patientPayCents: 2000, planPayCents: 3000, ingredientCostCents: 4000, dispensingFeeCents: 1000 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), dateOfService: 20260205, patientPayCents: 1000, planPayCents: 5500, ingredientCostCents: 6000, dispensingFeeCents: 500 }),
+        makeClaim({
+          dateOfService: 20260115,
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          dateOfService: 20260120,
+          patientPayCents: 2000,
+          planPayCents: 3000,
+          ingredientCostCents: 4000,
+          dispensingFeeCents: 1000,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1003)]).toString(),
+          dateOfService: 20260205,
+          patientPayCents: 1000,
+          planPayCents: 5500,
+          ingredientCostCents: 6000,
+          dispensingFeeCents: 500,
+        }),
       ];
 
       const report = service.generateTimeSeries(claims, 'monthly');
@@ -1281,10 +1353,7 @@ describe('Layer 10 — On-Chain Reporting', () => {
     });
 
     test('handles reversals in time series', () => {
-      const claims = [
-        makeClaim({ dateOfService: 20260115 }),
-        makeReversal({ dateOfService: 20260115 }),
-      ];
+      const claims = [makeClaim({ dateOfService: 20260115 }), makeReversal({ dateOfService: 20260115 })];
 
       const report = service.generateTimeSeries(claims, 'daily');
 
@@ -1313,10 +1382,41 @@ describe('Layer 10 — On-Chain Reporting', () => {
   describe('Cross-Tab Report', () => {
     function buildCrossTabClaims(): VerifiedClaim[] {
       return [
-        makeClaim({ pharmacyWalletId: pharmacyWalletId1, tierLevel: 1, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1002)]).toString(), pharmacyWalletId: pharmacyWalletId1, tierLevel: 2, patientPayCents: 3000, planPayCents: 7000, ingredientCostCents: 9000, dispensingFeeCents: 1000 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1003)]).toString(), pharmacyWalletId: pharmacyWalletId2, tierLevel: 1, patientPayCents: 1000, planPayCents: 5500, ingredientCostCents: 6000, dispensingFeeCents: 500 }),
-        makeClaim({ prescriptionHash: Poseidon.hash([Field(1004)]).toString(), pharmacyWalletId: pharmacyWalletId2, tierLevel: 1, patientPayCents: 1000, planPayCents: 4000, ingredientCostCents: 4500, dispensingFeeCents: 500 }),
+        makeClaim({
+          pharmacyWalletId: pharmacyWalletId1,
+          tierLevel: 1,
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1002)]).toString(),
+          pharmacyWalletId: pharmacyWalletId1,
+          tierLevel: 2,
+          patientPayCents: 3000,
+          planPayCents: 7000,
+          ingredientCostCents: 9000,
+          dispensingFeeCents: 1000,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1003)]).toString(),
+          pharmacyWalletId: pharmacyWalletId2,
+          tierLevel: 1,
+          patientPayCents: 1000,
+          planPayCents: 5500,
+          ingredientCostCents: 6000,
+          dispensingFeeCents: 500,
+        }),
+        makeClaim({
+          prescriptionHash: Poseidon.hash([Field(1004)]).toString(),
+          pharmacyWalletId: pharmacyWalletId2,
+          tierLevel: 1,
+          patientPayCents: 1000,
+          planPayCents: 4000,
+          ingredientCostCents: 4500,
+          dispensingFeeCents: 500,
+        }),
       ];
     }
 
@@ -1330,11 +1430,11 @@ describe('Layer 10 — On-Chain Reporting', () => {
       expect(report.columnHeaders).toEqual(['1', '2']); // sorted
 
       // Find rows
-      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1);
+      const row1 = report.rows.find((r) => r.rowKey === pharmacyWalletId1);
       expect(row1).toBeDefined();
       expect(row1!.values).toEqual([1, 1]); // 1 tier-1 claim, 1 tier-2 claim
 
-      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2);
+      const row2 = report.rows.find((r) => r.rowKey === pharmacyWalletId2);
       expect(row2).toBeDefined();
       expect(row2!.values).toEqual([2, 0]); // 2 tier-1 claims, 0 tier-2 claims
     });
@@ -1343,10 +1443,10 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildCrossTabClaims();
       const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'totalPlanPayCents');
 
-      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1)!;
+      const row1 = report.rows.find((r) => r.rowKey === pharmacyWalletId1)!;
       expect(row1.values).toEqual([4000, 7000]); // tier 1: 4000, tier 2: 7000
 
-      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2)!;
+      const row2 = report.rows.find((r) => r.rowKey === pharmacyWalletId2)!;
       expect(row2.values).toEqual([9500, 0]); // tier 1: 5500+4000, tier 2: 0
     });
 
@@ -1354,19 +1454,18 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const claims = buildCrossTabClaims();
       const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'totalGrossCostCents');
 
-      const row1 = report.rows.find(r => r.rowKey === pharmacyWalletId1)!;
+      const row1 = report.rows.find((r) => r.rowKey === pharmacyWalletId1)!;
       expect(row1.values).toEqual([5000, 10000]); // tier 1: 4500+500, tier 2: 9000+1000
 
-      const row2 = report.rows.find(r => r.rowKey === pharmacyWalletId2)!;
+      const row2 = report.rows.find((r) => r.rowKey === pharmacyWalletId2)!;
       expect(row2.values).toEqual([11500, 0]); // tier 1: (6000+500)+(4500+500), tier 2: 0
     });
 
     test('pivot with filter applied', () => {
       const claims = buildCrossTabClaims();
-      const report = service.generateCrossTab(
-        claims, 'pharmacyWalletId', 'tierLevel', 'claimCount',
-        { pharmacyWalletIds: [pharmacyWalletId1] },
-      );
+      const report = service.generateCrossTab(claims, 'pharmacyWalletId', 'tierLevel', 'claimCount', {
+        pharmacyWalletIds: [pharmacyWalletId1],
+      });
 
       expect(report.rows).toHaveLength(1);
       expect(report.rows[0].rowKey).toBe(pharmacyWalletId1);
@@ -1382,17 +1481,20 @@ describe('Layer 10 — On-Chain Reporting', () => {
       const report = service.generateCrossTab(claims, 'operationType', 'tierLevel', 'claimCount');
 
       expect(report.columnHeaders).toEqual(['1', '2']);
-      const fulfillmentRow = report.rows.find(r => r.rowKey === 'fulfillment')!;
+      const fulfillmentRow = report.rows.find((r) => r.rowKey === 'fulfillment')!;
       expect(fulfillmentRow.values).toEqual([1, 1]);
       // reversal: claimCount only counts fulfillments, so reversal row has [0, 0]
-      const reversalRow = report.rows.find(r => r.rowKey === 'reversal')!;
+      const reversalRow = report.rows.find((r) => r.rowKey === 'reversal')!;
       expect(reversalRow.values).toEqual([0, 0]);
     });
 
     test('empty cross-tab for no matching claims', () => {
       const claims = buildCrossTabClaims();
       const report = service.generateCrossTab(
-        claims, 'pharmacyWalletId', 'tierLevel', 'claimCount',
+        claims,
+        'pharmacyWalletId',
+        'tierLevel',
+        'claimCount',
         { tierLevels: [3] }, // No tier 3 claims
       );
 

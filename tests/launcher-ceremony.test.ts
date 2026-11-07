@@ -19,17 +19,30 @@ const holders = Array.from({ length: 3 }, (_, i) => {
   const { file, card } = createHolderKey(`holder-${i + 1}`, PASS, { scryptN: 2 ** 12 });
   return { card, unlocked: unlockHolderKey(file, PASS) };
 });
-const unsigned = runCeremony({ holders: holders.map((h) => h.card), threshold: 2, nodes: [{ nodeId: 'insurer', role: 'insurer' }], programSourceSha256: 'a'.repeat(64) }).record;
-const sign = (r: CeremonyRecord, n: number) => holders.slice(0, n).reduce((acc, h) => addRecordSignature(acc, signCeremonyRecord(acc, h.unlocked)), r);
+const unsigned = runCeremony({
+  holders: holders.map((h) => h.card),
+  threshold: 2,
+  nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+  programSourceSha256: 'a'.repeat(64),
+}).record;
+const sign = (r: CeremonyRecord, n: number) =>
+  holders.slice(0, n).reduce((acc, h) => addRecordSignature(acc, signCeremonyRecord(acc, h.unlocked)), r);
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-ceremony-')); });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'launcher-ceremony-'));
+});
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 test('with a ceremony record the sequencer pins its insurer key and the insurer gets no seed', () => {
   const file = path.join(dir, 'record.json');
   fs.writeFileSync(file, JSON.stringify(sign(unsigned, 2)));
-  const plan = planInsurerKeys({ ZKTRIDENT_CEREMONY_RECORD: file, ZKTRIDENT_INSURER_SIGNING_SEED: 'an old seed' }, path.join(dir, 'l2-data'));
+  const plan = planInsurerKeys(
+    { ZKTRIDENT_CEREMONY_RECORD: file, ZKTRIDENT_INSURER_SIGNING_SEED: 'an old seed' },
+    path.join(dir, 'l2-data'),
+  );
   expect(plan.insurerAttestationPublicKeyHex).toBe(unsigned.nodes[0].publicKeys.insurerSigningPublicKeyHex);
   expect(plan.insurerChildEnv).toEqual({ ZKTRIDENT_CEREMONY_RECORD: path.resolve(file), ZKTRIDENT_CEREMONY_NODE_ID: 'insurer' });
   expect(plan.ceremony?.anchored).toBe('new');

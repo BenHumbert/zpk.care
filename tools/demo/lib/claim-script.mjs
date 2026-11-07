@@ -51,13 +51,29 @@ export const PEOPLE = Object.freeze({
   hr: Object.freeze({ key: 'hr', name: 'Delphine Okerlund', role: 'HR administrator', color: '#f59e0b', mood: 'brisk' }),
   member: Object.freeze({ key: 'member', name: 'Avery Quillfeather', role: 'Member', color: '#f472b6', mood: 'warm' }),
   prescriber: Object.freeze({ key: 'prescriber', name: 'Dr. Miriam Fallowmere', role: 'Prescriber', color: '#34d399', mood: 'kind' }),
-  pharmacist: Object.freeze({ key: 'pharmacist', name: 'Walt Kettleby', role: 'Pharmacist', color: '#fb923c', mood: 'wry' })
+  pharmacist: Object.freeze({ key: 'pharmacist', name: 'Walt Kettleby', role: 'Pharmacist', color: '#fb923c', mood: 'wry' }),
 });
 
 /** Delivery hints (lib/narrate.mjs MOODS). */
-export const MOOD = Object.freeze({ calm: 'calm', precise: 'precise', warm: 'warm', curious: 'curious', dry: 'dry', brisk: 'brisk', anxious: 'anxious', relieved: 'relieved', kind: 'kind', wry: 'wry' });
+export const MOOD = Object.freeze({
+  calm: 'calm',
+  precise: 'precise',
+  warm: 'warm',
+  curious: 'curious',
+  dry: 'dry',
+  brisk: 'brisk',
+  anxious: 'anxious',
+  relieved: 'relieved',
+  kind: 'kind',
+  wry: 'wry',
+});
 
-export const ACTS = Object.freeze({ 1: 'The plan and the employer', 2: 'Avery enrolls', 3: 'The prescription and the pickup', 4: 'The ledger' });
+export const ACTS = Object.freeze({
+  1: 'The plan and the employer',
+  2: 'Avery enrolls',
+  3: 'The prescription and the pickup',
+  4: 'The ledger',
+});
 
 /**
  * The scenes in the order the script and the UI give them. camera: the shot director.mjs cuts to. kind: screen |
@@ -68,7 +84,14 @@ export const ACTS = Object.freeze({ 1: 'The plan and the employer', 2: 'Avery en
 export const SCENES = Object.freeze([
   { key: 'plan', act: 1, kind: 'screen', camera: 'insurer', script: '1', title: 'The insurer publishes a plan' },
   { key: 'apply', act: 1, kind: 'screen', camera: 'employer:marketplace', script: '2', title: 'HR picks the plan and applies' },
-  { key: 'docs', act: 1, kind: 'screen', camera: 'employer:marketplace', script: '4', title: 'HR saves the activation code and uploads the IRS letter' },
+  {
+    key: 'docs',
+    act: 1,
+    kind: 'screen',
+    camera: 'employer:marketplace',
+    script: '4',
+    title: 'HR saves the activation code and uploads the IRS letter',
+  },
   { key: 'approve', act: 1, kind: 'screen', camera: 'insurer', script: '3+5', title: 'The insurer reviews the letter and approves' },
   { key: 'sign', act: 1, kind: 'screen', camera: 'employer:marketplace', script: '6', title: 'HR signs; the employer node starts' },
   { key: 'group', act: 1, kind: 'screen', camera: 'employer:node', script: '7', title: 'HR creates the benefit group' },
@@ -96,7 +119,7 @@ export const SCENES = Object.freeze([
   { key: 'batch', act: 4, kind: 'screen', camera: 'network', script: '29', title: 'The batch' },
   { key: 'board-batch', act: 4, kind: 'board', camera: 'board', script: '30', title: 'The batch proof' },
   { key: 'audit', act: 4, kind: 'screen', camera: 'insurer', script: '31', title: 'The insurer checks the books' },
-  { key: 'pickup', act: 4, kind: 'screen', camera: 'member', script: '32', title: 'Avery sees her claim' }
+  { key: 'pickup', act: 4, kind: 'screen', camera: 'member', script: '32', title: 'Avery sees her claim' },
 ]);
 
 /** The beats director.mjs calls, per screen and status scene, in order. Board scenes speak all their lines in order. */
@@ -122,7 +145,7 @@ export const BEATS = Object.freeze({
   'status-accepted': ['accepted', 'caveat'],
   batch: ['intro', 'batch'],
   audit: ['chain', 'balance', 'after'],
-  pickup: ['claim', 'read', 'deductible', 'closing', 'unfinished']
+  pickup: ['claim', 'read', 'deductible', 'closing', 'unfinished'],
 });
 
 // ------------------------------------------------------------------ the cast and its numbers
@@ -183,7 +206,7 @@ export function predictPrice({ plan, drug }) {
   return {
     ingredientCents: nadacIngredientCents(drug.nadacPerUnit, drug.quantity),
     feeCents: plan.dispensingFeeCents,
-    copayCents: plan.copayCents
+    copayCents: plan.copayCents,
   };
 }
 
@@ -193,13 +216,29 @@ export function predictPrice({ plan, drug }) {
  * disagreed with the engine on a few dozen drug-quantity pairs.
  */
 export function nadacIngredientCents(nadacPerUnit, quantity) {
-  const e5 = (v) => { const [w, f = ''] = String(Number(v).toFixed(5)).split('.'); return BigInt(w) * 100000n + BigInt((f + '00000').slice(0, 5)); };
-  const milli = (q) => { const [w, f = ''] = String(Number(q).toFixed(3)).split('.'); return BigInt(w) * 1000n + BigInt((f + '000').slice(0, 3)); };
+  const e5 = (v) => {
+    const [w, f = ''] = String(Number(v).toFixed(5)).split('.');
+    return BigInt(w) * 100000n + BigInt((f + '00000').slice(0, 5));
+  };
+  const milli = (q) => {
+    const [w, f = ''] = String(Number(q).toFixed(3)).split('.');
+    return BigInt(w) * 1000n + BigInt((f + '000').slice(0, 3));
+  };
   return Number((e5(nadacPerUnit) * milli(quantity) + 500000n) / 1000000n);
 }
 
 /** The claim amounts a line may say; storyLines() fills each {slot} from c.claim. */
-export const CLAIM_SLOTS = Object.freeze(['totalCents', 'total', 'patientPay', 'planPay', 'ingredient', 'fee', 'remainingCents', 'remaining', 'kappaCents']);
+export const CLAIM_SLOTS = Object.freeze([
+  'totalCents',
+  'total',
+  'patientPay',
+  'planPay',
+  'ingredient',
+  'fee',
+  'remainingCents',
+  'remaining',
+  'kappaCents',
+]);
 
 /**
  * The claim as the lines tell it: the fill circuit's split of T = ing + fee against her plan and her totals before
@@ -207,19 +246,40 @@ export const CLAIM_SLOTS = Object.freeze(['totalCents', 'total', 'patientPay', '
  * result). `answer` is the engine's own T, P, Q and kappa; where the circuit's arithmetic disagrees, `mismatch` says so.
  */
 function claimOf(plan, { ingredientCents, feeCents, copayCents, before = {}, answer = null, source = 'predicted' }) {
-  const acc = { D: plan.deductibleCents, d: Number(before.d || 0), M: plan.oopCents, o: Number(before.o || 0), B: plan.annualCents, b: Number(before.b || 0) };
-  const split = priceFill({ ing: ingredientCents, fee: feeCents, c: copayCents, acc, fam: { Mh: plan.famOopCents, oBar: acc.o, Bh: plan.famBenefitCents, bBar: acc.b } });
+  const acc = {
+    D: plan.deductibleCents,
+    d: Number(before.d || 0),
+    M: plan.oopCents,
+    o: Number(before.o || 0),
+    B: plan.annualCents,
+    b: Number(before.b || 0),
+  };
+  const split = priceFill({
+    ing: ingredientCents,
+    fee: feeCents,
+    c: copayCents,
+    acc,
+    fam: { Mh: plan.famOopCents, oBar: acc.o, Bh: plan.famBenefitCents, bBar: acc.b },
+  });
   const k = { source, ingredientCents, feeCents, copayCents, before: acc, ...split, mismatch: [] };
   if (answer) {
     for (const f of ['T', 'P', 'Q', 'kappa']) {
       if (answer[f] == null || !Number.isFinite(Number(answer[f]))) continue;
-      if (Number(answer[f]) !== k[f]) k.mismatch.push(`${f}: the engine answered ${answer[f]}, the fill circuit's arithmetic gives ${k[f]}`);
+      if (Number(answer[f]) !== k[f])
+        k.mismatch.push(`${f}: the engine answered ${answer[f]}, the fill circuit's arithmetic gives ${k[f]}`);
       k[f] = Number(answer[f]);
     }
   }
   k.slots = Object.freeze({
-    totalCents: grouped(k.T), total: cents(k.T), patientPay: cents(k.P), planPay: cents(k.Q),
-    ingredient: cents(k.ingredientCents), fee: cents(k.feeCents), remainingCents: grouped(k.rD), remaining: cents(k.rD), kappaCents: grouped(k.kappa)
+    totalCents: grouped(k.T),
+    total: cents(k.T),
+    patientPay: cents(k.P),
+    planPay: cents(k.Q),
+    ingredient: cents(k.ingredientCents),
+    fee: cents(k.feeCents),
+    remainingCents: grouped(k.rD),
+    remaining: cents(k.rD),
+    kappaCents: grouped(k.kappa),
   });
   return Object.freeze(k);
 }
@@ -229,11 +289,34 @@ function withForms(c) {
   const k = c.claim;
   return {
     ...c,
-    pricing: { ingredientCents: k.ingredientCents, feeCents: k.feeCents, copayCents: k.copayCents, T: k.T, P: k.P, Q: k.Q, kappa: k.kappa, rD: k.rD, pD: k.pD, a: k.a, cRem: k.cRem, pBase: k.pBase, rule: k.rule, source: k.source },
+    pricing: {
+      ingredientCents: k.ingredientCents,
+      feeCents: k.feeCents,
+      copayCents: k.copayCents,
+      T: k.T,
+      P: k.P,
+      Q: k.Q,
+      kappa: k.kappa,
+      rD: k.rD,
+      pD: k.pD,
+      a: k.a,
+      cRem: k.cRem,
+      pBase: k.pBase,
+      rule: k.rule,
+      source: k.source,
+    },
     say: {
-      deductible: cents(c.plan.deductibleCents), oop: cents(c.plan.oopCents), famOop: cents(c.plan.famOopCents), copay: cents(k.copayCents),
-      ingredient: cents(k.ingredientCents), fee: cents(k.feeCents), total: cents(k.T), patientPay: cents(k.P), planPay: cents(k.Q), credit: cents(k.kappa)
-    }
+      deductible: cents(c.plan.deductibleCents),
+      oop: cents(c.plan.oopCents),
+      famOop: cents(c.plan.famOopCents),
+      copay: cents(k.copayCents),
+      ingredient: cents(k.ingredientCents),
+      fee: cents(k.feeCents),
+      total: cents(k.T),
+      patientPay: cents(k.P),
+      planPay: cents(k.Q),
+      credit: cents(k.kappa),
+    },
   };
 }
 
@@ -245,35 +328,93 @@ export function castOf(input = {}) {
   const now = input.now ? new Date(input.now) : new Date();
   const tag = input.tag || now.toISOString().slice(2, 10).replace(/-/g, '') + now.toISOString().slice(11, 16).replace(':', '');
   const plan = {
-    name: 'Standard Rx 2026', id: 'PLAN-STD-RX-2026', copayCents: 1000, deductibleCents: 50000, oopCents: 780000, annualCents: 10000000,
-    famDedCents: 100000, famOopCents: 1600000, famBenefitCents: 20000000 /* the insurer route's default; the form has no field */, coverage: 'pharmacy',
+    name: 'Standard Rx 2026',
+    id: 'PLAN-STD-RX-2026',
+    copayCents: 1000,
+    deductibleCents: 50000,
+    oopCents: 780000,
+    annualCents: 10000000,
+    famDedCents: 100000,
+    famOopCents: 1600000,
+    famBenefitCents: 20000000 /* the insurer route's default; the form has no field */,
+    coverage: 'pharmacy',
     dispensingFeeCents: 1300, // the plan's dispensing fee, typed into the insurer's plan form (#plan-dispensing-fee)
-    ...(input.plan || {})
+    ...(input.plan || {}),
   };
-  const altPlan = input.altPlan === null ? null : {
-    name: 'Low Deductible Rx 2026', id: 'PLAN-LOWDED-RX-2026', copayCents: 2500, deductibleCents: 20000, oopCents: 600000, annualCents: 10000000,
-    famDedCents: 40000, famOopCents: 1200000, famBenefitCents: 20000000, coverage: 'pharmacy', dispensingFeeCents: 1300, ...(input.altPlan || {})
-  };
+  const altPlan =
+    input.altPlan === null
+      ? null
+      : {
+          name: 'Low Deductible Rx 2026',
+          id: 'PLAN-LOWDED-RX-2026',
+          copayCents: 2500,
+          deductibleCents: 20000,
+          oopCents: 600000,
+          annualCents: 10000000,
+          famDedCents: 40000,
+          famOopCents: 1200000,
+          famBenefitCents: 20000000,
+          coverage: 'pharmacy',
+          dispensingFeeCents: 1300,
+          ...(input.altPlan || {}),
+        };
   const employer = {
-    company: 'Fernhill Test Works LLC', employerId: 'FERNHILL-TW', contact: PEOPLE.hr.name, email: 'hr@fernhill.example.test', phone: '608-555-0142',
-    ein: '00-4417321', state: 'WI', industry: 'Materials testing', effective: ymd(now), cap: 25, planType: 'erisa', signerTitle: 'Benefits Director',
-    letterFileName: 'sample-ein-letter.pdf', ...(input.employer || {})
+    company: 'Fernhill Test Works LLC',
+    employerId: 'FERNHILL-TW',
+    contact: PEOPLE.hr.name,
+    email: 'hr@fernhill.example.test',
+    phone: '608-555-0142',
+    ein: '00-4417321',
+    state: 'WI',
+    industry: 'Materials testing',
+    effective: ymd(now),
+    cap: 25,
+    planType: 'erisa',
+    signerTitle: 'Benefits Director',
+    letterFileName: 'sample-ein-letter.pdf',
+    ...(input.employer || {}),
   };
   const group = { id: 'GRP-FERNHILL-LAB', effectiveDate: ymd(now), cap: 25, ...(input.group || {}) };
   // her mobile is a fictional 555-01xx number: the HR Tool texts her enrollment PIN there (A-109)
-  const member = { firstName: 'Avery', lastName: 'Quillfeather', dob: '19870412', email: 'avery.quillfeather@example.test', mobile: '+1 608 555 0101', ...(input.member || {}) };
+  const member = {
+    firstName: 'Avery',
+    lastName: 'Quillfeather',
+    dob: '19870412',
+    email: 'avery.quillfeather@example.test',
+    mobile: '+1 608 555 0101',
+    ...(input.member || {}),
+  };
   member.employeeId = member.employeeId || `FTW-${tag}-001`;
   member.familyId = member.familyId || `FAM-${tag}-01`;
   // the cardholder ID is the plan's member ID from her benefits card, typed on the phone under blur. It is her own
   // number, drawn for each cast: never the employee ID, which HR holds and its roster preview shows in clear
   member.cardholderId = member.cardholderId || memberIdOf();
   const others = input.coworkers || [
-    ['Rowan', 'Ashgrove', '19921103'], ['Jules', 'Marrowind', '19850921'], ['Sasha', 'Penhallow', '19900317'],
-    ['Imogen', 'Strayhorn', '19780629'], ['Bastian', 'Wrenfield', '19951208']
+    ['Rowan', 'Ashgrove', '19921103'],
+    ['Jules', 'Marrowind', '19850921'],
+    ['Sasha', 'Penhallow', '19900317'],
+    ['Imogen', 'Strayhorn', '19780629'],
+    ['Bastian', 'Wrenfield', '19951208'],
   ];
   const roster = [
-    { employeeId: member.employeeId, familyId: member.familyId, firstName: member.firstName, lastName: member.lastName, dob: member.dob, email: member.email, mobile: member.mobile },
-    ...others.map(([f, l, dob], i) => ({ employeeId: `FTW-${tag}-${String(i + 2).padStart(3, '0')}`, familyId: `FAM-${tag}-${String(i + 2).padStart(2, '0')}`, firstName: f, lastName: l, dob, email: '', mobile: `+1 608 555 01${String(i + 2).padStart(2, '0')}` }))
+    {
+      employeeId: member.employeeId,
+      familyId: member.familyId,
+      firstName: member.firstName,
+      lastName: member.lastName,
+      dob: member.dob,
+      email: member.email,
+      mobile: member.mobile,
+    },
+    ...others.map(([f, l, dob], i) => ({
+      employeeId: `FTW-${tag}-${String(i + 2).padStart(3, '0')}`,
+      familyId: `FAM-${tag}-${String(i + 2).padStart(2, '0')}`,
+      firstName: f,
+      lastName: l,
+      dob,
+      email: '',
+      mobile: `+1 608 555 01${String(i + 2).padStart(2, '0')}`,
+    })),
   ];
   roster.fileName = 'fernhill-roster.csv';
   const codes = { validUntil: ymd(inviteExpiryFrom(now)), ...(input.codes || {}) };
@@ -282,14 +423,37 @@ export function castOf(input = {}) {
   const pharmacy = { display: 'Kettleby Pharmacy', short: "Kettleby's", match: 'Kettleby', ...(input.pharmacy || {}) };
   const drug = {
     // src/data/formulary-100.json: NDC 00378013701, tier 1, no prior authorization or step therapy, at most 90 a fill
-    name: 'Allopurinol 100 mg tablet', match: 'ALLOPURINOL', strengthMatch: '100', ndc: '00378-0137-01', quantity: 30, daysSupply: 30, refills: 0,
-    directions: 'Take 1 tablet by mouth daily after a meal', diagnosis: 'Gout', nadacPerUnit: 0.03118,
-    ...(input.drug || {})
+    name: 'Allopurinol 100 mg tablet',
+    match: 'ALLOPURINOL',
+    strengthMatch: '100',
+    ndc: '00378-0137-01',
+    quantity: 30,
+    daysSupply: 30,
+    refills: 0,
+    directions: 'Take 1 tablet by mouth daily after a meal',
+    diagnosis: 'Gout',
+    nadacPerUnit: 0.03118,
+    ...(input.drug || {}),
   };
   // the batch interval the batch scene says; the director checks it against l2_getStatus before a take
   const network = { batchSeconds: 30, ...(input.network || {}) };
   const claim = claimOf(plan, { ...predictPrice({ plan, drug }), source: 'predicted' });
-  return withForms({ tag, now: now.toISOString(), plan, altPlan, employer, group, member, roster, codes, prescriber, pharmacy, drug, network, claim });
+  return withForms({
+    tag,
+    now: now.toISOString(),
+    plan,
+    altPlan,
+    employer,
+    group,
+    member,
+    roster,
+    codes,
+    prescriber,
+    pharmacy,
+    drug,
+    network,
+    claim,
+  });
 }
 
 /**
@@ -312,11 +476,15 @@ export function withClaim(c, fill) {
     T: num(adj.totalCostCents) ?? ing + fee,
     P: num(adj.patientPayCents),
     Q: num(adj.planPayCents),
-    kappa: num(after.deductiblePaidCents) == null ? null : num(after.deductiblePaidCents) - dBefore
+    kappa: num(after.deductiblePaidCents) == null ? null : num(after.deductiblePaidCents) - dBefore,
   };
   const claim = claimOf(c.plan, {
-    ingredientCents: ing, feeCents: fee, copayCents: c.claim.copayCents,
-    before: { d: dBefore, o: num(before.oopPaidCents) ?? 0, b: num(before.benefitUsedCents) ?? 0 }, answer, source: 'engine'
+    ingredientCents: ing,
+    feeCents: fee,
+    copayCents: c.claim.copayCents,
+    before: { d: dBefore, o: num(before.oopPaidCents) ?? 0, b: num(before.benefitUsedCents) ?? 0 },
+    answer,
+    source: 'engine',
   });
   return withForms({ ...c, claim });
 }
@@ -336,7 +504,8 @@ export function storyChecks(c) {
   const out = [];
   if (!k.inDed) out.push('the fill is not inside the deductible (the board and the counter say it is)');
   else if (!(k.T < k.rD)) out.push(`T = ${k.T} cents does not fit inside the remaining deductible of ${k.rD} (the board says a = 0)`);
-  if (!(k.T > k.copayCents)) out.push(`T = ${k.T} cents is not above the ${k.copayCents}-cent copay (Avery expects the copay and is told more)`);
+  if (!(k.T > k.copayCents))
+    out.push(`T = ${k.T} cents is not above the ${k.copayCents}-cent copay (Avery expects the copay and is told more)`);
   if (k.P !== k.T || k.Q !== 0) out.push(`P = ${k.P}, Q = ${k.Q} (the lines say P = T and Q = 0)`);
   if (k.kappa !== k.T) out.push(`kappa = ${k.kappa} (the lines say all of it counts toward the deductible)`);
   return out.concat(k.mismatch);
@@ -351,29 +520,87 @@ export function storyChecks(c) {
 export function screenCards(c) {
   const learns = '#34d399';
   return Object.freeze({
-    disclosure: { title: 'About this film', lines: ['The people, the employer, the doctor and the pharmacy are fictional. The voices are synthetic.', 'Every screen is the real software; long waits are sped up and marked.'] },
-    planBehind: { title: 'Behind this click', lines: ['POST /plans', 'The insurer node stores the plan on the sequencer, then publishes it with a request signed by its node key.'] },
-    activationCode: { title: 'On this screen', lines: ['A one-time activation code, shown once on this page. Redacted in this film.', 'It collects the employer node’s admin credentials after activation.'] },
-    learnsEmployerCodes: { title: 'Fernhill’s node learns', color: learns, lines: ['An employee-ID hash, a family-ID hash and a hash of code and PIN for each person.', 'Never learns: names, birth dates, employee IDs, PINs.'] },
+    disclosure: {
+      title: 'About this film',
+      lines: [
+        'The people, the employer, the doctor and the pharmacy are fictional. The voices are synthetic.',
+        'Every screen is the real software; long waits are sped up and marked.',
+      ],
+    },
+    planBehind: {
+      title: 'Behind this click',
+      lines: ['POST /plans', 'The insurer node stores the plan on the sequencer, then publishes it with a request signed by its node key.'],
+    },
+    activationCode: {
+      title: 'On this screen',
+      lines: [
+        'A one-time activation code, shown once on this page. Redacted in this film.',
+        'It collects the employer node’s admin credentials after activation.',
+      ],
+    },
+    learnsEmployerCodes: {
+      title: 'Fernhill’s node learns',
+      color: learns,
+      lines: [
+        'An employee-ID hash, a family-ID hash and a hash of code and PIN for each person.',
+        'Never learns: names, birth dates, employee IDs, PINs.',
+      ],
+    },
     blurred: { title: 'On this screen', lines: ['Typed on the phone. Blurred here.'] },
-    redeemBehind: { title: 'Behind this', lines: ['The code and one hash of code and PIN: phone → insurer → (signed) → Fernhill’s node.', 'Group, plan and family hashes come back to the insurer; the group and plan hashes go on to the phone.'] },
+    redeemBehind: {
+      title: 'Behind this',
+      lines: [
+        'The code and one hash of code and PIN: phone → insurer → (signed) → Fernhill’s node.',
+        'Group, plan and family hashes come back to the insurer; the group and plan hashes go on to the phone.',
+      ],
+    },
     learnsEmployerRedeem: { title: 'Fernhill’s node learns', color: learns, lines: ['The code was used.', 'Never learns: a wallet ID.'] },
     enrollBehind: { title: 'Behind this click', lines: ['Phone → insurer (wallet ID, recovery deposits) → engine (signed approval).'] },
-    learnsInsurer: { title: 'The insurer learns', color: learns, lines: ['The wallet ID and the group, plan and family hashes.', 'Holds: the salt, g, the plan hash and one key share per card.', 'Never learns: the identity fields, or the cards’ shares.'] },
-    learnsEngine: { title: 'The engine learns', color: learns, lines: ['That the phone knows the six values behind W.', 'Never learns: the values.'] },
+    learnsInsurer: {
+      title: 'The insurer learns',
+      color: learns,
+      lines: [
+        'The wallet ID and the group, plan and family hashes.',
+        'Holds: the salt, g, the plan hash and one key share per card.',
+        'Never learns: the identity fields, or the cards’ shares.',
+      ],
+    },
+    learnsEngine: {
+      title: 'The engine learns',
+      color: learns,
+      lines: ['That the phone knows the six values behind W.', 'Never learns: the values.'],
+    },
     learnsPrescriber: { title: 'The prescriber sees', color: learns, lines: ['A wallet ID on her patient list.', 'Never sees: a name.'] },
-    prescribeProofs: { title: 'While it proves', lines: ['Proven inside the engine, then discarded.', 'No outside verifier yet (audit finding A-22).'] },
+    prescribeProofs: {
+      title: 'While it proves',
+      lines: ['Proven inside the engine, then discarded.', 'No outside verifier yet (audit finding A-22).'],
+    },
     simulatedTap: { title: 'Simulated tap', lines: ['Copied from the phone, pasted at the counter.'] },
     dispenseBehind: {
       title: 'Behind this click',
       lines: [
         `The pharmacy node sends the prescription and quantity ${c.drug.quantity}, and no cost.`,
-        'The engine prices the fill (NADAC × quantity + the plan’s dispensing fee) and makes three proofs.'
-      ]
+        'The engine prices the fill (NADAC × quantity + the plan’s dispensing fee) and makes three proofs.',
+      ],
     },
-    learnsPharmacy: { title: 'The pharmacy learns', color: learns, lines: ['What Avery pays, what the plan pays, and her running totals.', 'Never learns: her name.'] },
-    learnsLedger: { title: 'The ledger keeps', color: learns, lines: ['Wallet IDs, the drug-code hash, the date and the amounts.', 'Beside them, in plain text: the drug’s code and name, tier, quantity and NADAC price.', 'Never: her name.'] },
-    endCard: { title: 'About this film', lines: ['Voices are synthetic.', 'The people, the employer, the doctor and the pharmacy are fictional.'] }
+    learnsPharmacy: {
+      title: 'The pharmacy learns',
+      color: learns,
+      lines: ['What Avery pays, what the plan pays, and her running totals.', 'Never learns: her name.'],
+    },
+    learnsLedger: {
+      title: 'The ledger keeps',
+      color: learns,
+      lines: [
+        'Wallet IDs, the drug-code hash, the date and the amounts.',
+        'Beside them, in plain text: the drug’s code and name, tier, quantity and NADAC price.',
+        'Never: her name.',
+      ],
+    },
+    endCard: {
+      title: 'About this film',
+      lines: ['Voices are synthetic.', 'The people, the employer, the doctor and the pharmacy are fictional.'],
+    },
   });
 }
 
@@ -387,7 +614,8 @@ const CUES = new Set(['laugh', 'chuckle', 'sigh', 'gasp', 'giggle', 'cough', 'ex
 function fillSlots(text, slots) {
   return String(text).replace(/\{([A-Za-z]+)\}/g, (m, name) => {
     if (CUES.has(name)) return m;
-    if (!Object.prototype.hasOwnProperty.call(slots, name)) throw new Error(`a line carries {${name}}, which is not a claim slot (${CLAIM_SLOTS.join(', ')})`);
+    if (!Object.prototype.hasOwnProperty.call(slots, name))
+      throw new Error(`a line carries {${name}}, which is not a claim slot (${CLAIM_SLOTS.join(', ')})`);
     return slots[name];
   });
 }
@@ -402,74 +630,128 @@ export function storyLines(c) {
   const qty = sayNumber(c.drug.quantity);
   const S = {
     plan: {
-      intro: [N('One prescription claim, start to finish, on the real dashboards. It starts with a plan. Theo Brandvold builds plans for the insurer.')],
+      intro: [
+        N(
+          'One prescription claim, start to finish, on the real dashboards. It starts with a plan. Theo Brandvold builds plans for the insurer.',
+        ),
+      ],
       name: [L('analyst', `${planName}.`)],
       cents: [N('Amounts on this form are in cents.')],
-      limits: [L('analyst', `${capital(dollarWords(D))} deductible. ${capital(dollarWords(c.plan.oopCents))} out-of-pocket. ${capital(dollarWords(c.plan.famOopCents))} for a family.`)],
+      limits: [
+        L(
+          'analyst',
+          `${capital(dollarWords(D))} deductible. ${capital(dollarWords(c.plan.oopCents))} out-of-pocket. ${capital(dollarWords(c.plan.famOopCents))} for a family.`,
+        ),
+      ],
       create: [L('analyst', 'Create.')],
-      after: [N("His node stores the plan on the sequencer, the network's ledger, and publishes it with a signed request. When a member enrolls, the claims engine copies her limits from this copy and binds her to this plan's formulary, copay and dispensing fee.", { pricing: true })]
+      after: [
+        N(
+          "His node stores the plan on the sequencer, the network's ledger, and publishes it with a signed request. When a member enrolls, the claims engine copies her limits from this copy and binds her to this plan's formulary, copay and dispensing fee.",
+          { pricing: true },
+        ),
+      ],
     },
     apply: {
       plans: [L('hr', c.altPlan ? 'Two plans.' : 'One plan.')],
-      choose: [L('hr', `${planWord}. ${capital(dollarWords(D))} deductible, ${dollarWords(c.plan.oopCents)} out-of-pocket, ${dollarWords(c.plan.copayCents)}-dollar base copay. That's the one we budgeted.`, { pricing: true })],
+      choose: [
+        L(
+          'hr',
+          `${planWord}. ${capital(dollarWords(D))} deductible, ${dollarWords(c.plan.oopCents)} out-of-pocket, ${dollarWords(c.plan.copayCents)}-dollar base copay. That's the one we budgeted.`,
+          { pricing: true },
+        ),
+      ],
       details: [L('hr', `Effective today. Cap of ${sayNumber(c.employer.cap)}.`)],
       submit: [L('hr', 'Submit.')],
-      after: [N("When she submitted, her browser made an Ed25519 key pair and kept the private half in page memory. The insurer got the public half with the application. That key will sign Fernhill's agreement later.")]
+      after: [
+        N(
+          "When she submitted, her browser made an Ed25519 key pair and kept the private half in page memory. The insurer got the public half with the application. That key will sign Fernhill's agreement later.",
+        ),
+      ],
     },
     docs: {
       code: [L('hr', 'Activation code. Copied, and saved.')],
       asked: [L('hr', 'They want our CP 575.')],
-      upload: [L('hr', 'I have it. Uploading.')]
+      upload: [L('hr', 'I have it. Uploading.')],
     },
     approve: {
       row: [L('analyst', `${company}. Letter's on file.`)],
       pdf: [L('analyst', 'Name and EIN match the application.')],
-      approve: [L('analyst', 'Approved.')]
+      approve: [L('analyst', 'Approved.')],
     },
     sign: {
       scroll: [L('hr', "It won't let me sign until I scroll to the end. Fine.")],
       sign: [L('hr', `${c.employer.signerTitle}. Attest. Sign.`)],
-      activation: [N("Her key signs the agreement, and the insurer checks it against her application's public key and adds its own signature. The sequencer checks both, the insurer's against a key pinned in its own configuration, not one carried in the document. Then the insurer starts a separate employer node for Fernhill.")],
-      token: [L('hr', 'Node address. Admin token, shown once. Copying it now.')]
+      activation: [
+        N(
+          "Her key signs the agreement, and the insurer checks it against her application's public key and adds its own signature. The sequencer checks both, the insurer's against a key pinned in its own configuration, not one carried in the document. Then the insurer starts a separate employer node for Fernhill.",
+        ),
+      ],
+      token: [L('hr', 'Node address. Admin token, shown once. Copying it now.')],
     },
     group: {
       token: [L('hr', "Token's in.")],
       form: [L('hr', `One group for the lab staff. ${planWord} plan, effective today.`)],
-      after: [N('This node serves Fernhill alone. It accepts a group only on a plan Fernhill bought. The group ID stays here; only its hash ever leaves.')]
+      after: [
+        N(
+          'This node serves Fernhill alone. It accepts a group only on a plan Fernhill bought. The group ID stays here; only its hash ever leaves.',
+        ),
+      ],
     },
     codes: {
       setup: [L('hr', 'Node address. Token. Passphrase, twice.')],
       group: [L('hr', 'Lab staff.')],
       preview: [L('hr', `${capital(sayNumber(c.roster.length))} rows. Same as the roster.`)],
       expiry: [L('hr', 'Codes expire in two weeks.')],
-      after: [N("This tool is meant for Fernhill's own computer. It hashes each employee ID and family ID with a secret seed it keeps for this group, and sends Fernhill's node only those hashes. The node issues one code per person and keeps only its fingerprint. The tool adds an eight-digit PIN and texts it straight to the employee, so no one at HR sees it; the node gets only a hash of code and PIN together.")],
-      channels: [L('hr', 'Codes go in the welcome letters. The tool texted the PINs.')]
+      after: [
+        N(
+          "This tool is meant for Fernhill's own computer. It hashes each employee ID and family ID with a secret seed it keeps for this group, and sends Fernhill's node only those hashes. The node issues one code per person and keeps only its fingerprint. The tool adds an eight-digit PIN and texts it straight to the employee, so no one at HR sees it; the node gets only a hash of code and PIN together.",
+        ),
+      ],
+      channels: [L('hr', 'Codes go in the welcome letters. The tool texted the PINs.')],
     },
     enroll: {
-      intro: [N('A few days later, Avery Quillfeather, a lab technician at Fernhill, has a letter with a code and a text with a PIN. Here the member node on port 4001 plays her phone.')],
+      intro: [
+        N(
+          'A few days later, Avery Quillfeather, a lab technician at Fernhill, has a letter with a code and a text with a PIN. Here the member node on port 4001 plays her phone.',
+        ),
+      ],
       new: [L('member', 'Okay. New enrollment.', { mood: MOOD.anxious })],
       pin: [L('member', 'A PIN for the phone first.', { mood: MOOD.anxious })],
       code: [L('member', 'Code from the letter. PIN from the text.', { mood: MOOD.anxious })],
       recovery: [L('member', "And a recovery PIN. Something I won't forget.", { mood: MOOD.anxious })],
       identity: [L('member', 'Cardholder ID, from the card. Name. Birthday.', { mood: MOOD.anxious })],
       keygen: [N('First the phone makes a random enrollment key. It never leaves the phone in one piece.')],
-      redeem: [N('Then it redeems the code: the code and one hash of code and PIN go to the insurer, which forwards them, signed, to the node that issued the code.')],
-      answer: [N("Fernhill's node checks the hash, marks the code used, and answers with group, plan and family hashes. The insurer keeps the family hash and passes the other two to the phone.")]
+      redeem: [
+        N(
+          'Then it redeems the code: the code and one hash of code and PIN go to the insurer, which forwards them, signed, to the node that issued the code.',
+        ),
+      ],
+      answer: [
+        N(
+          "Fernhill's node checks the hash, marks the code used, and answers with group, plan and family hashes. The insurer keeps the family hash and passes the other two to the phone.",
+        ),
+      ],
     },
     'board-wallet': {
       lines: [
         N('Here is what the phone just computed.', { board: [{ do: 'clear' }, { do: 'title', text: 'From identity to wallet ID' }] }),
-        N('One function does all the hashing. H is Poseidon, a hash that is cheap inside a proof, working modulo p, a prime just above two to the two hundred fifty-four. enc packs text into field elements, thirty-one bytes each; hs hashes a string.', {
-          board: [
-            { do: 'write', card: '0', size: 36 },
-            { do: 'annotate', text: 'one hash for everything', near: { card: '0', line: 2 }, side: 'below', color: 'blue', when: 0.85 }
-          ]
-        }),
-        N('The phone draws a salt, two hundred fifty-six random bits; sigma is its hash. Each identity field is hashed with sigma: f-zero the cardholder ID, f-two and f-three the names, f-four the enrollment key, K. The birth date, f-one, goes in as one number. f-five is g, the group hash from the redeemed code, with no salt.', {
-          board: [{ do: 'write', card: '2', size: 40 }]
-        }),
+        N(
+          'One function does all the hashing. H is Poseidon, a hash that is cheap inside a proof, working modulo p, a prime just above two to the two hundred fifty-four. enc packs text into field elements, thirty-one bytes each; hs hashes a string.',
+          {
+            board: [
+              { do: 'write', card: '0', size: 36 },
+              { do: 'annotate', text: 'one hash for everything', near: { card: '0', line: 2 }, side: 'below', color: 'blue', when: 0.85 },
+            ],
+          },
+        ),
+        N(
+          'The phone draws a salt, two hundred fifty-six random bits; sigma is its hash. Each identity field is hashed with sigma: f-zero the cardholder ID, f-two and f-three the names, f-four the enrollment key, K. The birth date, f-one, goes in as one number. f-five is g, the group hash from the redeemed code, with no salt.',
+          {
+            board: [{ do: 'write', card: '2', size: 40 }],
+          },
+        ),
         N('Seven field elements go in, a zero that tags a member wallet, then f-zero through f-five. One comes out: W, the wallet ID.', {
-          board: [{ do: 'write', card: '2b', size: 52, color: 'blue' }]
+          board: [{ do: 'write', card: '2b', size: 52, color: 'blue' }],
         }),
         N('f-zero to f-four never leave the phone; f-five came from the insurer at redemption. W goes out, and Fernhill never sees it.', {
           board: [
@@ -478,271 +760,509 @@ export function storyLines(c) {
             { do: 'circle', target: { card: '2b', find: 'f5' }, color: 'red', when: 0.4 },
             { do: 'annotate', text: 'plain hash, no salt', near: { card: '2b', find: 'f5)' }, side: 'right', color: 'red', when: 0.4 },
             { do: 'box', target: { card: '2b', find: 'W' }, color: 'green', when: 0.7 },
-            { do: 'annotate', text: 'leaves the phone', near: { card: '2b', find: 'W' }, side: 'below', color: 'green', when: 0.7 }
-          ]
-        })
-      ]
+            { do: 'annotate', text: 'leaves the phone', near: { card: '2b', find: 'W' }, side: 'below', color: 'green', when: 0.7 },
+          ],
+        }),
+      ],
     },
     enrolling: {
-      enroll: [N('Enrolling sends the insurer the wallet ID. The insurer checks that the code was redeemed and no other wallet used it, then sends the engine a signed approval: the wallet, its plan, its group and family hashes.')],
-      shares: [N('The same call splits the enrollment key, once per recovery card, into two random-looking shares. The card gets one. The insurer gets the other, beside a slow hash of the recovery PIN, the salt, and the group and plan hashes.')],
-      compile: [N('Then the phone compiles its circuits and starts the registration proof.')]
+      enroll: [
+        N(
+          'Enrolling sends the insurer the wallet ID. The insurer checks that the code was redeemed and no other wallet used it, then sends the engine a signed approval: the wallet, its plan, its group and family hashes.',
+        ),
+      ],
+      shares: [
+        N(
+          'The same call splits the enrollment key, once per recovery card, into two random-looking shares. The card gets one. The insurer gets the other, beside a slow hash of the recovery PIN, the salt, and the group and plan hashes.',
+        ),
+      ],
+      compile: [N('Then the phone compiles its circuits and starts the registration proof.')],
     },
     'board-registration': {
       lines: [
-        N('While the phone proves, here is what it proves.', { board: [{ do: 'clear' }, { do: 'title', text: 'What the registration proof says' }] }),
-        N("First, the tool every tree here uses. MR is a Merkle path root: start at a leaf, ell, and at each level hash it with one sibling, s-i. The bit b-i says which side. z-zero is zero, and each z-k hashes two copies of the one below, so an empty tree's root is known in advance.", {
-          board: [
-            { do: 'write', card: '5', size: 36 },
-            { do: 'annotate', text: 'which side? the bit decides', near: { card: '5', find: 'bi=1' }, side: 'above', color: 'blue', size: 22, when: { word: 'side', at: 0.5 } }
-          ]
+        N('While the phone proves, here is what it proves.', {
+          board: [{ do: 'clear' }, { do: 'title', text: 'What the registration proof says' }],
         }),
-        N("Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and a nonce of zero, and W with state one, registered. Only x is public: W and four roots.", {
-          board: [
-            { do: 'write', card: '4b', size: 32 },
-            { do: 'annotate', text: 'private: f0..f5', near: { card: '4b', line: 1 }, side: 'right', color: 'blue', when: 0.2 },
-            { do: 'underline', target: { card: '4b', line: 2 }, color: 'blue', when: { word: 'two', at: 0.5 } },
-            { do: 'annotate', text: 'slot is empty', near: { card: '4b', line: 2 }, side: 'right', color: 'blue', when: { word: 'two', at: 0.5 } },
-            { do: 'underline', target: { card: '4b', line: 3 }, color: 'blue', when: { word: 'three', at: 0.7 } },
-            { do: 'annotate', text: 'new leaves', near: { card: '4b', line: 3 }, side: 'right', color: 'blue', when: { word: 'three', at: 0.7 } },
-            { do: 'box', target: { card: '4b', line: 4 }, color: 'green', when: 0.88 },
-            { do: 'annotate', text: 'all the sequencer sees', near: { card: '4b', line: 4 }, side: 'right', color: 'green', when: 0.88 }
-          ]
-        })
-      ]
+        N(
+          "First, the tool every tree here uses. MR is a Merkle path root: start at a leaf, ell, and at each level hash it with one sibling, s-i. The bit b-i says which side. z-zero is zero, and each z-k hashes two copies of the one below, so an empty tree's root is known in advance.",
+          {
+            board: [
+              { do: 'write', card: '5', size: 36 },
+              {
+                do: 'annotate',
+                text: 'which side? the bit decides',
+                near: { card: '5', find: 'bi=1' },
+                side: 'above',
+                color: 'blue',
+                size: 22,
+                when: { word: 'side', at: 0.5 },
+              },
+            ],
+          },
+        ),
+        N(
+          "Now the proof. t is the domain tag; zero means member, so the circuit rebuilds W from the six private values. The wallet registry and the lifecycle tree each have height eleven, a thousand and twenty-four slots. Line two: a zero at W's slot hashes up to today's roots, so the slot is empty. Line three writes W with an empty inventory and a nonce of zero, and W with state one, registered. Only x is public: W and four roots.",
+          {
+            board: [
+              { do: 'write', card: '4b', size: 32 },
+              { do: 'annotate', text: 'private: f0..f5', near: { card: '4b', line: 1 }, side: 'right', color: 'blue', when: 0.2 },
+              { do: 'underline', target: { card: '4b', line: 2 }, color: 'blue', when: { word: 'two', at: 0.5 } },
+              {
+                do: 'annotate',
+                text: 'slot is empty',
+                near: { card: '4b', line: 2 },
+                side: 'right',
+                color: 'blue',
+                when: { word: 'two', at: 0.5 },
+              },
+              { do: 'underline', target: { card: '4b', line: 3 }, color: 'blue', when: { word: 'three', at: 0.7 } },
+              {
+                do: 'annotate',
+                text: 'new leaves',
+                near: { card: '4b', line: 3 },
+                side: 'right',
+                color: 'blue',
+                when: { word: 'three', at: 0.7 },
+              },
+              { do: 'box', target: { card: '4b', line: 4 }, color: 'green', when: 0.88 },
+              { do: 'annotate', text: 'all the sequencer sees', near: { card: '4b', line: 4 }, side: 'right', color: 'green', when: 0.88 },
+            ],
+          },
+        ),
+      ],
     },
     'board-gate': {
       lines: [
-        N("The sequencer checks every proof at one gate. At boot it compiled this program itself, in a separate verifier process, and checked the key's hash against a pinned value; this take pins one, and without a pin it only warns. A proof passes only if it verifies, its old roots are the ledger's current roots, and its new roots match the sequencer's own recomputation: the next free slot for a registration, or the wallet's own slot, nonce plus one, for an update.", {
-          board: [{ do: 'clear' }, { do: 'title', text: "The sequencer's gate" }, { do: 'write', card: '4c', size: 28 }]
-        }),
-        N('Only then does anything change. And while the phone proved, it held the proving lease, so nothing else could move those roots.', {
-          board: [
-            { do: 'box', target: { card: '4c', line: 2 }, color: 'green' },
-            { do: 'annotate', text: 'accept', near: { card: '4c', findRe: '\\(R\\W+reg,R\\W+lc\\)' }, side: 'above', color: 'green' }
-          ]
-        })
-      ]
+        N(
+          "The sequencer checks every proof at one gate. At boot it compiled this program itself, in a separate verifier process, and checked the key's hash against a pinned value; this take pins one, and without a pin it only warns. A proof passes only if it verifies, its old roots are the ledger's current roots, and its new roots match the sequencer's own recomputation: the next free slot for a registration, or the wallet's own slot, nonce plus one, for an update.",
+          {
+            board: [{ do: 'clear' }, { do: 'title', text: "The sequencer's gate" }, { do: 'write', card: '4c', size: 28 }],
+          },
+        ),
+        N(
+          'Only then does anything change. And while the phone proved, it held the proving lease, so nothing else could move those roots.',
+          {
+            board: [
+              { do: 'box', target: { card: '4c', line: 2 }, color: 'green' },
+              { do: 'annotate', text: 'accept', near: { card: '4c', findRe: '\\(R\\W+reg,R\\W+lc\\)' }, side: 'above', color: 'green' },
+            ],
+          },
+        ),
+      ],
     },
     enrolled: {
       cards: [L('member', 'Write your two recovery cards now. Keep one at home. Okay.', { mood: MOOD.anxious })],
-      explain: [N('Each card holds one share of her enrollment key and a random ID, and no wallet ID. The wallet ID on screen is an address, not a secret.')],
-      enter: [L('member', 'Done.', { mood: MOOD.relieved })]
+      explain: [
+        N(
+          'Each card holds one share of her enrollment key and a random ID, and no wallet ID. The wallet ID on screen is an address, not a secret.',
+        ),
+      ],
+      enter: [L('member', 'Done.', { mood: MOOD.relieved })],
     },
     'status-registration': {
-      accepted: [N("No product screen shows this part, so this card is drawn from the network's own answers. The registration proof was accepted. Then the phone sent the engine a second proof: that it knows the six values behind W, without sending them.")],
-      record: [N("The engine opens a record only for a wallet the insurer approved and the ledger shows registered. It took Avery's limits from her plan, marked her eligible with an admin write, not a proof, and queued her first credential, which the phone proved too.")]
+      accepted: [
+        N(
+          "No product screen shows this part, so this card is drawn from the network's own answers. The registration proof was accepted. Then the phone sent the engine a second proof: that it knows the six values behind W, without sending them.",
+        ),
+      ],
+      record: [
+        N(
+          "The engine opens a record only for a wallet the insurer approved and the ledger shows registered. It took Avery's limits from her plan, marked her eligible with an admin write, not a proof, and queued her first credential, which the phone proved too.",
+        ),
+      ],
     },
     'board-record': {
       lines: [
         N("Two equations hold the engine's record for Avery.", { board: [{ do: 'clear' }, { do: 'title', text: "Avery's record" }] }),
-        N('A is the accumulator commitment, one hash over seven numbers: y, the plan year; D, the deductible, and d, paid toward it; M, the out-of-pocket maximum, and o, paid; B, the annual benefit maximum, and b, what the plan has paid. All in cents. On day one, everything paid is zero.', {
-          board: [
-            { do: 'write', card: '5b', size: 40 },
-            { do: 'value', target: { card: '5b', find: 'D', nth: 0 }, text: grouped(D), when: 0.55 },
-            { do: 'value', target: { card: '5b', find: 'M', nth: 0 }, text: grouped(c.plan.oopCents), side: 'above', when: 0.68 },
-            { do: 'value', target: { card: '5b', find: 'B', nth: 0 }, text: grouped(c.plan.annualCents), size: 18, when: 0.8 }
-          ]
-        }),
-        N('A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.', {
-          pricing: true,
-          board: [
-            { do: 'write', card: '5c', size: 36 },
-            { do: 'annotate', text: 'her plan: copay, formulary', near: { card: '5c', findRe: 'rac=root8\\{0[^E]*Eelig' }, side: 'below', color: 'blue', size: 24, when: 0.62 },
-            { do: 'circle', target: { card: '5c', findRe: '127[^A,]*A' }, color: 'blue', when: 0.8 },
-            { do: 'annotate', text: 'her accumulator', near: { card: '5c', findRe: '127[^A,]*A' }, side: 'below', color: 'blue', size: 24, when: 0.8 }
-          ]
-        }),
-        N('In the wallet registry, this whole credential is one number: the inventory root inside her leaf.')
-      ]
+        N(
+          'A is the accumulator commitment, one hash over seven numbers: y, the plan year; D, the deductible, and d, paid toward it; M, the out-of-pocket maximum, and o, paid; B, the annual benefit maximum, and b, what the plan has paid. All in cents. On day one, everything paid is zero.',
+          {
+            board: [
+              { do: 'write', card: '5b', size: 40 },
+              { do: 'value', target: { card: '5b', find: 'D', nth: 0 }, text: grouped(D), when: 0.55 },
+              { do: 'value', target: { card: '5b', find: 'M', nth: 0 }, text: grouped(c.plan.oopCents), side: 'above', when: 0.68 },
+              { do: 'value', target: { card: '5b', find: 'B', nth: 0 }, text: grouped(c.plan.annualCents), size: 18, when: 0.8 },
+            ],
+          },
+        ),
+        N(
+          'A credential carries one number for its data, a forest root: the hash of six tree roots, each of height eight. At registration only access control has leaves. Leaf zero is her eligibility record, which binds her to her plan: its copay and the root of its formulary. Leaf one twenty-seven is A. The other trees are empty: z-seven.',
+          {
+            pricing: true,
+            board: [
+              { do: 'write', card: '5c', size: 36 },
+              {
+                do: 'annotate',
+                text: 'her plan: copay, formulary',
+                near: { card: '5c', findRe: 'rac=root8\\{0[^E]*Eelig' },
+                side: 'below',
+                color: 'blue',
+                size: 24,
+                when: 0.62,
+              },
+              { do: 'circle', target: { card: '5c', findRe: '127[^A,]*A' }, color: 'blue', when: 0.8 },
+              {
+                do: 'annotate',
+                text: 'her accumulator',
+                near: { card: '5c', findRe: '127[^A,]*A' },
+                side: 'below',
+                color: 'blue',
+                size: 24,
+                when: 0.8,
+              },
+            ],
+          },
+        ),
+        N('In the wallet registry, this whole credential is one number: the inventory root inside her leaf.'),
+      ],
     },
     pcp: {
       choose: [L('member', `Providers. Dr. ${c.prescriber.lastName}. That's who I saw.`, { mood: MOOD.warm })],
       set: [L('member', 'Primary care. Done.', { mood: MOOD.relieved })],
-      after: [N(`The engine checks that Dr. ${c.prescriber.lastName} is a credentialed, active prescriber and records her in Avery's credential, as leaf zero of the member tree. The phone proves that update, then posts the link to the sequencer, signed with its wallet key. Avery joins the doctor's list as a wallet ID, with no name.`)]
+      after: [
+        N(
+          `The engine checks that Dr. ${c.prescriber.lastName} is a credentialed, active prescriber and records her in Avery's credential, as leaf zero of the member tree. The phone proves that update, then posts the link to the sequencer, signed with its wallet key. Avery joins the doctor's list as a wallet ID, with no name.`,
+        ),
+      ],
     },
     prescribe: {
       patient: [L('prescriber', "New patient on my list. That's her.")],
       pharmacy: [L('prescriber', `${c.pharmacy.short}. Her usual.`)],
       drug: [L('prescriber', 'Allopurinol, a hundred milligrams. Start low.')],
-      quote: [N("Before she writes it, her node asks the network what Avery would pay today. It may: Avery named her as primary care. The answer comes from the same arithmetic the fill will prove. She would pay {total}, all of it toward the deductible, and the drug is covered on her plan with no prior authorization.", { pricing: true })],
+      quote: [
+        N(
+          'Before she writes it, her node asks the network what Avery would pay today. It may: Avery named her as primary care. The answer comes from the same arithmetic the fill will prove. She would pay {total}, all of it toward the deductible, and the drug is covered on her plan with no prior authorization.',
+          { pricing: true },
+        ),
+      ],
       directions: [L('prescriber', `One a day, after a meal. ${capital(qty)}.`)],
       refills: [L('prescriber', 'No refills until I see her uric acid.')],
       send: [L('prescriber', 'Send.')],
-      sent: [N("Her node never received a name. It encrypts the e-script twice, for the pharmacy and for Avery's phone, then asks the engine, which runs inside the sequencer's process, to record it.")],
-      proofs: [N("The engine accepts: Avery named her as primary care, both providers are in network, and the drug needs no prior authorization or step therapy. Then it makes four proofs: the doctor's identity, made with a key it still holds for her; eligibility; formulary access; and the message. It throws them away; nobody verifies them yet.")],
-      ledger: [N('The ledger gets only a messaging audit event.')]
+      sent: [
+        N(
+          "Her node never received a name. It encrypts the e-script twice, for the pharmacy and for Avery's phone, then asks the engine, which runs inside the sequencer's process, to record it.",
+        ),
+      ],
+      proofs: [
+        N(
+          "The engine accepts: Avery named her as primary care, both providers are in network, and the drug needs no prior authorization or step therapy. Then it makes four proofs: the doctor's identity, made with a key it still holds for her; eligibility; formulary access; and the message. It throws them away; nobody verifies them yet.",
+        ),
+      ],
+      ledger: [N('The ledger gets only a messaging audit event.')],
     },
     fill: {
       read: [L('pharmacist', `Allopurinol, hundred milligram, ${qty}.`)],
       fill: [L('pharmacist', 'Filled. Now we wait for her.')],
-      after: [N('Fill is a status change. No proof, no money. This page keeps Dispense disabled until the member is verified.')]
+      after: [N('Fill is a status change. No proof, no money. This page keeps Dispense disabled until the member is verified.')],
     },
     attest: {
       ask: [L('pharmacist', 'Go ahead and tap your phone.')],
       open: [L('member', 'One sec.', { mood: MOOD.warm })],
-      explain: [N('The phone asks the sequencer for an attestation, signed with its wallet key. The sequencer signs one line with its Ed25519 key: the wallet ID, the registry root, the lifecycle state, a global-state field that is zero for now, the time, a one-day expiry and a random nonce. It is meant to travel by NFC tap; here, by clipboard.')]
+      explain: [
+        N(
+          'The phone asks the sequencer for an attestation, signed with its wallet key. The sequencer signs one line with its Ed25519 key: the wallet ID, the registry root, the lifecycle state, a global-state field that is zero for now, the time, a one-day expiry and a random nonce. It is meant to travel by NFC tap; here, by clipboard.',
+        ),
+      ],
     },
     'verify-dispense': {
       pasted: [N('The tap is simulated: copied from the phone, pasted here.')],
       verified: [L('pharmacist', 'There you are. One ready to go.')],
-      gate: [N("The node checked the sequencer's signature against a key it already holds, and the expiry. With that attestation, not a bare wallet ID, it may read her claim history, which is empty. Dispense unlocks, but that gate lives in this page; the server doesn't ask for the tap.")],
+      gate: [
+        N(
+          "The node checked the sequencer's signature against a key it already holds, and the expiry. With that attestation, not a bare wallet ID, it may read her claim history, which is empty. Dispense unlocks, but that gate lives in this page; the server doesn't ask for the tap.",
+        ),
+      ],
       dispense: [L('pharmacist', 'Running it through.')],
-      proving: [N("Dispense sends the engine the prescription and the quantity, and no price. The engine prices the fill itself: the drug's NADAC price times the quantity, plus her plan's dispensing fee. It refuses a terminated member or a same-day repeat of this drug at this pharmacy, then makes three proofs: one for the pharmacy's identity, one for the script's move to dispensed, and one for the fill.", { pricing: true })],
-      checks: [N("Before any money, the fill circuit checks the pharmacy, finds the prescription and its filled status, matches the drug to the script and formulary, checks the quantity and that the accumulator is Avery's. For now, the engine still holds the pharmacy's key for that first check.")]
+      proving: [
+        N(
+          "Dispense sends the engine the prescription and the quantity, and no price. The engine prices the fill itself: the drug's NADAC price times the quantity, plus her plan's dispensing fee. It refuses a terminated member or a same-day repeat of this drug at this pharmacy, then makes three proofs: one for the pharmacy's identity, one for the script's move to dispensed, and one for the fill.",
+          { pricing: true },
+        ),
+      ],
+      checks: [
+        N(
+          "Before any money, the fill circuit checks the pharmacy, finds the prescription and its filled status, matches the drug to the script and formulary, checks the quantity and that the accumulator is Avery's. For now, the engine still holds the pharmacy's key for that first check.",
+        ),
+      ],
     },
     'board-deductible': {
       lines: [
-        N('Inside that proof, the money starts from her record, A.', { board: [{ do: 'clear', ghost: 0 }, { do: 'title', text: 'Inside the fill proof: deductible and copay' }] }),
-        N("T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, {total}, so on the board T is {totalCents}. inDed, the in-deductible flag, is true while a deductible is unmet. r-D is what is left of it: all of it, {remaining}. p-D, this fill's deductible portion, is T or r-D, whichever is smaller. The whole total fits, so the rest, a, is zero.", {
-          pricing: true,
+        N('Inside that proof, the money starts from her record, A.', {
           board: [
-            // written by "on the board, T is ...", so each value lands on its own words
-            { do: 'write', card: '7b', size: 34, ms: 9500 },
-            { do: 'value', target: { card: '7b', find: 'T=', nth: 0 }, text: grouped(k.T), side: 'above', when: { word: 'board', at: 0.28 } },
-            { do: 'value', target: { card: '7b', find: 'rD=', nth: 0 }, text: grouped(k.rD), when: { word: 'all', at: 0.59 } },
-            { do: 'value', target: { card: '7b', find: 'pD=', nth: 0 }, text: grouped(k.pD), when: { word: 'whichever', at: 0.85 } },
-            { do: 'value', target: { card: '7b', find: 'a=T' }, text: grouped(k.a), when: { word: 'rest', at: 0.93 } }
-          ]
+            { do: 'clear', ghost: 0 },
+            { do: 'title', text: 'Inside the fill proof: deductible and copay' },
+          ],
         }),
-        N(`c is the copay, and it comes from her plan: ${dollarWords(k.copayCents)} dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.`, {
-          pricing: true,
-          board: [
-            // c, on its own line above the card, while the line names it
-            { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, color: 'blue' },
-            { do: 'write', card: '7c', size: 34, ms: 6500 },
-            { do: 'value', target: { card: '7c', find: 'crem=', nth: 0 }, text: grouped(k.cRem), when: { word: 'zero', at: 0.45 } },
-            { do: 'circle', target: { card: '7c', find: 'pD+crem' }, color: 'red', when: 0.85 },
-            { do: 'value', target: { card: '7c', find: 'pbase=', nth: 0 }, text: grouped(k.pBase), color: 'red', when: 0.85 }
-          ]
-        }),
-        N('Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.', {
-          pricing: true,
-          board: [{ do: 'annotate', text: 'caps: benefit, out-of-pocket, family. None binds.', color: 'blue', size: 26 }]
-        })
-      ]
+        N(
+          "T is the total: the drug's NADAC price times the quantity, plus her plan's dispensing fee. Here, {total}, so on the board T is {totalCents}. inDed, the in-deductible flag, is true while a deductible is unmet. r-D is what is left of it: all of it, {remaining}. p-D, this fill's deductible portion, is T or r-D, whichever is smaller. The whole total fits, so the rest, a, is zero.",
+          {
+            pricing: true,
+            board: [
+              // written by "on the board, T is ...", so each value lands on its own words
+              { do: 'write', card: '7b', size: 34, ms: 9500 },
+              {
+                do: 'value',
+                target: { card: '7b', find: 'T=', nth: 0 },
+                text: grouped(k.T),
+                side: 'above',
+                when: { word: 'board', at: 0.28 },
+              },
+              { do: 'value', target: { card: '7b', find: 'rD=', nth: 0 }, text: grouped(k.rD), when: { word: 'all', at: 0.59 } },
+              { do: 'value', target: { card: '7b', find: 'pD=', nth: 0 }, text: grouped(k.pD), when: { word: 'whichever', at: 0.85 } },
+              { do: 'value', target: { card: '7b', find: 'a=T' }, text: grouped(k.a), when: { word: 'rest', at: 0.93 } },
+            ],
+          },
+        ),
+        N(
+          `c is the copay, and it comes from her plan: ${dollarWords(k.copayCents)} dollars. c-rem is the copay on what remains, so zero. p-norm is the usual copay, after the deductible. She is still in it, so her base pay is p-D plus zero: the whole total.`,
+          {
+            pricing: true,
+            board: [
+              // c, on its own line above the card, while the line names it
+              { do: 'annotate', text: `c = ${grouped(k.copayCents)}, her plan's copay`, color: 'blue' },
+              { do: 'write', card: '7c', size: 34, ms: 6500 },
+              { do: 'value', target: { card: '7c', find: 'crem=', nth: 0 }, text: grouped(k.cRem), when: { word: 'zero', at: 0.45 } },
+              { do: 'circle', target: { card: '7c', find: 'pD+crem' }, color: 'red', when: 0.85 },
+              { do: 'value', target: { card: '7c', find: 'pbase=', nth: 0 }, text: grouped(k.pBase), color: 'red', when: 0.85 },
+            ],
+          },
+        ),
+        N(
+          'Then the benefit cap, the out-of-pocket cap and the family rules. None binds today. So P, what she pays, is the total; Q, what the plan pays, is zero.',
+          {
+            pricing: true,
+            board: [{ do: 'annotate', text: 'caps: benefit, out-of-pocket, family. None binds.', color: 'blue', size: 26 }],
+          },
+        ),
+      ],
     },
     pay: {
       price: [L('pharmacist', "That's {patientPay} today.", { pricing: true })],
       question: [L('member', `Oh. I thought it was a ${dollarWords(k.copayCents)}-dollar copay.`, { mood: MOOD.anxious, pricing: true })],
-      answer: [L('pharmacist', `It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your ${dollarWords(D)}.`, { pricing: true })],
+      answer: [
+        L(
+          'pharmacist',
+          `It will be, once you've met your deductible. Until then you pay what the drug costs, and this one's a generic. All of it counts toward your ${dollarWords(D)}.`,
+          { pricing: true },
+        ),
+      ],
       card: [L('member', 'Okay. Here you go.', { mood: MOOD.relieved })],
       counsel: [L('pharmacist', 'Take it after a meal, with plenty of water.', { mood: MOOD.kind })],
-      after: [N("The badge says Settlement Complete. More exactly: the fill proof stayed in the engine, and it takes one more proof, from Avery's phone, to put the claim on the ledger. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.")]
+      after: [
+        N(
+          "The badge says Settlement Complete. More exactly: the fill proof stayed in the engine, and it takes one more proof, from Avery's phone, to put the claim on the ledger. Payment Received is the pharmacy's own note that she paid; it changes nothing on the network.",
+        ),
+      ],
     },
     'board-settlement': {
       lines: [
-        N('Walt was right about the deductible. Here is where the proof says so.', { board: [{ do: 'clear' }, { do: 'title', text: "Credit, settlement, and the engine's check" }] }),
-        N('Kappa, the deductible credit, is the smaller of what she pays and the deductible portion. Both are the whole total, so all of it counts.', {
-          pricing: true,
-          board: [
-            { do: 'write', card: '7g', size: 40 },
-            { do: 'value', target: { card: '7g', find: 'P', nth: 0 }, text: grouped(k.P), when: 0.5 },
-            { do: 'value', target: { card: '7g', find: 'κ', nth: 0 }, text: grouped(k.kappa), when: 0.75 }
-          ]
+        N('Walt was right about the deductible. Here is where the proof says so.', {
+          board: [{ do: 'clear' }, { do: 'title', text: "Credit, settlement, and the engine's check" }],
         }),
-        N("fc hashes the facts of the fill: prescription hash, pharmacy wallet, drug-code hash, quantity times a thousand, ingredient cost, fee and date of service. S hashes fc with the money, P, Q and kappa. That settlement commitment goes into the prescription's own transaction tree.", {
-          board: [
-            { do: 'write', card: '7h', size: 34 },
-            { do: 'value', target: { card: '7h', find: 'Q', nth: 0 }, text: grouped(k.Q), when: 0.62 },
-            { do: 'circle', target: { card: '7h', find: 'S=' }, color: 'red', when: 0.8 },
-            { do: 'annotate', text: "into the prescription's transaction tree", near: { card: '7h', line: 2 }, side: 'right', color: 'red', when: 0.8 },
-            { do: 'annotate', text: 'engine only (A-22)', near: { card: '7h', line: 1 }, side: 'right', color: 'red', when: 0.92 }
-          ]
-        }),
-        N('The proof also outputs F-prime, her new eligibility forest root. Before recording anything, the engine rebuilds it from her own year and limits, with kappa, P and Q added to what she has paid, along the same path at leaf one twenty-seven. If it does not equal F-prime, the engine throws and records nothing.', {
-          board: [
-            { do: 'write', card: '7j', size: 26 },
-            { do: 'circle', target: { card: '7j', find: 'd+κ' }, color: 'blue', when: 0.55 },
-            { do: 'circle', target: { card: '7j', find: 'o+P' }, color: 'blue', when: 0.62 },
-            { do: 'circle', target: { card: '7j', find: 'b+Q' }, color: 'blue', when: 0.69 }
-          ]
-        }),
+        N(
+          'Kappa, the deductible credit, is the smaller of what she pays and the deductible portion. Both are the whole total, so all of it counts.',
+          {
+            pricing: true,
+            board: [
+              { do: 'write', card: '7g', size: 40 },
+              { do: 'value', target: { card: '7g', find: 'P', nth: 0 }, text: grouped(k.P), when: 0.5 },
+              { do: 'value', target: { card: '7g', find: 'κ', nth: 0 }, text: grouped(k.kappa), when: 0.75 },
+            ],
+          },
+        ),
+        N(
+          "fc hashes the facts of the fill: prescription hash, pharmacy wallet, drug-code hash, quantity times a thousand, ingredient cost, fee and date of service. S hashes fc with the money, P, Q and kappa. That settlement commitment goes into the prescription's own transaction tree.",
+          {
+            board: [
+              { do: 'write', card: '7h', size: 34 },
+              { do: 'value', target: { card: '7h', find: 'Q', nth: 0 }, text: grouped(k.Q), when: 0.62 },
+              { do: 'circle', target: { card: '7h', find: 'S=' }, color: 'red', when: 0.8 },
+              {
+                do: 'annotate',
+                text: "into the prescription's transaction tree",
+                near: { card: '7h', line: 2 },
+                side: 'right',
+                color: 'red',
+                when: 0.8,
+              },
+              { do: 'annotate', text: 'engine only (A-22)', near: { card: '7h', line: 1 }, side: 'right', color: 'red', when: 0.92 },
+            ],
+          },
+        ),
+        N(
+          'The proof also outputs F-prime, her new eligibility forest root. Before recording anything, the engine rebuilds it from her own year and limits, with kappa, P and Q added to what she has paid, along the same path at leaf one twenty-seven. If it does not equal F-prime, the engine throws and records nothing.',
+          {
+            board: [
+              { do: 'write', card: '7j', size: 26 },
+              { do: 'circle', target: { card: '7j', find: 'd+κ' }, color: 'blue', when: 0.55 },
+              { do: 'circle', target: { card: '7j', find: 'o+P' }, color: 'blue', when: 0.62 },
+              { do: 'circle', target: { card: '7j', find: 'b+Q' }, color: 'blue', when: 0.69 },
+            ],
+          },
+        ),
         N('Then it keeps the outputs and drops the proof. Nobody outside the engine verifies a fill proof yet.', {
           // 7j fills the board's width: the label goes under the tick, not beside it
           board: [
             { do: 'check', target: { card: '7j' }, label: '', id: 'check-7j' },
-            { do: 'annotate', text: 'rebuilt: match', near: 'check-7j', side: 'below', color: 'green', size: 24 }
-          ]
-        })
-      ]
+            { do: 'annotate', text: 'rebuilt: match', near: 'check-7j', side: 'below', color: 'green', size: 24 },
+          ],
+        }),
+      ],
     },
     'status-update': {
-      queued: [N('No screen shows the next part either. The engine queued a wallet update for Avery and parked the claim against it. Her phone checks for work every twenty seconds.')]
+      queued: [
+        N(
+          'No screen shows the next part either. The engine queued a wallet update for Avery and parked the claim against it. Her phone checks for work every twenty seconds.',
+        ),
+      ],
     },
     'board-update': {
       lines: [
-        N('The claim reaches the ledger through a proof the phone makes.', { board: [{ do: 'clear' }, { do: 'title', text: "The phone's update proof" }] }),
-        N("First the phone checks the engine's work: it rebuilds the credential from the leaves it was sent, F-star being their forest root, in slot zero of a fresh inventory, and refuses unless that gives C-new. The update carries no amounts; this checks only that the root adds up. Then the proof: W from the six private values, a lifecycle state, ell, that is not four, which means revoked, and her leaf moving from C-old and nonce n to C-new and n plus one.", {
-          board: [
-            { do: 'write', card: '8', size: 26 },
-            { do: 'box', target: { card: '8', line: 1 }, color: 'blue', when: 0.42 },
-            { do: 'annotate', text: 'no amounts: only the root', near: { card: '8', find: 'forest root of the sent leaves' }, side: 'below', color: 'blue', when: 0.42 },
-            { do: 'circle', target: { card: '8', findRe: 'l\\W{1,3}4' }, color: 'red', when: { word: 'revoked', at: 0.78 } }
-          ]
-        })
-      ]
+        N('The claim reaches the ledger through a proof the phone makes.', {
+          board: [{ do: 'clear' }, { do: 'title', text: "The phone's update proof" }],
+        }),
+        N(
+          "First the phone checks the engine's work: it rebuilds the credential from the leaves it was sent, F-star being their forest root, in slot zero of a fresh inventory, and refuses unless that gives C-new. The update carries no amounts; this checks only that the root adds up. Then the proof: W from the six private values, a lifecycle state, ell, that is not four, which means revoked, and her leaf moving from C-old and nonce n to C-new and n plus one.",
+          {
+            board: [
+              { do: 'write', card: '8', size: 26 },
+              { do: 'box', target: { card: '8', line: 1 }, color: 'blue', when: 0.42 },
+              {
+                do: 'annotate',
+                text: 'no amounts: only the root',
+                near: { card: '8', find: 'forest root of the sent leaves' },
+                side: 'below',
+                color: 'blue',
+                when: 0.42,
+              },
+              { do: 'circle', target: { card: '8', findRe: 'l\\W{1,3}4' }, color: 'red', when: { word: 'revoked', at: 0.78 } },
+            ],
+          },
+        ),
+      ],
     },
     'status-accepted': {
-      accepted: [N('Accepted, at the same gate as her registration. The sequencer attached the claim the engine parked for exactly this wallet and this root.')],
-      caveat: [N('One caveat: the amounts ride along from the engine, and nothing outside the engine checks them against the fill proof yet. The engine did check its own record against that proof first.')]
+      accepted: [
+        N(
+          'Accepted, at the same gate as her registration. The sequencer attached the claim the engine parked for exactly this wallet and this root.',
+        ),
+      ],
+      caveat: [
+        N(
+          'One caveat: the amounts ride along from the engine, and nothing outside the engine checks them against the fill proof yet. The engine did check its own record against that proof first.',
+        ),
+      ],
     },
     'board-ledger': {
       lines: [
-        N('Accepting that proof, the sequencer wrote two records.', { board: [{ do: 'clear' }, { do: 'title', text: 'What the sequencer wrote' }] }),
-        N("First, the audit event. E-k hashes eleven values: the wallet, four roots, the sequence number k, a registration flag, the drug-code hash, P, Q, and op, one for a fill. Chi-k hashes the previous link with E-k, from the hash of zero. Change any past event's hash and every later link stops matching.", {
-          board: [
-            { do: 'write', card: '9', size: 32 },
-            { do: 'circle', target: { card: '9', find: 'P,Q' }, color: 'red', when: 0.45 },
-            { do: 'annotate', text: "from the engine's parked claim", near: { card: '9', find: 'P,Q' }, side: 'above', color: 'red', when: 0.45 },
-            { do: 'arrow', from: { card: '9', find: 'χprev' }, to: { card: '9', find: 'χk=' }, color: 'blue', bend: -0.35, when: 0.75 }
-          ]
+        N('Accepting that proof, the sequencer wrote two records.', {
+          board: [{ do: 'clear' }, { do: 'title', text: 'What the sequencer wrote' }],
         }),
-        N("Second, the claim leaf. L-j hashes nine values: Avery's wallet, the drug-code hash, both providers' wallets, the hashed date, P, Q, op and kappa. It is appended at the next free leaf of a tree twenty-four levels deep, with room for more than eight million claims, whose root is stored with every batch.", {
-          board: [
-            { do: 'write', card: '10', size: 34 },
-            { do: 'circle', target: { card: '10', find: 'H(dos)' }, color: 'red', when: 0.5 },
-            { do: 'annotate', text: 'append-only, height 24', near: { card: '10', line: 2 }, side: 'right', color: 'blue', when: 0.8 }
-          ]
-        }),
-        N('Neither record holds her name. Both hold the money. And the drug is not hidden, by design: beside both records, the sequencer keeps its code and name in plain text, so the plan can track what it spends on each drug.', {
-          board: [{ do: 'annotate', text: 'no member names', color: 'green', size: 30 }]
-        })
-      ]
+        N(
+          "First, the audit event. E-k hashes eleven values: the wallet, four roots, the sequence number k, a registration flag, the drug-code hash, P, Q, and op, one for a fill. Chi-k hashes the previous link with E-k, from the hash of zero. Change any past event's hash and every later link stops matching.",
+          {
+            board: [
+              { do: 'write', card: '9', size: 32 },
+              { do: 'circle', target: { card: '9', find: 'P,Q' }, color: 'red', when: 0.45 },
+              {
+                do: 'annotate',
+                text: "from the engine's parked claim",
+                near: { card: '9', find: 'P,Q' },
+                side: 'above',
+                color: 'red',
+                when: 0.45,
+              },
+              { do: 'arrow', from: { card: '9', find: 'χprev' }, to: { card: '9', find: 'χk=' }, color: 'blue', bend: -0.35, when: 0.75 },
+            ],
+          },
+        ),
+        N(
+          "Second, the claim leaf. L-j hashes nine values: Avery's wallet, the drug-code hash, both providers' wallets, the hashed date, P, Q, op and kappa. It is appended at the next free leaf of a tree twenty-four levels deep, with room for more than eight million claims, whose root is stored with every batch.",
+          {
+            board: [
+              { do: 'write', card: '10', size: 34 },
+              { do: 'circle', target: { card: '10', find: 'H(dos)' }, color: 'red', when: 0.5 },
+              { do: 'annotate', text: 'append-only, height 24', near: { card: '10', line: 2 }, side: 'right', color: 'blue', when: 0.8 },
+            ],
+          },
+        ),
+        N(
+          'Neither record holds her name. Both hold the money. And the drug is not hidden, by design: beside both records, the sequencer keeps its code and name in plain text, so the plan can track what it spends on each drug.',
+          {
+            board: [{ do: 'annotate', text: 'no member names', color: 'green', size: 30 }],
+          },
+        ),
+      ],
     },
     batch: {
-      intro: [N(`This is the sequencer's own dashboard. In this boot it builds a batch every ${sayNumber(c.network.batchSeconds)} seconds, from at most two accepted proofs.`)],
-      batch: [N("This batch holds Avery's update. Its record carries the claims root. Two replicas copy the sequencer's receipt and new roots for every accepted proof; they don't re-check the proofs yet.")]
+      intro: [
+        N(
+          `This is the sequencer's own dashboard. In this boot it builds a batch every ${sayNumber(c.network.batchSeconds)} seconds, from at most two accepted proofs.`,
+        ),
+      ],
+      batch: [
+        N(
+          "This batch holds Avery's update. Its record carries the claims root. Two replicas copy the sequencer's receipt and new roots for every accepted proof; they don't re-check the proofs yet.",
+        ),
+      ],
     },
     'board-batch': {
       lines: [
-        N("The batch proof re-verifies accepted proofs inside a circuit. wrapSingle wraps one proof and outputs its roots and counts. wrapPair takes two and checks they chain: the first one's new roots are the second one's old roots. mergeBatches would join batches the same way, but at two proofs per batch it never runs, and no chain proof runs above it yet.", {
-          board: [
-            { do: 'clear' }, { do: 'title', text: 'The batch proof' },
-            { do: 'write', card: '11', size: 24 },
-            { do: 'underline', target: { card: '11', line: 2 }, color: 'blue', when: { word: 'chain', at: 0.5 } },
-            { do: 'box', target: { card: '11', find: 'mergeBatches' }, color: 'red', when: 0.78 },
-            { do: 'annotate', text: 'does not run at two per batch', near: { card: '11', find: 'mergeBatches' }, side: 'below', color: 'red', when: 0.78 }
-          ]
-        }),
-        N('Anyone can check a batch proof against a key they compile themselves.')
-      ]
+        N(
+          "The batch proof re-verifies accepted proofs inside a circuit. wrapSingle wraps one proof and outputs its roots and counts. wrapPair takes two and checks they chain: the first one's new roots are the second one's old roots. mergeBatches would join batches the same way, but at two proofs per batch it never runs, and no chain proof runs above it yet.",
+          {
+            board: [
+              { do: 'clear' },
+              { do: 'title', text: 'The batch proof' },
+              { do: 'write', card: '11', size: 24 },
+              { do: 'underline', target: { card: '11', line: 2 }, color: 'blue', when: { word: 'chain', at: 0.5 } },
+              { do: 'box', target: { card: '11', find: 'mergeBatches' }, color: 'red', when: 0.78 },
+              {
+                do: 'annotate',
+                text: 'does not run at two per batch',
+                near: { card: '11', find: 'mergeBatches' },
+                side: 'below',
+                color: 'red',
+                when: 0.78,
+              },
+            ],
+          },
+        ),
+        N('Anyone can check a batch proof against a key they compile themselves.'),
+      ],
     },
     audit: {
       chain: [L('analyst', 'Daily checks. Chain integrity.')],
       balance: [L('analyst', 'Financial balance. Good.')],
-      after: [N("Chain integrity re-walks the chain from the hash of zero, recomputing each link from the stored event hashes. Financial balance checks, fill by fill, that patient pay plus plan pay equals cost plus fee. The sequencer's own version also compares the chain's totals with the claim ledger's; this tab doesn't call it.")]
+      after: [
+        N(
+          "Chain integrity re-walks the chain from the hash of zero, recomputing each link from the stored event hashes. Financial balance checks, fill by fill, that patient pay plus plan pay equals cost plus fee. The sequencer's own version also compares the chain's totals with the claim ledger's; this tab doesn't call it.",
+        ),
+      ],
     },
     pickup: {
       claim: [L('member', 'There it is.', { mood: MOOD.relieved })],
-      read: [N('The phone reads its claims from the sequencer, signed with its wallet key. The card shows the drug, the split, and the pharmacy as a wallet hash.')],
+      read: [
+        N(
+          'The phone reads its claims from the sequencer, signed with its wallet key. The card shows the drug, the split, and the pharmacy as a wallet hash.',
+        ),
+      ],
       deductible: [L('member', 'So that went toward my deductible.', { mood: MOOD.relieved })],
-      closing: [N('These totals are sums over her claim leaves. All along, her name, birth date and cardholder ID stayed on her phone. Fernhill never learned her wallet ID. The doctor saw a short hash, the pharmacy a wallet ID inside a signed attestation. The insurer holds the salt and one key share per card, released only for the right recovery PIN.')],
-      unfinished: [N("Two parts are unfinished. Nobody outside the engine verifies the fill proof yet, and the amounts on the ledger are the engine's word, tied to the phone's proof but not to the fill proof. That is the claim, as the code runs it today.")]
-    }
+      closing: [
+        N(
+          'These totals are sums over her claim leaves. All along, her name, birth date and cardholder ID stayed on her phone. Fernhill never learned her wallet ID. The doctor saw a short hash, the pharmacy a wallet ID inside a signed attestation. The insurer holds the salt and one key share per card, released only for the right recovery PIN.',
+        ),
+      ],
+      unfinished: [
+        N(
+          "Two parts are unfinished. Nobody outside the engine verifies the fill proof yet, and the amounts on the ledger are the engine's word, tied to the phone's proof but not to the fill proof. That is the claim, as the code runs it today.",
+        ),
+      ],
+    },
   };
   // every claim amount is a slot: fill them all from this cast's claim (predicted, or the engine's once it is known)
-  for (const beats of Object.values(S)) for (const lines of Object.values(beats)) for (const l of lines) l.text = fillSlots(l.text, k.slots);
+  for (const beats of Object.values(S))
+    for (const lines of Object.values(beats)) for (const l of lines) l.text = fillSlots(l.text, k.slots);
   return S;
 }
 

@@ -99,9 +99,7 @@ export function buildGroupConfig(local: GroupConfigLocalData): GroupConfig {
     groupIdHash: hashString(local.groupId),
     planIdHash: hashString(local.planId),
     effectiveDate: dateToField(local.effectiveDate),
-    terminationDate: local.terminationDate
-      ? dateToField(local.terminationDate)
-      : Field(0),
+    terminationDate: local.terminationDate ? dateToField(local.terminationDate) : Field(0),
     enrollmentCap: Field(BigInt(local.enrollmentCap)),
     enrolledCount: Field(0),
     status: GROUP_STATUS_ACTIVE,
@@ -146,14 +144,9 @@ export class GroupRegistry {
    *
    * @returns The assigned index and the new registry root
    */
-  addGroup(
-    config: GroupConfig,
-    localData: GroupConfigLocalData,
-  ): { index: bigint; newRoot: Field } {
+  addGroup(config: GroupConfig, localData: GroupConfigLocalData): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_GROUPS)) {
-      throw new Error(
-        `Group registry full: cannot exceed ${MAX_GROUPS} groups`,
-      );
+      throw new Error(`Group registry full: cannot exceed ${MAX_GROUPS} groups`);
     }
 
     const key = config.groupIdHash.toString();
@@ -184,9 +177,7 @@ export class GroupRegistry {
    * Look up a group by its hashed group ID.
    * Returns the config, local data, and index.
    */
-  getGroupByHash(
-    groupIdHash: Field,
-  ): { config: GroupConfig; localData: GroupConfigLocalData; index: bigint } | undefined {
+  getGroupByHash(groupIdHash: Field): { config: GroupConfig; localData: GroupConfigLocalData; index: bigint } | undefined {
     const key = groupIdHash.toString();
     const index = this.groupIndices.get(key);
     if (index === undefined) return undefined;

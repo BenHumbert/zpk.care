@@ -53,17 +53,41 @@ const NDC_A = Poseidon.hash([Field(BigInt('00378180510'))]).toString();
 const NDC_B = Poseidon.hash([Field(BigInt('00093721510'))]).toString();
 
 function mockProof(walletId: Field, oldRoot: Field, newRoot: Field) {
-  return { verify: () => {}, publicOutput: { walletId, oldRegistryRoot: oldRoot, newRegistryRoot: newRoot, oldLifecycleRoot: LC_ROOT, newLifecycleRoot: LC_ROOT }, toJSON: () => ({}) } as any;
+  return {
+    verify: () => {},
+    publicOutput: { walletId, oldRegistryRoot: oldRoot, newRegistryRoot: newRoot, oldLifecycleRoot: LC_ROOT, newLifecycleRoot: LC_ROOT },
+    toJSON: () => ({}),
+  } as any;
 }
 function claim(overrides: Partial<ClaimSubmissionMetadata> = {}): ClaimSubmissionMetadata {
   return {
-    ndcHash: NDC_A, memberWalletId: WALLET_A.toString(), pharmacyWalletId: '5001', prescriberWalletId: '6001', dateOfService: '20261018',
-    patientPayCents: '1000', planPayCents: '3700', operationType: '1', ingredientCostCents: 4500, dispensingFeeCents: 200, quantityDispensed: 30, fillNumber: 0,
+    ndcHash: NDC_A,
+    memberWalletId: WALLET_A.toString(),
+    pharmacyWalletId: '5001',
+    prescriberWalletId: '6001',
+    dateOfService: '20261018',
+    patientPayCents: '1000',
+    planPayCents: '3700',
+    operationType: '1',
+    ingredientCostCents: 4500,
+    dispensingFeeCents: 200,
+    quantityDispensed: 30,
+    fillNumber: 0,
     ...overrides,
   };
 }
 function leafOf(m: ClaimSubmissionMetadata): ClaimLeaf {
-  return { memberWalletId: m.memberWalletId, ndcHash: m.ndcHash, pharmacyWalletId: m.pharmacyWalletId, prescriberWalletId: m.prescriberWalletId, dateOfService: m.dateOfService, patientPayCents: m.patientPayCents, planPayCents: m.planPayCents, operationType: m.operationType, deductibleCreditCents: '0' };
+  return {
+    memberWalletId: m.memberWalletId,
+    ndcHash: m.ndcHash,
+    pharmacyWalletId: m.pharmacyWalletId,
+    prescriberWalletId: m.prescriberWalletId,
+    dateOfService: m.dateOfService,
+    patientPayCents: m.patientPayCents,
+    planPayCents: m.planPayCents,
+    operationType: m.operationType,
+    deductibleCreditCents: '0',
+  };
 }
 const meta = (fillNumber?: number): ClaimMetadata => ({ receiptId: `r-${Math.random()}`, timestamp: Date.now(), fillNumber });
 
@@ -84,7 +108,7 @@ describe('the ledger', () => {
     expect(acc.getLeafCount()).toBe(5n);
   });
 
-  test('a reversal frees its fill\'s key, so the prescription can be filled again after it; totals net the reversal', () => {
+  test("a reversal frees its fill's key, so the prescription can be filled again after it; totals net the reversal", () => {
     const acc = new ClaimAccumulatorService();
     acc.appendClaim(leafOf(claim()), meta(0));
     acc.appendClaim(leafOf(claim({ operationType: '2' })), meta(0));
@@ -119,8 +143,15 @@ describe('the sequencer', () => {
 
   test('refuses a duplicate claim before anything is written: roots, receipts and the audit chain unchanged', async () => {
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[0], REG_ROOT[1]), claim());
-    const before = { root: seq.getClaimAccumulatorRoot(), receipts: seq.getAllReceipts().length, chain: seq.getAuditLog().latestChainHash, reg: seq.getCurrentRegistryRoot().toString() };
-    await expect(seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]), claim({ patientPayCents: '1500' }))).rejects.toThrow(/Duplicate fill/);
+    const before = {
+      root: seq.getClaimAccumulatorRoot(),
+      receipts: seq.getAllReceipts().length,
+      chain: seq.getAuditLog().latestChainHash,
+      reg: seq.getCurrentRegistryRoot().toString(),
+    };
+    await expect(seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]), claim({ patientPayCents: '1500' }))).rejects.toThrow(
+      /Duplicate fill/,
+    );
     expect(seq.getClaimAccumulatorRoot()).toBe(before.root);
     expect(seq.getAllReceipts().length).toBe(before.receipts);
     expect(seq.getAuditLog().latestChainHash).toBe(before.chain);
@@ -132,7 +163,7 @@ describe('the sequencer', () => {
 
   test('writes the money, the operation and the costs into the audit event when it is created, and the commitment binds them', async () => {
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[0], REG_ROOT[1]), claim());
-    await seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]));  // not a claim
+    await seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2])); // not a claim
     const [fill, plain] = seq.getAuditLog().events;
     expect(fill.patientPayCents).toBe(1000);
     expect(fill.planPayCents).toBe(3700);
@@ -150,11 +181,33 @@ describe('the sequencer', () => {
 });
 
 describe('the balance check', () => {
-  const event = (over: Partial<AuditEvent>): AuditEvent => ({
-    sequenceNumber: 1n, receiptId: 'r', walletId: '100', isRegistration: false, oldRegistryRoot: '1', newRegistryRoot: '2', oldLifecycleRoot: '3', newLifecycleRoot: '3',
-    eventCommitment: '0', chainHash: '0', timestamp: 0, l1Status: 'pending', ...over,
-  } as AuditEvent);
-  const ctx = (ingredientCostCents: number, dispensingFeeCents: number, fillNumber = 0) => ({ pharmacyWalletId: '5001', memberWalletId: '100', prescriberWalletId: '6001', ndcHash: NDC_A, ingredientCostCents, dispensingFeeCents, quantityDispensed: '30', dateOfService: 20261018, fillNumber });
+  const event = (over: Partial<AuditEvent>): AuditEvent =>
+    ({
+      sequenceNumber: 1n,
+      receiptId: 'r',
+      walletId: '100',
+      isRegistration: false,
+      oldRegistryRoot: '1',
+      newRegistryRoot: '2',
+      oldLifecycleRoot: '3',
+      newLifecycleRoot: '3',
+      eventCommitment: '0',
+      chainHash: '0',
+      timestamp: 0,
+      l1Status: 'pending',
+      ...over,
+    }) as AuditEvent;
+  const ctx = (ingredientCostCents: number, dispensingFeeCents: number, fillNumber = 0) => ({
+    pharmacyWalletId: '5001',
+    memberWalletId: '100',
+    prescriberWalletId: '6001',
+    ndcHash: NDC_A,
+    ingredientCostCents,
+    dispensingFeeCents,
+    quantityDispensed: '30',
+    dateOfService: 20261018,
+    fillNumber,
+  });
 
   test('counts fills, nets reversals, ignores transitions that are not claims and flags a split that does not add up', () => {
     const r = AuditService.verifyFinancialBalance([
@@ -171,7 +224,7 @@ describe('the balance check', () => {
     expect(r.imbalancedClaims).toEqual(['c']);
   });
 
-  test('duplicate detection looks at fills only and tells a partial fill\'s remainder apart', () => {
+  test("duplicate detection looks at fills only and tells a partial fill's remainder apart", () => {
     const r = AuditService.detectDuplicateClaims([
       event({ receiptId: 'a', operationType: 1, claimContext: ctx(1, 1, 0) }),
       event({ receiptId: 'b', operationType: 2, claimContext: ctx(1, 1, 0) }),
@@ -186,7 +239,7 @@ describe('the balance check', () => {
   });
 });
 
-describe('the RPC and the engine\'s fill job', () => {
+describe("the RPC and the engine's fill job", () => {
   const OPERATOR = 'operator-token-for-tests';
   let node: L2Node;
   let server: L2RpcServer;
@@ -194,40 +247,86 @@ describe('the RPC and the engine\'s fill job', () => {
   let release: (() => void) | null = null;
   let dispenses = 0;
   const service = {
-    getState() { return { compiled: true, enrolledMembers: [] }; },
-    isProvingReady() { return true; }, // a proving route refuses with 503 while the engine's provers start
-    getL2Node() { return { withProvingLock: (fn: () => Promise<unknown>) => fn() }; },
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
+    isProvingReady() {
+      return true;
+    }, // a proving route refuses with 503 while the engine's provers start
+    getL2Node() {
+      return { withProvingLock: (fn: () => Promise<unknown>) => fn() };
+    },
     async forceBatch() {},
     dispensePrescription(opts: { prescriptionId: string }) {
       dispenses++;
-      return new Promise((resolve, reject) => { release = () => (dispenses === 1 ? reject(new Error('Quantity dispensed (31) exceeds remaining prescribed qty')) : resolve({ prescriptionId: opts.prescriptionId, adjudication: { patientPayCents: 1000 } })); });
+      return new Promise((resolve, reject) => {
+        release = () =>
+          dispenses === 1
+            ? reject(new Error('Quantity dispensed (31) exceeds remaining prescribed qty'))
+            : resolve({ prescriptionId: opts.prescriptionId, adjudication: { patientPayCents: 1000 } });
+      });
     },
   };
-  const standIn = new Proxy(service, { get(t, p) { if (p in t) return (t as any)[p]; return typeof p === 'string' && p !== 'then' ? () => undefined : undefined; } });
+  const standIn = new Proxy(service, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      return typeof p === 'string' && p !== 'then' ? () => undefined : undefined;
+    },
+  });
   const bearer = { Authorization: `Bearer ${OPERATOR}` };
   const rpc = async (method: string, params: Record<string, unknown> = {}, headers: Record<string, string> = {}) => {
-    const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    const r = await fetch(`${url}/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
     return (await r.json()) as { result?: any; error?: { message: string } };
   };
-  const fill = (prescriptionId: string) => fetch(`${url}/interactive/fill`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body: JSON.stringify({ prescriptionId }) });
-  const status = async (prescriptionId: string) => (await (await fetch(`${url}/interactive/fill-status?prescriptionId=${prescriptionId}`, { headers: bearer })).json()) as any;
-  const until = async (pred: () => Promise<boolean>) => { for (let i = 0; i < 100; i++) { if (await pred()) return; await new Promise((r) => setTimeout(r, 20)); } throw new Error('condition not met'); };
+  const fill = (prescriptionId: string) =>
+    fetch(`${url}/interactive/fill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...bearer },
+      body: JSON.stringify({ prescriptionId }),
+    });
+  const status = async (prescriptionId: string) =>
+    (await (await fetch(`${url}/interactive/fill-status?prescriptionId=${prescriptionId}`, { headers: bearer })).json()) as any;
+  const until = async (pred: () => Promise<boolean>) => {
+    for (let i = 0; i < 100; i++) {
+      if (await pred()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error('condition not met');
+  };
 
   beforeAll(async () => {
-    node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-money' }, new InMemoryStore(), REG_ROOT[0], LC_ROOT, Field(0));
+    node = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-money' },
+      new InMemoryStore(),
+      REG_ROOT[0],
+      LC_ROOT,
+      Field(0),
+    );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/money-agrees.test.ts'));
     server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
     registerInteractiveRoutes(server, standIn as any);
     await server.start();
     url = `http://127.0.0.1:${server.getPort()}`;
   });
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => {
+    await server.stop();
+  });
 
   test('l2_verifyFinancialBalance reconciles the audit chain with the ledger and reports the netted money', async () => {
     const seq = node.getSequencer();
     await seq.submitProof(mockProof(WALLET_A, REG_ROOT[0], REG_ROOT[1]), claim());
-    await seq.submitProof(mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]), claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700' }));
-    await seq.submitProof(mockProof(WALLET_A, REG_ROOT[2], REG_ROOT[3]), claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700', operationType: '2' }));
+    await seq.submitProof(
+      mockProof(WALLET_A, REG_ROOT[1], REG_ROOT[2]),
+      claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700' }),
+    );
+    await seq.submitProof(
+      mockProof(WALLET_A, REG_ROOT[2], REG_ROOT[3]),
+      claim({ ndcHash: NDC_B, patientPayCents: '2000', planPayCents: '2700', operationType: '2' }),
+    );
     const r = (await rpc('l2_verifyFinancialBalance', {}, bearer)).result;
     expect(r.totalClaims).toBe(2);
     expect(r.reversals).toBe(1);
@@ -244,16 +343,18 @@ describe('the RPC and the engine\'s fill job', () => {
     const r1 = await fill('RX-1');
     expect(r1.status).toBe(202);
     await until(async () => release !== null);
-    const again = await fill('RX-1');              // the same dispense, still running: shared, not duplicated
+    const again = await fill('RX-1'); // the same dispense, still running: shared, not duplicated
     expect(again.status).toBe(202);
     expect(dispenses).toBe(1);
-    release!(); release = null;
+    release!();
+    release = null;
     await until(async () => (await status('RX-1')).status === 'error');
-    const r2 = await fill('RX-1');                 // the retry after the rejected attempt
+    const r2 = await fill('RX-1'); // the retry after the rejected attempt
     expect(r2.status).toBe(202);
     await until(async () => release !== null);
     expect(dispenses).toBe(2);
-    release!(); release = null;
+    release!();
+    release = null;
     await until(async () => (await status('RX-1')).status === 'complete');
     expect((await status('RX-1')).result?.adjudication?.patientPayCents).toBe(1000);
   });

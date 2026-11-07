@@ -87,13 +87,25 @@ async function startNode(role: string): Promise<{ server: NautilusAppServer; url
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'node-events-'));
   dirs.push(dir);
   const server = new NautilusAppServer({
-    role, port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: dir,
-    enableSSE: true, maxSseConnections: 10, allowedOrigins: [], adminToken: TOKEN,
+    role,
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: true,
+    maxSseConnections: 10,
+    allowedOrigins: [],
+    adminToken: TOKEN,
   } as unknown as NautilusAppConfig);
   let handler: ((e: L2ChainEvent) => void) | null = null;
   const node = {
     setWalletSignerSource: () => undefined,
-    connectEvents: (h: (e: L2ChainEvent) => void) => { handler = h; return () => { handler = null; }; },
+    connectEvents: (h: (e: L2ChainEvent) => void) => {
+      handler = h;
+      return () => {
+        handler = null;
+      };
+    },
     getWalletId: () => (role === 'member' ? OWN_WALLET : undefined),
   };
   server.setEntityNode(node as unknown as EntityNodeBase);
@@ -102,7 +114,13 @@ async function startNode(role: string): Promise<{ server: NautilusAppServer; url
   return { server, url: `http://127.0.0.1:${server.getPort()}`, emit: (e) => handler?.(e) };
 }
 
-interface Stream { status: number; events: any[]; body: string; ended: boolean; close(): void }
+interface Stream {
+  status: number;
+  events: any[];
+  body: string;
+  ended: boolean;
+  close(): void;
+}
 
 /** GET a stream; resolves when the answer's head arrives, and collects each `data:` frame after that. */
 function open(url: string, headers: Record<string, string> = {}): Promise<Stream> {
@@ -116,13 +134,20 @@ function open(url: string, headers: Record<string, string> = {}): Promise<Stream
         stream.body += chunk;
         buf += chunk;
         for (let at = buf.indexOf('\n\n'); at >= 0; at = buf.indexOf('\n\n')) {
-          const line = buf.slice(0, at).split('\n').find((l) => l.startsWith('data:'));
+          const line = buf
+            .slice(0, at)
+            .split('\n')
+            .find((l) => l.startsWith('data:'));
           buf = buf.slice(at + 2);
           if (line) stream.events.push(JSON.parse(line.slice(5).trim()));
         }
       });
-      res.on('end', () => { stream.ended = true; });
-      res.on('error', () => { stream.ended = true; });
+      res.on('end', () => {
+        stream.ended = true;
+      });
+      res.on('error', () => {
+        stream.ended = true;
+      });
       resolve(stream);
     });
     req.on('error', reject);
@@ -139,12 +164,13 @@ async function until(check: () => boolean, what: string, ms = 5_000): Promise<vo
 
 async function ticketFor(url: string, headers: Record<string, string>): Promise<{ status: number; ticket?: string }> {
   const r = await fetch(url + '/events/ticket', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } });
-  const json = await r.json() as { data?: { ticket?: string } };
+  const json = (await r.json()) as { data?: { ticket?: string } };
   return { status: r.status, ticket: json.data?.ticket };
 }
 
 const bearer = { Authorization: `Bearer ${TOKEN}` };
-const event = (type: string, data: Record<string, unknown>): L2ChainEvent => ({ type, timestamp: Date.now(), data } as unknown as L2ChainEvent);
+const event = (type: string, data: Record<string, unknown>): L2ChainEvent =>
+  ({ type, timestamp: Date.now(), data }) as unknown as L2ChainEvent;
 
 /** A member or insurer node with a stream open under the credential its page holds, read past the connected frame. */
 async function narrowedStream(role: string): Promise<{ url: string; s: Stream; emit: (e: L2ChainEvent) => void }> {
@@ -175,20 +201,29 @@ const L2_ROOT = '215430786214789652301478965230147896523014789652301478965230147
 afterAll(async () => {
   for (const s of streams) s.close();
   for (const server of servers) await server.stop();
-  for (const dir of dirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of dirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
-describe('a node\'s /events refuses a caller without this node\'s credential', () => {
-  test.each(['member', 'prescriber', 'pharmacy', 'insurer', 'employer'])('%s node: no credential, a wrong one or a made-up ticket is 401', async (role) => {
-    const { url } = await startNode(role);
-    expect((await open(url + '/events')).status).toBe(401);                       // before: 200, the wallet stream
-    expect((await open(url + '/events', { Authorization: 'Bearer wrong' })).status).toBe(401);
-    expect((await open(url + '/events', { 'X-Device-Session': 'not-a-session' })).status).toBe(401);
-    expect((await open(url + '/events?ticket=made-up')).status).toBe(401);
-    expect((await ticketFor(url, {})).status).toBe(401);
-  });
+describe("a node's /events refuses a caller without this node's credential", () => {
+  test.each(['member', 'prescriber', 'pharmacy', 'insurer', 'employer'])(
+    '%s node: no credential, a wrong one or a made-up ticket is 401',
+    async (role) => {
+      const { url } = await startNode(role);
+      expect((await open(url + '/events')).status).toBe(401); // before: 200, the wallet stream
+      expect((await open(url + '/events', { Authorization: 'Bearer wrong' })).status).toBe(401);
+      expect((await open(url + '/events', { 'X-Device-Session': 'not-a-session' })).status).toBe(401);
+      expect((await open(url + '/events?ticket=made-up')).status).toBe(401);
+      expect((await ticketFor(url, {})).status).toBe(401);
+    },
+  );
 
-  test('the refusal names what to present: the device\'s PIN on a member node, the administrator elsewhere', async () => {
+  test("the refusal names what to present: the device's PIN on a member node, the administrator elsewhere", async () => {
     const member = await startNode('member');
     const insurer = await startNode('insurer');
     const a = await open(member.url + '/events');
@@ -200,7 +235,7 @@ describe('a node\'s /events refuses a caller without this node\'s credential', (
 });
 
 describe('with the credential the stream opens', () => {
-  test('a header credential opens it directly: the node\'s admin bearer', async () => {
+  test("a header credential opens it directly: the node's admin bearer", async () => {
     const { url } = await startNode('prescriber');
     const s = await open(url + '/events', bearer);
     expect(s.status).toBe(200);
@@ -208,26 +243,26 @@ describe('with the credential the stream opens', () => {
     expect(s.events[0]).toMatchObject({ type: 'connected', role: 'prescriber' });
   });
 
-  test('a browser\'s way in: the credential buys a ticket, and the ticket opens one stream within 30 s', async () => {
+  test("a browser's way in: the credential buys a ticket, and the ticket opens one stream within 30 s", async () => {
     const { url } = await startNode('insurer');
     const t = await ticketFor(url, bearer);
     expect(t.status).toBe(200);
     expect(t.ticket).toMatch(/^[A-Za-z0-9_-]{40,}$/);
     const s = await open(`${url}/events?ticket=${encodeURIComponent(t.ticket!)}`);
     expect(s.status).toBe(200);
-    expect((await open(`${url}/events?ticket=${encodeURIComponent(t.ticket!)}`)).status).toBe(401);   // single use
+    expect((await open(`${url}/events?ticket=${encodeURIComponent(t.ticket!)}`)).status).toBe(401); // single use
 
     const late = await ticketFor(url, bearer);
     const now = Date.now();
     const clock = jest.spyOn(Date, 'now').mockReturnValue(now + 31_000);
     try {
-      expect((await open(`${url}/events?ticket=${encodeURIComponent(late.ticket!)}`)).status).toBe(401);   // expired
+      expect((await open(`${url}/events?ticket=${encodeURIComponent(late.ticket!)}`)).status).toBe(401); // expired
     } finally {
       clock.mockRestore();
     }
   });
 
-  test('on a member node the device\'s session opens it, as a header or through a ticket, and so does the admin', async () => {
+  test("on a member node the device's session opens it, as a header or through a ticket, and so does the admin", async () => {
     const { server, url } = await startNode('member');
     const session = server.issueDeviceSession().token;
     expect((await open(url + '/events', { 'X-Device-Session': session })).status).toBe(200);
@@ -237,7 +272,7 @@ describe('with the credential the stream opens', () => {
     expect((await open(url + '/events', bearer)).status).toBe(200);
   });
 
-  test('a stream the device\'s session opened ends when the device locks, and an unused ticket from that session opens nothing', async () => {
+  test("a stream the device's session opened ends when the device locks, and an unused ticket from that session opens nothing", async () => {
     const { server, url } = await startNode('member');
     const session = server.issueDeviceSession().token;
     const s = await open(url + '/events', { 'X-Device-Session': session });
@@ -247,17 +282,17 @@ describe('with the credential the stream opens', () => {
     server.clearDeviceSession();
     await until(() => s.ended, 'the device stream to end');
     expect((await open(`${url}/events?ticket=${encodeURIComponent(unused.ticket!)}`)).status).toBe(401);
-    expect(admin.ended).toBe(false);                                              // the administrator's stream is not the session's
+    expect(admin.ended).toBe(false); // the administrator's stream is not the session's
 
     const renewed = server.issueDeviceSession().token;
     const again = await open(url + '/events', { 'X-Device-Session': renewed });
-    server.issueDeviceSession();                                                 // unlocking again replaces the session
-    await until(() => again.ended, 'the replaced session\'s stream to end');
+    server.issueDeviceSession(); // unlocking again replaces the session
+    await until(() => again.ended, "the replaced session's stream to end");
   });
 });
 
 describe('what a stream carries', () => {
-  test('a member node forwards the events that name no wallet or its own wallet, and never another member\'s', async () => {
+  test("a member node forwards the events that name no wallet or its own wallet, and never another member's", async () => {
     const { server, url, emit } = await startNode('member');
     const s = await open(url + '/events', { 'X-Device-Session': server.issueDeviceSession().token });
     await until(() => s.events.length === 1, 'the connected frame');
@@ -276,8 +311,8 @@ describe('what a stream carries', () => {
     expect(replay.body).not.toContain(OTHER_WALLET);
   });
 
-  test('a wallet quoted in an event\'s free text is cut out: the rejection reaches a member and the insurer without it', async () => {
-    const reason = `Wallet already registered: ${QUOTED}`;            // the sequencer's own wording (l2-sequencer-service.ts)
+  test("a wallet quoted in an event's free text is cut out: the rejection reaches a member and the insurer without it", async () => {
+    const reason = `Wallet already registered: ${QUOTED}`; // the sequencer's own wording (l2-sequencer-service.ts)
     const ROOT = '24788165130318436427406127548399402722383373227706040567117858806745727393584';
     const rejection = event('proof:rejected', { reason });
     for (const role of ['member', 'insurer']) {
@@ -287,24 +322,29 @@ describe('what a stream carries', () => {
         event('proof:rejected', { reason: 'Proof failed verification' }),
         event('batch:settled', { batchId: '9', newRegistryRoot: ROOT }),
       ]);
-      expect([role, got.map((e) => e.data.reason ?? e.type)]).toEqual(
-        [role, ['Wallet already registered: …', 'Proof failed verification', 'batch:settled']]);   // before: the first rejection was dropped
-      expect([role, got.find((e) => e.type === 'batch:settled').data.newRegistryRoot]).toEqual([role, ROOT]);   // digits alone are kept
+      expect([role, got.map((e) => e.data.reason ?? e.type)]).toEqual([
+        role,
+        ['Wallet already registered: …', 'Proof failed verification', 'batch:settled'],
+      ]); // before: the first rejection was dropped
+      expect([role, got.find((e) => e.type === 'batch:settled').data.newRegistryRoot]).toEqual([role, ROOT]); // digits alone are kept
       expect([role, s.body.includes(QUOTED)]).toEqual([role, false]);
 
       // A replay sends its own copy, cut the same way.
       const replay = await open(url + '/events?lastEventId=0', bearer);
       await until(() => replay.events.some((e) => e.type === 'batch:empty'), 'the replay');
-      expect([role, replay.events.filter((e) => e.type === 'proof:rejected').map((e) => e.data.reason)]).toEqual(
-        [role, ['Wallet already registered: …', 'Proof failed verification']]);       // before: the first rejection was dropped
+      expect([role, replay.events.filter((e) => e.type === 'proof:rejected').map((e) => e.data.reason)]).toEqual([
+        role,
+        ['Wallet already registered: …', 'Proof failed verification'],
+      ]); // before: the first rejection was dropped
       expect([role, replay.body.includes(QUOTED)]).toEqual([role, false]);
     }
-    expect(rejection.data.reason).toBe(reason);                                     // the event the replay buffer keeps is as it came
+    expect(rejection.data.reason).toBe(reason); // the event the replay buffer keeps is as it came
   });
 
   test('a rejection that quotes roots reaches a member and the insurer with the roots cut out: a root mismatch is routine when enrollments race', async () => {
-    const mismatch = `Registry root mismatch: proof expects ${OLD_ROOT} but L2 state is ${L2_ROOT}`;   // l2-sequencer-service.ts
-    const divergence = `Wallet state divergence before applying a proof: registry tree ${L2_ROOT} vs root ${OLD_ROOT}, ` +
+    const mismatch = `Registry root mismatch: proof expects ${OLD_ROOT} but L2 state is ${L2_ROOT}`; // l2-sequencer-service.ts
+    const divergence =
+      `Wallet state divergence before applying a proof: registry tree ${L2_ROOT} vs root ${OLD_ROOT}, ` +
       `lifecycle tree ${OLD_ROOT} vs root ${L2_ROOT}`;
     for (const role of ['member', 'insurer']) {
       const { s, emit } = await narrowedStream(role);
@@ -312,10 +352,13 @@ describe('what a stream carries', () => {
         event('proof:rejected', { reason: mismatch }),
         event('proof:rejected', { reason: divergence, partitionIndex: 0 }),
       ]);
-      expect([role, got.map((e) => e.data.reason)]).toEqual([role, [
-        'Registry root mismatch: proof expects … but L2 state is …',
-        'Wallet state divergence before applying a proof: registry tree … vs root …, lifecycle tree … vs root …',
-      ]]);                                                                           // before: [], both dropped as naming wallets
+      expect([role, got.map((e) => e.data.reason)]).toEqual([
+        role,
+        [
+          'Registry root mismatch: proof expects … but L2 state is …',
+          'Wallet state divergence before applying a proof: registry tree … vs root …, lifecycle tree … vs root …',
+        ],
+      ]); // before: [], both dropped as naming wallets
       expect([role, s.body.includes(OLD_ROOT) || s.body.includes(L2_ROOT)]).toEqual([role, false]);
     }
   });
@@ -325,11 +368,11 @@ describe('what a stream carries', () => {
     for (const role of ['member', 'insurer']) {
       const { s, emit } = await narrowedStream(role);
       const got = await forwarded(s, emit, [event('employer:registered', { employerId, attestationSeq: 3 })]);
-      expect([role, got.map((e) => e.data)]).toEqual([role, [{ employerId: 'ACME-…', attestationSeq: 3 }]]);   // before: [], dropped as naming a wallet
+      expect([role, got.map((e) => e.data)]).toEqual([role, [{ employerId: 'ACME-…', attestationSeq: 3 }]]); // before: [], dropped as naming a wallet
     }
   });
 
-  test('a walletIds field names every wallet it lists: a member\'s stream carries a list of its own, and neither stream one with another\'s', async () => {
+  test("a walletIds field names every wallet it lists: a member's stream carries a list of its own, and neither stream one with another's", async () => {
     for (const role of ['member', 'insurer']) {
       const { s, emit } = await narrowedStream(role);
       const got = await forwarded(s, emit, [
@@ -339,7 +382,7 @@ describe('what a stream carries', () => {
         event('audit:event', { label: 'own', walletIds: [OWN_WALLET] }),
         event('audit:event', { label: 'none', walletIds: [] }),
       ]);
-      expect([role, got.map((e) => e.data.label)]).toEqual([role, role === 'member' ? ['own', 'none'] : ['none']]);   // before: all five, no walletIds field was read
+      expect([role, got.map((e) => e.data.label)]).toEqual([role, role === 'member' ? ['own', 'none'] : ['none']]); // before: all five, no walletIds field was read
     }
   });
 
@@ -352,7 +395,7 @@ describe('what a stream carries', () => {
         event('audit:event', { label: 'no wallet, 9 down', ...buried(9, { note: 'nothing here' }) }),
         event('audit:event', { label: 'no wallet, 8 down', ...buried(8, { note: 'nothing here' }) }),
       ]);
-      expect([role, got.map((e) => e.data.label)]).toEqual([role, ['no wallet, 8 down']]);   // before: all four, the walk stopped four levels down
+      expect([role, got.map((e) => e.data.label)]).toEqual([role, ['no wallet, 8 down']]); // before: all four, the walk stopped four levels down
     }
   });
 
@@ -386,16 +429,30 @@ describe('what a stream carries', () => {
 
 describe('a stream that ends lets its connection go as the client asked', () => {
   const sockets: net.Socket[] = [];
-  afterAll(() => { for (const socket of sockets) socket.destroy(); });
+  afterAll(() => {
+    for (const socket of sockets) socket.destroy();
+  });
 
   /** A client's own connection to the node on `port`: what it has received, and when the node closed it (0 while open). */
   function connect(port: number): { received: string; closedAt: number; send: (text: string) => void } {
     const socket = net.connect(port, '127.0.0.1');
     sockets.push(socket);
-    const client = { received: '', closedAt: 0, send: (text: string): void => { socket.write(text); } };
-    socket.on('data', (d) => { client.received += d.toString(); });
-    socket.on('close', () => { client.closedAt = Date.now(); });
-    socket.on('error', () => { /* the close that follows answers */ });
+    const client = {
+      received: '',
+      closedAt: 0,
+      send: (text: string): void => {
+        socket.write(text);
+      },
+    };
+    socket.on('data', (d) => {
+      client.received += d.toString();
+    });
+    socket.on('close', () => {
+      client.closedAt = Date.now();
+    });
+    socket.on('error', () => {
+      /* the close that follows answers */
+    });
     return client;
   }
   /** An answer's status line and headers, each ending in its CRLF. */
@@ -410,11 +467,11 @@ describe('a stream that ends lets its connection go as the client asked', () => 
     client.send(`GET /events HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nX-Device-Session: ${session}\r\nConnection: close\r\n\r\n`);
     await until(() => client.received.includes('"type":"connected"'), 'the connected frame');
     expect(statusLine(client.received)).toBe('HTTP/1.1 200 OK');
-    expect(head(client.received)).toContain('\r\nConnection: close\r\n');        // before: absent, the head said Connection: keep-alive
+    expect(head(client.received)).toContain('\r\nConnection: close\r\n'); // before: absent, the head said Connection: keep-alive
     const endedAt = Date.now();
-    server.clearDeviceSession();                                                  // the device locks, and the stream its session opened ends
+    server.clearDeviceSession(); // the device locks, and the stream its session opened ends
     await until(() => client.closedAt > 0, 'the node to close the connection', 10_000);
-    expect(client.closedAt - endedAt).toBeLessThan(1_500);                        // before: about 6,000, Node's keep-alive timeout and its buffer
+    expect(client.closedAt - endedAt).toBeLessThan(1_500); // before: about 6,000, Node's keep-alive timeout and its buffer
   });
 
   test('a client that keeps its connection still gets its stream, and its next request is answered on it once the stream ends', async () => {
@@ -453,16 +510,25 @@ function eventSourceRecording(opened: string[]) {
     private req: http.ClientRequest;
     constructor(url: string) {
       opened.push(url);
-      const fail = (): void => { if (!this.closed) this.onerror?.(); };
+      const fail = (): void => {
+        if (!this.closed) this.onerror?.();
+      };
       this.req = http.get(url, { agent: false }, (res) => {
-        if (res.statusCode !== 200) { res.resume(); fail(); return; }
+        if (res.statusCode !== 200) {
+          res.resume();
+          fail();
+          return;
+        }
         if (!this.closed) this.onopen?.();
         let buf = '';
         res.setEncoding('utf8');
         res.on('data', (chunk: string) => {
           buf += chunk;
           for (let at = buf.indexOf('\n\n'); at >= 0; at = buf.indexOf('\n\n')) {
-            const line = buf.slice(0, at).split('\n').find((l) => l.startsWith('data:'));
+            const line = buf
+              .slice(0, at)
+              .split('\n')
+              .find((l) => l.startsWith('data:'));
             buf = buf.slice(at + 2);
             if (line && !this.closed) this.onmessage?.({ data: line.slice(5).trim() });
           }
@@ -488,23 +554,26 @@ function fetchRecording(calls: Array<{ path: string; method: string; headers: Re
 
 const storage = (token: string) => ({ getItem: () => token, setItem: () => undefined });
 
-describe('each page opens its node\'s stream with the credential it holds in memory', () => {
+describe("each page opens its node's stream with the credential it holds in memory", () => {
   test('the member page trades the device session for a ticket on this origin, and with no session opens nothing', async () => {
     const { server, url } = await startNode('member');
     const opened: string[] = [];
     const calls: Array<{ path: string; method: string; headers: Record<string, string> }> = [];
     const RPC = new Function('location', 'fetch', 'EventSource', `${read('dashboard-member/rpc.js')}\nreturn RPC;`)(
-      { origin: url }, fetchRecording(calls), eventSourceRecording(opened));
+      { origin: url },
+      fetchRecording(calls),
+      eventSourceRecording(opened),
+    );
     const received: any[] = [];
 
     RPC.connectSSE((ev: unknown) => received.push(ev));
     await new Promise((r) => setTimeout(r, 100));
-    expect(opened).toEqual([]);                                                   // locked: no session, no stream
+    expect(opened).toEqual([]); // locked: no session, no stream
     expect(calls).toEqual([]);
 
     RPC.setDeviceSession(server.issueDeviceSession().token);
     RPC.connectSSE((ev: unknown) => received.push(ev));
-    await until(() => received.length > 0, 'the member page\'s stream');
+    await until(() => received.length > 0, "the member page's stream");
     RPC.disconnectSSE();
     expect(received[0]).toMatchObject({ type: 'connected', role: 'member' });
     expect(calls[0]).toMatchObject({ path: '/events/ticket', method: 'POST' });
@@ -520,14 +589,18 @@ describe('each page opens its node\'s stream with the credential it holds in mem
     const opened: string[] = [];
     const calls: Array<{ path: string; method: string; headers: Record<string, string> }> = [];
     const API = new Function('location', 'localStorage', 'fetch', 'EventSource', `${read(file)}\nreturn API;`)(
-      { origin: url }, storage(''), fetchRecording(calls), eventSourceRecording(opened));
+      { origin: url },
+      storage(''),
+      fetchRecording(calls),
+      eventSourceRecording(opened),
+    );
     const received: any[] = [];
 
     API.connectSSE((ev: unknown) => received.push(ev));
     await new Promise((r) => setTimeout(r, 100));
-    expect(opened).toEqual([]);                                                   // no token: nothing is opened
+    expect(opened).toEqual([]); // no token: nothing is opened
 
-    API.setAdminToken(TOKEN);                                                     // setting one opens it
+    API.setAdminToken(TOKEN); // setting one opens it
     await until(() => received.length > 0, `the ${role} page's stream`);
     API.disconnectSSE();
     expect(received[0]).toMatchObject({ type: 'connected', role });
@@ -541,16 +614,26 @@ describe('each page opens its node\'s stream with the credential it holds in mem
     const opened: string[] = [];
     const calls: Array<{ path: string; method: string; headers: Record<string, string> }> = [];
     const API = new Function('location', 'localStorage', 'fetch', 'EventSource', `${read('dashboard-prescriber/rpc.js')}\nreturn API;`)(
-      { origin: url }, storage(''), fetchRecording(calls), eventSourceRecording(opened));
+      { origin: url },
+      storage(''),
+      fetchRecording(calls),
+      eventSourceRecording(opened),
+    );
     const received: any[] = [];
     let open = 0;
 
-    API.connectSSE((ev: unknown) => received.push(ev), () => undefined, () => { open++; });
+    API.connectSSE(
+      (ev: unknown) => received.push(ev),
+      () => undefined,
+      () => {
+        open++;
+      },
+    );
     await new Promise((r) => setTimeout(r, 100));
     expect(opened).toEqual([]);
 
     API.setAdminToken(TOKEN);
-    await until(() => received.length > 0, 'the prescriber page\'s stream');
+    await until(() => received.length > 0, "the prescriber page's stream");
     API.disconnectSSE();
     expect(open).toBe(1);
     expect(calls[0].headers.Authorization).toBe(`Bearer ${TOKEN}`);
@@ -561,10 +644,13 @@ describe('each page opens its node\'s stream with the credential it holds in mem
     const opened: string[] = [];
     const calls: Array<{ path: string; method: string; headers: Record<string, string> }> = [];
     const API = new Function('location', 'fetch', 'EventSource', `${read('dashboard-pharmacy/rpc.js')}\nreturn API;`)(
-      { origin: 'http://127.0.0.1:1' }, fetchRecording(calls), eventSourceRecording(opened));
+      { origin: 'http://127.0.0.1:1' },
+      fetchRecording(calls),
+      eventSourceRecording(opened),
+    );
     API.sse.connect();
     await new Promise((r) => setTimeout(r, 50));
-    expect(opened).toEqual([]);                                                   // before: an open /events, the wallet stream
+    expect(opened).toEqual([]); // before: an open /events, the wallet stream
     expect(calls).toEqual([]);
     expect(API.sse.connected).toBe(false);
   });

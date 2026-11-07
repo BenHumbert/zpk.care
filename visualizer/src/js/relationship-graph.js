@@ -148,8 +148,7 @@ export class RelationshipGraph {
       for (const prescriber of prescriberSet) {
         const to = positions.get(prescriber);
         if (!to) continue;
-        this.addEdge(svg, from.x + colWidth - 60, from.y + nodeHeight / 2,
-          to.x, to.y + nodeHeight / 2, '#4fc3f7');
+        this.addEdge(svg, from.x + colWidth - 60, from.y + nodeHeight / 2, to.x, to.y + nodeHeight / 2, '#4fc3f7');
       }
     }
 
@@ -160,8 +159,7 @@ export class RelationshipGraph {
       for (const pharmacy of pharmacySet) {
         const to = positions.get(pharmacy);
         if (!to) continue;
-        this.addEdge(svg, from.x + colWidth - 60, from.y + nodeHeight / 2,
-          to.x, to.y + nodeHeight / 2, '#66bb6a');
+        this.addEdge(svg, from.x + colWidth - 60, from.y + nodeHeight / 2, to.x, to.y + nodeHeight / 2, '#66bb6a');
       }
     }
 

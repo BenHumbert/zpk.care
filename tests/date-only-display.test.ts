@@ -58,47 +58,64 @@ const ESC = "(s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
 
 /** West of UTC, where midnight UTC is the evening before; UTC; and east of it, out to UTC+14. */
 const ZONES = ['America/Chicago', 'America/Los_Angeles', 'Pacific/Pago_Pago', 'UTC', 'Europe/Berlin', 'Asia/Tokyo', 'Pacific/Kiritimati'];
-const OPTS = "{ year: 'numeric', month: 'short', day: 'numeric' }";   // the member app's date format
+const OPTS = "{ year: 'numeric', month: 'short', day: 'numeric' }"; // the member app's date format
 
 /** Runs `script` (page code, then a statement that prints JSON) in a fresh node process whose time zone is `zone`. */
 function inZone(zone: string, script: string): any {
   const out = execFileSync(process.execPath, ['-'], {
-    input: `'use strict';\n${script}`, env: { ...process.env, TZ: zone }, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+    input: `'use strict';\n${script}`,
+    env: { ...process.env, TZ: zone },
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
   return JSON.parse(out);
 }
 
 // The group as the employer node lists it: its effective date as the form's date input sent it.
-const GROUP = { groupId: 'GRP-FERNHILL-LAB', planId: 'PLAN-STD-RX-2026', effectiveDate: '2026-10-24', enrollmentCap: 25, enrolledCount: 0, pendingTokens: 0, status: 'active' };
+const GROUP = {
+  groupId: 'GRP-FERNHILL-LAB',
+  planId: 'PLAN-STD-RX-2026',
+  effectiveDate: '2026-10-24',
+  enrollmentCap: 25,
+  enrolledCount: 0,
+  pendingTokens: 0,
+  status: 'active',
+};
 
-describe('the employer node\'s Groups tab shows a group\'s effective date as the day it was stored with', () => {
+describe("the employer node's Groups tab shows a group's effective date as the day it was stored with", () => {
   /** The Groups table drawn by loadGroupsTable, and fmtDateShort on each kind of value, in `zone`. */
-  const groupsTab = (zone: string) => inZone(zone, [
-    lift(EMPLOYER, 'fmtDateShort'),
-    lift(EMPLOYER, 'loadGroupsTable'),
-    `const esc = ${ESC};`,
-    "const table = { innerHTML: '', querySelectorAll: () => [] };",
-    "const document = { getElementById: (id) => (id === 'groups-table' ? table : null) };",
-    `const API = { listGroups: async () => [${JSON.stringify(GROUP)}] };`,
-    "function loading() { return ''; }", "function emptyState() { return ''; }", 'function doDeleteGroup() {}',
-    'loadGroupsTable().then(() => process.stdout.write(JSON.stringify({',
-    '  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,',
-    '  day: new Date(2026, 9, 24).toLocaleDateString(),',
-    "  row: (table.innerHTML.match(/<td>([^<]*)<\\/td>/) || [])[1],",
-    "  dashed: fmtDateShort('2026-10-24'), compact: fmtDateShort('20261024'),",
-    "  iso: fmtDateShort('2026-10-24T02:28:00.000Z'), ms: fmtDateShort(Date.UTC(2026, 9, 24, 2, 28)),",
-    '  local: new Date(Date.UTC(2026, 9, 24, 2, 28)).toLocaleDateString(),',
-    "  none: fmtDateShort(''),",
-    '})));',
-  ].join(NL));
+  const groupsTab = (zone: string) =>
+    inZone(
+      zone,
+      [
+        lift(EMPLOYER, 'fmtDateShort'),
+        lift(EMPLOYER, 'loadGroupsTable'),
+        `const esc = ${ESC};`,
+        "const table = { innerHTML: '', querySelectorAll: () => [] };",
+        "const document = { getElementById: (id) => (id === 'groups-table' ? table : null) };",
+        `const API = { listGroups: async () => [${JSON.stringify(GROUP)}] };`,
+        "function loading() { return ''; }",
+        "function emptyState() { return ''; }",
+        'function doDeleteGroup() {}',
+        'loadGroupsTable().then(() => process.stdout.write(JSON.stringify({',
+        '  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,',
+        '  day: new Date(2026, 9, 24).toLocaleDateString(),',
+        '  row: (table.innerHTML.match(/<td>([^<]*)<\\/td>/) || [])[1],',
+        "  dashed: fmtDateShort('2026-10-24'), compact: fmtDateShort('20261024'),",
+        "  iso: fmtDateShort('2026-10-24T02:28:00.000Z'), ms: fmtDateShort(Date.UTC(2026, 9, 24, 2, 28)),",
+        '  local: new Date(Date.UTC(2026, 9, 24, 2, 28)).toLocaleDateString(),',
+        "  none: fmtDateShort(''),",
+        '})));',
+      ].join(NL),
+    );
 
   test.each(ZONES)('in %s', (zone) => {
     const r = groupsTab(zone);
-    expect(r.zone).toBe(zone);                    // the child really runs in that zone
-    expect(r.row).toBe(r.day);                    // before, west of UTC: the day before (10/23/2026 under a 2026-10-24 banner)
+    expect(r.zone).toBe(zone); // the child really runs in that zone
+    expect(r.row).toBe(r.day); // before, west of UTC: the day before (10/23/2026 under a 2026-10-24 banner)
     expect(r.dashed).toBe(r.day);
-    expect(r.compact).toBe(r.day);                // an attestation's form; before: Invalid Date
-    expect(r.iso).toBe(r.local);                  // a timestamp is still shown as its local day
+    expect(r.compact).toBe(r.day); // an attestation's form; before: Invalid Date
+    expect(r.iso).toBe(r.local); // a timestamp is still shown as its local day
     expect(r.ms).toBe(r.local);
     expect(r.none).toBe('--');
   });
@@ -106,34 +123,47 @@ describe('the employer node\'s Groups tab shows a group\'s effective date as the
 
 describe('the member app shows a date-only value as its day', () => {
   test.each(ZONES)('fmtDate in %s', (zone) => {
-    const r = inZone(zone, [
-      lift(MEMBER, 'fmtDate'),
-      'process.stdout.write(JSON.stringify({',
-      '  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,',
-      `  day: new Date(2026, 9, 24).toLocaleDateString([], ${OPTS}),`,
-      "  dashed: fmtDate('2026-10-24'), compact: fmtDate('20261024'),",
-      "  iso: fmtDate('2026-10-24T02:28:00.000Z'), ms: fmtDate(Date.UTC(2026, 9, 24, 2, 28)),",
-      `  local: new Date(Date.UTC(2026, 9, 24, 2, 28)).toLocaleDateString([], ${OPTS}),`,
-      '}));',
-    ].join(NL));
+    const r = inZone(
+      zone,
+      [
+        lift(MEMBER, 'fmtDate'),
+        'process.stdout.write(JSON.stringify({',
+        '  zone: Intl.DateTimeFormat().resolvedOptions().timeZone,',
+        `  day: new Date(2026, 9, 24).toLocaleDateString([], ${OPTS}),`,
+        "  dashed: fmtDate('2026-10-24'), compact: fmtDate('20261024'),",
+        "  iso: fmtDate('2026-10-24T02:28:00.000Z'), ms: fmtDate(Date.UTC(2026, 9, 24, 2, 28)),",
+        `  local: new Date(Date.UTC(2026, 9, 24, 2, 28)).toLocaleDateString([], ${OPTS}),`,
+        '}));',
+      ].join(NL),
+    );
     expect(r.zone).toBe(zone);
-    expect(r.dashed).toBe(r.day);                 // before, west of UTC: the day before
-    expect(r.compact).toBe(r.day);                // before: Invalid Date
+    expect(r.dashed).toBe(r.day); // before, west of UTC: the day before
+    expect(r.compact).toBe(r.day); // before: Invalid Date
     expect(r.iso).toBe(r.local);
     expect(r.ms).toBe(r.local);
   });
 
   test('the Providers tab reads the PCP back from the device and says the day she was assigned, not "Invalid Date"', () => {
     const body = { innerHTML: '' };
-    const renderPcp = run(['shortHash', 'esc', 'fmtDate', 'renderPcp'].map((n) => lift(MEMBER, n)), {
-      $: (id: string) => (id === 'pcp-body' ? body : null),
-      providersCache: [{ walletId: '22772015471886', displayName: 'Dr. Miriam Fallowmere, MD' }],
-    }, 'renderPcp');
+    const renderPcp = run(
+      ['shortHash', 'esc', 'fmtDate', 'renderPcp'].map((n) => lift(MEMBER, n)),
+      {
+        $: (id: string) => (id === 'pcp-body' ? body : null),
+        providersCache: [{ walletId: '22772015471886', displayName: 'Dr. Miriam Fallowmere, MD' }],
+      },
+      'renderPcp',
+    );
     // GET /pcp/current: the assignment as the device keeps it, its effective date as RPC.assignPcp sent it
-    renderPcp({ pcpWalletId: '22772015471886', effectiveDate: '20261024', commitment: '1', consentScopeFlags: 7, assignedAt: Date.UTC(2026, 9, 24, 2, 40) });
+    renderPcp({
+      pcpWalletId: '22772015471886',
+      effectiveDate: '20261024',
+      commitment: '1',
+      consentScopeFlags: 7,
+      assignedAt: Date.UTC(2026, 9, 24, 2, 40),
+    });
     const day = new Date(2026, 9, 24).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
     expect(body.innerHTML).toContain('Dr. Miriam Fallowmere, MD');
     expect(body.innerHTML).toContain('Assigned ' + day + '</div>');
-    expect(body.innerHTML).not.toContain('Invalid Date');               // before: "Assigned Invalid Date"
+    expect(body.innerHTML).not.toContain('Invalid Date'); // before: "Assigned Invalid Date"
   });
 });

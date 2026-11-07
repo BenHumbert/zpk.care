@@ -37,11 +37,7 @@ import { getPartition, isMyPartition, PartitionRouter } from '../src/l2/l2-parti
 import type { LeviathanConfig } from '../src/l2/l2-leviathan-types.js';
 import type { L2Receipt } from '../src/l2/l2-types.js';
 import type { AuditEvent } from '../src/audit/audit-types.js';
-import type {
-  GossipMessage,
-  GossipMessageType,
-  ProofAcceptedPayload,
-} from '../src/l2/l2-peer-types.js';
+import type { GossipMessage, GossipMessageType, ProofAcceptedPayload } from '../src/l2/l2-peer-types.js';
 import { MemberNode } from '../src/nodes/member-node.js';
 import { PharmacyNode } from '../src/nodes/pharmacy-node.js';
 import { PrescriberNode } from '../src/nodes/prescriber-node.js';
@@ -59,11 +55,7 @@ const TEST_ADMIN_TOKEN = 'test-admin-token';
 
 // ─── Helpers ────────────────────────────────────────────────
 
-function makeConfig(
-  partitionCount: number,
-  primaryPartition: number,
-  nodeIds: string[],
-): LeviathanConfig {
+function makeConfig(partitionCount: number, primaryPartition: number, nodeIds: string[]): LeviathanConfig {
   const failoverChain = new Map<number, string[]>();
   for (let i = 0; i < partitionCount; i++) {
     const chain = [...nodeIds.slice(i), ...nodeIds.slice(0, i)];
@@ -147,12 +139,7 @@ function walletForPartition(partitionIndex: number, partitionCount: number): str
   return partitionIndex.toString();
 }
 
-function mockReceipt(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-  receiptId?: string,
-): L2Receipt {
+function mockReceipt(seqNum: bigint, partitionIndex: number, partitionCount: number, receiptId?: string): L2Receipt {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     receiptId: receiptId ?? `l2-p${partitionIndex}-${seqNum.toString().padStart(8, '0')}`,
@@ -168,12 +155,7 @@ function mockReceipt(
   };
 }
 
-function mockAuditEvent(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-  receiptId?: string,
-): AuditEvent {
+function mockAuditEvent(seqNum: bigint, partitionIndex: number, partitionCount: number, receiptId?: string): AuditEvent {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     sequenceNumber: seqNum,
@@ -191,12 +173,7 @@ function mockAuditEvent(
   };
 }
 
-function makeGossipMessage(
-  type: GossipMessageType,
-  senderId: string,
-  payload: unknown,
-  messageId?: string,
-): GossipMessage {
+function makeGossipMessage(type: GossipMessageType, senderId: string, payload: unknown, messageId?: string): GossipMessage {
   const ts = Date.now();
   return {
     messageId: messageId ?? generateMessageId(type, senderId, ts),
@@ -211,14 +188,13 @@ function rawRpc(port: number, body: string, adminToken?: string): Promise<{ stat
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
-    const req = http.request(
-      { hostname: '127.0.0.1', port, path: '/rpc', method: 'POST', headers },
-      (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
-      },
-    );
+    const req = http.request({ hostname: '127.0.0.1', port, path: '/rpc', method: 'POST', headers }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
+    });
     req.on('error', reject);
     req.write(body);
     req.end();
@@ -257,21 +233,13 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     const prescriber = new PrescriberNode({ role: 'prescriber', sequencerUrl: ctx2.url, walletId: '300' });
 
     // All healthy
-    const [h0, h1, h2] = await Promise.all([
-      member.isHealthy(),
-      pharmacy.isHealthy(),
-      prescriber.isHealthy(),
-    ]);
+    const [h0, h1, h2] = await Promise.all([member.isHealthy(), pharmacy.isHealthy(), prescriber.isHealthy()]);
     expect(h0).toBe(true);
     expect(h1).toBe(true);
     expect(h2).toBe(true);
 
     // All Leviathans running
-    const [s0, s1, s2] = await Promise.all([
-      ctx0.client.getStatus(),
-      ctx1.client.getStatus(),
-      ctx2.client.getStatus(),
-    ]);
+    const [s0, s1, s2] = await Promise.all([ctx0.client.getStatus(), ctx1.client.getStatus(), ctx2.client.getStatus()]);
     expect(s0.running).toBe(true);
     expect(s1.running).toBe(true);
     expect(s2.running).toBe(true);
@@ -332,13 +300,16 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
         if (msg.type === 'proof:accepted') {
           const p = msg.payload as ProofAcceptedPayload;
           const targetPartition = p.partitionIndex ?? partIdx;
-          lev.getSequencer(targetPartition).applyReplicatedReceipt(
-            p.receipt, p.auditEvent,
-            undefined,
-            p.currentRegistryRoot,
-            p.currentLifecycleRoot,
-            p.currentWalletCount,
-          );
+          lev
+            .getSequencer(targetPartition)
+            .applyReplicatedReceipt(
+              p.receipt,
+              p.auditEvent,
+              undefined,
+              p.currentRegistryRoot,
+              p.currentLifecycleRoot,
+              p.currentWalletCount,
+            );
         }
       };
     };
@@ -418,10 +389,7 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     // Apply some receipts so there's state to query
     const seq = ctx0.leviathan.getSequencer(0);
     for (let i = 0; i < 5; i++) {
-      seq.applyReplicatedReceipt(
-        mockReceipt(BigInt(i), 0, 1, `concurrent-${i}`),
-        mockAuditEvent(BigInt(i), 0, 1, `concurrent-${i}`),
-      );
+      seq.applyReplicatedReceipt(mockReceipt(BigInt(i), 0, 1, `concurrent-${i}`), mockAuditEvent(BigInt(i), 0, 1, `concurrent-${i}`));
     }
 
     const member = new MemberNode({ role: 'member', sequencerUrl: ctx0.url, walletId: '100' });
@@ -462,8 +430,12 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     // Track received messages
     let receivedByLev1 = 0;
     let receivedByLev2 = 0;
-    ctx1.peerNet.on(() => { receivedByLev1++; });
-    ctx2.peerNet.on(() => { receivedByLev2++; });
+    ctx1.peerNet.on(() => {
+      receivedByLev1++;
+    });
+    ctx2.peerNet.on(() => {
+      receivedByLev2++;
+    });
 
     // Valid broadcast from lev0 (properly signed)
     const payload: ProofAcceptedPayload = {
@@ -484,12 +456,16 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     const tamperedMsg = makeGossipMessage('proof:accepted', 'hmac-lev-0', payload, 'hmac-int-tampered');
     tamperedMsg.signature = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
-    const res = await rawRpc(ctx1.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'l2_gossipRelay',
-      params: { message: tamperedMsg },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctx1.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'l2_gossipRelay',
+        params: { message: tamperedMsg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ result: { accepted: boolean } }>(res.body);
     expect(rpc.result.accepted).toBe(false);
@@ -519,22 +495,18 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
     );
     leviathan.start();
 
-    const cleanup = async () => { await leviathan.stop(); };
+    const cleanup = async () => {
+      await leviathan.stop();
+    };
 
     try {
       // Apply receipts to partition 0
       const seq0 = leviathan.getSequencer(0);
-      seq0.applyReplicatedReceipt(
-        mockReceipt(1n, 0, 2, 'batch-p0-r1'),
-        mockAuditEvent(1n, 0, 2, 'batch-p0-r1'),
-      );
+      seq0.applyReplicatedReceipt(mockReceipt(1n, 0, 2, 'batch-p0-r1'), mockAuditEvent(1n, 0, 2, 'batch-p0-r1'));
 
       // Apply receipts to partition 1
       const seq1 = leviathan.getSequencer(1);
-      seq1.applyReplicatedReceipt(
-        mockReceipt(1n, 1, 2, 'batch-p1-r1'),
-        mockAuditEvent(1n, 1, 2, 'batch-p1-r1'),
-      );
+      seq1.applyReplicatedReceipt(mockReceipt(1n, 1, 2, 'batch-p1-r1'), mockAuditEvent(1n, 1, 2, 'batch-p1-r1'));
 
       // Verify receipts are in correct partitions
       expect(seq0.getReceipt('batch-p0-r1')).toBeDefined();
@@ -548,17 +520,13 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
 
       // forceBatch on partition 0
       await leviathan.forceBatch(0);
-      const emptyP0 = events.find(
-        (e) => e.type === 'batch:empty' && e.data.partitionIndex === 0,
-      );
+      const emptyP0 = events.find((e) => e.type === 'batch:empty' && e.data.partitionIndex === 0);
       expect(emptyP0).toBeDefined();
 
       // forceBatch on partition 1 (need leadership first)
       leviathan.promoteToLeader(1, 'batch-lev-0');
       await leviathan.forceBatch(1);
-      const emptyP1 = events.find(
-        (e) => e.type === 'batch:empty' && e.data.partitionIndex === 1,
-      );
+      const emptyP1 = events.find((e) => e.type === 'batch:empty' && e.data.partitionIndex === 1);
       expect(emptyP1).toBeDefined();
 
       // l2Only confirmed
@@ -596,13 +564,16 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
         if (msg.type === 'proof:accepted') {
           const p = msg.payload as ProofAcceptedPayload;
           const partition = p.partitionIndex ?? 0;
-          ctx.leviathan.getSequencer(partition).applyReplicatedReceipt(
-            p.receipt, p.auditEvent,
-            undefined,
-            p.currentRegistryRoot,
-            p.currentLifecycleRoot,
-            p.currentWalletCount,
-          );
+          ctx.leviathan
+            .getSequencer(partition)
+            .applyReplicatedReceipt(
+              p.receipt,
+              p.auditEvent,
+              undefined,
+              p.currentRegistryRoot,
+              p.currentLifecycleRoot,
+              p.currentWalletCount,
+            );
         }
       });
     };
@@ -622,26 +593,24 @@ describe('Multi-Node Integration (Claims 8 × 9 × 10)', () => {
 
     // Gossip both
     const payload0: ProofAcceptedPayload = {
-      receipt: r0, auditEvent: a0,
+      receipt: r0,
+      auditEvent: a0,
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
       partitionIndex: 0,
     };
     const payload1: ProofAcceptedPayload = {
-      receipt: r1, auditEvent: a1,
+      receipt: r1,
+      auditEvent: a1,
       currentRegistryRoot: INITIAL_REG_ROOT.toString(),
       currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
       currentWalletCount: '0',
       partitionIndex: 1,
     };
 
-    await ctx0.peerNet.broadcast(
-      makeGossipMessage('proof:accepted', 'conv-lev-0', payload0, 'conv-gossip-p0'),
-    );
-    await ctx1.peerNet.broadcast(
-      makeGossipMessage('proof:accepted', 'conv-lev-1', payload1, 'conv-gossip-p1'),
-    );
+    await ctx0.peerNet.broadcast(makeGossipMessage('proof:accepted', 'conv-lev-0', payload0, 'conv-gossip-p0'));
+    await ctx1.peerNet.broadcast(makeGossipMessage('proof:accepted', 'conv-lev-1', payload1, 'conv-gossip-p1'));
 
     // Wait for full propagation
     await new Promise((r) => setTimeout(r, 700));

@@ -97,7 +97,7 @@ export class ProofPool {
     if (poolSize < 1) throw new Error('ProofPool requires at least 1 worker');
     this.poolSize = poolSize;
     this.compileTimeoutMs = options?.compileTimeoutMs ?? 20 * 60_000; // 20 min
-    this.proveTimeoutMs = options?.proveTimeoutMs ?? 3 * 60_000;     // 3 min
+    this.proveTimeoutMs = options?.proveTimeoutMs ?? 3 * 60_000; // 3 min
     this.maxWorkerRestarts = options?.maxWorkerRestarts ?? 3;
     this.shutdownGraceMs = options?.shutdownGraceMs ?? 5000;
     this.recycleAfterJobs = options?.recycleAfterJobs ?? 0;
@@ -116,7 +116,11 @@ export class ProofPool {
 
   private emit(type: string, workerId: number, data?: Record<string, unknown>): void {
     for (const h of this.eventHandlers) {
-      try { h({ type, workerId, data }); } catch { /* ignore */ }
+      try {
+        h({ type, workerId, data });
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -145,7 +149,7 @@ export class ProofPool {
       }
     }
 
-    const alive = this.workers.filter(w => w.status === 'idle').length;
+    const alive = this.workers.filter((w) => w.status === 'idle').length;
     if (alive === 0) throw new Error('All proof pool workers failed to compile');
     this.running = true;
     console.log(`[proof-pool] ${alive}/${this.poolSize} workers ready`);
@@ -177,13 +181,17 @@ export class ProofPool {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         for (const w of this.workers) {
-          try { w.process.kill('SIGTERM'); } catch { /* ignore */ }
+          try {
+            w.process.kill('SIGTERM');
+          } catch {
+            /* ignore */
+          }
         }
         resolve();
       }, this.shutdownGraceMs);
 
       const check = () => {
-        if (this.workers.every(w => w.status === 'dead')) {
+        if (this.workers.every((w) => w.status === 'dead')) {
           clearTimeout(timer);
           resolve();
         }
@@ -228,7 +236,9 @@ export class ProofPool {
     });
   }
 
-  isRunning(): boolean { return this.running; }
+  isRunning(): boolean {
+    return this.running;
+  }
 
   /**
    * Whether a job submitted now can be proved: some worker is ready, proving or compiling. False once every worker has
@@ -237,13 +247,13 @@ export class ProofPool {
    * inline when the pool does not run, which blocks the event loop the sequencer shares.
    */
   canTakeWork(): boolean {
-    return this.workers.some(w => w.status !== 'dead');
+    return this.workers.some((w) => w.status !== 'dead');
   }
 
   getStatus(): ProofPoolStatus {
-    const alive = this.workers.filter(w => w.status !== 'dead').length;
-    const idle = this.workers.filter(w => w.status === 'idle').length;
-    const busy = this.workers.filter(w => w.status === 'proving').length;
+    const alive = this.workers.filter((w) => w.status !== 'dead').length;
+    const idle = this.workers.filter((w) => w.status === 'idle').length;
+    const busy = this.workers.filter((w) => w.status === 'proving').length;
     return {
       poolSize: this.poolSize,
       workersAlive: alive,
@@ -257,7 +267,7 @@ export class ProofPool {
   }
 
   getWorkerStatuses(): Record<string, unknown>[] {
-    return this.workers.map(w => ({
+    return this.workers.map((w) => ({
       id: w.id,
       busy: w.busy,
       status: w.status,
@@ -332,14 +342,16 @@ export class ProofPool {
 
   private getIdleWorker(): WorkerHandle | null {
     // Prefer workers NOT pending recycle, fall back to pending-recycle if no clean workers available
-    return this.workers.find(w => !w.busy && w.status === 'idle' && w.process.connected && !w.pendingRecycle)
-      ?? this.workers.find(w => !w.busy && w.status === 'idle' && w.process.connected)
-      ?? null;
+    return (
+      this.workers.find((w) => !w.busy && w.status === 'idle' && w.process.connected && !w.pendingRecycle) ??
+      this.workers.find((w) => !w.busy && w.status === 'idle' && w.process.connected) ??
+      null
+    );
   }
 
   /** Returns true if any worker has an in-flight proving job */
   private hasActiveJobs(): boolean {
-    return this.workers.some(w => w.busy && w.status === 'proving');
+    return this.workers.some((w) => w.busy && w.status === 'proving');
   }
 
   private dispatchJob(worker: WorkerHandle, job: PendingJob): void {
@@ -350,14 +362,20 @@ export class ProofPool {
     this.pendingJobs.set(job.jobId, job);
 
     job.timeout = setTimeout(() => {
-      console.error(`[proof-pool] TIMEOUT: Worker ${worker.id} — ${job.description} (${job.jobId}) exceeded ${this.proveTimeoutMs}ms; killing the worker`);
+      console.error(
+        `[proof-pool] TIMEOUT: Worker ${worker.id} — ${job.description} (${job.jobId}) exceeded ${this.proveTimeoutMs}ms; killing the worker`,
+      );
       this.pendingJobs.delete(job.jobId);
       this.totalFailed++;
       job.reject(new Error(`Prove timeout after ${this.proveTimeoutMs}ms for ${job.description}`));
       // The worker is still proving the abandoned job, and only killing it stops that. It used to be marked idle and
       // handed the next job, which then waited behind the abandoned one. It stays busy until its exit, which replaces
       // it as a crash, against the restart limit.
-      try { worker.process.kill('SIGKILL'); } catch { /* already gone */ }
+      try {
+        worker.process.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
     }, this.proveTimeoutMs);
 
     this.sendToWorker(worker, {
@@ -419,7 +437,6 @@ export class ProofPool {
       if (handle.pendingRecycle && this.jobQueue.length === 0 && !this.hasActiveJobs()) {
         this.recycleWorker(handle);
       }
-
     } else if (msg.type === 'error' && msg.jobId !== '__compile__') {
       const job = this.pendingJobs.get(msg.jobId);
       if (!job) return;
@@ -444,10 +461,10 @@ export class ProofPool {
 
     if (!this.running || wasDead) return;
 
-    const jobDesc = handle.currentJobId
-      ? this.pendingJobs.get(handle.currentJobId)?.description ?? handle.currentJobId
-      : 'idle';
-    console.error(`[proof-pool] Worker ${handle.id} CRASHED — code: ${code}, signal: ${_signal}, job: ${jobDesc}, restarts: ${handle.restartCount}/${this.maxWorkerRestarts}`);
+    const jobDesc = handle.currentJobId ? (this.pendingJobs.get(handle.currentJobId)?.description ?? handle.currentJobId) : 'idle';
+    console.error(
+      `[proof-pool] Worker ${handle.id} CRASHED — code: ${code}, signal: ${_signal}, job: ${jobDesc}, restarts: ${handle.restartCount}/${this.maxWorkerRestarts}`,
+    );
     this.emit('worker:crashed', handle.id, { code, signal: _signal, job: jobDesc });
 
     // Reject in-flight job
@@ -491,7 +508,11 @@ export class ProofPool {
     // Gracefully shutdown old worker
     this.sendToWorker(handle, { type: 'shutdown' });
     setTimeout(() => {
-      try { handle.process.kill('SIGTERM'); } catch { /* ignore */ }
+      try {
+        handle.process.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
     }, this.shutdownGraceMs);
     handle.status = 'dead';
 
@@ -517,7 +538,11 @@ export class ProofPool {
     if (handle.status === 'dead') return; // it crashed while compiling, and its exit dealt with its slot
     console.error(`[proof-pool] Worker ${handle.id} ${cause} compile failed:`, err.message);
     handle.status = 'dead';
-    try { handle.process.kill(); } catch { /* already gone */ }
+    try {
+      handle.process.kill();
+    } catch {
+      /* already gone */
+    }
     this.refuseQueueIfNoWorkerLeft();
   }
 
@@ -527,7 +552,9 @@ export class ProofPool {
    */
   private refuseQueueIfNoWorkerLeft(): void {
     if (!this.running || this.canTakeWork()) return;
-    console.error(`[proof-pool] No proof worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Proofs are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`);
+    console.error(
+      `[proof-pool] No proof worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Proofs are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`,
+    );
     const queued = this.jobQueue;
     this.jobQueue = [];
     for (const job of queued) {

@@ -73,8 +73,13 @@ body.dark-side {
 }
 
 @keyframes dot-pulse {
-  0%, 100% { box-shadow: 0 0 4px rgba(76, 175, 80, 0.4); }
-  50% { box-shadow: 0 0 10px rgba(76, 175, 80, 0.8); }
+  0%,
+  100% {
+    box-shadow: 0 0 4px rgba(76, 175, 80, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.8);
+  }
 }
 
 .net-info {

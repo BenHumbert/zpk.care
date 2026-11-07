@@ -25,8 +25,15 @@
  * holder or start cannot be presented as another's.
  */
 import {
-  createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync,
-  hkdfSync, randomBytes, type KeyObject,
+  createCipheriv,
+  createDecipheriv,
+  createPrivateKey,
+  createPublicKey,
+  diffieHellman,
+  generateKeyPairSync,
+  hkdfSync,
+  randomBytes,
+  type KeyObject,
 } from 'crypto';
 
 export const SEAL_ALG = 'X25519-HKDF-SHA256-AES-256-GCM';
@@ -59,7 +66,9 @@ export interface SealedEnvelope {
 }
 
 function rawPublicHex(publicKey: KeyObject): string {
-  return Buffer.from(publicKey.export({ type: 'spki', format: 'der' })).subarray(X25519_SPKI_PREFIX.length).toString('hex');
+  return Buffer.from(publicKey.export({ type: 'spki', format: 'der' }))
+    .subarray(X25519_SPKI_PREFIX.length)
+    .toString('hex');
 }
 
 function publicKeyFromHex(hex: string): KeyObject {
@@ -143,12 +152,21 @@ export function sealTo(recipientPublicKeyHex: string, plaintext: Uint8Array, con
 export function isSealedEnvelope(value: unknown): value is SealedEnvelope {
   if (!value || typeof value !== 'object') return false;
   const e = value as Record<string, unknown>;
-  return e.v === 1 && e.alg === SEAL_ALG && typeof e.context === 'string'
-    && typeof e.recipient === 'string' && HEX32.test(e.recipient)
-    && typeof e.ephemeral === 'string' && HEX32.test(e.ephemeral)
-    && typeof e.iv === 'string' && /^[0-9a-f]{24}$/.test(e.iv)
-    && typeof e.ciphertext === 'string' && /^(?:[0-9a-f]{2})+$/.test(e.ciphertext)
-    && typeof e.tag === 'string' && /^[0-9a-f]{32}$/.test(e.tag);
+  return (
+    e.v === 1 &&
+    e.alg === SEAL_ALG &&
+    typeof e.context === 'string' &&
+    typeof e.recipient === 'string' &&
+    HEX32.test(e.recipient) &&
+    typeof e.ephemeral === 'string' &&
+    HEX32.test(e.ephemeral) &&
+    typeof e.iv === 'string' &&
+    /^[0-9a-f]{24}$/.test(e.iv) &&
+    typeof e.ciphertext === 'string' &&
+    /^(?:[0-9a-f]{2})+$/.test(e.ciphertext) &&
+    typeof e.tag === 'string' &&
+    /^[0-9a-f]{32}$/.test(e.tag)
+  );
 }
 
 /** Open an envelope sealed to `privateKey` for `expectedContext`. Throws for anything else. */

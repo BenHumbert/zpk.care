@@ -53,7 +53,12 @@ import { readFileSync, existsSync, readdirSync, mkdirSync, appendFileSync, write
 import { timingSafeEqual } from 'crypto';
 import { PersistedAttemptLimiter } from '../security/attempt-limiter.js';
 import {
-  resolvePublicHosts, requestHostAllowed, bodyTypeAccepted, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, type HostPolicy,
+  resolvePublicHosts,
+  requestHostAllowed,
+  bodyTypeAccepted,
+  MISDIRECTED_REQUEST,
+  UNSUPPORTED_BODY_TYPE,
+  type HostPolicy,
 } from '../security/network-policy.js';
 import { encryptWithPassphrase, decryptWithPassphrase, workspaceDirName } from './hr-tool-core.js';
 import { join, resolve, extname, sep } from 'path';
@@ -143,8 +148,12 @@ function jsonRes(res: any, status: number, data: any): void {
   res.end(body);
 }
 
-function ok(res: any, data: any): void { jsonRes(res, 200, { ok: true, data }); }
-function errRes(res: any, status: number, msg: string): void { jsonRes(res, status, { ok: false, error: msg }); }
+function ok(res: any, data: any): void {
+  jsonRes(res, 200, { ok: true, data });
+}
+function errRes(res: any, status: number, msg: string): void {
+  jsonRes(res, status, { ok: false, error: msg });
+}
 
 /** Read request body with size limit */
 async function readBody(req: any): Promise<any> {
@@ -162,7 +171,11 @@ async function readBody(req: any): Promise<any> {
     });
     req.on('error', (e: Error) => reject(e));
     req.on('end', () => {
-      try { resolve(JSON.parse(body)); } catch { resolve(body); }
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        resolve(body);
+      }
     });
   });
 }
@@ -209,14 +222,23 @@ async function proxyToEmployer(method: string, path: string, body?: any): Promis
 async function registerClientKeyWithEmployer(): Promise<boolean> {
   if (!activeWorkspaceUrl || !activeClientKey || !activeAdminToken) return false;
   try {
-    const r = await fetchEmployer(activeWorkspaceUrl + '/admin/client-keys', 'POST',
+    const r = await fetchEmployer(
+      activeWorkspaceUrl + '/admin/client-keys',
+      'POST',
       JSON.stringify({ clientId: activeClientKey.clientId, publicKeyHex: activeClientKey.publicKeyHex }),
-      { Authorization: 'Bearer ' + activeAdminToken });
-    if (r.status < 300) { auditLog('client-key:registered', `clientId=${activeClientKey.clientId}`); return true; }
-    console.warn('[hr-tool-server] The employer node did not register this workspace\'s client key (HTTP %d)', r.status);
+      { Authorization: 'Bearer ' + activeAdminToken },
+    );
+    if (r.status < 300) {
+      auditLog('client-key:registered', `clientId=${activeClientKey.clientId}`);
+      return true;
+    }
+    console.warn("[hr-tool-server] The employer node did not register this workspace's client key (HTTP %d)", r.status);
     return false;
   } catch (err) {
-    console.warn('[hr-tool-server] Could not reach the employer node to register the client key:', err instanceof Error ? err.message : err);
+    console.warn(
+      '[hr-tool-server] Could not reach the employer node to register the client key:',
+      err instanceof Error ? err.message : err,
+    );
     return false;
   }
 }
@@ -257,7 +279,9 @@ function auditLog(action: string, detail: string = ''): void {
       const ws = workspacePaths(DATA_DIR, activeWorkspaceUrl);
       appendFileSync(join(ws.wsDir, 'audit.log'), line);
     }
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 }
 
 // ─── In-Memory Session State (Phase F3: workspace-scoped) ───
@@ -360,8 +384,8 @@ function listWorkspaceDirs(): string[] {
   ensureDataDir(DATA_DIR);
   try {
     return readdirSync(DATA_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory() && d.name.startsWith('workspace-'))
-      .map(d => d.name);
+      .filter((d) => d.isDirectory() && d.name.startsWith('workspace-'))
+      .map((d) => d.name);
   } catch {
     return [];
   }
@@ -375,7 +399,13 @@ function passphrasePolicyError(passphrase: unknown, confirm: unknown): string | 
   return null;
 }
 
-function openWorkspace(url: string, meta: WorkspaceMeta, passphrase: string, clientKey: HrToolClientKey | null, adminToken: string | null): void {
+function openWorkspace(
+  url: string,
+  meta: WorkspaceMeta,
+  passphrase: string,
+  clientKey: HrToolClientKey | null,
+  adminToken: string | null,
+): void {
   activeWorkspaceUrl = url;
   activePassphrase = passphrase;
   activeClientKey = clientKey;
@@ -389,7 +419,11 @@ function openWorkspace(url: string, meta: WorkspaceMeta, passphrase: string, cli
 
 function sendRetryAfter(res: any, status: number, retryAfterMs: number, what: string): void {
   const secs = Math.max(1, Math.ceil(retryAfterMs / 1000));
-  try { res.setHeader('Retry-After', String(secs)); } catch { /* fake responses in tests */ }
+  try {
+    res.setHeader('Retry-After', String(secs));
+  } catch {
+    /* fake responses in tests */
+  }
   errRes(res, status, `Too many wrong ${what}. Try again in ${secs} s.`);
 }
 
@@ -399,16 +433,28 @@ function sendRetryAfter(res: any, status: number, retryAfterMs: number, what: st
  * counted on the same limiter as unlocking, so it cannot be used to grind the passphrase either.
  */
 function reauth(res: any, passphrase: unknown): boolean {
-  if (!activeWorkspaceUrl || !activePassphrase) { errRes(res, 401, 'No active workspace. Unlock the HR Tool first.'); return false; }
+  if (!activeWorkspaceUrl || !activePassphrase) {
+    errRes(res, 401, 'No active workspace. Unlock the HR Tool first.');
+    return false;
+  }
   const key = 'reauth:' + workspaceDirName(activeWorkspaceUrl);
   const verdict = attempts.check(key);
-  if (!verdict.allowed) { sendRetryAfter(res, 429, verdict.retryAfterMs, 'passphrases'); return false; }
+  if (!verdict.allowed) {
+    sendRetryAfter(res, 429, verdict.retryAfterMs, 'passphrases');
+    return false;
+  }
   const a = Buffer.from(typeof passphrase === 'string' ? passphrase : '', 'utf8');
   const b = Buffer.from(activePassphrase, 'utf8');
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     const delay = attempts.recordFailure(key);
     auditLog('reauth:failed');
-    if (delay > 0) { try { res.setHeader('Retry-After', String(Math.ceil(delay / 1000))); } catch { /* fake responses */ } }
+    if (delay > 0) {
+      try {
+        res.setHeader('Retry-After', String(Math.ceil(delay / 1000)));
+      } catch {
+        /* fake responses */
+      }
+    }
     errRes(res, 403, 'Passphrase does not match');
     return false;
   }
@@ -456,40 +502,66 @@ type IssueOutcome = { ok: true; tokenId: string; tokenIdHash: string; pinSentTo:
  */
 async function issueInvite(entry: CorrelationEntry, validUntil: string, wording: 'pin' | 'replacedPin'): Promise<IssueOutcome> {
   const mobile = entry.mobile ? normalizeMobile(entry.mobile) : null;
-  if (!mobile) return { ok: false, status: 400, error: 'No mobile number to text the PIN to: add one in the mobile column, or with Change mobile' };
+  if (!mobile)
+    return { ok: false, status: 400, error: 'No mobile number to text the PIN to: add one in the mobile column, or with Change mobile' };
   if (!TEXT_SERVICE) return { ok: false, status: 503, error: NO_TEXT_SERVICE };
   let gen: { status: number; data: any };
   try {
     gen = await proxyToEmployer('POST', '/tokens/generate', {
-      groupId: activeGroupId, employeeIdHash: entry.employeeIdHash, familyIdHash: entry.familyIdHash, validUntil,
+      groupId: activeGroupId,
+      employeeIdHash: entry.employeeIdHash,
+      familyIdHash: entry.familyIdHash,
+      validUntil,
     });
   } catch (e: any) {
     return { ok: false, status: 502, error: e?.name === 'AbortError' ? 'Employer node timeout' : 'Connection failed' };
   }
   const tokenId = gen.status === 201 && typeof gen.data?.tokenId === 'string' ? (gen.data.tokenId as string) : null;
   if (!tokenId) {
-    return { ok: false, status: gen.status >= 400 && gen.status < 500 ? gen.status : 502, error: gen.data?.error || `The employer node issued no code (${gen.status})` };
+    return {
+      ok: false,
+      status: gen.status >= 400 && gen.status < 500 ? gen.status : 502,
+      error: gen.data?.error || `The employer node issued no code (${gen.status})`,
+    };
   }
   const withdraw = async (): Promise<void> => {
-    try { await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/revoke', {}); } catch { /* the code has no working PIN either way */ }
+    try {
+      await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/revoke', {});
+    } catch {
+      /* the code has no working PIN either way */
+    }
   };
   const pin = generateTokenPIN();
   let bound: { status: number; data: any };
   try {
-    bound = await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/set-pin-hash', { tokenPinHash: hashTokenPIN(tokenId, pin) });
+    bound = await proxyToEmployer('POST', '/tokens/' + encodeURIComponent(tokenId) + '/set-pin-hash', {
+      tokenPinHash: hashTokenPIN(tokenId, pin),
+    });
   } catch (e: any) {
     await withdraw();
-    return { ok: false, status: 502, error: e?.name === 'AbortError' ? 'PIN hash set timeout; no invite was issued' : 'PIN hash set failed; no invite was issued' };
+    return {
+      ok: false,
+      status: 502,
+      error: e?.name === 'AbortError' ? 'PIN hash set timeout; no invite was issued' : 'PIN hash set failed; no invite was issued',
+    };
   }
   if (bound.status !== 200) {
     await withdraw();
-    return { ok: false, status: 502, error: `The employer node refused the PIN hash (${bound.status}${bound.data?.error ? ': ' + bound.data.error : ''}); no invite was issued` };
+    return {
+      ok: false,
+      status: 502,
+      error: `The employer node refused the PIN hash (${bound.status}${bound.data?.error ? ': ' + bound.data.error : ''}); no invite was issued`,
+    };
   }
   try {
     await TEXT_SERVICE.send({ to: mobile, body: TEXTS[wording](pin) });
   } catch (e: any) {
     await withdraw();
-    return { ok: false, status: 502, error: `The PIN could not be texted (${e?.message || 'the text service failed'}); no invite was issued` };
+    return {
+      ok: false,
+      status: 502,
+      error: `The PIN could not be texted (${e?.message || 'the text service failed'}); no invite was issued`,
+    };
   }
   const tokenIdHash: string = typeof gen.data?.tokenIdHash === 'string' ? gen.data.tokenIdHash : '';
   entry.mobile = mobile;
@@ -521,15 +593,18 @@ async function sendDueNotices(): Promise<number> {
   for (const entry of table.entries) {
     const onNode = byEmployee.get(entry.employeeIdHash);
     const mobile = entry.mobile ? normalizeMobile(entry.mobile) : null;
-    if (!onNode || !mobile || !entry.tokenIdHash || onNode.tokenIdHash !== entry.tokenIdHash) continue;   // the current invite only
-    const due = onNode.inviteStatus === 'consumed' && entry.noticedUse !== entry.tokenIdHash ? 'used'
-      : onNode.inviteStatus === 'locked' && entry.noticedLock !== entry.tokenIdHash ? 'locked'
-        : null;
+    if (!onNode || !mobile || !entry.tokenIdHash || onNode.tokenIdHash !== entry.tokenIdHash) continue; // the current invite only
+    const due =
+      onNode.inviteStatus === 'consumed' && entry.noticedUse !== entry.tokenIdHash
+        ? 'used'
+        : onNode.inviteStatus === 'locked' && entry.noticedLock !== entry.tokenIdHash
+          ? 'locked'
+          : null;
     if (!due) continue;
     try {
       await TEXT_SERVICE.send({ to: mobile, body: due === 'used' ? TEXTS.inviteUsed() : TEXTS.inviteLocked() });
     } catch {
-      continue;   // tried again the next time
+      continue; // tried again the next time
     }
     if (due === 'used') {
       entry.noticedUse = entry.tokenIdHash;
@@ -547,7 +622,10 @@ async function sendDueNotices(): Promise<number> {
 let noticesInFlight: Promise<number> | null = null;
 /** One run of the notices at a time, whoever asks: the timer, a group select, or HR. */
 function runNotices(): Promise<number> {
-  if (!noticesInFlight) noticesInFlight = sendDueNotices().finally(() => { noticesInFlight = null; });
+  if (!noticesInFlight)
+    noticesInFlight = sendDueNotices().finally(() => {
+      noticesInFlight = null;
+    });
   return noticesInFlight;
 }
 
@@ -562,8 +640,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     ensureDataDir(DATA_DIR);
     try {
       const dirs = readdirSync(DATA_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory() && d.name.startsWith('workspace-'))
-        .map(d => d.name);
+        .filter((d) => d.isDirectory() && d.name.startsWith('workspace-'))
+        .map((d) => d.name);
       return ok(res, {
         // Only directory names are exposed — actual metadata requires passphrase.
         count: dirs.length,
@@ -653,15 +731,18 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       const meta = loadWorkspaceMeta(ws.metaFile, passphrase);
       let clientKey: HrToolClientKey | null = null;
       if (existsSync(ws.keyFile)) {
-        try { clientKey = loadClientKey(ws.keyFile, passphrase); }
-        catch { console.warn('[hr-tool-server] Could not load client key for this workspace'); }
+        try {
+          clientKey = loadClientKey(ws.keyFile, passphrase);
+        } catch {
+          console.warn('[hr-tool-server] Could not load client key for this workspace');
+        }
       }
       let token: string | null = null;
       if (existsSync(ws.tokenFile)) token = decryptWithPassphrase(readFileSync(ws.tokenFile), passphrase);
 
       attempts.reset(limiterKey);
       openWorkspace(meta.employerNodeUrl, meta, passphrase, clientKey, token);
-      const authMode = clientKey ? 'ed25519' : (token ? 'bearer' : 'none');
+      const authMode = clientKey ? 'ed25519' : token ? 'bearer' : 'none';
       auditLog('workspace:unlock', `employer=${meta.employerNodeUrl} auth=${authMode}`);
       return ok(res, {
         workspace: { employerNodeUrl: meta.employerNodeUrl, createdAt: meta.createdAt, firstRun: false },
@@ -673,7 +754,13 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     } catch {
       lockSession();
       const delay = attempts.recordFailure(limiterKey);
-      if (delay > 0) { try { res.setHeader('Retry-After', String(Math.ceil(delay / 1000))); } catch { /* fake responses */ } }
+      if (delay > 0) {
+        try {
+          res.setHeader('Retry-After', String(Math.ceil(delay / 1000)));
+        } catch {
+          /* fake responses */
+        }
+      }
       return errRes(res, 403, 'Wrong passphrase or corrupted workspace');
     }
   }
@@ -721,10 +808,14 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
                 localEntryCount = tbl.entries.length;
                 // A-109: a table saved before it loses its PINs the first time it is opened
                 if (scrubLegacyPins(tbl) > 0) saveCorrelationTable(gp.tableFile, tbl, activePassphrase);
-              } catch { /* ignore — may be re-encrypted with different passphrase */ }
+              } catch {
+                /* ignore — may be re-encrypted with different passphrase */
+              }
             }
           }
-        } catch { /* invalid groupId or IO error — fall through */ }
+        } catch {
+          /* invalid groupId or IO error — fall through */
+        }
         return { ...g, hasLocalState, localEntryCount };
       });
       return ok(res, { groups: enriched });
@@ -750,7 +841,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     let remoteGroup: any = null;
     try {
       const resp = await proxyToEmployer('GET', '/groups/' + encodeURIComponent(groupId));
-      if (resp.status === 404) return errRes(res, 404, `Group "${groupId}" does not exist on the employer node. Create it in the Employer Dashboard first.`);
+      if (resp.status === 404)
+        return errRes(res, 404, `Group "${groupId}" does not exist on the employer node. Create it in the Employer Dashboard first.`);
       if (resp.status !== 200) return errRes(res, 502, 'Employer node returned ' + resp.status);
       remoteGroup = resp.data;
     } catch (e: any) {
@@ -781,12 +873,15 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
           if (pinsDeleted > 0) saveCorrelationTable(gp.tableFile, table, activePassphrase!);
         } catch (e: any) {
           console.error('[hr-tool-server] Corrupt correlation table for group %s:', groupId, e?.message || e);
-          return errRes(res, 500,
+          return errRes(
+            res,
+            500,
             `Corrupt correlation table for group "${groupId}". ` +
-            `The seed decrypted successfully but the table failed to decrypt — ` +
-            `this indicates either file corruption or passphrase drift. ` +
-            `Restore the table file from backup, or delete ${gp.tableFile} to start fresh ` +
-            `(WARNING: this loses all plaintext correlation data for the group).`);
+              `The seed decrypted successfully but the table failed to decrypt — ` +
+              `this indicates either file corruption or passphrase drift. ` +
+              `Restore the table file from backup, or delete ${gp.tableFile} to start fresh ` +
+              `(WARNING: this loses all plaintext correlation data for the group).`,
+          );
         }
       } else {
         // Seed exists but table was never created (partial write or disk loss)
@@ -801,7 +896,12 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       // D2: reconcile stale planId if the employer has moved the group to
       // a different plan since the last select.
       if (remoteGroup.planId && table.planId !== remoteGroup.planId) {
-        console.log('[hr-tool-server] Group %s planId changed: %s → %s (reconciling local table)', groupId, table.planId, remoteGroup.planId);
+        console.log(
+          '[hr-tool-server] Group %s planId changed: %s → %s (reconciling local table)',
+          groupId,
+          table.planId,
+          remoteGroup.planId,
+        );
         table.planId = remoteGroup.planId;
         saveCorrelationTable(gp.tableFile, table, activePassphrase!);
       }
@@ -827,7 +927,9 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     auditLog('group:select', `groupId=${groupId} firstSelect=${firstSelect} entries=${table.entries.length}`);
     if (pinsDeleted > 0) auditLog('pins:deleted', `count=${pinsDeleted}`);
     // A-109: the notices that came due while the HR Tool was locked go out now
-    runNotices().catch(() => { /* the employer node is unreachable; the timer tries again */ });
+    runNotices().catch(() => {
+      /* the employer node is unreachable; the timer tries again */
+    });
 
     return ok(res, {
       groupId,
@@ -869,7 +971,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       groupId: activeGroupId,
       planId: activeTable?.planId ?? null,
       entryCount: activeTable?.entries.length ?? 0,
-      authMode: activeClientKey ? 'ed25519' : (activeWorkspaceUrl ? 'bearer' : null),
+      authMode: activeClientKey ? 'ed25519' : activeWorkspaceUrl ? 'bearer' : null,
     });
   }
 
@@ -877,16 +979,18 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
   if (path === '/api/stats' && method === 'GET') {
     if (!requireGroup(res)) return;
     const entries = activeTable!.entries;
-    const pending = entries.filter(e => e.status === 'pending').length;
-    const issued = entries.filter(e => e.status === 'token_generated').length;
-    const enrolled = entries.filter(e => e.status === 'enrolled').length;
-    const terminated = entries.filter(e => e.status === 'terminated').length;
+    const pending = entries.filter((e) => e.status === 'pending').length;
+    const issued = entries.filter((e) => e.status === 'token_generated').length;
+    const enrolled = entries.filter((e) => e.status === 'enrolled').length;
+    const terminated = entries.filter((e) => e.status === 'terminated').length;
 
     let employerNodeOnline = false;
     try {
       const resp = await proxyToEmployer('GET', '/health');
       employerNodeOnline = resp.status === 200;
-    } catch { /* offline */ }
+    } catch {
+      /* offline */
+    }
 
     return ok(res, { total: entries.length, pending, issued, enrolled, terminated, employerNodeOnline });
   }
@@ -921,7 +1025,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       const records = parseCsv(csvContent);
       const { entries: newEntries } = hashEmployeeRecords(records, activeSeed!, activeGroupId!, activeTable!.planId);
 
-      const existingHashes = new Set(activeTable!.entries.map(e => e.employeeIdHash));
+      const existingHashes = new Set(activeTable!.entries.map((e) => e.employeeIdHash));
       const toProcess: CorrelationEntry[] = [];
       let skipped = 0;
 
@@ -939,7 +1043,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
           total: records.length,
           newEntries: toProcess.length,
           skipped,
-          preview: toProcess.slice(0, 20).map(e => {
+          preview: toProcess.slice(0, 20).map((e) => {
             const mobile = e.mobile ? normalizeMobile(e.mobile) : null;
             return {
               employeeId: e.employeeId,
@@ -971,19 +1075,28 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       try {
         statsResp = await proxyToEmployer('GET', '/groups/' + encodeURIComponent(activeGroupId!) + '/stats');
       } catch (e: any) {
-        return errRes(res, 503,
+        return errRes(
+          res,
+          503,
           'Cannot verify group capacity — employer node unreachable. ' +
-          'Aborting import to prevent partial token generation. Retry once the employer node is back online.');
+            'Aborting import to prevent partial token generation. Retry once the employer node is back online.',
+        );
       }
       if (statsResp.status !== 200 || !statsResp.data) {
-        return errRes(res, 503,
-          `Cannot verify group capacity — stats endpoint returned ${statsResp.status}. Aborting import to prevent partial token generation.`);
+        return errRes(
+          res,
+          503,
+          `Cannot verify group capacity — stats endpoint returned ${statsResp.status}. Aborting import to prevent partial token generation.`,
+        );
       }
       const stats = statsResp.data;
       if (!stats.isUnlimited && toProcess.length > stats.remainingSlots) {
-        return errRes(res, 409,
+        return errRes(
+          res,
+          409,
           `Cannot import ${toProcess.length} new employees — only ${stats.remainingSlots} slots remaining in group "${activeGroupId}" (cap: ${stats.enrollmentCap}, ` +
-          `currently used: ${stats.enrolledCount + stats.pendingTokens}). Reduce the CSV size or terminate existing roster entries to make room.`);
+            `currently used: ${stats.enrolledCount + stats.pendingTokens}). Reduce the CSV size or terminate existing roster entries to make room.`,
+        );
       }
 
       // Issue the invites — only working ones join the table. A-109: each PIN is texted straight to its employee and
@@ -1016,9 +1129,15 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       auditLog('import', `total=${records.length} success=${success} failed=${failed} skipped=${skipped}`);
 
       return ok(res, {
-        total: records.length, processed: toProcess.length, skipped, success, failed, results,
+        total: records.length,
+        processed: toProcess.length,
+        skipped,
+        success,
+        failed,
+        results,
         csvWarning: 'Remember to securely delete the source CSV file after import.',
-        pinNotice: 'Each PIN was texted straight to its employee: no one at HR sees it, and it is kept nowhere. Send each employee the invite code (export the codes, or print them).',
+        pinNotice:
+          'Each PIN was texted straight to its employee: no one at HR sees it, and it is kept nowhere. Send each employee the invite code (export the codes, or print them).',
       });
     } catch (e: any) {
       return errRes(res, 400, 'Import failed: check CSV format');
@@ -1033,14 +1152,15 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     const search = (url.searchParams.get('search') || '').toLowerCase();
 
     let entries = activeTable!.entries;
-    if (status) entries = entries.filter(e => e.status === status);
+    if (status) entries = entries.filter((e) => e.status === status);
     if (search) {
-      entries = entries.filter(e =>
-        e.employeeId.toLowerCase().includes(search) ||
-        e.firstName.toLowerCase().includes(search) ||
-        e.lastName.toLowerCase().includes(search) ||
-        e.familyId.toLowerCase().includes(search) ||
-        (e.email && e.email.toLowerCase().includes(search))
+      entries = entries.filter(
+        (e) =>
+          e.employeeId.toLowerCase().includes(search) ||
+          e.firstName.toLowerCase().includes(search) ||
+          e.lastName.toLowerCase().includes(search) ||
+          e.familyId.toLowerCase().includes(search) ||
+          (e.email && e.email.toLowerCase().includes(search)),
       );
     }
 
@@ -1056,12 +1176,12 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     if (!id || id.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
 
     // Try by employeeId first, then by hash
-    let entry = activeTable!.entries.find(e => e.employeeId === id);
+    let entry = activeTable!.entries.find((e) => e.employeeId === id);
     if (!entry) {
       const hash = hashWithSeed(id, activeSeed!);
-      entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
+      entry = activeTable!.entries.find((e) => e.employeeIdHash === hash);
     }
-    if (!entry) entry = activeTable!.entries.find(e => e.employeeIdHash === id);
+    if (!entry) entry = activeTable!.entries.find((e) => e.employeeIdHash === id);
     if (!entry) return errRes(res, 404, 'Employee not found');
 
     auditLog('employees:lookup', `employeeIdHash=${entry.employeeIdHash.slice(0, 12)}`);
@@ -1079,7 +1199,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     if (!hash || hash.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
     const body = await readBody(req);
     if (!reauth(res, body?.passphrase)) return;
-    const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
+    const entry = activeTable!.entries.find((e) => e.employeeIdHash === hash);
     if (!entry) return errRes(res, 404, 'Employee not found');
     // A-109: an employee this tool saw enrolled may be pending again on the employer node, once the plan cancelled an
     // enrollment someone else made with the invite; the node's roster decides.
@@ -1088,7 +1208,9 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       try {
         const onNode = await proxyToEmployer('GET', '/roster/' + encodeURIComponent(entry.employeeIdHash));
         cancelledOnNode = onNode.status === 200 && onNode.data?.status === 'pending';
-      } catch { cancelledOnNode = false; }
+      } catch {
+        cancelledOnNode = false;
+      }
     }
     if ((entry.status === 'enrolled' && !cancelledOnNode) || entry.status === 'terminated') {
       return errRes(res, 409, `This employee is ${entry.status}; a new invite is for an employee who has not enrolled`);
@@ -1096,7 +1218,11 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     const asked = body?.validUntil;
     const askedProblem = asked === undefined || asked === null || asked === '' ? null : inviteExpiryProblem(asked);
     if (askedProblem) return errRes(res, 400, askedProblem);
-    const issued = await issueInvite(entry, askedProblem === null && asked ? compactInviteDate(asked)! : latestInviteExpiry(), 'replacedPin');
+    const issued = await issueInvite(
+      entry,
+      askedProblem === null && asked ? compactInviteDate(asked)! : latestInviteExpiry(),
+      'replacedPin',
+    );
     if (!issued.ok) return errRes(res, issued.status, issued.error);
     saveTable();
     auditLog('invite:reissue', `employeeIdHash=${hash.slice(0, 12)}`);
@@ -1114,7 +1240,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
     if (!hash || hash.includes('/')) return errRes(res, 400, 'Invalid employee identifier');
     const body = await readBody(req);
     if (!reauth(res, body?.passphrase)) return;
-    const entry = activeTable!.entries.find(e => e.employeeIdHash === hash);
+    const entry = activeTable!.entries.find((e) => e.employeeIdHash === hash);
     if (!entry) return errRes(res, 404, 'Employee not found');
     const mobile = normalizeMobile(body?.mobile);
     if (!mobile) return errRes(res, 400, 'A mobile number is 8 to 15 digits, with an optional leading +');
@@ -1125,7 +1251,11 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       try {
         await TEXT_SERVICE.send({ to: old, body: TEXTS.mobileChanged(maskMobile(mobile)) });
       } catch (e: any) {
-        return errRes(res, 502, `The old number could not be told of the change (${e?.message || 'the text service failed'}); nothing was changed`);
+        return errRes(
+          res,
+          502,
+          `The old number could not be told of the change (${e?.message || 'the text service failed'}); nothing was changed`,
+        );
       }
     }
     entry.mobile = mobile;
@@ -1163,7 +1293,7 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       // Sync enrollment statuses
       let synced = 0;
       for (const nodeEntry of nodeEntries) {
-        const local = activeTable!.entries.find(e => e.employeeIdHash === nodeEntry.employeeIdHash);
+        const local = activeTable!.entries.find((e) => e.employeeIdHash === nodeEntry.employeeIdHash);
         if (local && nodeEntry.status === 'enrolled' && local.status !== 'enrolled') {
           local.status = 'enrolled';
           synced++;
@@ -1175,18 +1305,21 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
       const enriched = {
         ...result,
         synced,
-        missingFromNodeDetail: result.missingFromNode.map(h => {
-          const e = activeTable!.entries.find(e => e.employeeIdHash === h);
+        missingFromNodeDetail: result.missingFromNode.map((h) => {
+          const e = activeTable!.entries.find((e) => e.employeeIdHash === h);
           return { hash: h, name: e ? e.firstName + ' ' + e.lastName : 'Unknown', employeeId: e?.employeeId || '' };
         }),
-        unknownOnNodeDetail: result.unknownOnNode.map(h => ({ hash: h })),
-        statusMismatchDetail: result.statusMismatches.map(m => {
-          const e = activeTable!.entries.find(e => e.employeeIdHash === m.employeeIdHash);
+        unknownOnNodeDetail: result.unknownOnNode.map((h) => ({ hash: h })),
+        statusMismatchDetail: result.statusMismatches.map((m) => {
+          const e = activeTable!.entries.find((e) => e.employeeIdHash === m.employeeIdHash);
           return { ...m, name: e ? e.firstName + ' ' + e.lastName : 'Unknown', employeeId: e?.employeeId || '' };
         }),
       };
 
-      auditLog('reconcile', `matched=${result.matched} missing=${result.missingFromNode.length} unknown=${result.unknownOnNode.length} synced=${synced}`);
+      auditLog(
+        'reconcile',
+        `matched=${result.matched} missing=${result.missingFromNode.length} unknown=${result.unknownOnNode.length} synced=${synced}`,
+      );
       return ok(res, enriched);
     } catch (e: any) {
       return errRes(res, 502, 'Cannot reach employer node');
@@ -1197,8 +1330,8 @@ async function handleApi(req: any, res: any, path: string, method: string): Prom
   if (path === '/api/export/tokens' && method === 'GET') {
     if (!requireGroup(res)) return;
     const tokens: TokenDistributionRecord[] = activeTable!.entries
-      .filter(e => e.tokenId && e.status === 'token_generated')
-      .map(e => ({
+      .filter((e) => e.tokenId && e.status === 'token_generated')
+      .map((e) => ({
         employeeIdHash: e.employeeIdHash,
         tokenId: e.tokenId!,
         tokenIdHash: e.tokenIdHash || '',
@@ -1274,9 +1407,16 @@ const server = createServer(async (req, res) => {
   // Security headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'");
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'",
+  );
 
-  if (method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+  if (method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
   // A-82: every write declares JSON, which this tool's page always sends. A form or text/plain post, or a bodyless
   // one with no type, is what another site's page can send without asking first, to an unlocked workspace.
@@ -1300,7 +1440,9 @@ const server = createServer(async (req, res) => {
 
   // Prevent path traversal: resolved path must start with dashboard dir
   if (!fullPath.startsWith(normalizedDashDir + (normalizedDashDir.endsWith('/') || normalizedDashDir.endsWith('\\') ? '' : sep))) {
-    res.writeHead(403); res.end('Forbidden'); return;
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
   }
 
   if (!existsSync(fullPath)) {
@@ -1312,7 +1454,9 @@ const server = createServer(async (req, res) => {
       res.end(content);
       return;
     }
-    res.writeHead(404); res.end('Not found'); return;
+    res.writeHead(404);
+    res.end('Not found');
+    return;
   }
 
   const ext = extname(fullPath);
@@ -1327,7 +1471,12 @@ ensureDataDir(DATA_DIR);
 // Session timeout checker — runs every 60 seconds
 setInterval(checkSessionTimeout, 60_000);
 // A-109: the notices, while unlocked; locked, there is no number to text
-if (NOTICE_INTERVAL_MS > 0) setInterval(() => { runNotices().catch(() => { /* tried again next time */ }); }, NOTICE_INTERVAL_MS);
+if (NOTICE_INTERVAL_MS > 0)
+  setInterval(() => {
+    runNotices().catch(() => {
+      /* tried again next time */
+    });
+  }, NOTICE_INTERVAL_MS);
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log('');
@@ -1343,8 +1492,10 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log('  ║  Only Poseidon hashes are transmitted.       ║');
   console.log('  ╚══════════════════════════════════════════════╝');
   // A-109: where each enrollment PIN goes; with no service the HR Tool issues no invite
-  console.log(TEXT_SERVICE
-    ? `  Text service: ${TEXT_SERVICE.description}`
-    : '  Text service: none. No invite can be issued until HR_TOOL_TEXT_SERVICE is set, since each PIN is texted to its employee.');
+  console.log(
+    TEXT_SERVICE
+      ? `  Text service: ${TEXT_SERVICE.description}`
+      : '  Text service: none. No invite can be issued until HR_TOOL_TEXT_SERVICE is set, since each PIN is texted to its employee.',
+  );
   console.log('');
 });

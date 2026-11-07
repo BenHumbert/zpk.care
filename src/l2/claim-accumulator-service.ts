@@ -49,7 +49,9 @@ export class DuplicateFillError extends Error {
     readonly key: { memberWalletId: string; ndcHash: string; pharmacyWalletId: string; dateOfService: string },
     readonly fillNumber: number,
   ) {
-    super(`Duplicate fill: a claim for this member, drug and pharmacy on ${key.dateOfService} (fill ${fillNumber}) is already on the ledger at leaf ${existingLeafIndex}`);
+    super(
+      `Duplicate fill: a claim for this member, drug and pharmacy on ${key.dateOfService} (fill ${fillNumber}) is already on the ledger at leaf ${existingLeafIndex}`,
+    );
     this.name = 'DuplicateFillError';
   }
 }
@@ -89,7 +91,10 @@ export class ClaimAccumulatorService {
    * Build a dedup key for fill uniqueness checks.
    * Reversals (operationType '2') are excluded from dedup — multiple reversals are allowed.
    */
-  private static fillKey(leaf: Pick<ClaimLeaf, 'memberWalletId' | 'ndcHash' | 'pharmacyWalletId' | 'dateOfService'>, fillNumber: number | undefined): string {
+  private static fillKey(
+    leaf: Pick<ClaimLeaf, 'memberWalletId' | 'ndcHash' | 'pharmacyWalletId' | 'dateOfService'>,
+    fillNumber: number | undefined,
+  ): string {
     return `${leaf.memberWalletId}:${leaf.ndcHash}:${leaf.pharmacyWalletId}:${leaf.dateOfService}:${fillNumber ?? 0}`;
   }
   private static fillDedupKey(leaf: ClaimLeaf, fillNumber: number | undefined): string | null {
@@ -102,7 +107,13 @@ export class ClaimAccumulatorService {
    * Returns the existing entry if found, undefined otherwise.
    * Reversals always return undefined (they are never considered duplicates).
    */
-  hasActiveFill(memberWalletId: string, ndcHash: string, pharmacyWalletId: string, dateOfService: string, fillNumber = 0): ClaimAccumulatorEntry | undefined {
+  hasActiveFill(
+    memberWalletId: string,
+    ndcHash: string,
+    pharmacyWalletId: string,
+    dateOfService: string,
+    fillNumber = 0,
+  ): ClaimAccumulatorEntry | undefined {
     const key = ClaimAccumulatorService.fillKey({ memberWalletId, ndcHash, pharmacyWalletId, dateOfService }, fillNumber);
     const existingIndex = this.fillDedup.get(key);
     if (existingIndex === undefined) return undefined;
@@ -171,7 +182,8 @@ export class ClaimAccumulatorService {
     for (const entry of this.entries.values()) {
       const reversal = entry.leaf.operationType === '2';
       const sign = reversal ? -1n : 1n;
-      if (reversal) t.reversalCount++; else t.claimCount++;
+      if (reversal) t.reversalCount++;
+      else t.claimCount++;
       t.patientPayCents += sign * BigInt(entry.leaf.patientPayCents);
       t.planPayCents += sign * BigInt(entry.leaf.planPayCents);
     }
@@ -224,11 +236,13 @@ export class ClaimAccumulatorService {
    * Get a claim with its Merkle inclusion proof.
    * Returns the entry, witness JSON, and current root for off-chain verification.
    */
-  getClaimWithProof(leafIndex: bigint): {
-    entry: ClaimAccumulatorEntry;
-    witnessJson: string;
-    root: string;
-  } | undefined {
+  getClaimWithProof(leafIndex: bigint):
+    | {
+        entry: ClaimAccumulatorEntry;
+        witnessJson: string;
+        root: string;
+      }
+    | undefined {
     const entry = this.entries.get(leafIndex);
     if (!entry) return undefined;
 
@@ -293,8 +307,6 @@ export class ClaimAccumulatorService {
 
   private getEntriesByIndex(index: Map<string, bigint[]>, key: string): ClaimAccumulatorEntry[] {
     const indices = index.get(key) ?? [];
-    return indices
-      .map((i) => this.entries.get(i))
-      .filter((e): e is ClaimAccumulatorEntry => e !== undefined);
+    return indices.map((i) => this.entries.get(i)).filter((e): e is ClaimAccumulatorEntry => e !== undefined);
   }
 }

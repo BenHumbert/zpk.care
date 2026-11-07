@@ -14,16 +14,8 @@
  * limitations under the License.
  */
 
-import {
-  Field,
-  Poseidon,
-  MerkleTree,
-} from 'o1js';
-import {
-  CredentialData,
-  CREDENTIAL_TYPE_ELIGIBILITY,
-  CREDENTIAL_TYPE_PRESCRIPTION,
-} from '../src/credentials/credential-data.js';
+import { Field, Poseidon, MerkleTree } from 'o1js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import {
   CredentialProgram,
@@ -31,21 +23,11 @@ import {
   CREDENTIAL_OP_MINT,
   CREDENTIAL_OP_VERIFY,
 } from '../src/credentials/credential-program.js';
-import {
-  serializeCredential,
-  deserializeCredential,
-  verifyCredentialOffline,
-} from '../src/credentials/portable-credential.js';
+import { serializeCredential, deserializeCredential, verifyCredentialOffline } from '../src/credentials/portable-credential.js';
 import type { PortableCredential } from '../src/credentials/portable-credential.js';
 import { UserWalletService } from '../src/credentials/user-wallet-service.js';
-import {
-  EMPTY_CREDENTIAL_ROOT,
-  StateTransitionProgram,
-} from '../src/engine/state-transition.js';
-import {
-  LIFECYCLE_ELIGIBLE,
-  lifecycleLeafCommitment,
-} from '../src/engine/lifecycle.js';
+import { EMPTY_CREDENTIAL_ROOT, StateTransitionProgram } from '../src/engine/state-transition.js';
+import { LIFECYCLE_ELIGIBLE, lifecycleLeafCommitment } from '../src/engine/lifecycle.js';
 import {
   deriveMemberWalletId,
   derivePrescriberWalletId,
@@ -54,10 +36,7 @@ import {
   pharmacyWalletPreimage,
   ProofGateProgram,
 } from '../src/wallets/index.js';
-import {
-  WalletRegistry,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
+import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import type { MemberLocalData } from '../src/models/member.js';
@@ -98,11 +77,7 @@ sampleForest.setLeaf(ForestDomain.MEMBER, 0n, Poseidon.hash([Field(42)]));
 const sampleForestRoot = sampleForest.getForestRoot();
 
 /** Helper: create an eligibility credential for a member */
-function createEligibilityCredential(
-  issuer: Field,
-  subject: Field,
-  forestRoot: Field = sampleForestRoot,
-): CredentialData {
+function createEligibilityCredential(issuer: Field, subject: Field, forestRoot: Field = sampleForestRoot): CredentialData {
   return new CredentialData({
     credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
     forestRoot,
@@ -115,11 +90,7 @@ function createEligibilityCredential(
 }
 
 /** Helper: create an eScript (prescription) credential for a pharmacy */
-function createPrescriptionCredential(
-  issuer: Field,
-  subject: Field,
-  forestRoot: Field = sampleForestRoot,
-): CredentialData {
+function createPrescriptionCredential(issuer: Field, subject: Field, forestRoot: Field = sampleForestRoot): CredentialData {
   return new CredentialData({
     credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
     forestRoot,
@@ -255,9 +226,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       expect(inventory.count).toBe(64);
 
       // 65th should throw
-      expect(() =>
-        inventory.mint(createEligibilityCredential(prescriberWalletId, memberWalletId)),
-      ).toThrow('Credential inventory full');
+      expect(() => inventory.mint(createEligibilityCredential(prescriberWalletId, memberWalletId))).toThrow('Credential inventory full');
     });
 
     test('revoke marks credential revoked and changes root', () => {
@@ -297,7 +266,12 @@ describe('Layer 4 — Credential System / User Path', () => {
       // Generate ownership proof
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       // Get witness for empty slot 0
@@ -305,12 +279,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       const oldRoot = inventory.getRoot();
 
       // Prove the mint
-      const result = await CredentialProgram.proveMint(
-        pgResult.proof,
-        credential,
-        witness,
-        oldRoot,
-      );
+      const result = await CredentialProgram.proveMint(pgResult.proof, credential, witness, oldRoot);
 
       expect(result.proof).toBeDefined();
 
@@ -329,16 +298,16 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await CredentialProgram.proveMint(
-        pgResult.proof,
-        credential,
-        witness,
-        inventory.getRoot(),
-      );
+      const result = await CredentialProgram.proveMint(pgResult.proof, credential, witness, inventory.getRoot());
 
       // Standalone verification (simulates offline NFC/RFID check)
       const isValid = await CredentialProgram.verify(result.proof);
@@ -359,7 +328,12 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       // Try to mint at slot 0 using witness from BEFORE mint — root won't match
@@ -385,19 +359,17 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
 
-      await expect(
-        CredentialProgram.proveMint(
-          pgResult.proof,
-          wrongCredential,
-          witness,
-          inventory.getRoot(),
-        ),
-      ).rejects.toThrow();
+      await expect(CredentialProgram.proveMint(pgResult.proof, wrongCredential, witness, inventory.getRoot())).rejects.toThrow();
     });
 
     // 14-R04: proveMint rejects pre-revoked credential
@@ -416,19 +388,17 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
 
-      await expect(
-        CredentialProgram.proveMint(
-          pgResult.proof,
-          revokedCredential,
-          witness,
-          inventory.getRoot(),
-        ),
-      ).rejects.toThrow();
+      await expect(CredentialProgram.proveMint(pgResult.proof, revokedCredential, witness, inventory.getRoot())).rejects.toThrow();
     });
   });
 
@@ -443,16 +413,16 @@ describe('Layer 4 — Credential System / User Path', () => {
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await CredentialProgram.proveHolding(
-        pgResult.proof,
-        credential,
-        witness,
-        inventory.getRoot(),
-      );
+      const result = await CredentialProgram.proveHolding(pgResult.proof, credential, witness, inventory.getRoot());
 
       const output = result.proof.publicOutput as unknown as CredentialOperationOutput;
       expect(output.walletId.toString()).toBe(memberWalletId.toString());
@@ -469,16 +439,16 @@ describe('Layer 4 — Credential System / User Path', () => {
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
-      const result = await CredentialProgram.proveHolding(
-        pgResult.proof,
-        credential,
-        witness,
-        inventory.getRoot(),
-      );
+      const result = await CredentialProgram.proveHolding(pgResult.proof, credential, witness, inventory.getRoot());
 
       const isValid = await CredentialProgram.verify(result.proof);
       expect(isValid).toBe(true);
@@ -492,19 +462,17 @@ describe('Layer 4 — Credential System / User Path', () => {
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
 
-      await expect(
-        CredentialProgram.proveHolding(
-          pgResult.proof,
-          credential,
-          witness,
-          inventory.getRoot(),
-        ),
-      ).rejects.toThrow();
+      await expect(CredentialProgram.proveHolding(pgResult.proof, credential, witness, inventory.getRoot())).rejects.toThrow();
     });
 
     test('rejects revoked credential', async () => {
@@ -519,19 +487,17 @@ describe('Layer 4 — Credential System / User Path', () => {
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(index);
 
-      await expect(
-        CredentialProgram.proveHolding(
-          pgResult.proof,
-          revokedCredential,
-          witness,
-          inventory.getRoot(),
-        ),
-      ).rejects.toThrow();
+      await expect(CredentialProgram.proveHolding(pgResult.proof, revokedCredential, witness, inventory.getRoot())).rejects.toThrow();
     });
   });
 
@@ -544,10 +510,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       inventory.mint(credential);
 
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const witness = inventory.getWitness(0n);
       const result = await CredentialProgram.proveHoldingByType(
@@ -572,7 +535,12 @@ describe('Layer 4 — Credential System / User Path', () => {
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const witness = inventory.getWitness(0n);
@@ -595,10 +563,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       inventory.mint(credential);
 
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const witness = inventory.getWitness(0n);
       const result = await CredentialProgram.proveHoldingByType(
@@ -637,11 +602,7 @@ describe('Layer 4 — Credential System / User Path', () => {
         publicOutput: mockOutput,
       };
 
-      const credential = serializeCredential(
-        mockProof,
-        'credential-holding',
-        Field(12345),
-      );
+      const credential = serializeCredential(mockProof, 'credential-holding', Field(12345));
 
       expect(credential.version).toBe(1);
       expect(credential.proofType).toBe('credential-holding');
@@ -703,12 +664,7 @@ describe('Layer 4 — Credential System / User Path', () => {
         publicOutput: mockOutput,
       };
 
-      const credential = serializeCredential(
-        mockProof,
-        'credential-mint',
-        Field(777),
-        1800000000000,
-      );
+      const credential = serializeCredential(mockProof, 'credential-mint', Field(777), 1800000000000);
 
       const json = JSON.stringify(credential);
       const restored = deserializeCredential(json);
@@ -750,23 +706,12 @@ describe('Layer 4 — Credential System / User Path', () => {
     });
 
     test('mintCredential orchestrates full proof chain (ProofGate → CredentialProgram → StateTransition)', async () => {
-      const service = new UserWalletService(
-        store,
-        memberWalletId,
-        memberInventory,
-        registry,
-        lifecycleTree,
-      );
+      const service = new UserWalletService(store, memberWalletId, memberInventory, registry, lifecycleTree);
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
-      const result = await service.mintCredential(
-        preimage,
-        'member',
-        credential,
-        LIFECYCLE_ELIGIBLE,
-      );
+      const result = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
       // CredentialOperationProof exists
       expect(result.credentialProof).toBeDefined();
@@ -782,13 +727,7 @@ describe('Layer 4 — Credential System / User Path', () => {
     });
 
     test('proveCredentialHolding returns verifiable portable proof', async () => {
-      const service = new UserWalletService(
-        store,
-        memberWalletId,
-        memberInventory,
-        registry,
-        lifecycleTree,
-      );
+      const service = new UserWalletService(store, memberWalletId, memberInventory, registry, lifecycleTree);
 
       // First mint a credential
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
@@ -806,13 +745,7 @@ describe('Layer 4 — Credential System / User Path', () => {
     });
 
     test('exportCredential produces serializable credential', async () => {
-      const service = new UserWalletService(
-        store,
-        memberWalletId,
-        memberInventory,
-        registry,
-        lifecycleTree,
-      );
+      const service = new UserWalletService(store, memberWalletId, memberInventory, registry, lifecycleTree);
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
@@ -820,11 +753,7 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
 
-      const portableCredential = service.exportCredential(
-        holdingProof as any,
-        'credential-holding',
-        Field(12345),
-      );
+      const portableCredential = service.exportCredential(holdingProof as any, 'credential-holding', Field(12345));
 
       expect(portableCredential.version).toBe(1);
       expect(portableCredential.proofType).toBe('credential-holding');
@@ -837,13 +766,7 @@ describe('Layer 4 — Credential System / User Path', () => {
 
     // 14-R14: verifyCredentialOffline succeeds with valid proof
     test('verifyCredentialOffline succeeds with valid holding proof', async () => {
-      const service = new UserWalletService(
-        store,
-        memberWalletId,
-        memberInventory,
-        registry,
-        lifecycleTree,
-      );
+      const service = new UserWalletService(store, memberWalletId, memberInventory, registry, lifecycleTree);
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
@@ -851,11 +774,7 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
 
-      const portableCredential = service.exportCredential(
-        holdingProof as any,
-        'credential-holding',
-        Field(12345),
-      );
+      const portableCredential = service.exportCredential(holdingProof as any, 'credential-holding', Field(12345));
 
       // verifyCredentialOffline should validate this real proof
       // Note: verificationKey param is a string (vk hash), the function
@@ -868,13 +787,7 @@ describe('Layer 4 — Credential System / User Path', () => {
     });
 
     test('tracks credential count and inventory state', async () => {
-      const service = new UserWalletService(
-        store,
-        memberWalletId,
-        memberInventory,
-        registry,
-        lifecycleTree,
-      );
+      const service = new UserWalletService(store, memberWalletId, memberInventory, registry, lifecycleTree);
 
       expect(service.getCredentialCount()).toBe(0);
 

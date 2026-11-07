@@ -43,10 +43,20 @@ const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(cond: () => boolean, ms: number, step = 100): Promise<boolean> {
   const t = Date.now();
-  while (Date.now() - t < ms) { if (cond()) return true; await sleep(step); }
+  while (Date.now() - t < ms) {
+    if (cond()) return true;
+    await sleep(step);
+  }
   return cond();
 }
-const announce = (from: string): GossipMessage => ({ messageId: `${from}-${Date.now()}-${Math.random()}`, type: 'peer:announce', senderId: from, timestamp: Date.now(), payload: { peerId: from, url: '', role: 'replica' } } as unknown as GossipMessage);
+const announce = (from: string): GossipMessage =>
+  ({
+    messageId: `${from}-${Date.now()}-${Math.random()}`,
+    type: 'peer:announce',
+    senderId: from,
+    timestamp: Date.now(),
+    payload: { peerId: from, url: '', role: 'replica' },
+  }) as unknown as GossipMessage;
 const envelope = (method: string, params: Record<string, unknown> = {}) => JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
 const byKey = (key: { nodeId: string; seedHex: string }, body: string) =>
   signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
@@ -58,20 +68,48 @@ function slowPeer(): Promise<{ url: string; close: () => void; held: number }> {
     const sockets = new Set<import('net').Socket>();
     const server = http.createServer((req, res) => {
       let body = '';
-      req.on('data', (c) => { body += c; });
+      req.on('data', (c) => {
+        body += c;
+      });
       req.on('end', () => {
         if (body.includes('l2_getPeerInfo')) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { peerId: 'slow-peer', url: '', role: 'sequencer', status: 'connected', lastSeen: Date.now(), latestSequenceNumber: '0', latestBatchNumber: null } }));
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              result: {
+                peerId: 'slow-peer',
+                url: '',
+                role: 'sequencer',
+                status: 'connected',
+                lastSeen: Date.now(),
+                latestSequenceNumber: '0',
+                latestBatchNumber: null,
+              },
+            }),
+          );
         } else {
           state.held += 1; // hold the request open; the client gives up after its timeout
         }
       });
     });
-    server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
+    server.on('connection', (s) => {
+      sockets.add(s);
+      s.on('close', () => sockets.delete(s));
+    });
     server.listen(0, '127.0.0.1', () => {
       const port = (server.address() as import('net').AddressInfo).port;
-      resolve({ url: `http://127.0.0.1:${port}`, close: () => { for (const s of sockets) s.destroy(); server.close(); }, get held() { return state.held; } } as any);
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        close: () => {
+          for (const s of sockets) s.destroy();
+          server.close();
+        },
+        get held() {
+          return state.held;
+        },
+      } as any);
     });
   });
 }
@@ -80,10 +118,23 @@ describe('a relay is answered before it is relayed onward', () => {
   test('a replica with a slow peer still answers the leader at once', async () => {
     const leaderKey = generateNodeKey('leader-a');
     const replicaKey = generateNodeKey('replica-a');
-    const replica = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: replicaKey.nodeId, role: 'replica' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const replica = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: replicaKey.nodeId, role: 'replica' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     const server = new L2RpcServer(replica, { port: 0, host: '127.0.0.1', enableSSE: false });
     server.registerNodeKey(leaderKey.nodeId, leaderKey.publicKeyHex, 'sequencer');
-    const net = new L2PeerNetwork({ nodeId: replicaKey.nodeId, role: 'replica', gossipRelayEnabled: true, announceIntervalMs: 999_999, syncOnConnect: false, nodeKey: replicaKey });
+    const net = new L2PeerNetwork({
+      nodeId: replicaKey.nodeId,
+      role: 'replica',
+      gossipRelayEnabled: true,
+      announceIntervalMs: 999_999,
+      syncOnConnect: false,
+      nodeKey: replicaKey,
+    });
     server.setPeerNetwork(net);
     await server.start();
     const slow = await slowPeer();
@@ -91,8 +142,12 @@ describe('a relay is answered before it is relayed onward', () => {
       await net.connectToPeer(slow.url);
       const body = envelope('l2_gossipRelay', { message: announce('leader-a') });
       const t = Date.now();
-      const r = await fetch(`http://127.0.0.1:${server.getPort()}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...byKey(leaderKey, body) }, body });
-      const json = await r.json() as any;
+      const r = await fetch(`http://127.0.0.1:${server.getPort()}/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...byKey(leaderKey, body) },
+        body,
+      });
+      const json = (await r.json()) as any;
       const elapsed = Date.now() - t;
       expect(json.result).toEqual({ accepted: true });
       expect(elapsed).toBeLessThan(3_000);
@@ -110,10 +165,25 @@ describe('a peer survives a failed relay, is given up after three, and comes bac
   test('threshold, one warning, reconnection on demand', async () => {
     const leaderKey = generateNodeKey('leader-b');
     const replicaKey = generateNodeKey('replica-b');
-    const replica = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: replicaKey.nodeId, role: 'replica' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
-    const replicaNet = new L2PeerNetwork({ nodeId: replicaKey.nodeId, role: 'replica', gossipRelayEnabled: false, announceIntervalMs: 999_999, syncOnConnect: false, nodeKey: replicaKey });
+    const replica = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: replicaKey.nodeId, role: 'replica' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
+    const replicaNet = new L2PeerNetwork({
+      nodeId: replicaKey.nodeId,
+      role: 'replica',
+      gossipRelayEnabled: false,
+      announceIntervalMs: 999_999,
+      syncOnConnect: false,
+      nodeKey: replicaKey,
+    });
     const seen: GossipMessage[] = [];
-    replicaNet.on((m) => { seen.push(m); });
+    replicaNet.on((m) => {
+      seen.push(m);
+    });
     const makeServer = async (port: number) => {
       const s = new L2RpcServer(replica, { port, host: '127.0.0.1', enableSSE: false });
       s.registerNodeKey(leaderKey.nodeId, leaderKey.publicKeyHex, 'sequencer');
@@ -123,9 +193,18 @@ describe('a peer survives a failed relay, is given up after three, and comes bac
     };
     let server = await makeServer(0);
     const port = server.getPort();
-    const leaderNet = new L2PeerNetwork({ nodeId: leaderKey.nodeId, role: 'sequencer', gossipRelayEnabled: true, announceIntervalMs: 999_999, syncOnConnect: false, nodeKey: leaderKey });
+    const leaderNet = new L2PeerNetwork({
+      nodeId: leaderKey.nodeId,
+      role: 'sequencer',
+      gossipRelayEnabled: true,
+      announceIntervalMs: 999_999,
+      syncOnConnect: false,
+      nodeKey: leaderKey,
+    });
     const warnings: string[] = [];
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => { warnings.push(args.map(String).join(' ')); });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    });
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     try {
       await leaderNet.connectToPeer(`http://127.0.0.1:${port}`);
@@ -160,11 +239,13 @@ describe('a peer survives a failed relay, is given up after three, and comes bac
   });
 });
 
-describe('a replica follows the leader\'s admin mutations and takes its state on connect', () => {
+describe("a replica follows the leader's admin mutations and takes its state on connect", () => {
   const leaderKey = generateNodeKey('leader-c');
   const replicaKey = generateNodeKey('replica-c');
-  let leader: L2Node; let leaderServer: L2RpcServer;
-  let replica: L2Node; let replicaServer: L2RpcServer;
+  let leader: L2Node;
+  let leaderServer: L2RpcServer;
+  let replica: L2Node;
+  let replicaServer: L2RpcServer;
 
   afterAll(async () => {
     await replica?.stop();
@@ -174,17 +255,39 @@ describe('a replica follows the leader\'s admin mutations and takes its state on
   });
 
   test('a replica that connects after the leader has state takes that state, then follows each admin mutation', async () => {
-    leader = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: leaderKey.nodeId, role: 'sequencer', nodeKey: leaderKey, maxPeers: 4 }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    leader = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: leaderKey.nodeId, role: 'sequencer', nodeKey: leaderKey, maxPeers: 4 },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     leaderServer = new L2RpcServer(leader, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
     leaderServer.registerNodeKey(replicaKey.nodeId, replicaKey.publicKeyHex, 'replica');
     await leaderServer.start();
     const leaderUrl = `http://127.0.0.1:${leaderServer.getPort()}`;
     // state before any replica exists, the way the engine provisions seed providers at boot
-    leader.getSequencer().adminMutate('seed providers', ({ provision }) => { provision(Field(501n), LIFECYCLE_ELIGIBLE); provision(Field(502n), LIFECYCLE_ELIGIBLE); });
+    leader.getSequencer().adminMutate('seed providers', ({ provision }) => {
+      provision(Field(501n), LIFECYCLE_ELIGIBLE);
+      provision(Field(502n), LIFECYCLE_ELIGIBLE);
+    });
     leader.start();
     expect(leader.getStatus().currentRegistryRoot).not.toBe(emptyRoot.toString());
 
-    replica = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: replicaKey.nodeId, role: 'replica', nodeKey: replicaKey, seedPeers: [leaderUrl] }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    replica = new L2Node(
+      {
+        batchIntervalMs: 999_999,
+        autoSettle: false,
+        nodeId: replicaKey.nodeId,
+        role: 'replica',
+        nodeKey: replicaKey,
+        seedPeers: [leaderUrl],
+      },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     replicaServer = new L2RpcServer(replica, { port: 0, host: '127.0.0.1', enableSSE: false });
     replicaServer.registerNodeKey(leaderKey.nodeId, leaderKey.publicKeyHex, 'sequencer');
     await replicaServer.start();
@@ -200,17 +303,37 @@ describe('a replica follows the leader\'s admin mutations and takes its state on
     const leaderNet = await leader.ensurePeerNetwork();
     leaderServer.setPeerNetwork(leaderNet);
     await leaderNet.connectToPeer(`http://127.0.0.1:${replicaServer.getPort()}`);
-    leader.getSequencer().adminMutate('a member becomes eligible', ({ provision }) => { provision(Field(503n), LIFECYCLE_ELIGIBLE); });
+    leader.getSequencer().adminMutate('a member becomes eligible', ({ provision }) => {
+      provision(Field(503n), LIFECYCLE_ELIGIBLE);
+    });
     expect(await until(() => replica.getStatus().currentRegistryRoot === leader.getStatus().currentRegistryRoot, 10_000)).toBe(true);
     expect(replica.getStatus().currentWalletCount).toBe('3');
   });
 
   test('a sequencer ignores roots gossip; only replicas apply it', async () => {
-    const other = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'other-seq', role: 'sequencer' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const other = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'other-seq', role: 'sequencer' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     const before = other.getStatus().currentRegistryRoot;
-    await (other as any).handleGossip({ messageId: 'x', type: 'state:roots', senderId: 'someone', timestamp: Date.now(), payload: { reason: 'r', registryRoot: '123', lifecycleRoot: '456', walletCount: '7' } });
+    await (other as any).handleGossip({
+      messageId: 'x',
+      type: 'state:roots',
+      senderId: 'someone',
+      timestamp: Date.now(),
+      payload: { reason: 'r', registryRoot: '123', lifecycleRoot: '456', walletCount: '7' },
+    });
     expect(other.getStatus().currentRegistryRoot).toBe(before);
-    await (replica as any).handleGossip({ messageId: 'y', type: 'state:roots', senderId: 'someone', timestamp: Date.now(), payload: { reason: 'r', registryRoot: '123', lifecycleRoot: '456', walletCount: '7' } });
+    await (replica as any).handleGossip({
+      messageId: 'y',
+      type: 'state:roots',
+      senderId: 'someone',
+      timestamp: Date.now(),
+      payload: { reason: 'r', registryRoot: '123', lifecycleRoot: '456', walletCount: '7' },
+    });
     expect(replica.getStatus().currentRegistryRoot).toBe('123');
   });
 });

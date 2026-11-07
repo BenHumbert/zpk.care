@@ -17,10 +17,10 @@ export class Camera {
     this.narrator = narrator;
     this.log = log;
     this.minSpeedUpMs = minSpeedUpMs;
-    this.shots = new Map();     // key -> { key, page, videoStartedAt, label, video }
-    this.cuts = [];             // { at, key, act, scene }
-    this.speedups = [];         // { from, to, factor, scene, key, label }
-    this.scenes = [];           // { key, act, title, at }
+    this.shots = new Map(); // key -> { key, page, videoStartedAt, label, video }
+    this.cuts = []; // { at, key, act, scene }
+    this.speedups = []; // { from, to, factor, scene, key, label }
+    this.scenes = []; // { key, act, title, at }
     this.currentKey = null;
     this.open = null;
     this.act = null;
@@ -35,7 +35,9 @@ export class Camera {
     return this.shots.get(key);
   }
 
-  has(key) { return this.shots.has(key); }
+  has(key) {
+    return this.shots.has(key);
+  }
 
   /** Marks the start of a scene (for chapters, scenes.json and the player). */
   scene(key, { act, title } = {}) {
@@ -44,7 +46,9 @@ export class Camera {
     this.scenes.push({ key, act: this.act, title: title || key, at: Date.now() });
   }
 
-  get current() { return this.currentKey; }
+  get current() {
+    return this.currentKey;
+  }
 
   /** The page on camera now (captions go there). */
   page() {
@@ -90,10 +94,12 @@ export class Camera {
   /** What post needs, without the pages. */
   toJSON() {
     return {
-      shots: Object.fromEntries([...this.shots.values()].map((s) => [s.key, { label: s.label, videoStartedAt: s.videoStartedAt, video: s.video }])),
+      shots: Object.fromEntries(
+        [...this.shots.values()].map((s) => [s.key, { label: s.label, videoStartedAt: s.videoStartedAt, video: s.video }]),
+      ),
       cuts: this.cuts,
       speedups: this.speedups.filter((w) => w.to && !w.dropped),
-      scenes: this.scenes
+      scenes: this.scenes,
     };
   }
 }

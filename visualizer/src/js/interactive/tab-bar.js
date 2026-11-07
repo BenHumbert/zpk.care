@@ -45,7 +45,7 @@ export class TabBar {
     for (const t of this.tabs) {
       this.tabElements[t].classList.remove('active');
     }
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
 
     // Activate selected
     this.tabElements[tab].classList.add('active');
@@ -64,7 +64,7 @@ export class TabBar {
     for (const t of this.tabs) {
       this.tabElements[t].classList.remove('active');
     }
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
 
     this.tabElements['member'].classList.add('active');
     document.getElementById('tab-member').classList.add('active');

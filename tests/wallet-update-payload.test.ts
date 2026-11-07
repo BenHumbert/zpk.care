@@ -28,7 +28,14 @@ import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
 import { ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import { PCP_ASSIGNMENT_LEAF_INDEX } from '../src/eligibility/pcp-assignment-data.js';
-import { forestLeavesOf, credentialFieldsOf, rederiveInventoryRoot, walletUpdateAddsUp, FOREST_LEAVES_PER_DOMAIN, type WalletUpdatePayload } from '../src/credentials/wallet-update.js';
+import {
+  forestLeavesOf,
+  credentialFieldsOf,
+  rederiveInventoryRoot,
+  walletUpdateAddsUp,
+  FOREST_LEAVES_PER_DOMAIN,
+  type WalletUpdatePayload,
+} from '../src/credentials/wallet-update.js';
 
 function engineSide() {
   const forest = new MerkleForest();
@@ -47,10 +54,16 @@ function engineSide() {
   const inventory = new CredentialInventory();
   inventory.mint(credential);
   const payload: WalletUpdatePayload = {
-    updateId: 'wu-test', walletId: '1001', reason: 'fill',
-    oldInventoryRoot: '0', newInventoryRoot: inventory.getRoot().toString(),
-    credential: credentialFieldsOf(credential), forestLeaves: forestLeavesOf(forest), inventorySlot: '0',
-    claimCommitted: true, createdAt: 1,
+    updateId: 'wu-test',
+    walletId: '1001',
+    reason: 'fill',
+    oldInventoryRoot: '0',
+    newInventoryRoot: inventory.getRoot().toString(),
+    credential: credentialFieldsOf(credential),
+    forestLeaves: forestLeavesOf(forest),
+    inventorySlot: '0',
+    claimCommitted: true,
+    createdAt: 1,
   };
   return { forest, credential, inventory, payload };
 }
@@ -70,7 +83,7 @@ describe('forestLeavesOf', () => {
 });
 
 describe('rederiveInventoryRoot', () => {
-  test('rebuilds the engine\'s forest root, credential commitment and inventory root from the parts', () => {
+  test("rebuilds the engine's forest root, credential commitment and inventory root from the parts", () => {
     const { forest, credential, inventory, payload } = engineSide();
     const derived = rederiveInventoryRoot(payload);
     expect(derived.forestRoot).toBe(forest.getForestRoot().toString());
@@ -94,7 +107,9 @@ describe('rederiveInventoryRoot', () => {
   test('refuses a payload that is not well formed instead of guessing', () => {
     const { payload } = engineSide();
     expect(() => rederiveInventoryRoot({ ...payload, inventorySlot: '1' })).toThrow(/slot 1/);
-    expect(() => rederiveInventoryRoot({ ...payload, forestLeaves: [{ domain: 9, index: '0', leaf: '1' }] })).toThrow(/unknown forest domain/);
+    expect(() => rederiveInventoryRoot({ ...payload, forestLeaves: [{ domain: 9, index: '0', leaf: '1' }] })).toThrow(
+      /unknown forest domain/,
+    );
     expect(() => rederiveInventoryRoot({ ...payload, forestLeaves: [{ domain: 0, index: '128', leaf: '1' }] })).toThrow(/outside the tree/);
     expect(walletUpdateAddsUp({ ...payload, inventorySlot: '1' })).toBe(false);
   });

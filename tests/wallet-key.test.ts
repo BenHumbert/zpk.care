@@ -59,20 +59,62 @@ describe('deriveWalletSigningKey', () => {
 });
 
 describe('a request signed as the wallet', () => {
-  test('verifies against the wallet\'s public key, and against nothing else', () => {
+  test("verifies against the wallet's public key, and against nothing else", () => {
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_storeMessage', params: {} });
     const headers = lower(signRequest({ ...walletSigner(EK_A, WALLET_A), method: 'POST', path: '/rpc', body }));
     const mine = deriveWalletSigningKey(EK_A).publicKeyHex;
     const theirs = deriveWalletSigningKey(EK_B).publicKeyHex;
-    const ok = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: WALLET_A, publicKeyHex: mine, body, replayCache: new ReplayCache() });
+    const ok = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: WALLET_A,
+      publicKeyHex: mine,
+      body,
+      replayCache: new ReplayCache(),
+    });
     expect(ok.ok).toBe(true);
-    const wrongKey = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: WALLET_A, publicKeyHex: theirs, body, replayCache: new ReplayCache() });
+    const wrongKey = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: WALLET_A,
+      publicKeyHex: theirs,
+      body,
+      replayCache: new ReplayCache(),
+    });
     expect(wrongKey.ok).toBe(false);
-    const wrongBody = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: WALLET_A, publicKeyHex: mine, body: body + ' ', replayCache: new ReplayCache() });
+    const wrongBody = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: WALLET_A,
+      publicKeyHex: mine,
+      body: body + ' ',
+      replayCache: new ReplayCache(),
+    });
     expect(wrongBody.ok).toBe(false);
     const cache = new ReplayCache();
-    expect(verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: WALLET_A, publicKeyHex: mine, body, replayCache: cache }).ok).toBe(true);
-    const replayed = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: WALLET_A, publicKeyHex: mine, body, replayCache: cache });
+    expect(
+      verifySignedRequest({
+        method: 'POST',
+        path: '/rpc',
+        headers,
+        expectedSignerId: WALLET_A,
+        publicKeyHex: mine,
+        body,
+        replayCache: cache,
+      }).ok,
+    ).toBe(true);
+    const replayed = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: WALLET_A,
+      publicKeyHex: mine,
+      body,
+      replayCache: cache,
+    });
     expect(replayed.ok).toBe(false);
   });
 });

@@ -71,7 +71,10 @@ export class FormularyRegistry {
     const registry = new FormularyRegistry();
     entries.forEach((entry, i) => registry.entries.set(BigInt(i), entry));
     registry.nextIndex = BigInt(entries.length);
-    buildTreeBottomUp(registry.tree, entries.map((entry) => entry.commitment()));
+    buildTreeBottomUp(
+      registry.tree,
+      entries.map((entry) => entry.commitment()),
+    );
     return registry;
   }
 
@@ -93,9 +96,7 @@ export class FormularyRegistry {
    */
   addEntry(entry: FormularyEntry): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_FORMULARY_ENTRIES)) {
-      throw new Error(
-        `Formulary full: cannot exceed ${MAX_FORMULARY_ENTRIES} entries`,
-      );
+      throw new Error(`Formulary full: cannot exceed ${MAX_FORMULARY_ENTRIES} entries`);
     }
 
     const index = this.nextIndex++;

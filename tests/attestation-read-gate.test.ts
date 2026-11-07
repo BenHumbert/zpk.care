@@ -78,7 +78,12 @@ const pharmacyNodeKey = generateNodeKey('pharmacy-node');
 const insurerNodeKey = generateNodeKey('insurer-node');
 const operatorNodeKey = generateNodeKey('operator-node');
 /** Alice's enrollment key is on her device, the member node's state; the other wallets sign with fixed keys. */
-const EK = { alice: randomBytes(32).toString('base64url'), bob: 'ek-bob-' + 'b'.repeat(32), drP: 'ek-drp-' + 'c'.repeat(32), rx: 'ek-rx-' + 'd'.repeat(32) };
+const EK = {
+  alice: randomBytes(32).toString('base64url'),
+  bob: 'ek-bob-' + 'b'.repeat(32),
+  drP: 'ek-drp-' + 'c'.repeat(32),
+  rx: 'ek-rx-' + 'd'.repeat(32),
+};
 const W = { alice: '1001', bob: '1002', drP: '2001', rx: '3001' };
 
 /** The D1 table before the sweep, which l2_getAttestation has left again. */
@@ -124,11 +129,18 @@ async function rpcWith(headers: Record<string, string>, body: string) {
   return (await r.json()) as { result?: any; error?: { code: number; message: string } };
 }
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
-const byWallet = (who: keyof typeof W, body: string) => signRequest({ ...walletSigner(EK[who], W[who]), method: 'POST', path: '/rpc', body });
-const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) => signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
+const byWallet = (who: keyof typeof W, body: string) =>
+  signRequest({ ...walletSigner(EK[who], W[who]), method: 'POST', path: '/rpc', body });
+const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) =>
+  signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
 
 /** A request to Alice's member node, as her app makes it. */
-async function deviceCall(method: string, urlPath: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+async function deviceCall(
+  method: string,
+  urlPath: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; json: any }> {
   const r = await fetch(`${deviceUrl}${urlPath}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -146,7 +158,9 @@ function counter() {
   const server = {
     getEntityNode: () => pharmacy,
     getConfig: () => ({ sequencerUrl: url }),
-    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) { sent.push({ status, ok, data, error }); },
+    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) {
+      sent.push({ status, ok, data, error });
+    },
   };
   const route = buildPharmacyRoutes(server as any).find((r) => r.method === 'POST' && r.path === '/nfc/scan')!;
   const scan = (body: unknown) => route.handler({ headers: {} } as any, {} as any, {}, new URLSearchParams(), body);
@@ -154,7 +168,13 @@ function counter() {
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-attestation-reads' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-attestation-reads' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   seq = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   seq.registerNodeKey(memberNodeKey.nodeId, memberNodeKey.publicKeyHex, 'member');
@@ -164,9 +184,19 @@ beforeAll(async () => {
   seq.registerNodeKey(operatorNodeKey.nodeId, operatorNodeKey.publicKeyHex, 'operator');
   await seq.start();
   url = `http://127.0.0.1:${seq.getPort()}`;
-  const fixtures = [[memberNodeKey, 'alice', 'member'], [memberNodeKey, 'bob', 'member'], [prescriberNodeKey, 'drP', 'prescriber'], [pharmacyNodeKey, 'rx', 'pharmacy']] as const;
+  const fixtures = [
+    [memberNodeKey, 'alice', 'member'],
+    [memberNodeKey, 'bob', 'member'],
+    [prescriberNodeKey, 'drP', 'prescriber'],
+    [pharmacyNodeKey, 'rx', 'pharmacy'],
+  ] as const;
   for (const [key, who, type] of fixtures) {
-    const body = envelope('l2_registerEntity', { walletId: W[who], displayName: who, type, signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex });
+    const body = envelope('l2_registerEntity', {
+      walletId: W[who],
+      displayName: who,
+      type,
+      signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex,
+    });
     const j = await rpcWith(byNode(key, body), body);
     if (j.error) throw new Error(`fixture registration of ${who} failed: ${j.error.message}`);
   }
@@ -176,7 +206,17 @@ beforeAll(async () => {
     provision(Field(BigInt(W.bob)), LIFECYCLE_ELIGIBLE);
   });
   node.getSequencer().getClaimAccumulator().appendClaim(
-    { memberWalletId: W.alice, ndcHash: '42', pharmacyWalletId: W.rx, prescriberWalletId: W.drP, dateOfService: '20261020', patientPayCents: '1500', planPayCents: '50000', operationType: '1', deductibleCreditCents: '0' },
+    {
+      memberWalletId: W.alice,
+      ndcHash: '42',
+      pharmacyWalletId: W.rx,
+      prescriberWalletId: W.drP,
+      dateOfService: '20261020',
+      patientPayCents: '1500',
+      planPayCents: '50000',
+      operationType: '1',
+      deductibleCreditCents: '0',
+    },
     { receiptId: 'rcpt-attestation-reads', timestamp: Date.now(), ndc: '00378410591', brandName: 'Abacavir', tierLevel: 1 },
   );
   // Alice names Dr P as primary care, and Bob's device has asked for his own attestation.
@@ -184,18 +224,34 @@ beforeAll(async () => {
   const linked = await rpcWith(byWallet('alice', link), link);
   if (linked.error) throw new Error(`fixture PCP link failed: ${linked.error.message}`);
   const askBob = envelope('l2_requestAttestation', { walletId: W.bob });
-  if ((await rpcWith(byWallet('bob', askBob), askBob)).result?.w !== W.bob) throw new Error('the fixture attestation for Bob was not issued');
+  if ((await rpcWith(byWallet('bob', askBob), askBob)).result?.w !== W.bob)
+    throw new Error('the fixture attestation for Bob was not issued');
 
   // Alice's device: a member node holding her wallet and enrollment key, its proxy as the member launcher configures it.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'attestation-reads-'));
   dirs.push(dir);
   const seed = new NautilusLocalState(dir);
   await seed.unlock(PIN);
-  await seed.save({ version: 1, role: 'member', walletId: W.alice, enrollmentKey: EK.alice, onboarding: { phase: 'ready' }, lastSavedAt: new Date().toISOString() });
+  await seed.save({
+    version: 1,
+    role: 'member',
+    walletId: W.alice,
+    enrollmentKey: EK.alice,
+    onboarding: { phase: 'ready' },
+    lastSavedAt: new Date().toISOString(),
+  });
   seed.lock();
   device = new NautilusAppServer({
-    role: 'member', port: 0, host: '127.0.0.1', sequencerUrl: url, stateDir: dir, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: DEVICE_ADMIN, rpcProxy: resolveRpcProxyPolicy({}, 'member node'),
+    role: 'member',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: url,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: DEVICE_ADMIN,
+    rpcProxy: resolveRpcProxyPolicy({}, 'member node'),
   });
   device.registerRoutes(buildMemberRoutes(device));
   await device.getLocalState().unlock(PIN);
@@ -214,7 +270,13 @@ beforeAll(async () => {
 afterAll(async () => {
   await device?.stop();
   await seq?.stop();
-  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of dirs) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 describe('the gates', () => {
@@ -234,15 +296,15 @@ describe('the gates', () => {
 });
 
 describe('l2_getAttestation at the sequencer', () => {
-  test('answers no anonymous caller and no bearer, the operator\'s included, as issuing one answers none', async () => {
+  test("answers no anonymous caller and no bearer, the operator's included, as issuing one answers none", async () => {
     const anonymous = await rpcWith({}, attestationOf(W.alice));
-    expect(anonymous.result).toBeUndefined();          // before: Alice's signed attestation, good for a day
+    expect(anonymous.result).toBeUndefined(); // before: Alice's signed attestation, good for a day
     expect(anonymous.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     const wrong = await rpcWith({ Authorization: 'Bearer not-the-operator' }, attestationOf(W.alice));
-    expect(wrong.result).toBeUndefined();              // before: Alice's attestation; the method checked no credential
-    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED);  // before: no error
+    expect(wrong.result).toBeUndefined(); // before: Alice's attestation; the method checked no credential
+    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     const operator = await rpcWith(bearer, attestationOf(W.alice));
-    expect(operator.result).toBeUndefined();           // before: Alice's attestation, as every D1 read answers the operator
+    expect(operator.result).toBeUndefined(); // before: Alice's attestation, as every D1 read answers the operator
     expect(operator.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     expect(operator.error?.message).toMatch(/only that wallet's signature opens it, not a bearer token$/); // before: no error
     const ask = envelope('l2_requestAttestation', { walletId: W.alice });
@@ -252,8 +314,8 @@ describe('l2_getAttestation at the sequencer', () => {
   test('answers no other wallet, even one presenting her attestation, nor her primary-care prescriber or a pharmacy', async () => {
     const asBob = attestationOf(W.alice);
     const bob = await rpcWith(byWallet('bob', asBob), asBob);
-    expect(bob.result).toBeUndefined();                // before: Alice's attestation, to any signed wallet
-    expect(bob.error?.code).toBe(RPC_UNAUTHORIZED);    // before: no error; as a D1 read, RPC_FORBIDDEN
+    expect(bob.result).toBeUndefined(); // before: Alice's attestation, to any signed wallet
+    expect(bob.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error; as a D1 read, RPC_FORBIDDEN
     expect(bob.error?.message).toMatch(/signed by 1002, not by wallet 1001 it speaks for$/); // before: no error; as a D1 read, the read gate's reason
     const presenting = envelope('l2_getAttestation', { walletId: W.alice, memberAttestation: tap });
     expect((await rpcWith(byWallet('bob', presenting), presenting)).error?.code).toBe(RPC_UNAUTHORIZED); // before: answered; as a D1 read, RPC_FORBIDDEN
@@ -263,7 +325,7 @@ describe('l2_getAttestation at the sequencer', () => {
     expect((await rpcWith(byWallet('rx', pharmacy), pharmacy)).error?.code).toBe(RPC_UNAUTHORIZED); // before: answered; as a D1 read, RPC_FORBIDDEN
   });
 
-  test('answers no node key, the plan\'s and an operator key included: a node is not the member', async () => {
+  test("answers no node key, the plan's and an operator key included: a node is not the member", async () => {
     for (const key of [memberNodeKey, pharmacyNodeKey, prescriberNodeKey, insurerNodeKey, operatorNodeKey]) {
       const body = attestationOf(W.alice);
       const r = await rpcWith(byNode(key, body), body);
@@ -278,7 +340,7 @@ describe('l2_getAttestation at the sequencer', () => {
     expect((await rpcWith(byWallet('alice', own), own)).result).toEqual(tap);
     const plan = attestationOf(W.alice);
     const asPlan = await rpcWith(byNode(insurerNodeKey, plan), plan);
-    expect(asPlan.result).toBeUndefined();             // before: Alice's attestation, as every D1 read answers the plan
+    expect(asPlan.result).toBeUndefined(); // before: Alice's attestation, as every D1 read answers the plan
     expect(asPlan.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     expect((await rpcWith(bearer, attestationOf(W.alice))).result).toBeUndefined(); // before: Alice's attestation, as every D1 read answers the operator
     const planAsks = envelope('l2_requestAttestation', { walletId: W.alice });
@@ -286,8 +348,8 @@ describe('l2_getAttestation at the sequencer', () => {
   });
 });
 
-describe('the member\'s device', () => {
-  test('reads its own attestation through its node\'s /rpc proxy, which signs as the wallet; without its session, nothing', async () => {
+describe("the member's device", () => {
+  test("reads its own attestation through its node's /rpc proxy, which signs as the wallet; without its session, nothing", async () => {
     const read = { jsonrpc: '2.0', id: 1, method: 'l2_getAttestation', params: { walletId: W.alice } };
     const own = await deviceCall('POST', '/rpc', read, session);
     expect(own.status).toBe(200);
@@ -295,9 +357,14 @@ describe('the member\'s device', () => {
     expect((await deviceCall('POST', '/rpc', { ...read, id: 2 })).status).toBe(401);
   });
 
-  test('its proxy reads no other member\'s attestation: the sequencer sees the device\'s wallet, not the one named', async () => {
-    const r = await deviceCall('POST', '/rpc', { jsonrpc: '2.0', id: 3, method: 'l2_getAttestation', params: { walletId: W.bob } }, session);
-    expect(r.json?.result).toBeUndefined();            // before: Bob's attestation, through any member's own node
+  test("its proxy reads no other member's attestation: the sequencer sees the device's wallet, not the one named", async () => {
+    const r = await deviceCall(
+      'POST',
+      '/rpc',
+      { jsonrpc: '2.0', id: 3, method: 'l2_getAttestation', params: { walletId: W.bob } },
+      session,
+    );
+    expect(r.json?.result).toBeUndefined(); // before: Bob's attestation, through any member's own node
     expect(r.json?.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error; as a D1 read, RPC_FORBIDDEN
     expect(r.json?.error?.message).toMatch(/signed by 1001, not by wallet 1002 it speaks for$/); // before: no error; as a D1 read, the read gate's reason
   });
@@ -309,9 +376,9 @@ describe('the pharmacy counter', () => {
     const c = counter();
     await c.scan({ attestation: fetched.result });
     expect(c.sent).toHaveLength(1);
-    expect(c.sent[0].status).toBe(400);                // before: 200 with Alice's fills (Abacavir), read signed as the pharmacy
-    expect(c.sent[0].data).toBeUndefined();            // before: her full history and active medications
-    expect(c.reads).not.toHaveBeenCalled();            // before: called with the attestation the sequencer handed out
+    expect(c.sent[0].status).toBe(400); // before: 200 with Alice's fills (Abacavir), read signed as the pharmacy
+    expect(c.sent[0].data).toBeUndefined(); // before: her full history and active medications
+    expect(c.reads).not.toHaveBeenCalled(); // before: called with the attestation the sequencer handed out
   });
 
   test('nor do the operator and the plan: what they ask the sequencer for opens nothing at the counter', async () => {
@@ -321,13 +388,13 @@ describe('the pharmacy counter', () => {
       const c = counter();
       await c.scan({ attestation: answer.result });
       expect(c.sent).toHaveLength(1);
-      expect(c.sent[0].status).toBe(400);              // before: 200 with Alice's fills (Abacavir), read signed as the pharmacy
-      expect(c.sent[0].data).toBeUndefined();          // before: her full history and active medications
-      expect(c.reads).not.toHaveBeenCalled();          // before: called with the attestation the sequencer handed the operator or the plan
+      expect(c.sent[0].status).toBe(400); // before: 200 with Alice's fills (Abacavir), read signed as the pharmacy
+      expect(c.sent[0].data).toBeUndefined(); // before: her full history and active medications
+      expect(c.reads).not.toHaveBeenCalled(); // before: called with the attestation the sequencer handed the operator or the plan
     }
   });
 
-  test('the member\'s own tap still opens her history at the counter, and at D1\'s attestation reader', async () => {
+  test("the member's own tap still opens her history at the counter, and at D1's attestation reader", async () => {
     const c = counter();
     await c.scan({ attestation: tap });
     expect(c.sent[0]).toMatchObject({ status: 200, ok: true });

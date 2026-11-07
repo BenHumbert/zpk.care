@@ -25,7 +25,15 @@
 import { InvariantMonitor, snapshotOf, type NodeSnapshot } from '../src/l2/invariant-monitor.js';
 
 const snap = (nodeId: string, over: Partial<NodeSnapshot> = {}): NodeSnapshot => ({
-  nodeId, registryRoot: 'R1', lifecycleRoot: 'L1', walletCount: '3', proofsAccepted: 5, batchesBuilt: 2, pendingProofs: 0, batchIntervalMs: 10_000, ...over,
+  nodeId,
+  registryRoot: 'R1',
+  lifecycleRoot: 'L1',
+  walletCount: '3',
+  proofsAccepted: 5,
+  batchesBuilt: 2,
+  pendingProofs: 0,
+  batchIntervalMs: 10_000,
+  ...over,
 });
 
 function harness(initial: { leader: NodeSnapshot; replicas: NodeSnapshot[] }) {
@@ -39,7 +47,15 @@ function harness(initial: { leader: NodeSnapshot; replicas: NodeSnapshot[] }) {
     log: (line) => log.push(line),
     now: () => state.now,
   });
-  return { state, log, monitor, tick: (ms: number) => { state.now += ms; return monitor.assess(); } };
+  return {
+    state,
+    log,
+    monitor,
+    tick: (ms: number) => {
+      state.now += ms;
+      return monitor.assess();
+    },
+  };
 }
 
 describe('replica divergence', () => {
@@ -53,7 +69,10 @@ describe('replica divergence', () => {
   });
 
   test('out of step inside the grace period is reported, not alarmed; beyond it, alarmed once; back in step, cleared once', () => {
-    const h = harness({ leader: snap('leader'), replicas: [snap('replica-1'), snap('replica-2', { registryRoot: 'R0', proofsAccepted: 4 })] });
+    const h = harness({
+      leader: snap('leader'),
+      replicas: [snap('replica-1'), snap('replica-2', { registryRoot: 'R0', proofsAccepted: 4 })],
+    });
     let r = h.tick(0);
     expect(r.ok).toBe(true);
     expect(r.replicas[1]).toMatchObject({ inSync: false, behindBy: 1, divergentForMs: 0 });
@@ -74,7 +93,10 @@ describe('replica divergence', () => {
   });
 
   test('a lifecycle root that differs is divergence too, and the proof counters are only a hint', () => {
-    const h = harness({ leader: snap('leader', { proofsAccepted: 50 }), replicas: [snap('replica-1', { lifecycleRoot: 'L0', proofsAccepted: 50 }), snap('replica-2', { proofsAccepted: 3 })] });
+    const h = harness({
+      leader: snap('leader', { proofsAccepted: 50 }),
+      replicas: [snap('replica-1', { lifecycleRoot: 'L0', proofsAccepted: 50 }), snap('replica-2', { proofsAccepted: 3 })],
+    });
     const r = h.tick(0);
     expect(r.replicas[0].inSync).toBe(false);
     expect(r.replicas[1]).toMatchObject({ inSync: true, behindBy: 47 });
@@ -106,21 +128,55 @@ describe('batch stall', () => {
   });
 
   test('the default threshold is three batch intervals, never under a minute', () => {
-    const quick = new InvariantMonitor({ leader: () => snap('l', { batchIntervalMs: 5_000, pendingProofs: 1 }), replicas: () => [], log: () => {} });
+    const quick = new InvariantMonitor({
+      leader: () => snap('l', { batchIntervalMs: 5_000, pendingProofs: 1 }),
+      replicas: () => [],
+      log: () => {},
+    });
     expect(quick.assess().batch.stallAfterMs).toBe(60_000);
-    const slow = new InvariantMonitor({ leader: () => snap('l', { batchIntervalMs: 60_000, pendingProofs: 1 }), replicas: () => [], log: () => {} });
+    const slow = new InvariantMonitor({
+      leader: () => snap('l', { batchIntervalMs: 60_000, pendingProofs: 1 }),
+      replicas: () => [],
+      log: () => {},
+    });
     expect(slow.assess().batch.stallAfterMs).toBe(180_000);
   });
 });
 
 describe('snapshotOf and report', () => {
   test('reads the status fields the monitor needs, and report() assesses once when nothing ran yet', () => {
-    const s = snapshotOf({
-      running: true, uptimeMs: 1, pendingProofs: 4, totalProofsAccepted: 9, totalBatchesBuilt: 3, totalBatchesSettled: 3, totalBatchesFailed: 0,
-      currentRegistryRoot: 'RR', currentLifecycleRoot: 'LL', currentWalletCount: '7', inFlightBatch: null, nextBatchInMs: 1, batchIntervalMs: 15_000,
-      chainProofEnabled: false, globalStateRoot: '0', blockHeight: '0', l2Only: true,
-    } as any, 'seq');
-    expect(s).toEqual({ nodeId: 'seq', registryRoot: 'RR', lifecycleRoot: 'LL', walletCount: '7', proofsAccepted: 9, batchesBuilt: 3, pendingProofs: 4, batchIntervalMs: 15_000 });
+    const s = snapshotOf(
+      {
+        running: true,
+        uptimeMs: 1,
+        pendingProofs: 4,
+        totalProofsAccepted: 9,
+        totalBatchesBuilt: 3,
+        totalBatchesSettled: 3,
+        totalBatchesFailed: 0,
+        currentRegistryRoot: 'RR',
+        currentLifecycleRoot: 'LL',
+        currentWalletCount: '7',
+        inFlightBatch: null,
+        nextBatchInMs: 1,
+        batchIntervalMs: 15_000,
+        chainProofEnabled: false,
+        globalStateRoot: '0',
+        blockHeight: '0',
+        l2Only: true,
+      } as any,
+      'seq',
+    );
+    expect(s).toEqual({
+      nodeId: 'seq',
+      registryRoot: 'RR',
+      lifecycleRoot: 'LL',
+      walletCount: '7',
+      proofsAccepted: 9,
+      batchesBuilt: 3,
+      pendingProofs: 4,
+      batchIntervalMs: 15_000,
+    });
     const m = new InvariantMonitor({ leader: () => s, replicas: () => [{ ...s, nodeId: 'r' }], log: () => {} });
     const r = m.report();
     expect(r.ok).toBe(true);

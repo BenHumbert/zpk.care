@@ -34,7 +34,7 @@ jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-step-display';
 const ABACAVIR = '00378410591';
-const AMRIX = '63459070060';     // step therapy required in the catalog
+const AMRIX = '63459070060'; // step therapy required in the catalog
 const W = '79400000000000000001';
 let node: any;
 let seq: any;
@@ -53,16 +53,32 @@ const ndcHashOf = (ndc: string) => hashString(ndc).toString();
 
 function publishedPlan(formularyNdcs: string[]): any {
   const base: any = {
-    planId: 'PLAN-STEP', name: 'Step plan', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
-    formularyNdcs, networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-STEP',
+    name: 'Step plan',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    formularyNdcs,
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, catalog).root.toString();
   return { ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', Date.now()) };
 }
 
 async function startEngine(withServer: boolean): Promise<void> {
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
   if (withServer) {
@@ -90,17 +106,34 @@ beforeAll(async () => {
   expect(catalog.find((d) => d.ndc === AMRIX)?.stepTherapyRequired).toBe(true);
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-step-display' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-step-display' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
   await startEngine(false);
-  await node.storePlan(publishedPlan([ABACAVIR]));   // version 1: no AMRIX
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W, groupIdHash: ndcHashOf('GRP-STEP'), planIdHash: ndcHashOf('PLAN-STEP'), planId: 'PLAN-STEP', employerId: null, familyIdHash: null });
+  await node.storePlan(publishedPlan([ABACAVIR])); // version 1: no AMRIX
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W,
+    groupIdHash: ndcHashOf('GRP-STEP'),
+    planIdHash: ndcHashOf('PLAN-STEP'),
+    planId: 'PLAN-STEP',
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W, ownershipProofJson: '{}', displayName: 'Step member' });
-  await node.storePlan(publishedPlan([ABACAVIR, AMRIX]));   // version 2 lists AMRIX; the member still names version 1
+  await node.storePlan(publishedPlan([ABACAVIR, AMRIX])); // version 2 lists AMRIX; the member still names version 1
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
 test('before a restart: answered from the version published now, and the member is not rebound', () => {
   const m = svc.enrolledMembers.get(W);
@@ -121,12 +154,16 @@ test('after a restart, with no version held in memory: still answered, never a 4
   expect(svc.planFormularies.size).toBe(0);
   const m = svc.enrolledMembers.get(W);
   const commitment = m.eligibilityData.commitment().toString();
-  expect(svc.checkStepTherapy(W, ndcHashOf(AMRIX)).allowed).toBe(true);   // no prerequisite class defined for it in the catalog
-  const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf(ABACAVIR)}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
+  expect(svc.checkStepTherapy(W, ndcHashOf(AMRIX)).allowed).toBe(true); // no prerequisite class defined for it in the catalog
+  const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf(ABACAVIR)}`, {
+    headers: { Authorization: `Bearer ${OPERATOR}` },
+  });
   expect(r.status).toBe(200);
   expect(((await r.json()) as Record<string, unknown>).message).toBe('Step therapy not required');
   // a drug off the published plan is still refused, with its own status
-  const off = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf('00173071622')}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
+  const off = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf('00173071622')}`, {
+    headers: { Authorization: `Bearer ${OPERATOR}` },
+  });
   expect(off.status).toBe(403);
   expect(m.eligibilityData.commitment().toString()).toBe(commitment);
 });

@@ -86,9 +86,9 @@ export const PcpVerificationProgram = ZkProgram({
         CredentialData,
         PcpAssignmentData,
         ForestRoots,
-        ForestMerkleWitness,   // witness for PCP data in MEMBER tree
-        Field,                  // claimedPcpWalletId
-        Field,                  // currentDate (CCYYMMDD as number)
+        ForestMerkleWitness, // witness for PCP data in MEMBER tree
+        Field, // claimedPcpWalletId
+        Field, // currentDate (CCYYMMDD as number)
       ],
       async method(
         credentialData: CredentialData,
@@ -99,10 +99,7 @@ export const PcpVerificationProgram = ZkProgram({
         currentDate: Field,
       ) {
         // 1. Verify credential type is ELIGIBILITY
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Credential type must be ELIGIBILITY',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Credential type must be ELIGIBILITY');
 
         // 2. Verify credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -117,34 +114,21 @@ export const PcpVerificationProgram = ZkProgram({
         // 4. Verify PCP assignment data exists in the MEMBER tree
         const pcpCommitment = pcpData.commitment();
         const computedMemberRoot = memberWitness.calculateRoot(pcpCommitment);
-        computedMemberRoot.assertEquals(
-          forestRoots.memberRoot,
-          'PCP assignment data not found in MEMBER tree',
-        );
+        computedMemberRoot.assertEquals(forestRoots.memberRoot, 'PCP assignment data not found in MEMBER tree');
 
         // 5. Verify claimed prescriber matches the assigned PCP
-        claimedPcpWalletId.assertEquals(
-          pcpData.pcpWalletId,
-          'Prescriber is not the assigned PCP',
-        );
+        claimedPcpWalletId.assertEquals(pcpData.pcpWalletId, 'Prescriber is not the assigned PCP');
 
         // 6. Verify date range: effectiveDate <= currentDate
-        pcpData.effectiveDate
-          .lessThanOrEqual(currentDate)
-          .assertTrue('PCP assignment not yet effective');
+        pcpData.effectiveDate.lessThanOrEqual(currentDate).assertTrue('PCP assignment not yet effective');
 
         // 7. Verify date range: currentDate <= terminationDate OR terminationDate == 0
         const noEndDate = pcpData.terminationDate.equals(Field(0));
-        const beforeTermination = currentDate.lessThanOrEqual(
-          pcpData.terminationDate,
-        );
+        const beforeTermination = currentDate.lessThanOrEqual(pcpData.terminationDate);
         noEndDate.or(beforeTermination).assertTrue('PCP assignment has expired');
 
         // 8. Verify consent scope is non-empty
-        pcpData.consentScopeFlags.assertGreaterThan(
-          Field(0),
-          'Consent scope must not be empty',
-        );
+        pcpData.consentScopeFlags.assertGreaterThan(Field(0), 'Consent scope must not be empty');
 
         return {
           publicOutput: new PcpVerificationOutput({

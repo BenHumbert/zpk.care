@@ -35,12 +35,7 @@
  *
  * Zero external dependencies — uses Node.js crypto module.
  */
-import {
-  createCipheriv,
-  createDecipheriv,
-  randomBytes,
-  scryptSync,
-} from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { ObfuscatedKey } from '../security/obfuscated-key.js';
@@ -101,10 +96,11 @@ interface PinAttemptRecord {
 
 /** Thrown when an attempt arrives inside the backoff window. */
 export class PinAttemptThrottled extends Error {
-  constructor(readonly retryAfterMs: number, readonly failures: number) {
-    super(
-      `Too many incorrect PIN attempts. Wait ${Math.ceil(retryAfterMs / 1000)} s before trying again.`,
-    );
+  constructor(
+    readonly retryAfterMs: number,
+    readonly failures: number,
+  ) {
+    super(`Too many incorrect PIN attempts. Wait ${Math.ceil(retryAfterMs / 1000)} s before trying again.`);
     this.name = 'PinAttemptThrottled';
   }
 }
@@ -136,7 +132,10 @@ const pinChecksInLine = new Map<string, Promise<void>>();
 function inTurn<T>(stateDir: string, check: () => Promise<T>): Promise<T> {
   const key = path.resolve(stateDir);
   const run = (pinChecksInLine.get(key) ?? Promise.resolve()).then(check);
-  const finished = run.then(() => undefined, () => undefined);
+  const finished = run.then(
+    () => undefined,
+    () => undefined,
+  );
   pinChecksInLine.set(key, finished);
   // The last check in line takes the line with it, so a directory no longer checked holds nothing.
   void finished.then(() => {
@@ -163,7 +162,14 @@ export interface NautilusStateData {
   credentialParts?: {
     updateId: string;
     reason: string;
-    credential: { credentialType: string; issuerWalletId: string; subjectWalletId: string; issuedAt: string; expiresAt: string; revoked: string };
+    credential: {
+      credentialType: string;
+      issuerWalletId: string;
+      subjectWalletId: string;
+      issuedAt: string;
+      expiresAt: string;
+      revoked: string;
+    };
     forestLeaves: Array<{ domain: number; index: string; leaf: string }>;
     inventorySlot: string;
     inventoryRoot: string;
@@ -279,9 +285,7 @@ export class NautilusLocalState {
    */
   async unlock(pin: string): Promise<void> {
     if (!pin || pin.length < MIN_PIN_LENGTH) {
-      throw new Error(
-        `PIN must be at least ${MIN_PIN_LENGTH} characters`,
-      );
+      throw new Error(`PIN must be at least ${MIN_PIN_LENGTH} characters`);
     }
 
     // One check at a time, counted before scrypt runs: see inTurn.
@@ -307,9 +311,7 @@ export class NautilusLocalState {
         if (!parts) {
           // Not a wrong PIN, so it is not counted: the holder of a damaged file should not be
           // locked out of their own device by the damage.
-          throw new Error(
-            'The state file could not be read. It is damaged or was written by another version.',
-          );
+          throw new Error('The state file could not be read. It is damaged or was written by another version.');
         }
         failures = (await this.recordPinFailure()).failures;
       }
@@ -323,9 +325,7 @@ export class NautilusLocalState {
 
       if (parts && !this.opens(parts, candidate)) {
         candidate.fill(0);
-        throw new Error(
-          `Incorrect PIN. ${failures} consecutive failed attempt(s).`,
-        );
+        throw new Error(`Incorrect PIN. ${failures} consecutive failed attempt(s).`);
       }
 
       this.derivedKey = candidate;
@@ -519,21 +519,13 @@ export class NautilusLocalState {
     const envelope = JSON.parse(raw) as EncryptedStateFile;
     const iv = Buffer.from(envelope.iv, 'hex');
     const encryptedWithTag = Buffer.from(envelope.data, 'hex');
-    const ciphertext = encryptedWithTag.subarray(
-      0,
-      encryptedWithTag.length - AUTH_TAG_LENGTH,
-    );
-    const authTag = encryptedWithTag.subarray(
-      encryptedWithTag.length - AUTH_TAG_LENGTH,
-    );
+    const ciphertext = encryptedWithTag.subarray(0, encryptedWithTag.length - AUTH_TAG_LENGTH);
+    const authTag = encryptedWithTag.subarray(encryptedWithTag.length - AUTH_TAG_LENGTH);
 
     try {
       const decipher = createDecipheriv('aes-256-gcm', this.derivedKey, iv);
       decipher.setAuthTag(authTag);
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       this.state = JSON.parse(decrypted.toString('utf-8')) as NautilusStateData;
 
       // Wrap enrollment key in XOR-split obfuscation and clear the raw string
@@ -579,10 +571,7 @@ export class NautilusLocalState {
     const iv = randomBytes(IV_LENGTH);
 
     const cipher = createCipheriv('aes-256-gcm', this.derivedKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(plaintext, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     const envelope: EncryptedStateFile = {
@@ -593,10 +582,7 @@ export class NautilusLocalState {
     };
 
     await fs.mkdir(this.stateDir, { recursive: true });
-    await fs.writeFile(
-      path.join(this.stateDir, STATE_FILENAME),
-      JSON.stringify(envelope),
-    );
+    await fs.writeFile(path.join(this.stateDir, STATE_FILENAME), JSON.stringify(envelope));
     this.state = state;
   }
 

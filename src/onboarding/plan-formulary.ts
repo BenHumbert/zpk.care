@@ -95,9 +95,9 @@ export function buildPlanFormulary(
   const maxEntries = opts.maxEntries ?? MAX_PLAN_FORMULARY_ON_REQUEST;
   if (locals.length > maxEntries) {
     throw new Error(
-      `This plan's formulary would hold ${locals.length} drugs. A plan formulary of more than ${maxEntries} drugs is not `
-      + `built on a request (about ${Math.round((locals.length * 11) / 1000)} s of hashing on the sequencer's thread) until `
-      + `plan formulary leaves are cached; list the plan's drugs in formularyNdcs${everyDrug ? ' (an empty list means every drug in the catalog)' : ''}.`,
+      `This plan's formulary would hold ${locals.length} drugs. A plan formulary of more than ${maxEntries} drugs is not ` +
+        `built on a request (about ${Math.round((locals.length * 11) / 1000)} s of hashing on the sequencer's thread) until ` +
+        `plan formulary leaves are cached; list the plan's drugs in formularyNdcs${everyDrug ? ' (an empty list means every drug in the catalog)' : ''}.`,
     );
   }
   const entries = locals.map((local) => buildFormularyEntry(local));

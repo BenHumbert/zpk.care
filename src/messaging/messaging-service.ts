@@ -17,25 +17,10 @@
 import { Field } from 'o1js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { MessageData } from './message-data.js';
-import {
-  DelegationData,
-  SCOPE_ALL,
-  REL_MIGRATION,
-} from './delegation-data.js';
-import {
-  MessageRegistry,
-  DelegationRegistry,
-  KeyRegistry,
-  computeMessagingRoot,
-} from './message-registry.js';
+import { DelegationData, SCOPE_ALL, REL_MIGRATION } from './delegation-data.js';
+import { MessageRegistry, DelegationRegistry, KeyRegistry, computeMessagingRoot } from './message-registry.js';
 import { MessagingProgram } from './messaging-program.js';
-import {
-  deriveSharedSecret,
-  encryptMessage,
-  decryptMessage,
-  computeContentHash,
-  publicKeyToFields,
-} from './encryption.js';
+import { deriveSharedSecret, encryptMessage, decryptMessage, computeContentHash, publicKeyToFields } from './encryption.js';
 import { hashString } from '../zkp/hash-utils.js';
 import { MSG_TYPE_AOR_REVOKE } from './aor-data.js';
 import type { StoredMessage, MessagePayload } from '../l2/message-store-types.js';
@@ -60,12 +45,7 @@ export class MessagingService {
   /** Track sender nonces */
   private nonces: Map<string, number>;
 
-  constructor(
-    store: ILocalStore,
-    messageRegistry: MessageRegistry,
-    delegationRegistry: DelegationRegistry,
-    keyRegistry: KeyRegistry,
-  ) {
+  constructor(store: ILocalStore, messageRegistry: MessageRegistry, delegationRegistry: DelegationRegistry, keyRegistry: KeyRegistry) {
     this.store = store;
     this.messageRegistry = messageRegistry;
     this.delegationRegistry = delegationRegistry;
@@ -87,11 +67,7 @@ export class MessagingService {
    * @param publicKey — 32-byte X25519 public key
    * @returns The new messaging root
    */
-  registerEncryptionKey(
-    walletIndex: bigint,
-    walletId: Field,
-    publicKey: Buffer,
-  ): Field {
+  registerEncryptionKey(walletIndex: bigint, walletId: Field, publicKey: Buffer): Field {
     const { pubKeyX, pubKeyY } = publicKeyToFields(publicKey);
     this.keyRegistry.registerKey(walletIndex, walletId, pubKeyX, pubKeyY);
     this.publicKeyStore.set(walletIndex, publicKey);
@@ -200,10 +176,7 @@ export class MessagingService {
    * @param currentDate — current date as Field (CCYYMMDD)
    * @returns The proof and delegation index
    */
-  async createDelegation(
-    delegationData: DelegationData,
-    currentDate: Field,
-  ) {
+  async createDelegation(delegationData: DelegationData, currentDate: Field) {
     // Add to registry
     const { index } = this.delegationRegistry.addDelegation(delegationData);
     const delegationWitness = this.delegationRegistry.getWitness(index);
@@ -241,11 +214,7 @@ export class MessagingService {
    * @param newWalletId — the new wallet being migrated to
    * @param effectiveDate — when the migration takes effect (CCYYMMDD)
    */
-  async createMigrationDelegation(
-    oldWalletId: Field,
-    newWalletId: Field,
-    effectiveDate: Field,
-  ) {
+  async createMigrationDelegation(oldWalletId: Field, newWalletId: Field, effectiveDate: Field) {
     const delegationData = new DelegationData({
       delegatorWalletId: oldWalletId,
       delegateWalletId: newWalletId,
@@ -281,12 +250,7 @@ export class MessagingService {
     }
 
     const sharedSecret = deriveSharedSecret(readerPrivateKey, senderPublicKey);
-    const plaintext = decryptMessage(
-      encryptedPayload.ciphertext,
-      encryptedPayload.iv,
-      encryptedPayload.tag,
-      sharedSecret,
-    );
+    const plaintext = decryptMessage(encryptedPayload.ciphertext, encryptedPayload.iv, encryptedPayload.tag, sharedSecret);
 
     return { plaintext, messageData };
   }
@@ -349,10 +313,6 @@ export class MessagingService {
    * This is the value stored in CareContract slot 7.
    */
   getMessagingRoot(): Field {
-    return computeMessagingRoot(
-      this.messageRegistry.getRoot(),
-      this.delegationRegistry.getRoot(),
-      this.keyRegistry.getRoot(),
-    );
+    return computeMessagingRoot(this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot());
   }
 }

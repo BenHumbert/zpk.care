@@ -31,18 +31,30 @@
  * Read from source: the stylesheet's rules and the classes app.js sets.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 
 const NL = '\n';
 const read = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n/g, NL);
 const CSS = read('dashboard-prescriber/style.css').replace(/\/\*[\s\S]*?\*\//g, '');
 const APP = read('dashboard-prescriber/app.js');
 
-interface Rule { selectors: string[]; decl: Record<string, string> }
+interface Rule {
+  selectors: string[];
+  decl: Record<string, string>;
+}
 /** Innermost `selector { declarations }` blocks; an @media or @keyframes wrapper is dropped, its rules kept. */
 const RULES: Rule[] = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-  selectors: m[1].split(',').map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean),
-  decl: Object.fromEntries(m[2].split(';').map((d) => d.split(':')).filter((kv) => kv.length >= 2)
-    .map(([k, ...v]) => [k.trim(), v.join(':').trim()])),
+  selectors: m[1]
+    .split(',')
+    .map((x) => x.trim().replace(/\s+/g, ' '))
+    .filter(Boolean),
+  decl: Object.fromEntries(
+    m[2]
+      .split(';')
+      .map((d) => d.split(':'))
+      .filter((kv) => kv.length >= 2)
+      .map(([k, ...v]) => [k.trim(), v.join(':').trim()]),
+  ),
 }));
 const rule = (selector: string): Record<string, string> | null => {
   const hits = RULES.filter((r) => r.selectors.includes(selector));
@@ -51,13 +63,13 @@ const rule = (selector: string): Record<string, string> | null => {
 
 describe('the prescriber page colors its proof badge and result box in every state', () => {
   test('proved is green, failed and timed out are red, as the page sets them', () => {
-    expect(APP).toContain("badge.className = 'badge badge-settled'; badge.textContent = 'ZK Proofs: Generated';");
-    expect(APP).toContain("badge.className = 'badge badge-failed'; badge.textContent = 'ZK Proof: Failed';");
-    expect(APP).toContain("badge.className = 'badge badge-error'; badge.textContent = 'ZK Proof: Timeout';");
-    expect(rule('.badge-settled')).toEqual({ background: '#0d3b1e', color: 'var(--green)' });   // before: no rule
+    expect(flat(APP)).toContain(flat("badge.className = 'badge badge-settled'; badge.textContent = 'ZK Proofs: Generated';"));
+    expect(flat(APP)).toContain(flat("badge.className = 'badge badge-failed'; badge.textContent = 'ZK Proof: Failed';"));
+    expect(flat(APP)).toContain(flat("badge.className = 'badge badge-error'; badge.textContent = 'ZK Proof: Timeout';"));
+    expect(rule('.badge-settled')).toEqual({ background: '#0d3b1e', color: 'var(--green)' }); // before: no rule
     expect(rule('.badge-failed')).toEqual({ background: '#3b0d0d', color: 'var(--red)' });
     expect(rule('.badge-error')).toEqual({ background: '#3b0d0d', color: 'var(--red)' });
-    expect(rule('.badge-settled')).toEqual(rule('.badge-ready'));                               // the page's own green pill
+    expect(rule('.badge-settled')).toEqual(rule('.badge-ready')); // the page's own green pill
   });
 
   test('the result box around the prescription has the info colors', () => {
@@ -72,7 +84,7 @@ describe('the prescriber page colors its proof badge and result box in every sta
     expect(pills.filter((c) => !new RegExp(`'badge(?: badge)?-${c}'`).test(APP))).toEqual([]);
     const results = [...new Set([...APP.matchAll(/form-result ([a-z]+)/g)].map((m) => m[1]))];
     const colored = (d: Record<string, string> | null) => !!(d && d.background && d.color);
-    expect(pills.filter((c) => !colored(rule('.badge-' + c)))).toEqual([]);                      // before: settled, failed, error
-    expect(results.filter((c) => !colored(rule('.form-result.' + c)))).toEqual([]);              // before: info
+    expect(pills.filter((c) => !colored(rule('.badge-' + c)))).toEqual([]); // before: settled, failed, error
+    expect(results.filter((c) => !colored(rule('.form-result.' + c)))).toEqual([]); // before: info
   });
 });

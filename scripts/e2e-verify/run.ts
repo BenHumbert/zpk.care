@@ -59,8 +59,12 @@ import { SequencerAttestationAuthority } from '../../src/credentials/nfc-attesta
 import { resolveExplorerPort } from '../../src/security/network-policy.js';
 
 // The explorer is wherever ZKTRIDENT_EXPLORER_PORT put it when the network started (A-133); export the same value here.
-const SEQ = 'http://localhost:3030', INS = 'http://localhost:4004', MEM = 'http://localhost:4001', EXP = `http://localhost:${resolveExplorerPort(process.env)}`;
-const PRE = 'http://localhost:4002', PHA = 'http://localhost:4003';
+const SEQ = 'http://localhost:3030',
+  INS = 'http://localhost:4004',
+  MEM = 'http://localhost:4001',
+  EXP = `http://localhost:${resolveExplorerPort(process.env)}`;
+const PRE = 'http://localhost:4002',
+  PHA = 'http://localhost:4003';
 const ADMIN = process.env.ZKTRIDENT_ADMIN_TOKEN || '';
 const OUT = path.resolve(process.argv[2] || './e2e-out');
 // A-109: the HR Tool texts each PIN; for this run the employees' phones are this outbox, beside the run's other secrets.
@@ -83,10 +87,16 @@ async function startHrTool(employerId: string): Promise<string> {
     });
   });
   fs.mkdirSync(OUT, { recursive: true });
-  fs.rmSync(hrTextOutbox, { force: true });   // this run's texts only
+  fs.rmSync(hrTextOutbox, { force: true }); // this run's texts only
   hrToolChild = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}`, HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: hrTextOutbox },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HR_TOOL_DATA_DIR: `./hr-tool-data/${employerId}`,
+      HR_TOOL_TEXT_SERVICE: 'outbox',
+      HR_TOOL_TEXT_OUTBOX: hrTextOutbox,
+    },
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   });
@@ -94,14 +104,25 @@ async function startHrTool(employerId: string): Promise<string> {
   const url = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 60_000;
   for (;;) {
-    try { const r = await fetch(`${url}/api/session`); if (r.ok) break; } catch { /* not up yet */ }
+    try {
+      const r = await fetch(`${url}/api/session`);
+      if (r.ok) break;
+    } catch {
+      /* not up yet */
+    }
     if (Date.now() > deadline) throw new Error('HR Tool did not start within 60 s');
     await sleep(500);
   }
   return url;
 }
 function stopHrTool(): void {
-  if (hrToolChild && !hrToolChild.killed) { try { hrToolChild.kill(); } catch { /* best effort */ } }
+  if (hrToolChild && !hrToolChild.killed) {
+    try {
+      hrToolChild.kill();
+    } catch {
+      /* best effort */
+    }
+  }
   hrToolChild = null;
 }
 process.on('exit', stopHrTool);
@@ -109,7 +130,7 @@ const STATE_DIR = process.env.ZKTRIDENT_STATE_DIR || path.join(REPO, 'nautilus-d
 
 const trace = new Trace(OUT);
 const http = makeHttp(trace);
-const quiet = makeHttp(new Trace(path.join(OUT, 'polls')));   // polling noise goes to a side trace
+const quiet = makeHttp(new Trace(path.join(OUT, 'polls'))); // polling noise goes to a side trace
 const bearer = { Authorization: `Bearer ${ADMIN}` };
 // A9: the insurer node's own admin token. Explicit when the network was started with one, otherwise
 // the derivation the launcher uses; the operator token is accepted by the sequencer only.
@@ -135,19 +156,30 @@ const httpAdmin = makeHttp(trace, { headers: bearer });
  */
 let memSession = '';
 const mem = (method: string, urlPath: string, body?: unknown) =>
-  http(method, `${MEM}${urlPath}`, body,
-    memSession ? { 'X-Device-Session': memSession } : {});
+  http(method, `${MEM}${urlPath}`, body, memSession ? { 'X-Device-Session': memSession } : {});
 const quietAdmin = makeHttp(new Trace(path.join(OUT, 'polls')), { headers: bearer });
 const RUN = Date.now().toString(36).toUpperCase();
 const RECOVERY_PIN = '246813';
 
 // Fictional member. Nothing here refers to a real person.
 const MEMBER = {
-  employeeId: `E2E-${RUN}-1`, familyId: `FAM-${RUN}`, firstName: 'Avery', lastName: 'Quillfeather',
-  dob: '19870412', email: 'avery.quillfeather@example.test', memberPin: '864209',
-  mobile: '+15555550101',   // a fictional 555-01xx number: the PIN is texted here (A-109)
+  employeeId: `E2E-${RUN}-1`,
+  familyId: `FAM-${RUN}`,
+  firstName: 'Avery',
+  lastName: 'Quillfeather',
+  dob: '19870412',
+  email: 'avery.quillfeather@example.test',
+  memberPin: '864209',
+  mobile: '+15555550101', // a fictional 555-01xx number: the PIN is texted here (A-109)
 };
-const DECOY = { employeeId: `E2E-${RUN}-2`, familyId: `FAM-${RUN}-B`, firstName: 'Rowan', lastName: 'Ashgrove', dob: '19921103', mobile: '+15555550102' };
+const DECOY = {
+  employeeId: `E2E-${RUN}-2`,
+  familyId: `FAM-${RUN}-B`,
+  firstName: 'Rowan',
+  lastName: 'Ashgrove',
+  dob: '19921103',
+  mobile: '+15555550102',
+};
 
 const results: Record<string, any> = { run: RUN, startedAt: new Date().toISOString(), claims: [] as any[], findings: [] as any[] };
 const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in j ? j.data : j);
@@ -158,11 +190,10 @@ const unwrap = (j: any) => (j && typeof j === 'object' && 'ok' in j && 'data' in
  * searched anything, so the run reported nothing for its final and most important phase. The
  * fatal-error handler at the bottom of this file already used this replacer; the sweep did not.
  */
-const jsonSafe = (value: unknown): string =>
-  JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? '';
+const jsonSafe = (value: unknown): string => JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)) ?? '';
 async function rpc(method: string, params: Record<string, unknown> = {}, auth = true) {
   const r = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method, params }, auth ? bearer : {});
-  const parsed = r.text ? l2Parse(r.text) as any : null;
+  const parsed = r.text ? (l2Parse(r.text) as any) : null;
   return { status: r.status, result: parsed?.result, error: parsed?.error };
 }
 
@@ -173,7 +204,8 @@ let priorEmployer: { id: string; key: crypto.KeyObject } | null = null;
 const PRIOR_TRACE = process.env.E2E_PRIOR_TRACE || '';
 if (PRIOR_TRACE && fs.existsSync(PRIOR_TRACE)) {
   const t = JSON.parse(fs.readFileSync(PRIOR_TRACE, 'utf8'));
-  let id = '', hex = '';
+  let id = '',
+    hex = '';
   for (const st of t.steps) {
     for (const [k, v] of Object.entries(st.secretsShown || {})) if (/employer Ed25519/.test(k)) hex = String(v);
     for (const x of st.exchanges) if (/marketplace\/api\/apply/.test(x.url) && x.body?.employerId) id = x.body.employerId;
@@ -188,7 +220,12 @@ async function insAdmin(method: string, urlPath: string, body?: unknown) {
     if (r.status !== 401) return r;
     insurerSigMode = true;
     if (!results.findings.some((f: any) => f.id === 'insurer-lockout')) {
-      results.findings.push({ id: 'insurer-lockout', severity: 'high', title: "The insurer's own admin token stops working after the first employer signs", evidence: `${method} ${urlPath} with the insurer admin token returned 401 once an employer key was registered (nautilus-app-server.ts:167).` });
+      results.findings.push({
+        id: 'insurer-lockout',
+        severity: 'high',
+        title: "The insurer's own admin token stops working after the first employer signs",
+        evidence: `${method} ${urlPath} with the insurer admin token returned 401 once an employer key was registered (nautilus-app-server.ts:167).`,
+      });
     }
     trace.note('insurer admin token refused: the insurer now only accepts registered client-key signatures');
   }
@@ -198,7 +235,12 @@ async function insAdmin(method: string, urlPath: string, body?: unknown) {
   const sig = crypto.sign(null, Buffer.from(`${method}:${pathOnly}|${ts}|`), priorEmployer.key).toString('hex');
   const r = await http(method, url, body, { 'X-Admin-Signature': `${priorEmployer.id}:${ts}:${sig}` });
   if (r.status < 300 && !results.findings.some((f: any) => f.id === 'employer-as-insurer')) {
-    results.findings.push({ id: 'employer-as-insurer', severity: 'critical', title: "An employer's signing key is accepted for insurer admin actions", evidence: `${method} ${urlPath} signed with employer ${priorEmployer.id}'s key (an earlier, unrelated employer) returned ${r.status}.` });
+    results.findings.push({
+      id: 'employer-as-insurer',
+      severity: 'critical',
+      title: "An employer's signing key is accepted for insurer admin actions",
+      evidence: `${method} ${urlPath} signed with employer ${priorEmployer.id}'s key (an earlier, unrelated employer) returned ${r.status}.`,
+    });
   }
   return r;
 }
@@ -208,17 +250,28 @@ async function main() {
 
   // ── 1. Readiness ────────────────────────────────────────────
   trace.begin('harness', 'Wait until the network has compiled every circuit');
-  const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, j => j?.compiled === true, 1_800_000, 10_000);
+  const ready = await poll(quietAdmin, `${SEQ}/interactive/state`, (j) => j?.compiled === true, 1_800_000, 10_000);
   trace.check('Adjudication service compiled all 10 circuits', ready.json?.compiled === true, true, ready.json?.compiled);
   // The engine refuses work that makes proofs (503 with Retry-After) until its proof pool runs, and the pool's workers
   // compile for minutes after boot. Every proving step below comes after this, the probes at prescribing included.
   const provers = await waitForEngineReady(quiet, SEQ);
   results.engineReadyWaitMs = provers.ms;
-  trace.check('Claims engine ready to prove', provers.ready, 'ready within 15 min', provers.readiness, `waited ${(provers.ms / 1000).toFixed(1)} s`);
+  trace.check(
+    'Claims engine ready to prove',
+    provers.ready,
+    'ready within 15 min',
+    provers.readiness,
+    `waited ${(provers.ms / 1000).toFixed(1)} s`,
+  );
   const status = await rpc('l2_getStatus', {}, false);
   results.vkCommitment = status.result?.vkCommitment;
   trace.note(`vkCommitment = ${status.result?.vkCommitment}`);
-  for (const [name, url] of [['insurer', INS], ['member', MEM], ['prescriber', PRE], ['pharmacy', PHA]] as const) {
+  for (const [name, url] of [
+    ['insurer', INS],
+    ['member', MEM],
+    ['prescriber', PRE],
+    ['pharmacy', PHA],
+  ] as const) {
     const h = await http('GET', `${url}/health`);
     trace.check(`${name} node healthy`, h.status === 200 && unwrap(h.json)?.phase !== undefined, 'phase present', unwrap(h.json)?.phase);
   }
@@ -229,18 +282,68 @@ async function main() {
 
   // ── 2. Security probes before anything is set up ────────────
   trace.begin('attacker', 'Call admin functions without the admin token (secured mode)');
-  const noAuthPlan = await http('POST', `${INS}/plans`, { planId: 'EVIL', name: 'x', coverageType: 1, copayAmountCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0 });
-  trace.check('Insurer refuses plan creation without a token', noAuthPlan.status === 401 || noAuthPlan.status === 403, '401/403', noAuthPlan.status);
-  const noAuthRecord = await rpc('l2_recordFill', { memberWalletId: '1', ndcHash: '1', pharmacyWalletId: '1', patientPayCents: '0', planPayCents: '999999' }, false);
-  trace.check('The no-proof claim path l2_recordFill is gone from the sequencer', !!noAuthRecord.error, 'error', noAuthRecord.error?.message ?? noAuthRecord.result);
-  const badAuthBatch = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, { Authorization: 'Bearer admin123' });
-  trace.check('Sequencer refuses the old demo token "admin123"', !!(badAuthBatch.json?.error), 'error', badAuthBatch.json?.error?.message ?? badAuthBatch.json);
+  const noAuthPlan = await http('POST', `${INS}/plans`, {
+    planId: 'EVIL',
+    name: 'x',
+    coverageType: 1,
+    copayAmountCents: 0,
+    deductibleAmountCents: 0,
+    oopMaxCents: 0,
+    annualBenefitMaxCents: 0,
+  });
+  trace.check(
+    'Insurer refuses plan creation without a token',
+    noAuthPlan.status === 401 || noAuthPlan.status === 403,
+    '401/403',
+    noAuthPlan.status,
+  );
+  const noAuthRecord = await rpc(
+    'l2_recordFill',
+    { memberWalletId: '1', ndcHash: '1', pharmacyWalletId: '1', patientPayCents: '0', planPayCents: '999999' },
+    false,
+  );
+  trace.check(
+    'The no-proof claim path l2_recordFill is gone from the sequencer',
+    !!noAuthRecord.error,
+    'error',
+    noAuthRecord.error?.message ?? noAuthRecord.result,
+  );
+  const badAuthBatch = await http(
+    'POST',
+    `${SEQ}/rpc`,
+    { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} },
+    { Authorization: 'Bearer admin123' },
+  );
+  trace.check(
+    'Sequencer refuses the old demo token "admin123"',
+    !!badAuthBatch.json?.error,
+    'error',
+    badAuthBatch.json?.error?.message ?? badAuthBatch.json,
+  );
   // A9: one credential per principal. The operator's token opens nothing on the insurer node, and
   // the insurer's token opens nothing on the sequencer.
-  const opOnInsurer = await http('POST', `${INS}/plans`, { planId: 'EVIL-2', name: 'x', coverageType: 1, copayAmountCents: 0, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0 }, bearer);
+  const opOnInsurer = await http(
+    'POST',
+    `${INS}/plans`,
+    {
+      planId: 'EVIL-2',
+      name: 'x',
+      coverageType: 1,
+      copayAmountCents: 0,
+      deductibleAmountCents: 0,
+      oopMaxCents: 0,
+      annualBenefitMaxCents: 0,
+    },
+    bearer,
+  );
   trace.check('The insurer node refuses the network operator token', opOnInsurer.status === 401, 401, opOnInsurer.status);
   const insOnSeq = await http('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_forceBatch', params: {} }, insurerBearer);
-  trace.check('The sequencer refuses the insurer node token', insOnSeq.json?.error?.code === -32003, -32003, insOnSeq.json?.error?.code ?? insOnSeq.json);
+  trace.check(
+    'The sequencer refuses the insurer node token',
+    insOnSeq.json?.error?.code === -32003,
+    -32003,
+    insOnSeq.json?.error?.code ?? insOnSeq.json,
+  );
 
   // Plan-bound formularies and NADAC pricing (owner decisions 2026-10-18): the run's claim drugs, which are the plan's
   // formulary and nothing else. The engine prices a fill at NADAC x quantity, rounded half up to the cent, plus the
@@ -256,12 +359,26 @@ async function main() {
   // ABACAVIR-LAMIVUDINE, which the run could also claim, is left off the plan to show that it is refused at prescribing
   // (7d).
   const SCENARIO_DRUGS = [
-    { label: 'Claim 1 — inside the deductible', ndc: '00378410591', nadac: '0.55226', qty: 30, lands: 'inside-deductible', confirmPrice: false },
-    { label: 'Claim 2 — crosses the deductible', ndc: '42794000308', nadac: '21.73128', qty: 30, lands: 'crosses-deductible', confirmPrice: false },
+    {
+      label: 'Claim 1 — inside the deductible',
+      ndc: '00378410591',
+      nadac: '0.55226',
+      qty: 30,
+      lands: 'inside-deductible',
+      confirmPrice: false,
+    },
+    {
+      label: 'Claim 2 — crosses the deductible',
+      ndc: '42794000308',
+      nadac: '21.73128',
+      qty: 30,
+      lands: 'crosses-deductible',
+      confirmPrice: false,
+    },
     // Claim 3 states the price it expects; the engine accepts it because it is exactly the engine's own.
     { label: 'Claim 3 — copay only', ndc: '59148000813', nadac: '18.61552', qty: 30, lands: 'copay-only', confirmPrice: true },
   ] as const;
-  const OFF_PLAN_NDC = '42385096230';                                  // ABACAVIR-LAMIVUDINE 600-300 MG: claimable, not on the plan
+  const OFF_PLAN_NDC = '42385096230'; // ABACAVIR-LAMIVUDINE 600-300 MG: claimable, not on the plan
 
   // ── 3. Insurer creates a plan ───────────────────────────────
   trace.begin('insurer', 'Create and publish the benefit plan');
@@ -272,20 +389,39 @@ async function main() {
   // plus the prescriber and pharmacy nodes themselves. Prescribers 5, 6 and 8 stay outside on purpose.
   const networkPrescriberIdx = [0, 1, 2, 3, 4, 7, 9];
   const networkPharmacyIdx = [0, 1, 2, 3, 4];
-  const fixturePrescriberIds = PRESCRIBERS.map(p => derivePrescriberWalletId(p.localData, p.enrollmentKey).toString());
-  const fixturePharmacyIds = PHARMACIES.map(p => derivePharmacyWalletId(p.localData, p.enrollmentKey).toString());
+  const fixturePrescriberIds = PRESCRIBERS.map((p) => derivePrescriberWalletId(p.localData, p.enrollmentKey).toString());
+  const fixturePharmacyIds = PHARMACIES.map((p) => derivePharmacyWalletId(p.localData, p.enrollmentKey).toString());
   const networkProviderWalletIds = [
-    ...networkPrescriberIdx.map(i => fixturePrescriberIds[i]), ...networkPharmacyIdx.map(i => fixturePharmacyIds[i]),
+    ...networkPrescriberIdx.map((i) => fixturePrescriberIds[i]),
+    ...networkPharmacyIdx.map((i) => fixturePharmacyIds[i]),
     ...[results.prescriberWalletId, results.pharmacyWalletId].filter((x): x is string => typeof x === 'string' && x.length > 0),
   ];
   // Plan-bound formularies: the plan lists its drugs (SCENARIO_DRUGS) and sets a $15 copay. $15 is no tier's copay in the
   // data (they are $10, $35, $75 and $150), so a $15 charge can only have come from the plan. NADAC pricing: the insurer
   // sets this plan's dispensing fee at $12.50, apart from the $10.00 network default, so a fill that charges $12.50 shows
   // the engine used the plan's fee.
-  const plan = { planId, name: 'E2E Gold', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, dispensingFeeCents: 1250, formularyNdcs: SCENARIO_DRUGS.map((s) => s.ndc), networkProviderWalletIds };
+  const plan = {
+    planId,
+    name: 'E2E Gold',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 100000,
+    familyOopMaxCents: 1600000,
+    dispensingFeeCents: 1250,
+    formularyNdcs: SCENARIO_DRUGS.map((s) => s.ndc),
+    networkProviderWalletIds,
+  };
   const planRes = await insAdmin('POST', '/plans', plan);
   trace.check('Plan created', planRes.status === 201 || planRes.status === 200, '201', planRes.status);
-  trace.check('The plan carries the dispensing fee the insurer set', Number(unwrap(planRes.json)?.dispensingFeeCents) === plan.dispensingFeeCents, plan.dispensingFeeCents, unwrap(planRes.json)?.dispensingFeeCents);
+  trace.check(
+    'The plan carries the dispensing fee the insurer set',
+    Number(unwrap(planRes.json)?.dispensingFeeCents) === plan.dispensingFeeCents,
+    plan.dispensingFeeCents,
+    unwrap(planRes.json)?.dispensingFeeCents,
+  );
   const mkt = await http('GET', `${INS}/marketplace/api/plans`);
   const listed = JSON.stringify(mkt.json).includes(planId);
   trace.check('Plan is listed in the marketplace', listed, true, listed);
@@ -298,8 +434,16 @@ async function main() {
   trace.secret('employer Ed25519 private key (PKCS8)', (privateKey.export({ type: 'pkcs8', format: 'der' }) as Buffer).toString('hex'));
   const employerId = `E2E-EMP-${RUN}`;
   const apply = await http('POST', `${INS}/marketplace/api/apply`, {
-    companyName: 'Fernhill Test Works LLC', employerId, contactName: 'Jordan Testcase', contactEmail: 'hr@fernhill.example.test',
-    ein: '00-0000001', state: 'WI', selectedPlanIds: [planId], effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10, publicKeyHex,
+    companyName: 'Fernhill Test Works LLC',
+    employerId,
+    contactName: 'Jordan Testcase',
+    contactEmail: 'hr@fernhill.example.test',
+    ein: '00-0000001',
+    state: 'WI',
+    selectedPlanIds: [planId],
+    effectiveDate: new Date().toISOString().slice(0, 10),
+    enrollmentCap: 10,
+    publicKeyHex,
   });
   const appId = unwrap(apply.json)?.applicationId;
   // A8: the activation code is shown once at submission and is what collects the admin
@@ -309,26 +453,57 @@ async function main() {
   trace.secret('employer activation secret', claimSecret);
   trace.check('Application accepted', !!appId, 'applicationId', apply.json);
   const pdf = Buffer.from('%PDF-1.4\n% E2E placeholder CP 575 (fictional)\n%%EOF\n');
-  const up = await fetch(`${INS}/marketplace/api/upload-document/${appId}`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: pdf });
-  trace.record({ method: 'POST', url: `${INS}/marketplace/api/upload-document/${appId}`, headers: { 'Content-Type': 'application/pdf' }, body: '(pdf bytes)', status: up.status, response: await up.text(), ms: 0 });
+  const up = await fetch(`${INS}/marketplace/api/upload-document/${appId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/pdf' },
+    body: pdf,
+  });
+  trace.record({
+    method: 'POST',
+    url: `${INS}/marketplace/api/upload-document/${appId}`,
+    headers: { 'Content-Type': 'application/pdf' },
+    body: '(pdf bytes)',
+    status: up.status,
+    response: await up.text(),
+    ms: 0,
+  });
   trace.check('IRS letter uploaded', up.status < 300, '2xx', up.status);
 
   trace.begin('insurer', 'Approve the employer application');
   const appr = await insAdmin('POST', `/employer-applications/${appId}/approve`, {});
-  if (insurerSigMode) trace.check("Insurer approval was authorized only by the insurer (not by another employer's key)", false, 'insurer credential', priorEmployer ? `signed by employer ${priorEmployer.id}` : 'no credential worked');
+  if (insurerSigMode)
+    trace.check(
+      "Insurer approval was authorized only by the insurer (not by another employer's key)",
+      false,
+      'insurer credential',
+      priorEmployer ? `signed by employer ${priorEmployer.id}` : 'no credential worked',
+    );
   trace.check('Application approved', appr.status < 300, '2xx', appr.status);
 
   trace.begin('employer', 'Sign the agreement and activate');
   const agr = unwrap((await http('GET', `${INS}/marketplace/api/agreement/${appId}`)).json);
-  const signerName = 'Jordan Testcase', signerTitle = 'Owner';
+  const signerName = 'Jordan Testcase',
+    signerTitle = 'Owner';
   const msg = Buffer.from(`${agr?.canonicalMessage}|${signerName}|${signerTitle}`, 'utf8');
   const employerSignature = crypto.sign(null, msg, privateKey).toString('hex');
   trace.note(`signed message: ${abbrev(msg.toString(), 160)}`);
-  const sign = await http('POST', `${INS}/marketplace/api/sign/${appId}`, { employerSignature, ts: agr?.ts, signerName, signerTitle, reviewedAt: Date.now() });
+  const sign = await http('POST', `${INS}/marketplace/api/sign/${appId}`, {
+    employerSignature,
+    ts: agr?.ts,
+    signerName,
+    signerTitle,
+    reviewedAt: Date.now(),
+  });
   trace.check('Agreement signature accepted', sign.status < 300, '2xx', sign.status);
   const act = await http('POST', `${INS}/marketplace/api/activate/${appId}`, {});
   const jobKey = unwrap(act.json)?.jobKey ?? appId;
-  const actDone = await poll(quiet, `${INS}/marketplace/api/activate-status/${jobKey}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 300_000, 2000);
+  const actDone = await poll(
+    quiet,
+    `${INS}/marketplace/api/activate-status/${jobKey}`,
+    (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+    300_000,
+    2000,
+  );
   const actData = unwrap(actDone.json);
   trace.check('Employer node activated', actData?.status === 'complete', 'complete', actData?.status ?? actData);
   // A8: the admin token is no longer on the open poll. It is collected once, with the secret.
@@ -346,11 +521,21 @@ async function main() {
   trace.check('Collection without the secret is refused', noSecret.status === 401, '401', noSecret.status);
   trace.check('The open status poll carries no admin token', !actData?.adminToken, 'absent', actData?.adminToken ?? 'absent');
   trace.note(`employer node ${employerNodeUrl}; the HR Tool is run by the employer, below`);
-  trace.check('Activation hands over HR Tool setup steps, not a hosted URL', Array.isArray(credData?.hrToolSetup?.steps) && !credData?.hrToolUrl, 'steps, no URL', credData?.hrToolUrl ? 'a hosted URL' : (credData?.hrToolSetup ? 'steps' : 'nothing'));
+  trace.check(
+    'Activation hands over HR Tool setup steps, not a hosted URL',
+    Array.isArray(credData?.hrToolSetup?.steps) && !credData?.hrToolUrl,
+    'steps, no URL',
+    credData?.hrToolUrl ? 'a hosted URL' : credData?.hrToolSetup ? 'steps' : 'nothing',
+  );
 
   trace.begin('employer', 'Create the benefit group');
   const groupId = `GRP-${RUN}`;
-  const grp = await http('POST', `${employerNodeUrl}/groups`, { groupId, planId, effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10 }, { Authorization: `Bearer ${empAdmin}` });
+  const grp = await http(
+    'POST',
+    `${employerNodeUrl}/groups`,
+    { groupId, planId, effectiveDate: new Date().toISOString().slice(0, 10), enrollmentCap: 10 },
+    { Authorization: `Bearer ${empAdmin}` },
+  );
   trace.check('Group created', grp.status < 300, '2xx', grp.status);
 
   // ── 5. HR Tool issues enrollment codes ─────────────────────
@@ -361,43 +546,108 @@ async function main() {
   trace.note(`HR Tool started by the harness at ${hrToolUrl}, data under hr-tool-data/${employerId}`);
   const passphrase = `hr-pass-${RUN}-${crypto.randomBytes(4).toString('hex')}`;
   trace.secret('HR Tool passphrase', passphrase);
-  const shortPass = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl, adminToken: empAdmin, passphrase: 'short', passphraseConfirm: 'short' });
+  const shortPass = await http('POST', `${hrToolUrl}/api/setup`, {
+    employerNodeUrl,
+    adminToken: empAdmin,
+    passphrase: 'short',
+    passphraseConfirm: 'short',
+  });
   trace.check('A short passphrase is refused at setup', shortPass.status === 400, '400', shortPass.status);
-  const setupRes = await http('POST', `${hrToolUrl}/api/setup`, { employerNodeUrl, adminToken: empAdmin, passphrase, passphraseConfirm: passphrase });
+  const setupRes = await http('POST', `${hrToolUrl}/api/setup`, {
+    employerNodeUrl,
+    adminToken: empAdmin,
+    passphrase,
+    passphraseConfirm: passphrase,
+  });
   trace.check('HR Tool workspace set up with the activation credentials', setupRes.status < 300, '2xx', setupRes.json);
   await http('POST', `${hrToolUrl}/api/group/select`, { groupId });
   // A-109: the roster carries each employee's mobile number, where the HR Tool texts the PIN
-  const csv = ['employee_id,family_id,first_name,last_name,dob,email,mobile',
+  const csv = [
+    'employee_id,family_id,first_name,last_name,dob,email,mobile',
     `${MEMBER.employeeId},${MEMBER.familyId},${MEMBER.firstName},${MEMBER.lastName},${MEMBER.dob},${MEMBER.email},${MEMBER.mobile}`,
-    `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},,${DECOY.mobile}`].join('\n');
+    `${DECOY.employeeId},${DECOY.familyId},${DECOY.firstName},${DECOY.lastName},${DECOY.dob},,${DECOY.mobile}`,
+  ].join('\n');
   // An invite lasts at most 14 days (A-138); this run's codes take seven.
   const validUntil = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
   const imp = await http('POST', `${hrToolUrl}/api/import`, { csvContent: csv, validUntil, dryRun: false });
   const impData = unwrap(imp.json) ?? imp.json;
   trace.check('Both employees imported', impData?.success === 2, 2, imp.json);
-  const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; pinSentTo?: string }>).filter(r => r.status === 'ok');
-  trace.check('The import answer carries no PIN, only where each was texted (A-109)', issued.length === 2 && !JSON.stringify(imp.json).includes('tokenPIN') && issued.map(r => r.pinSentTo).sort().join(',') === '•••0101,•••0102', '•••0101,•••0102', issued.map(r => r.pinSentTo ?? 'none'));
+  const issued = ((impData?.results ?? []) as Array<{ employeeId: string; status: string; tokenId?: string; pinSentTo?: string }>).filter(
+    (r) => r.status === 'ok',
+  );
+  trace.check(
+    'The import answer carries no PIN, only where each was texted (A-109)',
+    issued.length === 2 &&
+      !JSON.stringify(imp.json).includes('tokenPIN') &&
+      issued
+        .map((r) => r.pinSentTo)
+        .sort()
+        .join(',') === '•••0101,•••0102',
+    '•••0101,•••0102',
+    issued.map((r) => r.pinSentTo ?? 'none'),
+  );
   // The employees' phones, for this run: the HR Tool's text outbox.
-  const texts = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : []).map(l => JSON.parse(l) as { to: string; body: string });
-  const textedPin = (to: string) => /\b(\d{8})\b/.exec(texts.filter(t => t.to === to).pop()?.body ?? '')?.[1] ?? '';
-  trace.check('Each PIN was texted straight to its employee\'s number (A-109)', texts.length === 2 && /^\d{8}$/.test(textedPin(MEMBER.mobile)) && /^\d{8}$/.test(textedPin(DECOY.mobile)) && textedPin(MEMBER.mobile) !== textedPin(DECOY.mobile), 'one eight-digit PIN per number', texts.map(t => t.to.slice(-4)));
+  const texts = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : []).map(
+    (l) => JSON.parse(l) as { to: string; body: string },
+  );
+  const textedPin = (to: string) => /\b(\d{8})\b/.exec(texts.filter((t) => t.to === to).pop()?.body ?? '')?.[1] ?? '';
+  trace.check(
+    "Each PIN was texted straight to its employee's number (A-109)",
+    texts.length === 2 &&
+      /^\d{8}$/.test(textedPin(MEMBER.mobile)) &&
+      /^\d{8}$/.test(textedPin(DECOY.mobile)) &&
+      textedPin(MEMBER.mobile) !== textedPin(DECOY.mobile),
+    'one eight-digit PIN per number',
+    texts.map((t) => t.to.slice(-4)),
+  );
   const tok = await http('GET', `${hrToolUrl}/api/export/tokens`);
-  const tokens = (unwrap(tok.json)?.tokens ?? tok.json?.tokens ?? []) as Array<{ tokenId: string; tokenPIN?: string; employeeIdHash: string }>;
+  const tokens = (unwrap(tok.json)?.tokens ?? tok.json?.tokens ?? []) as Array<{
+    tokenId: string;
+    tokenPIN?: string;
+    employeeIdHash: string;
+  }>;
   trace.check('Two enrollment codes issued', tokens.length === 2, 2, tokens.length);
-  trace.check('The export carries no PINs', tokens.every(t => !t.tokenPIN), 'none', tokens.some(t => t.tokenPIN) ? 'a PIN was exported' : 'none');
+  trace.check(
+    'The export carries no PINs',
+    tokens.every((t) => !t.tokenPIN),
+    'none',
+    tokens.some((t) => t.tokenPIN) ? 'a PIN was exported' : 'none',
+  );
   // The HR Tool's own hash of the member: the key its employee routes take.
-  const hrHashOfMember = tokens.find(t => (t as { displayName?: string }).displayName?.startsWith(MEMBER.firstName))?.employeeIdHash ?? '';
+  const hrHashOfMember =
+    tokens.find((t) => (t as { displayName?: string }).displayName?.startsWith(MEMBER.firstName))?.employeeIdHash ?? '';
   const reveal = await http('POST', `${hrToolUrl}/api/employees/${encodeURIComponent(hrHashOfMember)}/pin`, { passphrase });
-  trace.check('No route of the HR Tool shows a PIN again (A-109)', hrHashOfMember.length > 0 && reveal.status === 404 && !reveal.text.includes(textedPin(MEMBER.mobile)), 404, reveal.status);
+  trace.check(
+    'No route of the HR Tool shows a PIN again (A-109)',
+    hrHashOfMember.length > 0 && reveal.status === 404 && !reveal.text.includes(textedPin(MEMBER.mobile)),
+    404,
+    reveal.status,
+  );
   const empl = await http('GET', `${hrToolUrl}/api/employees`);
-  trace.check('The employee list carries no PINs', !JSON.stringify(unwrap(empl.json) ?? empl.json ?? '').includes('tokenPIN'), 'none', 'checked');
-  const myIssue = issued.find(r => r.employeeId === MEMBER.employeeId) ?? issued[0];
+  trace.check(
+    'The employee list carries no PINs',
+    !JSON.stringify(unwrap(empl.json) ?? empl.json ?? '').includes('tokenPIN'),
+    'none',
+    'checked',
+  );
+  const myIssue = issued.find((r) => r.employeeId === MEMBER.employeeId) ?? issued[0];
   const myToken = { tokenId: myIssue?.tokenId ?? tokens[0]?.tokenId ?? '', tokenPIN: textedPin(MEMBER.mobile) };
-  trace.check('Codes reference employees only by hash', tokens.every(t => !JSON.stringify(t).includes(MEMBER.lastName)), 'no names', 'checked');
+  trace.check(
+    'Codes reference employees only by hash',
+    tokens.every((t) => !JSON.stringify(t).includes(MEMBER.lastName)),
+    'no names',
+    'checked',
+  );
   trace.secret('member enrollment code', myToken.tokenId);
   trace.secret('member enrollment PIN', myToken.tokenPIN);
-  const hrLeak = findSecrets(JSON.stringify(imp.json) + JSON.stringify(tok.json), { firstName: MEMBER.firstName, lastName: MEMBER.lastName, dob: MEMBER.dob });
-  trace.note(`HR Tool (employer machine, 127.0.0.1) shows names locally: ${hrLeak.length ? 'yes' : 'no'} — expected; the network scan below checks they never leave it`);
+  const hrLeak = findSecrets(JSON.stringify(imp.json) + JSON.stringify(tok.json), {
+    firstName: MEMBER.firstName,
+    lastName: MEMBER.lastName,
+    dob: MEMBER.dob,
+  });
+  trace.note(
+    `HR Tool (employer machine, 127.0.0.1) shows names locally: ${hrLeak.length ? 'yes' : 'no'} — expected; the network scan below checks they never leave it`,
+  );
 
   // ── 6. Member enrolls ───────────────────────────────────────
   trace.begin('member', 'Enroll on the member device: code → secret key → wallet → insurer');
@@ -418,16 +668,41 @@ async function main() {
   const acc = await mem('POST', '/onboarding/accept-token', { tokenId: myToken.tokenId });
   trace.check('Enrollment code accepted', acc.status < 300, '2xx', acc.json);
   const gk = await mem('POST', '/onboarding/generate-key', {});
-  trace.check('Enrollment key generated and not returned', gk.status < 300 && !JSON.stringify(gk.json).match(/[A-Za-z0-9_-]{40,}/), 'no key in response', gk.json);
+  trace.check(
+    'Enrollment key generated and not returned',
+    gk.status < 300 && !JSON.stringify(gk.json).match(/[A-Za-z0-9_-]{40,}/),
+    'no key in response',
+    gk.json,
+  );
   // C2: the code is redeemed before the wallet exists; the insurer answers the real group and plan
   const rd = await mem('POST', '/onboarding/redeem', { tokenPIN: myToken.tokenPIN });
   const redeemedGroup = unwrap(rd.json)?.groupIdHash as string | undefined;
-  trace.check('Enrollment code redeemed before derivation; the insurer answered the employer group', rd.status < 300 && /^\d+$/.test(redeemedGroup ?? '') && redeemedGroup !== '0', 'groupIdHash', rd.json);
-  trace.check('The group the insurer answered is the employer group', redeemedGroup === hashString(groupId).toString(), hashString(groupId).toString(), redeemedGroup);
+  trace.check(
+    'Enrollment code redeemed before derivation; the insurer answered the employer group',
+    rd.status < 300 && /^\d+$/.test(redeemedGroup ?? '') && redeemedGroup !== '0',
+    'groupIdHash',
+    rd.json,
+  );
+  trace.check(
+    'The group the insurer answered is the employer group',
+    redeemedGroup === hashString(groupId).toString(),
+    hashString(groupId).toString(),
+    redeemedGroup,
+  );
   const today = new Date().toISOString().slice(0, 10);
   const dw = await mem('POST', '/onboarding/derive-wallet', {
-    cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, firstName: MEMBER.firstName, lastName: MEMBER.lastName,
-    consentRecord: { phiDescription: 'Claim adjudication data', disclosingParty: 'Member', receivingParty: 'zpk.care network', purpose: 'E2E verification', expiration: '2027-12-31', signatureDate: today },
+    cardholderId: MEMBER.employeeId,
+    dateOfBirth: MEMBER.dob,
+    firstName: MEMBER.firstName,
+    lastName: MEMBER.lastName,
+    consentRecord: {
+      phiDescription: 'Claim adjudication data',
+      disclosingParty: 'Member',
+      receivingParty: 'zpk.care network',
+      purpose: 'E2E verification',
+      expiration: '2027-12-31',
+      signatureDate: today,
+    },
   });
   const walletId = unwrap(dw.json)?.walletId as string;
   trace.check('Wallet derived on the device', !!walletId, 'walletId', dw.json);
@@ -438,7 +713,14 @@ async function main() {
   trace.check('Insurer accepted the enrollment', en.status < 300 && unwrap(en.json)?.insurerNotified !== false, 'insurerNotified', en.json);
   const cards = (unwrap(en.json)?.recoveryCards ?? []) as RecoveryCardV3[];
   trace.check('Two recovery cards issued once, at the enrollment tap', cards.length === 2, 2, cards.length);
-  trace.check('A recovery card is opaque: an id and one share, under 160 bytes, no wallet ID or hash on it', cards.every(c => Object.keys(c).sort().join() === 'id,s,v' && JSON.stringify(c).length < 160 && !JSON.stringify(c).includes(walletId)), 'opaque', cards.map(c => JSON.stringify(c).length));
+  trace.check(
+    'A recovery card is opaque: an id and one share, under 160 bytes, no wallet ID or hash on it',
+    cards.every(
+      (c) => Object.keys(c).sort().join() === 'id,s,v' && JSON.stringify(c).length < 160 && !JSON.stringify(c).includes(walletId),
+    ),
+    'opaque',
+    cards.map((c) => JSON.stringify(c).length),
+  );
   trace.secret('recovery card A', JSON.stringify(cards[0] ?? null));
   trace.secret('recovery card B', JSON.stringify(cards[1] ?? null));
   trace.secret('member recovery PIN', RECOVERY_PIN);
@@ -447,7 +729,7 @@ async function main() {
   const tc = Date.now();
   const comp = await mem('POST', '/onboarding/compile', {});
   if (comp.status === 504) trace.note('compile outlasted the 30 s HTTP timeout; polling status instead of retrying');
-  await poll(quiet, `${MEM}/onboarding/status`, j => ['ready', 'registered', 'registering'].includes(unwrap(j)?.phase), 600_000, 3000);
+  await poll(quiet, `${MEM}/onboarding/status`, (j) => ['ready', 'registered', 'registering'].includes(unwrap(j)?.phase), 600_000, 3000);
   results.memberCompileMs = Date.now() - tc;
   const tr = Date.now();
   const reg = await mem('POST', '/proof/registration', {});
@@ -458,7 +740,10 @@ async function main() {
     // ran its full 900 s; the operator's token reads them, and a refusal ends the wait instead of hiding in it.
     const rr = await quietAdmin('POST', `${SEQ}/rpc`, { jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet', params: { walletId } });
     const parsed = l2Parse(rr.text) as any;
-    if (parsed?.error?.code === -32003 || parsed?.error?.code === -32004) { trace.note(`receipt poll refused: ${parsed.error.message}`); break; }
+    if (parsed?.error?.code === -32003 || parsed?.error?.code === -32004) {
+      trace.note(`receipt poll refused: ${parsed.error.message}`);
+      break;
+    }
     const lst = parsed?.result;
     if ((lst?.receipts ?? lst ?? []).length > 0) break;
     await sleep(5000);
@@ -466,8 +751,12 @@ async function main() {
   results.registrationMs = Date.now() - tr;
   // The member node registers with the engine after the receipt, inside the same handler, so the
   // record follows the receipt by a moment that grows with load; wait for it rather than race it.
-  const memberRecordOf = (state: any) => ((state?.enrolledMembers ?? []) as any[]).find(m => m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))));
-  await poll(quietAdmin, `${SEQ}/interactive/state`, j => !!memberRecordOf(unwrap(j) ?? j), 180_000, 3000);
+  const memberRecordOf = (state: any) =>
+    ((state?.enrolledMembers ?? []) as any[]).find(
+      (m) =>
+        m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))),
+    );
+  await poll(quietAdmin, `${SEQ}/interactive/state`, (j) => !!memberRecordOf(unwrap(j) ?? j), 180_000, 3000);
   // B1 step two: the credential mint is a wallet update the device proves; the engine holds no preimage
   let mintRun: any = null;
   for (let t = Date.now(); Date.now() - t < 300_000;) {
@@ -476,51 +765,155 @@ async function main() {
     if (run.status === 200 && Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0) break;
     await sleep(5000);
   }
-  trace.check('The device proved the credential mint it was handed; the engine never held its preimage', Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0, 'pending 0, no errors', mintRun);
+  trace.check(
+    'The device proved the credential mint it was handed; the engine never held its preimage',
+    Number(mintRun?.pending) === 0 && (mintRun?.errors ?? []).length === 0 && (mintRun?.refused ?? []).length === 0,
+    'pending 0, no errors',
+    mintRun,
+  );
   const emptyInventoryRoot = new MerkleTree(CREDENTIAL_INVENTORY_HEIGHT).getRoot().toString();
   const afterMint = await rpc('l2_getWalletState', { walletId });
-  trace.check('The ledger holds a minted credential root for the wallet, proved by the device', typeof afterMint.result?.credentialInventoryRoot === 'string' && afterMint.result.credentialInventoryRoot !== emptyInventoryRoot && afterMint.result.credentialInventoryRoot !== '0', 'not the empty inventory root', abbrev(String(afterMint.result?.credentialInventoryRoot ?? afterMint), 14));
+  trace.check(
+    'The ledger holds a minted credential root for the wallet, proved by the device',
+    typeof afterMint.result?.credentialInventoryRoot === 'string' &&
+      afterMint.result.credentialInventoryRoot !== emptyInventoryRoot &&
+      afterMint.result.credentialInventoryRoot !== '0',
+    'not the empty inventory root',
+    abbrev(String(afterMint.result?.credentialInventoryRoot ?? afterMint), 14),
+  );
 
   // ── Step 2 commit two: the engine bound the member to the plan the insurer sold, and the A-6 door ──
-  trace.begin('verifier', 'The engine binds the member to the insurer\'s plan, and refuses a wallet the insurer never approved');
+  trace.begin('verifier', "The engine binds the member to the insurer's plan, and refuses a wallet the insurer never approved");
   const dumpRes = await httpAdmin('GET', `${SEQ}/interactive/state`);
   const dumpState = unwrap(dumpRes.json) ?? dumpRes.json ?? {};
-  const mine = ((dumpState?.enrolledMembers ?? []) as any[]).find(m => m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))));
+  const mine = ((dumpState?.enrolledMembers ?? []) as any[]).find(
+    (m) =>
+      m.walletId === walletId || (typeof m.walletIdDisplay === 'string' && walletId.startsWith(m.walletIdDisplay.replace(/\.\.\.$/, ''))),
+  );
   trace.check('The engine has the member record', !!mine, 'record', mine ? 'found' : Object.keys(dumpState ?? {}));
   trace.check('The engine bound the member to the plan the insurer sold, not a default', mine?.planId === planId, planId, mine?.planId);
-  trace.check('The engine bound the member to the employer group', mine?.groupId === hashString(groupId).toString(), hashString(groupId).toString(), mine?.groupId);
-  trace.check('The accumulator limits come from that plan (its out-of-pocket maximum, not PLAN-GOLD\'s)', Number(mine?.accumulator?.limits?.oopMaxCents) === plan.oopMaxCents, plan.oopMaxCents, mine?.accumulator?.limits);
+  trace.check(
+    'The engine bound the member to the employer group',
+    mine?.groupId === hashString(groupId).toString(),
+    hashString(groupId).toString(),
+    mine?.groupId,
+  );
+  trace.check(
+    "The accumulator limits come from that plan (its out-of-pocket maximum, not PLAN-GOLD's)",
+    Number(mine?.accumulator?.limits?.oopMaxCents) === plan.oopMaxCents,
+    plan.oopMaxCents,
+    mine?.accumulator?.limits,
+  );
   const sameList = (a: unknown, b: number[]) => Array.isArray(a) && a.length === b.length && a.every((v, i) => Number(v) === b[i]);
-  trace.check('The provider network comes from the plan the insurer published, not a demo table', sameList(mine?.inNetworkPrescribers, networkPrescriberIdx) && sameList(mine?.inNetworkPharmacies, networkPharmacyIdx), `${networkPrescriberIdx.join(',')} / ${networkPharmacyIdx.join(',')}`, `${mine?.inNetworkPrescribers} / ${mine?.inNetworkPharmacies}`);
+  trace.check(
+    'The provider network comes from the plan the insurer published, not a demo table',
+    sameList(mine?.inNetworkPrescribers, networkPrescriberIdx) && sameList(mine?.inNetworkPharmacies, networkPharmacyIdx),
+    `${networkPrescriberIdx.join(',')} / ${networkPharmacyIdx.join(',')}`,
+    `${mine?.inNetworkPrescribers} / ${mine?.inNetworkPharmacies}`,
+  );
   // Plan-bound formularies: the eligibility credential names the plan, the employer group, the plan's copay and the
   // formulary and network roots the insurer published, never the console's PLAN-GOLD-2026 template.
   const publishedPlan = (await rpc('l2_getPlan', { planId })).result ?? {};
   const elig = mine?.eligibility ?? {};
-  trace.check('The credential names the plan the insurer sold', elig.planIdHash === hashString(planId).toString(), hashString(planId).toString(), elig.planIdHash);
-  trace.check('The credential names the employer group (its hash)', elig.groupIdHash === hashString(groupId).toString(), hashString(groupId).toString(), elig.groupIdHash);
-  trace.check('The credential carries the plan\'s copay', Number(elig.copayAmountCents) === plan.copayAmountCents, plan.copayAmountCents, elig.copayAmountCents);
-  trace.check('The plan record\'s formulary root is a Merkle root, not an overlay version number', typeof publishedPlan.formularyRoot === 'string' && publishedPlan.formularyRoot.length > 20, 'a field element', publishedPlan.formularyRoot);
-  trace.check('The credential names the formulary root the insurer published', elig.formularyRoot === publishedPlan.formularyRoot, publishedPlan.formularyRoot, elig.formularyRoot);
-  trace.check('The credential names the provider network root the insurer published', elig.networkRoot === publishedPlan.networkRoot, publishedPlan.networkRoot, elig.networkRoot);
-  const eligCommitment = Poseidon.hash([elig.planIdHash, elig.groupIdHash, elig.effectiveDate, elig.terminationDate, elig.copayAmountCents, elig.coverageType, elig.formularyRoot, elig.networkRoot].map((v: unknown) => Field(BigInt(String(v ?? '0'))))).toString();
-  trace.check('The eligibility commitment recomputes from those fields', eligCommitment === elig.commitment, elig.commitment, eligCommitment);
-  const mallory = [1n, 2n, 3n, 4n, 5n, 6n].map(n => Field(n * 7919n + 17n));
+  trace.check(
+    'The credential names the plan the insurer sold',
+    elig.planIdHash === hashString(planId).toString(),
+    hashString(planId).toString(),
+    elig.planIdHash,
+  );
+  trace.check(
+    'The credential names the employer group (its hash)',
+    elig.groupIdHash === hashString(groupId).toString(),
+    hashString(groupId).toString(),
+    elig.groupIdHash,
+  );
+  trace.check(
+    "The credential carries the plan's copay",
+    Number(elig.copayAmountCents) === plan.copayAmountCents,
+    plan.copayAmountCents,
+    elig.copayAmountCents,
+  );
+  trace.check(
+    "The plan record's formulary root is a Merkle root, not an overlay version number",
+    typeof publishedPlan.formularyRoot === 'string' && publishedPlan.formularyRoot.length > 20,
+    'a field element',
+    publishedPlan.formularyRoot,
+  );
+  trace.check(
+    'The credential names the formulary root the insurer published',
+    elig.formularyRoot === publishedPlan.formularyRoot,
+    publishedPlan.formularyRoot,
+    elig.formularyRoot,
+  );
+  trace.check(
+    'The credential names the provider network root the insurer published',
+    elig.networkRoot === publishedPlan.networkRoot,
+    publishedPlan.networkRoot,
+    elig.networkRoot,
+  );
+  const eligCommitment = Poseidon.hash(
+    [
+      elig.planIdHash,
+      elig.groupIdHash,
+      elig.effectiveDate,
+      elig.terminationDate,
+      elig.copayAmountCents,
+      elig.coverageType,
+      elig.formularyRoot,
+      elig.networkRoot,
+    ].map((v: unknown) => Field(BigInt(String(v ?? '0')))),
+  ).toString();
+  trace.check(
+    'The eligibility commitment recomputes from those fields',
+    eligCommitment === elig.commitment,
+    elig.commitment,
+    eligCommitment,
+  );
+  const mallory = [1n, 2n, 3n, 4n, 5n, 6n].map((n) => Field(n * 7919n + 17n));
   const malloryWallet = Poseidon.hash([Field(0), ...mallory]).toString();
   // B2: the engine takes no identity preimage at all, from anyone
-  const withPreimage = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, preimageFields: mallory.map(f => f.toString()), displayName: 'Mallory' });
-  trace.check('The engine refuses an identity preimage outright (B2)', withPreimage.status === 400 && /never sent/.test(JSON.stringify(withPreimage.json ?? withPreimage.text ?? '')), '400, never sent', `${withPreimage.status} ${JSON.stringify(withPreimage.json ?? withPreimage.text ?? '').slice(0, 120)}`);
+  const withPreimage = await http('POST', `${SEQ}/interactive/register-member`, {
+    walletId: malloryWallet,
+    preimageFields: mallory.map((f) => f.toString()),
+    displayName: 'Mallory',
+  });
+  trace.check(
+    'The engine refuses an identity preimage outright (B2)',
+    withPreimage.status === 400 && /never sent/.test(JSON.stringify(withPreimage.json ?? withPreimage.text ?? '')),
+    '400, never sent',
+    `${withPreimage.status} ${JSON.stringify(withPreimage.json ?? withPreimage.text ?? '').slice(0, 120)}`,
+  );
   // The engine verifies the ownership proof before it reads anything about the wallet, so a forged registration is
   // refused for its proof, with the same answer for every wallet, and no longer hears that the insurer never approved
   // this one (the security review of the sweep fixes, 2026-10-24); nothing is kept for the wallet.
-  const forged = await http('POST', `${SEQ}/interactive/register-member`, { walletId: malloryWallet, ownershipProofJson: '{}', displayName: 'Mallory' });
+  const forged = await http('POST', `${SEQ}/interactive/register-member`, {
+    walletId: malloryWallet,
+    ownershipProofJson: '{}',
+    displayName: 'Mallory',
+  });
   const forgedSaid = JSON.stringify(forged.json ?? forged.text ?? '');
-  trace.check('register-member refuses a forged registration for its proof (A-6)', forged.status === 400 && /ownership proof could not be read/.test(forgedSaid), '400, the ownership proof could not be read', `${forged.status} ${forgedSaid.slice(0, 120)}`);
+  trace.check(
+    'register-member refuses a forged registration for its proof (A-6)',
+    forged.status === 400 && /ownership proof could not be read/.test(forgedSaid),
+    '400, the ownership proof could not be read',
+    `${forged.status} ${forgedSaid.slice(0, 120)}`,
+  );
   const membersNow = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json)?.enrolledMembers;
   const keptForMallory = Array.isArray(membersNow) && membersNow.some((m: any) => m.walletId === malloryWallet);
-  trace.check('…and keeps nothing for that wallet', Array.isArray(membersNow) && !keptForMallory, 'no member record', !Array.isArray(membersNow) ? 'engine state not read' : keptForMallory ? 'a member record' : 'none');
+  trace.check(
+    '…and keeps nothing for that wallet',
+    Array.isArray(membersNow) && !keptForMallory,
+    'no member record',
+    !Array.isArray(membersNow) ? 'engine state not read' : keptForMallory ? 'a member record' : 'none',
+  );
   const receipts = await rpc('l2_getReceiptsByWallet', { walletId });
   const recList = receipts.result?.receipts ?? receipts.result ?? [];
-  trace.check('Sequencer issued a receipt for the registration proof', Array.isArray(recList) && recList.length > 0, '≥1 receipt', recList?.length ?? receipts);
+  trace.check(
+    'Sequencer issued a receipt for the registration proof',
+    Array.isArray(recList) && recList.length > 0,
+    '≥1 receipt',
+    recList?.length ?? receipts,
+  );
   trace.note(`member node status after registration: ${JSON.stringify(unwrap(regDone.json))?.slice(0, 200)}`);
   const timings = await mem('GET', '/proof-timings');
   results.memberProofTimings = unwrap(timings.json);
@@ -530,7 +923,7 @@ async function main() {
   const ls = new NautilusLocalState(STATE_DIR);
   await ls.unlock(MEMBER.memberPin);
   const dev = await ls.load();
-  const enrollmentKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey(k => k) : '';
+  const enrollmentKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey((k) => k) : '';
   trace.secret('member enrollment key (device only)', enrollmentKey);
   trace.secret('member wallet preimage fields', JSON.stringify(dev?.preimageFields));
   trace.check('Device state belongs to this member', dev?.walletId === walletId, walletId, dev?.walletId);
@@ -541,25 +934,57 @@ async function main() {
   const salt = dev?.identitySalt ?? '';
   trace.check('The device holds an identity salt (32 bytes, hex)', isIdentitySalt(salt), 'salt', isIdentitySalt(salt) ? 'present' : salt);
   trace.secret('member identity salt (device only)', salt);
-  const expectedPre: Array<[string, string]> = isIdentitySalt(salt) ? [
-    ['cardholder ID hash', hashIdentityField(MEMBER.employeeId, salt).toString()],
-    ['date of birth hash', hashIdentityDate(MEMBER.dob, salt).toString()],
-    ['first name hash', hashIdentityField(MEMBER.firstName, salt).toString()],
-    ['last name hash', hashIdentityField(MEMBER.lastName, salt).toString()],
-    ['enrollment key hash', hashIdentityField(enrollmentKey, salt).toString()],
-    ['employer group hash', hashString(groupId).toString()],
-  ] : [];
-  trace.check('The unsalted dictionary no longer matches the stored name hash (the A-1 inversion)', pre[2] !== hashString(MEMBER.firstName).toString(), 'no match', pre[2] === hashString(MEMBER.firstName).toString() ? 'matched' : 'no match');
-  expectedPre.forEach(([label, v], i) => trace.check(`Wallet input ${i + 1}: ${label} recomputes from the raw value`, pre[i] === v, v, pre[i],
-    i === 5 && pre[i] === '0' ? 'device never received the group; wallet is not bound to the employer group' : undefined));
-  const fromDevice = Poseidon.hash([Field(0), ...pre.map(f => Field(BigInt(f)))]).toString();
+  const expectedPre: Array<[string, string]> = isIdentitySalt(salt)
+    ? [
+        ['cardholder ID hash', hashIdentityField(MEMBER.employeeId, salt).toString()],
+        ['date of birth hash', hashIdentityDate(MEMBER.dob, salt).toString()],
+        ['first name hash', hashIdentityField(MEMBER.firstName, salt).toString()],
+        ['last name hash', hashIdentityField(MEMBER.lastName, salt).toString()],
+        ['enrollment key hash', hashIdentityField(enrollmentKey, salt).toString()],
+        ['employer group hash', hashString(groupId).toString()],
+      ]
+    : [];
+  trace.check(
+    'The unsalted dictionary no longer matches the stored name hash (the A-1 inversion)',
+    pre[2] !== hashString(MEMBER.firstName).toString(),
+    'no match',
+    pre[2] === hashString(MEMBER.firstName).toString() ? 'matched' : 'no match',
+  );
+  expectedPre.forEach(([label, v], i) =>
+    trace.check(
+      `Wallet input ${i + 1}: ${label} recomputes from the raw value`,
+      pre[i] === v,
+      v,
+      pre[i],
+      i === 5 && pre[i] === '0' ? 'device never received the group; wallet is not bound to the employer group' : undefined,
+    ),
+  );
+  const fromDevice = Poseidon.hash([Field(0), ...pre.map((f) => Field(BigInt(f)))]).toString();
   trace.check('Wallet ID = Poseidon(0, the six device inputs)', fromDevice === walletId, walletId, fromDevice);
   const bound = Poseidon.hash([Field(0), ...expectedPre.map(([, v]) => Field(BigInt(v)))]).toString();
   trace.check('Wallet ID is bound to the employer group, as the design specifies', bound === walletId, bound, walletId);
-  if (pre[5] === '0') results.findings.push({ id: 'group-binding', severity: 'medium', title: 'Wallet is not bound to the employer group', evidence: `Device token data has groupId "${groupIdOnDevice}"; wallet input 6 is 0 instead of hash("${groupId}"). accept-token stores the group only if the caller sends it, and the dashboard sends only tokenId.` });
-  const wrongKey = isIdentitySalt(salt) ? Poseidon.hash([Field(0), ...pre.slice(0, 4).map(f => Field(BigInt(f))), hashIdentityField(enrollmentKey + 'x', salt), Field(BigInt(pre[5] ?? '0'))]).toString() : '';
+  if (pre[5] === '0')
+    results.findings.push({
+      id: 'group-binding',
+      severity: 'medium',
+      title: 'Wallet is not bound to the employer group',
+      evidence: `Device token data has groupId "${groupIdOnDevice}"; wallet input 6 is 0 instead of hash("${groupId}"). accept-token stores the group only if the caller sends it, and the dashboard sends only tokenId.`,
+    });
+  const wrongKey = isIdentitySalt(salt)
+    ? Poseidon.hash([
+        Field(0),
+        ...pre.slice(0, 4).map((f) => Field(BigInt(f))),
+        hashIdentityField(enrollmentKey + 'x', salt),
+        Field(BigInt(pre[5] ?? '0')),
+      ]).toString()
+    : '';
   trace.check('A different enrollment key gives a different wallet', wrongKey !== walletId, '≠ walletId', wrongKey);
-  results.secrets = { enrollmentKey, preimageFields: dev?.preimageFields, enrollmentKeyHash: isIdentitySalt(salt) ? hashIdentityField(enrollmentKey, salt).toString() : '', identitySalt: salt };
+  results.secrets = {
+    enrollmentKey,
+    preimageFields: dev?.preimageFields,
+    enrollmentKeyHash: isIdentitySalt(salt) ? hashIdentityField(enrollmentKey, salt).toString() : '',
+    identitySalt: salt,
+  };
 
   // ── 7b. Recover from a card: the insurer releases the other share against the PIN, attempt-limited ──
   trace.begin('member', 'Recover the enrollment key from card B: a wrong PIN is refused, the right one releases the deposit');
@@ -567,20 +992,67 @@ async function main() {
     const cardB = cards[1];
     const wrong = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier('000000', cardB.id) });
     trace.check('A wrong recovery PIN releases nothing', wrong.status === 403, 403, wrong.status);
-    const right = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
+    const right = await http('POST', `${INS}/recovery/release`, {
+      cardId: cardB.id,
+      pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id),
+    });
     const bundle = unwrap(right.json) ?? {};
-    trace.check('The right recovery PIN releases the deposit', right.status === 200 && typeof bundle.share2Hex === 'string', 'share2Hex', right.status);
+    trace.check(
+      'The right recovery PIN releases the deposit',
+      right.status === 200 && typeof bundle.share2Hex === 'string',
+      'share2Hex',
+      right.status,
+    );
     let recombined = '';
-    try { recombined = combineEnrollmentKey(cardB, bundle.share2Hex); } catch { recombined = ''; }
-    trace.check('Card B and the released share recombine into the device\'s enrollment key', recombined === enrollmentKey, 'same key', recombined === enrollmentKey ? 'same key' : 'different');
-    trace.check('The released salt is the device\'s, and the released group is the employer group', bundle.identitySalt === salt && bundle.groupIdHash === hashString(groupId).toString(), 'match', [bundle.identitySalt === salt, bundle.groupIdHash === hashString(groupId).toString()]);
+    try {
+      recombined = combineEnrollmentKey(cardB, bundle.share2Hex);
+    } catch {
+      recombined = '';
+    }
+    trace.check(
+      "Card B and the released share recombine into the device's enrollment key",
+      recombined === enrollmentKey,
+      'same key',
+      recombined === enrollmentKey ? 'same key' : 'different',
+    );
+    trace.check(
+      "The released salt is the device's, and the released group is the employer group",
+      bundle.identitySalt === salt && bundle.groupIdHash === hashString(groupId).toString(),
+      'match',
+      [bundle.identitySalt === salt, bundle.groupIdHash === hashString(groupId).toString()],
+    );
     let rederived = '';
-    try { rederived = deriveMemberWalletId({ cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, genderCode: 0, firstName: MEMBER.firstName, lastName: MEMBER.lastName }, recombined, Field(BigInt(bundle.groupIdHash ?? '0')), bundle.identitySalt ?? ''). toString(); } catch { rederived = ''; }
-    trace.check('The released deposit re-derives the enrolled wallet from the member\'s details', rederived === walletId, walletId, rederived);
+    try {
+      rederived = deriveMemberWalletId(
+        { cardholderId: MEMBER.employeeId, dateOfBirth: MEMBER.dob, genderCode: 0, firstName: MEMBER.firstName, lastName: MEMBER.lastName },
+        recombined,
+        Field(BigInt(bundle.groupIdHash ?? '0')),
+        bundle.identitySalt ?? '',
+      ).toString();
+    } catch {
+      rederived = '';
+    }
+    trace.check(
+      "The released deposit re-derives the enrolled wallet from the member's details",
+      rederived === walletId,
+      walletId,
+      rederived,
+    );
     trace.check('The release carries no wallet ID', !JSON.stringify(right.json).includes(walletId), 'absent', 'checked');
-    const revoke = await http('POST', `${INS}/recovery/revoke`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
-    const afterRevoke = await http('POST', `${INS}/recovery/release`, { cardId: cardB.id, pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id) });
-    trace.check('A revoked card releases nothing, even with the right PIN', revoke.status === 200 && afterRevoke.status === 403, '200 then 403', [revoke.status, afterRevoke.status]);
+    const revoke = await http('POST', `${INS}/recovery/revoke`, {
+      cardId: cardB.id,
+      pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id),
+    });
+    const afterRevoke = await http('POST', `${INS}/recovery/release`, {
+      cardId: cardB.id,
+      pinVerifier: recoveryPinVerifier(RECOVERY_PIN, cardB.id),
+    });
+    trace.check(
+      'A revoked card releases nothing, even with the right PIN',
+      revoke.status === 200 && afterRevoke.status === 403,
+      '200 then 403',
+      [revoke.status, afterRevoke.status],
+    );
   } else {
     trace.note('recovery stage skipped: no cards or no salt');
   }
@@ -597,10 +1069,29 @@ async function main() {
   // the second leaf while the engine billed it.
   const copay = BigInt(plan.copayAmountCents);
   const planDrugsListed = SCENARIO_DRUGS.map((s) => medByNdc(s.ndc));
-  const listedAt = (m: any, nadac: string) => { try { return m?.nadacPerUnit != null && nadacE5(String(m.nadacPerUnit)) === nadacE5(nadac); } catch { return false; } };
-  trace.check('The formulary lists each of the plan\'s drugs, claimable, at the NADAC price its scenario was written for',
-    planDrugsListed.every((m: any, i: number) => !!m && m.active !== false && !m.requiresPriorAuth && !m.stepTherapyRequired && (m.maxQuantityPerFill ?? 0) >= SCENARIO_DRUGS[i].qty && listedAt(m, SCENARIO_DRUGS[i].nadac)),
-    SCENARIO_DRUGS.map((s) => `${s.ndc} at $${s.nadac}`), planDrugsListed.map((m: any, i: number) => (m ? `${SCENARIO_DRUGS[i].ndc} at $${m.nadacPerUnit}` : `${SCENARIO_DRUGS[i].ndc} not listed`)));
+  const listedAt = (m: any, nadac: string) => {
+    try {
+      return m?.nadacPerUnit != null && nadacE5(String(m.nadacPerUnit)) === nadacE5(nadac);
+    } catch {
+      return false;
+    }
+  };
+  trace.check(
+    "The formulary lists each of the plan's drugs, claimable, at the NADAC price its scenario was written for",
+    planDrugsListed.every(
+      (m: any, i: number) =>
+        !!m &&
+        m.active !== false &&
+        !m.requiresPriorAuth &&
+        !m.stepTherapyRequired &&
+        (m.maxQuantityPerFill ?? 0) >= SCENARIO_DRUGS[i].qty &&
+        listedAt(m, SCENARIO_DRUGS[i].nadac),
+    ),
+    SCENARIO_DRUGS.map((s) => `${s.ndc} at $${s.nadac}`),
+    planDrugsListed.map((m: any, i: number) =>
+      m ? `${SCENARIO_DRUGS[i].ndc} at $${m.nadacPerUnit}` : `${SCENARIO_DRUGS[i].ndc} not listed`,
+    ),
+  );
   const drugFor = (m: any) => ({ med: m, ndcHash: hashString(String(m.ndc).replace(/-/g, '')).toString(), copay });
   const claimDrugs = planDrugsListed.map((m: any) => drugFor(m ?? meds[0]));
   const med = claimDrugs[0].med;
@@ -610,100 +1101,289 @@ async function main() {
   const fixtures = (await http('GET', `${EXP}/fixtures.json`)).json ?? {};
   const prescribers = (fixtures?.prescribers ?? []) as any[];
   const pharmacies = (fixtures?.pharmacies ?? []) as any[];
-  trace.check('The gated state dump carries no fixture person records', !st.json?.demoData?.members && !st.json?.demoData?.prescribers && !st.json?.demoData?.pharmacies, 'none', st.json?.demoData?.members ? 'members present' : 'none');
-  trace.check('The explorer serves the fixture directory', prescribers.length > 0 && pharmacies.length > 0, 'prescribers and pharmacies', `${prescribers.length} / ${pharmacies.length}`);
-  trace.note(`drug: ${med.brandName} ${med.strength} (NDC ${med.ndc}, tier ${med.tier}, copay ${copay}¢); ${prescribers.length} prescribers, ${pharmacies.length} pharmacies`);
+  trace.check(
+    'The gated state dump carries no fixture person records',
+    !st.json?.demoData?.members && !st.json?.demoData?.prescribers && !st.json?.demoData?.pharmacies,
+    'none',
+    st.json?.demoData?.members ? 'members present' : 'none',
+  );
+  trace.check(
+    'The explorer serves the fixture directory',
+    prescribers.length > 0 && pharmacies.length > 0,
+    'prescribers and pharmacies',
+    `${prescribers.length} / ${pharmacies.length}`,
+  );
+  trace.note(
+    `drug: ${med.brandName} ${med.strength} (NDC ${med.ndc}, tier ${med.tier}, copay ${copay}¢); ${prescribers.length} prescribers, ${pharmacies.length} pharmacies`,
+  );
 
   // Accumulator before any claim: the limits of the plan this run registered (A-35; the engine used to reset them to
   // fixed values after the first fill, and this expectation used those values, which hid it).
-  let acc0 = { deductibleAmountCents: BigInt(plan.deductibleAmountCents), deductiblePaidCents: 0n, oopMaxCents: BigInt(plan.oopMaxCents), oopPaidCents: 0n, annualBenefitMaxCents: BigInt(plan.annualBenefitMaxCents), annualBenefitUsedCents: 0n };
+  let acc0 = {
+    deductibleAmountCents: BigInt(plan.deductibleAmountCents),
+    deductiblePaidCents: 0n,
+    oopMaxCents: BigInt(plan.oopMaxCents),
+    oopPaidCents: 0n,
+    annualBenefitMaxCents: BigInt(plan.annualBenefitMaxCents),
+    annualBenefitUsedCents: 0n,
+  };
 
   // What each claim should cost, from its NADAC price and the plan's fee, by the plan rule rather than the engine's code.
-  const scenarios = SCENARIO_DRUGS.map((s) => ({ ...s, ingredient: expectedNadacIngredientCents(nadacE5(s.nadac), s.qty), fee: BigInt(plan.dispensingFeeCents) }));
+  const scenarios = SCENARIO_DRUGS.map((s) => ({
+    ...s,
+    ingredient: expectedNadacIngredientCents(nadacE5(s.nadac), s.qty),
+    fee: BigInt(plan.dispensingFeeCents),
+  }));
   // ── 6b. The employer's roster (B6, I6) ──────────────────────
-  trace.begin('employer', 'The employer\'s roster knows the enrollment happened, never the wallet');
+  trace.begin('employer', "The employer's roster knows the enrollment happened, never the wallet");
   const roster = await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` });
   const rosterData = unwrap(roster.json) ?? {};
   const rosterEntries = (rosterData.entries ?? []) as any[];
   const myRow = rosterEntries.find((e: any) => e.tokenIdHash === hashString(myToken.tokenId).toString()); // the row that carries the fingerprint of the member's own code (A-109: never the code); the HR Tool keys rows by its own employee hash
-  trace.check('The roster row for this employee is marked enrolled', roster.status === 200 && myRow?.status === 'enrolled', 'enrolled', myRow?.status ?? roster.status);
-  trace.check('The roster carries each code only as its fingerprint, never the code itself (A-109)', roster.status === 200 && rosterEntries.length > 0 && rosterEntries.every((e: any) => !('tokenId' in e) && typeof e.tokenIdHash === 'string') && !roster.text.includes(myToken.tokenId), 'fingerprints only', roster.text.includes(myToken.tokenId) ? 'the code is in the roster' : rosterEntries.map((e: any) => Object.keys(e).join(',')));
-  trace.check('No roster row has a wallet column, and the member\'s wallet id is nowhere in the response', roster.status === 200 && rosterEntries.every((e: any) => !('walletId' in e)) && !roster.text.includes(walletId) && !/wallet/i.test(roster.text), 'no wallet', rosterEntries.length ? Object.keys(rosterEntries[0]).join(',') : roster.status);
-  trace.check('The roster says the member\'s invite was consumed (A-109: what the notices read)', myRow?.inviteStatus === 'consumed', 'consumed', myRow?.inviteStatus ?? 'none');
+  trace.check(
+    'The roster row for this employee is marked enrolled',
+    roster.status === 200 && myRow?.status === 'enrolled',
+    'enrolled',
+    myRow?.status ?? roster.status,
+  );
+  trace.check(
+    'The roster carries each code only as its fingerprint, never the code itself (A-109)',
+    roster.status === 200 &&
+      rosterEntries.length > 0 &&
+      rosterEntries.every((e: any) => !('tokenId' in e) && typeof e.tokenIdHash === 'string') &&
+      !roster.text.includes(myToken.tokenId),
+    'fingerprints only',
+    roster.text.includes(myToken.tokenId) ? 'the code is in the roster' : rosterEntries.map((e: any) => Object.keys(e).join(',')),
+  );
+  trace.check(
+    "No roster row has a wallet column, and the member's wallet id is nowhere in the response",
+    roster.status === 200 &&
+      rosterEntries.every((e: any) => !('walletId' in e)) &&
+      !roster.text.includes(walletId) &&
+      !/wallet/i.test(roster.text),
+    'no wallet',
+    rosterEntries.length ? Object.keys(rosterEntries[0]).join(',') : roster.status,
+  );
+  trace.check(
+    "The roster says the member's invite was consumed (A-109: what the notices read)",
+    myRow?.inviteStatus === 'consumed',
+    'consumed',
+    myRow?.inviteStatus ?? 'none',
+  );
   // A-109: the employee hears that the invite was used, from the HR Tool on the employer's machine (its timer, or now)
   const noticeRun = await http('POST', `${hrToolUrl}/api/notices`, {});
   const usedNotices = (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : [])
-    .map(l => JSON.parse(l) as { to: string; body: string }).filter(t => t.to === MEMBER.mobile && /was just used/.test(t.body));
-  trace.check('The member is texted that the invite was used, once, and the text carries no PIN (A-109)', noticeRun.status === 200 && usedNotices.length === 1 && !/\b\d{8}\b/.test(usedNotices[0].body), '1 notice, no PIN', `${noticeRun.status}, ${usedNotices.length} notice(s)`);
+    .map((l) => JSON.parse(l) as { to: string; body: string })
+    .filter((t) => t.to === MEMBER.mobile && /was just used/.test(t.body));
+  trace.check(
+    'The member is texted that the invite was used, once, and the text carries no PIN (A-109)',
+    noticeRun.status === 200 && usedNotices.length === 1 && !/\b\d{8}\b/.test(usedNotices[0].body),
+    '1 notice, no PIN',
+    `${noticeRun.status}, ${usedNotices.length} notice(s)`,
+  );
 
   // ── 6c. An invite someone else used: reported, held, cancelled and sent again (A-109) ──
   // The second employee's invite, taken by another phone that holds its code and its texted PIN: the employee hears of
   // it, reports it from a phone of their own, the plan holds the other phone's completion, the employer confirms its
   // employee, the plan cancels, and HR sends a new invite.
-  trace.begin('employer HR', 'Another phone uses the second employee\'s invite first; the employee is told, reports it, the plan holds and cancels it, and HR sends a new invite');
-  const decoyCode = issued.find(r => r.employeeId === DECOY.employeeId)?.tokenId ?? '';
+  trace.begin(
+    'employer HR',
+    "Another phone uses the second employee's invite first; the employee is told, reports it, the plan holds and cancels it, and HR sends a new invite",
+  );
+  const decoyCode = issued.find((r) => r.employeeId === DECOY.employeeId)?.tokenId ?? '';
   const decoyPinHash = decoyCode ? hashTokenPIN(decoyCode, textedPin(DECOY.mobile)) : '';
-  const deviceSecret = () => { const s = crypto.randomBytes(32); return { secret: s.toString('hex'), commitment: crypto.createHash('sha256').update(s).digest('hex') }; };
+  const deviceSecret = () => {
+    const s = crypto.randomBytes(32);
+    return { secret: s.toString('hex'), commitment: crypto.createHash('sha256').update(s).digest('hex') };
+  };
   const thief = deviceSecret();
   const owner = deviceSecret();
-  const taken = await http('POST', `${INS}/enrollment/process`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: thief.commitment, role: 'member' });
+  const taken = await http('POST', `${INS}/enrollment/process`, {
+    tokenId: decoyCode,
+    tokenPinHash: decoyPinHash,
+    completionCommitment: thief.commitment,
+    role: 'member',
+  });
   trace.check('Another phone holding the code and the texted PIN redeems the invite first', taken.status === 200, 200, taken.status);
   await http('POST', `${hrToolUrl}/api/notices`, {});
-  const decoyTexts = () => (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : []).map(l => JSON.parse(l) as { to: string; body: string }).filter(t => t.to === DECOY.mobile);
-  trace.check('The employee is texted that the invite was just used', decoyTexts().some(t => /was just used/.test(t.body)), 'notice', decoyTexts().length);
-  const tried = await http('POST', `${INS}/enrollment/process`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: owner.commitment, role: 'member' });
-  trace.check('The employee\'s own phone is told the invite was used elsewhere, not that the PIN is wrong (A-139)', tried.status === 403 && tried.json?.data?.errorCode === 'USED_ELSEWHERE', '403 USED_ELSEWHERE', `${tried.status} ${tried.json?.data?.errorCode ?? ''}`);
-  const reportFiled = await http('POST', `${INS}/enrollment/report`, { tokenId: decoyCode, tokenPinHash: decoyPinHash, completionCommitment: owner.commitment });
-  trace.check('The employee reports it, and the plan holds the other phone\'s completion', reportFiled.status === 200 && unwrap(reportFiled.json)?.held === 'completion', 'held: completion', unwrap(reportFiled.json) ?? reportFiled.status);
-  const late = await http('POST', `${INS}/enrollment/complete`, { tokenId: decoyCode, walletId: '4242424242424242424242424242424242424', completionSecret: thief.secret });
-  trace.check('The other phone\'s completion is refused while the report is reviewed', late.status === 403 && /held until the plan reviews it/.test(String(late.json?.error ?? '')), 403, late.status);
+  const decoyTexts = () =>
+    (fs.existsSync(hrTextOutbox) ? fs.readFileSync(hrTextOutbox, 'utf8').trim().split('\n').filter(Boolean) : [])
+      .map((l) => JSON.parse(l) as { to: string; body: string })
+      .filter((t) => t.to === DECOY.mobile);
+  trace.check(
+    'The employee is texted that the invite was just used',
+    decoyTexts().some((t) => /was just used/.test(t.body)),
+    'notice',
+    decoyTexts().length,
+  );
+  const tried = await http('POST', `${INS}/enrollment/process`, {
+    tokenId: decoyCode,
+    tokenPinHash: decoyPinHash,
+    completionCommitment: owner.commitment,
+    role: 'member',
+  });
+  trace.check(
+    "The employee's own phone is told the invite was used elsewhere, not that the PIN is wrong (A-139)",
+    tried.status === 403 && tried.json?.data?.errorCode === 'USED_ELSEWHERE',
+    '403 USED_ELSEWHERE',
+    `${tried.status} ${tried.json?.data?.errorCode ?? ''}`,
+  );
+  const reportFiled = await http('POST', `${INS}/enrollment/report`, {
+    tokenId: decoyCode,
+    tokenPinHash: decoyPinHash,
+    completionCommitment: owner.commitment,
+  });
+  trace.check(
+    "The employee reports it, and the plan holds the other phone's completion",
+    reportFiled.status === 200 && unwrap(reportFiled.json)?.held === 'completion',
+    'held: completion',
+    unwrap(reportFiled.json) ?? reportFiled.status,
+  );
+  const late = await http('POST', `${INS}/enrollment/complete`, {
+    tokenId: decoyCode,
+    walletId: '4242424242424242424242424242424242424',
+    completionSecret: thief.secret,
+  });
+  trace.check(
+    "The other phone's completion is refused while the report is reviewed",
+    late.status === 403 && /held until the plan reviews it/.test(String(late.json?.error ?? '')),
+    403,
+    late.status,
+  );
   const decoyPrint = hashString(decoyCode).toString();
   const reportList = await insAdmin('GET', '/enrollment/reports');
-  trace.check('The plan sees the report by the invite\'s fingerprint, open', ((unwrap(reportList.json)?.reports ?? []) as any[]).some(r => r.tokenIdHash === decoyPrint && r.status === 'open'), 'open', reportList.status);
+  trace.check(
+    "The plan sees the report by the invite's fingerprint, open",
+    ((unwrap(reportList.json)?.reports ?? []) as any[]).some((r) => r.tokenIdHash === decoyPrint && r.status === 'open'),
+    'open',
+    reportList.status,
+  );
   const cancelled = await insAdmin('POST', '/enrollment/reports/resolve', { tokenIdHash: decoyPrint, action: 'cancel' });
-  trace.check('The employer confirms its employee and the plan cancels the enrollment, telling the employer node', cancelled.status === 200 && unwrap(cancelled.json)?.employerTold === true, 'cancelled, employer told', unwrap(cancelled.json) ?? cancelled.status);
-  const decoyRow = ((unwrap((await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` })).json)?.entries ?? []) as any[]).find(e => e.tokenIdHash === decoyPrint);
-  trace.check('The employer\'s roster has the employee pending again and the invite spent', decoyRow?.status === 'pending' && decoyRow?.inviteStatus === 'revoked', 'pending, revoked', decoyRow ? `${decoyRow.status}, ${decoyRow.inviteStatus}` : 'no row');
-  const decoyHrHash = tokens.find(t => (t as { displayName?: string }).displayName?.startsWith(DECOY.firstName))?.employeeIdHash ?? '';
+  trace.check(
+    'The employer confirms its employee and the plan cancels the enrollment, telling the employer node',
+    cancelled.status === 200 && unwrap(cancelled.json)?.employerTold === true,
+    'cancelled, employer told',
+    unwrap(cancelled.json) ?? cancelled.status,
+  );
+  const decoyRow = (
+    (unwrap((await http('GET', `${employerNodeUrl}/roster`, undefined, { Authorization: `Bearer ${empAdmin}` })).json)?.entries ??
+      []) as any[]
+  ).find((e) => e.tokenIdHash === decoyPrint);
+  trace.check(
+    "The employer's roster has the employee pending again and the invite spent",
+    decoyRow?.status === 'pending' && decoyRow?.inviteStatus === 'revoked',
+    'pending, revoked',
+    decoyRow ? `${decoyRow.status}, ${decoyRow.inviteStatus}` : 'no row',
+  );
+  const decoyHrHash = tokens.find((t) => (t as { displayName?: string }).displayName?.startsWith(DECOY.firstName))?.employeeIdHash ?? '';
   const textsBefore = decoyTexts().length;
   const reissued = await http('POST', `${hrToolUrl}/api/employees/${encodeURIComponent(decoyHrHash)}/reissue`, { passphrase });
   const fresh = decoyTexts().slice(textsBefore);
-  trace.check('HR sends the employee a new invite, and its PIN is texted to the employee', reissued.status === 200 && fresh.length === 1 && /earlier invite no longer works/.test(fresh[0].body), 'a new invite, texted', `${reissued.status}, ${fresh.length} text(s)`);
+  trace.check(
+    'HR sends the employee a new invite, and its PIN is texted to the employee',
+    reissued.status === 200 && fresh.length === 1 && /earlier invite no longer works/.test(fresh[0].body),
+    'a new invite, texted',
+    `${reissued.status}, ${fresh.length} text(s)`,
+  );
 
   // ── 7b. Primary care, from the device (B1 step two, commit three; B5 put it before the claims) ──
   trace.begin('member', 'The member names the prescriber node as primary care; the engine queues it, the device proves it');
-  const pcpPick = await mem('POST', '/pcp/assign', { pcpWalletId: String(results.prescriberWalletId), effectiveDate: '20261018', specialty: 'Family Medicine' });
+  const pcpPick = await mem('POST', '/pcp/assign', {
+    pcpWalletId: String(results.prescriberWalletId),
+    effectiveDate: '20261018',
+    specialty: 'Family Medicine',
+  });
   trace.check('The device records the choice locally', pcpPick.status === 200, 200, pcpPick.status);
   const pcpProve = await mem('POST', '/proof/pcp-assignment', {});
   const pcpOut = unwrap(pcpProve.json) ?? pcpProve.json;
   const pcpRun = pcpOut?.walletUpdates ?? {};
-  trace.check('The engine recorded the assignment and the device proved the wallet update', pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0, 'pending 0, no errors', pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpProve.status));
-  trace.check('The device registered the link on the sequencer under its own signature', pcpOut?.registeredOnSequencer === true, true, pcpOut?.registeredOnSequencer ?? pcpOut);
+  trace.check(
+    'The engine recorded the assignment and the device proved the wallet update',
+    pcpProve.status === 200 && Number(pcpRun.pending) === 0 && (pcpRun.errors ?? []).length === 0 && (pcpRun.refused ?? []).length === 0,
+    'pending 0, no errors',
+    pcpProve.status === 200 ? pcpRun : (pcpOut ?? pcpProve.status),
+  );
+  trace.check(
+    'The device registered the link on the sequencer under its own signature',
+    pcpOut?.registeredOnSequencer === true,
+    true,
+    pcpOut?.registeredOnSequencer ?? pcpOut,
+  );
   const pcpLinks = await rpc('l2_getPcpAssignments', { prescriberWalletId: String(results.prescriberWalletId) });
-  trace.check('The sequencer lists the member under the prescriber as a primary-care patient', Array.isArray(pcpLinks.result) && pcpLinks.result.some((a: any) => a.memberWalletId === walletId), walletId.slice(0, 12) + '…', pcpLinks.result ?? pcpLinks.error);
+  trace.check(
+    'The sequencer lists the member under the prescriber as a primary-care patient',
+    Array.isArray(pcpLinks.result) && pcpLinks.result.some((a: any) => a.memberWalletId === walletId),
+    walletId.slice(0, 12) + '…',
+    pcpLinks.result ?? pcpLinks.error,
+  );
   const pcpState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
   const pcpMine = memberRecordOf(pcpState);
-  trace.check('The engine holds the assignment on the member record with nothing left to prove', pcpMine?.pcpAssigned === true && Number(pcpMine?.pendingWalletUpdates) === 0, 'pcpAssigned, 0 pending', pcpMine ? { pcpAssigned: pcpMine.pcpAssigned, pendingWalletUpdates: pcpMine.pendingWalletUpdates } : 'no record');
-
+  trace.check(
+    'The engine holds the assignment on the member record with nothing left to prove',
+    pcpMine?.pcpAssigned === true && Number(pcpMine?.pendingWalletUpdates) === 0,
+    'pcpAssigned, 0 pending',
+    pcpMine ? { pcpAssigned: pcpMine.pcpAssigned, pendingWalletUpdates: pcpMine.pendingWalletUpdates } : 'no record',
+  );
 
   // ── 7c. Consent at prescribing (B5) ─────────────────────────
   trace.begin('prescriber', 'An in-network doctor who is not the PCP and holds no authorization cannot prescribe for this member');
   const strangerIdx = networkPrescriberIdx.find((i) => i !== 0)!;
   const strangerRxId = `RX-${RUN}-STRANGER`;
-  const strangerRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: strangerIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: strangerRxId });
-  trace.check('The engine refuses: not the primary-care prescriber, no authorization from the device', strangerRx.status === 403 && /primary-care prescriber/.test(String(strangerRx.json?.error ?? '')), '403 primary-care prescriber', `${strangerRx.status} ${strangerRx.json?.error ?? ''}`.trim());
+  const strangerRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: strangerIdx,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash,
+    quantity: 30,
+    refills: 0,
+    rxId: strangerRxId,
+  });
+  trace.check(
+    'The engine refuses: not the primary-care prescriber, no authorization from the device',
+    strangerRx.status === 403 && /primary-care prescriber/.test(String(strangerRx.json?.error ?? '')),
+    '403 primary-care prescriber',
+    `${strangerRx.status} ${strangerRx.json?.error ?? ''}`.trim(),
+  );
   const strangerState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
-  trace.check('No prescription record was created for the refused request', !((strangerState.prescriptions ?? []) as any[]).some((x: any) => x.id === strangerRxId || x.rxId === strangerRxId), 'none', ((strangerState.prescriptions ?? []) as any[]).filter((x: any) => x.id === strangerRxId).length);
+  trace.check(
+    'No prescription record was created for the refused request',
+    !((strangerState.prescriptions ?? []) as any[]).some((x: any) => x.id === strangerRxId || x.rxId === strangerRxId),
+    'none',
+    ((strangerState.prescriptions ?? []) as any[]).filter((x: any) => x.id === strangerRxId).length,
+  );
 
   // ── 7d. Plan-bound formularies: a drug the plan does not list is refused at prescribing ──
-  trace.begin('prescriber', 'The member\'s primary-care doctor prescribes a drug the plan does not cover');
+  trace.begin('prescriber', "The member's primary-care doctor prescribes a drug the plan does not cover");
   const offPlanMed = medByNdc(OFF_PLAN_NDC);
-  trace.check('The formulary lists the drug left off the plan, claimable, so the probe tests the plan and nothing else', !!offPlanMed && offPlanMed.active !== false && !offPlanMed.requiresPriorAuth && !offPlanMed.stepTherapyRequired, OFF_PLAN_NDC, offPlanMed ? offPlanMed.brandName : 'not listed');
+  trace.check(
+    'The formulary lists the drug left off the plan, claimable, so the probe tests the plan and nothing else',
+    !!offPlanMed && offPlanMed.active !== false && !offPlanMed.requiresPriorAuth && !offPlanMed.stepTherapyRequired,
+    OFF_PLAN_NDC,
+    offPlanMed ? offPlanMed.brandName : 'not listed',
+  );
   const offRxId = `RX-${RUN}-OFFPLAN`;
-  const offRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: hashString(OFF_PLAN_NDC).toString(), quantity: 30, refills: 0, rxId: offRxId });
-  trace.check('The engine refuses a drug that is not on the member\'s plan formulary, before any proof', offRx.status === 403 && /not on the formulary/.test(String(offRx.json?.error ?? '')), '403 not on the formulary', `${offRx.status} ${offRx.json?.error ?? ''}`.trim());
+  const offRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash: hashString(OFF_PLAN_NDC).toString(),
+    quantity: 30,
+    refills: 0,
+    rxId: offRxId,
+  });
+  trace.check(
+    "The engine refuses a drug that is not on the member's plan formulary, before any proof",
+    offRx.status === 403 && /not on the formulary/.test(String(offRx.json?.error ?? '')),
+    '403 not on the formulary',
+    `${offRx.status} ${offRx.json?.error ?? ''}`.trim(),
+  );
   const offState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
-  trace.check('No prescription record was created for the refused drug', !((offState.prescriptions ?? []) as any[]).some((x: any) => x.id === offRxId || x.rxId === offRxId), 'none', ((offState.prescriptions ?? []) as any[]).filter((x: any) => x.id === offRxId).length);
+  trace.check(
+    'No prescription record was created for the refused drug',
+    !((offState.prescriptions ?? []) as any[]).some((x: any) => x.id === offRxId || x.rxId === offRxId),
+    'none',
+    ((offState.prescriptions ?? []) as any[]).filter((x: any) => x.id === offRxId).length,
+  );
 
   for (let ci = 0; ci < scenarios.length; ci++) {
     const sc = scenarios[ci];
@@ -713,10 +1393,26 @@ async function main() {
     let prescriptionId: string | undefined;
     if (ci === 0) {
       // Try the dashboard path first.
-      const dp = await http('POST', `${PRE}/prescriptions/prescribe`, { memberWalletId: walletId, pharmacyWalletId: results.pharmacyWalletId, ndcHash: drug.ndcHash, brandName: drug.med.brandName, quantity: sc.qty, daysSupply: 30, refills: 0, directions: 'Take one daily', diagnosis: 'Z00.00' });
+      const dp = await http('POST', `${PRE}/prescriptions/prescribe`, {
+        memberWalletId: walletId,
+        pharmacyWalletId: results.pharmacyWalletId,
+        ndcHash: drug.ndcHash,
+        brandName: drug.med.brandName,
+        quantity: sc.qty,
+        daysSupply: 30,
+        refills: 0,
+        directions: 'Take one daily',
+        diagnosis: 'Z00.00',
+      });
       const dj = unwrap(dp.json);
       if (dp.status < 300 && dj?.jobKey) {
-        const done = await poll(quiet, `${PRE}/prescriptions/prescribe-status?jobKey=${encodeURIComponent(dj.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        const done = await poll(
+          quiet,
+          `${PRE}/prescriptions/prescribe-status?jobKey=${encodeURIComponent(dj.jobKey)}`,
+          (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+          900_000,
+          5000,
+        );
         const dd = unwrap(done.json);
         trace.check('Prescriber dashboard path completed', dd?.status === 'complete', 'complete', dd);
         prescriptionId = dd?.result?.prescriptionId ?? dd?.prescriptionId;
@@ -727,12 +1423,26 @@ async function main() {
     if (!prescriptionId) {
       // Same call the prescriber node makes, sent straight to the sequencer as the operator (D2: the route takes a credential).
       const tp = Date.now();
-      const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: drug.ndcHash, quantity: sc.qty, refills: 0, rxId });
+      const sp = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+        prescriberIndex: 0,
+        pharmacyIndex: 0,
+        memberWalletId: walletId,
+        ndcHash: drug.ndcHash,
+        quantity: sc.qty,
+        refills: 0,
+        rxId,
+      });
       if (sp.status === 504) trace.note('prescribe outlasted the 30 s HTTP timeout; polling the adjudication state');
       prescriptionId = sp.json?.prescriptionId;
       if (!prescriptionId) {
         const isMine = (x: any) => x.id === rxId || x.rxId === rxId || x.prescriptionId === rxId;
-        const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'), 900_000, 5000);
+        const found = await poll(
+          quietAdmin,
+          `${SEQ}/interactive/state`,
+          (j) => (j?.prescriptions ?? []).some((x: any) => isMine(x) && x.status === 'ADJUDICATED'),
+          900_000,
+          5000,
+        );
         const p = (found.json?.prescriptions ?? []).find(isMine);
         prescriptionId = p?.id ?? p?.prescriptionId;
       }
@@ -746,32 +1456,75 @@ async function main() {
       const over = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty + 1 });
       let overResult: any = unwrap(over.json);
       if (over.status < 300 && overResult?.jobKey) {
-        const od = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(overResult.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        const od = await poll(
+          quiet,
+          `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(overResult.jobKey)}`,
+          (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+          900_000,
+          5000,
+        );
         overResult = unwrap(od.json);
       }
-      trace.check('Circuit rejects dispensing more than was prescribed', overResult?.status === 'error' || over.status >= 400, 'error', overResult?.error ?? overResult?.status ?? over.json);
+      trace.check(
+        'Circuit rejects dispensing more than was prescribed',
+        overResult?.status === 'error' || over.status >= 400,
+        'error',
+        overResult?.error ?? overResult?.status ?? over.json,
+      );
       // Owner decision 2026-10-18: the pharmacy does not set the price. A dispense that names its own cost (the $0
       // ingredient and $13.00 fee the dashboard used to send) is refused before any proof, and nothing is billed.
-      const priced = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty, ingredientCostCents: 0, dispensingFeeCents: 1300 });
+      const priced = await http('POST', `${PHA}/dispensing/dispense`, {
+        prescriptionId,
+        quantityDispensed: sc.qty,
+        ingredientCostCents: 0,
+        dispensingFeeCents: 1300,
+      });
       let pricedResult: any = unwrap(priced.json);
       if (priced.status < 300 && pricedResult?.jobKey) {
-        const pd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(pricedResult.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        const pd = await poll(
+          quiet,
+          `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(pricedResult.jobKey)}`,
+          (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+          900_000,
+          5000,
+        );
         pricedResult = unwrap(pd.json);
       }
-      trace.check('A dispense that names its own cost is refused: the pharmacy does not set the price', (pricedResult?.status === 'error' && /does not set the price/.test(String(pricedResult?.error ?? ''))) || priced.status === 409, 'error: does not set the price', pricedResult?.error ?? pricedResult?.status ?? priced.json);
+      trace.check(
+        'A dispense that names its own cost is refused: the pharmacy does not set the price',
+        (pricedResult?.status === 'error' && /does not set the price/.test(String(pricedResult?.error ?? ''))) || priced.status === 409,
+        'error: does not set the price',
+        pricedResult?.error ?? pricedResult?.status ?? priced.json,
+      );
     }
     const tf = Date.now();
     // No costs: the engine prices the fill. Claim 3 states the expected price instead, accepted because it is exactly the engine's.
-    const disp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId, quantityDispensed: sc.qty, ...(sc.confirmPrice ? { ingredientCostCents: Number(sc.ingredient), dispensingFeeCents: Number(sc.fee) } : {}) });
+    const disp = await http('POST', `${PHA}/dispensing/dispense`, {
+      prescriptionId,
+      quantityDispensed: sc.qty,
+      ...(sc.confirmPrice ? { ingredientCostCents: Number(sc.ingredient), dispensingFeeCents: Number(sc.fee) } : {}),
+    });
     let fill: any = unwrap(disp.json);
     if (disp.status < 300 && fill?.jobKey) {
-      const fd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(fill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+      const fd = await poll(
+        quiet,
+        `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(fill.jobKey)}`,
+        (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+        900_000,
+        5000,
+      );
       fill = unwrap(fd.json);
     }
     const r = fill?.result ?? fill;
     trace.check('Fill completed', !!r?.adjudication, 'adjudication result', fill?.error ?? fill?.status);
-    if (!r?.adjudication) { results.claims.push({ label: sc.label, error: fill }); continue; }
-    const adj = r.adjudication, before = r.accumulator?.before, after = r.accumulator?.after, limits = r.accumulator?.limits;
+    if (!r?.adjudication) {
+      results.claims.push({ label: sc.label, error: fill });
+      continue;
+    }
+    const adj = r.adjudication,
+      before = r.accumulator?.before,
+      after = r.accumulator?.after,
+      limits = r.accumulator?.limits;
     trace.note(`wall time ${Date.now() - tf} ms · proof times ${JSON.stringify(r.proofTimesMs)}`);
 
     // Independent re-derivation of the split from the plan rules.
@@ -781,28 +1534,87 @@ async function main() {
       oopMaxCents: BigInt(limits?.oopMaxCents ?? acc0.oopMaxCents),
       annualBenefitMaxCents: BigInt(limits?.annualBenefitMaxCents ?? 0),
     };
-    trace.check('Accumulator before the claim matches the running total', BigInt(before.deductiblePaidCents) === accNow.deductiblePaidCents && BigInt(before.oopPaidCents) === accNow.oopPaidCents,
-      { deductiblePaid: accNow.deductiblePaidCents, oopPaid: accNow.oopPaidCents }, before);
+    trace.check(
+      'Accumulator before the claim matches the running total',
+      BigInt(before.deductiblePaidCents) === accNow.deductiblePaidCents && BigInt(before.oopPaidCents) === accNow.oopPaidCents,
+      { deductiblePaid: accNow.deductiblePaidCents, oopPaid: accNow.oopPaidCents },
+      before,
+    );
     const exp = expectedAdjudication(sc.ingredient, sc.fee, drug.copay, accNow);
-    trace.check(`Ingredient = NADAC $${sc.nadac} x ${sc.qty}, rounded half up to the cent`, BigInt(adj.ingredientCostCents) === sc.ingredient, sc.ingredient, adj.ingredientCostCents);
-    trace.check(`Dispensing fee = the plan's, not one the pharmacy chose`, BigInt(adj.dispensingFeeCents) === sc.fee && adj.pricing?.dispensingFeeSource === 'plan', `${sc.fee} (plan)`, `${adj.dispensingFeeCents} (${adj.pricing?.dispensingFeeSource})`);
-    trace.check(`The claim lands where its label says (${sc.lands})`, deductibleLanding(exp.total, accNow) === sc.lands, sc.lands, deductibleLanding(exp.total, accNow));
+    trace.check(
+      `Ingredient = NADAC $${sc.nadac} x ${sc.qty}, rounded half up to the cent`,
+      BigInt(adj.ingredientCostCents) === sc.ingredient,
+      sc.ingredient,
+      adj.ingredientCostCents,
+    );
+    trace.check(
+      `Dispensing fee = the plan's, not one the pharmacy chose`,
+      BigInt(adj.dispensingFeeCents) === sc.fee && adj.pricing?.dispensingFeeSource === 'plan',
+      `${sc.fee} (plan)`,
+      `${adj.dispensingFeeCents} (${adj.pricing?.dispensingFeeSource})`,
+    );
+    trace.check(
+      `The claim lands where its label says (${sc.lands})`,
+      deductibleLanding(exp.total, accNow) === sc.lands,
+      sc.lands,
+      deductibleLanding(exp.total, accNow),
+    );
     trace.check('Total = ingredient + dispensing fee', BigInt(adj.totalCostCents) === exp.total, exp.total, adj.totalCostCents);
-    trace.check(`Patient pay matches plan rules (${exp.phase})`, BigInt(adj.patientPayCents) === exp.patientPay, exp.patientPay, adj.patientPayCents);
+    trace.check(
+      `Patient pay matches plan rules (${exp.phase})`,
+      BigInt(adj.patientPayCents) === exp.patientPay,
+      exp.patientPay,
+      adj.patientPayCents,
+    );
     trace.check('Plan pay matches plan rules', BigInt(adj.planPayCents) === exp.planPay, exp.planPay, adj.planPayCents);
-    trace.check('Patient + plan = total', BigInt(adj.patientPayCents) + BigInt(adj.planPayCents) === BigInt(adj.totalCostCents), adj.totalCostCents, BigInt(adj.patientPayCents) + BigInt(adj.planPayCents));
+    trace.check(
+      'Patient + plan = total',
+      BigInt(adj.patientPayCents) + BigInt(adj.planPayCents) === BigInt(adj.totalCostCents),
+      adj.totalCostCents,
+      BigInt(adj.patientPayCents) + BigInt(adj.planPayCents),
+    );
     const dedCredit = BigInt(after.deductiblePaidCents) - BigInt(before.deductiblePaidCents);
     trace.check('Deductible credit matches plan rules', dedCredit === exp.deductibleCredit, exp.deductibleCredit, dedCredit);
-    trace.check('Out-of-pocket total grows by the patient pay', BigInt(after.oopPaidCents) - BigInt(before.oopPaidCents) === BigInt(adj.patientPayCents), adj.patientPayCents, BigInt(after.oopPaidCents) - BigInt(before.oopPaidCents));
+    trace.check(
+      'Out-of-pocket total grows by the patient pay',
+      BigInt(after.oopPaidCents) - BigInt(before.oopPaidCents) === BigInt(adj.patientPayCents),
+      adj.patientPayCents,
+      BigInt(after.oopPaidCents) - BigInt(before.oopPaidCents),
+    );
 
     // Recompute the commitments with Poseidon from the disclosed fields.
     const fd = r.fulfillmentDetail;
-    const fulfillment = Poseidon.hash([fd.prescriptionHash, fd.pharmacyWalletId, fd.ndcHash, fd.quantityDispensed, fd.ingredientCostCents, fd.dispensingFeeCents, fd.dateOfService].map((v: string) => Field(BigInt(v)))).toString();
+    const fulfillment = Poseidon.hash(
+      [
+        fd.prescriptionHash,
+        fd.pharmacyWalletId,
+        fd.ndcHash,
+        fd.quantityDispensed,
+        fd.ingredientCostCents,
+        fd.dispensingFeeCents,
+        fd.dateOfService,
+      ].map((v: string) => Field(BigInt(v))),
+    ).toString();
     trace.check('Fulfillment commitment recomputes from the claim fields', fulfillment === fd.commitment, fd.commitment, fulfillment);
-    const settlement = Poseidon.hash([Field(BigInt(fd.commitment)), Field(BigInt(adj.patientPayCents)), Field(BigInt(adj.planPayCents)), Field(dedCredit)]).toString();
-    trace.check('Settlement commitment = Poseidon(fulfillment, patient pay, plan pay, deductible credit)', settlement === r.settlementCommitment, r.settlementCommitment, settlement);
+    const settlement = Poseidon.hash([
+      Field(BigInt(fd.commitment)),
+      Field(BigInt(adj.patientPayCents)),
+      Field(BigInt(adj.planPayCents)),
+      Field(dedCredit),
+    ]).toString();
+    trace.check(
+      'Settlement commitment = Poseidon(fulfillment, patient pay, plan pay, deductible credit)',
+      settlement === r.settlementCommitment,
+      r.settlementCommitment,
+      settlement,
+    );
     trace.check('Claim is for the drug that was prescribed', fd.ndcHash === drug.ndcHash, drug.ndcHash, fd.ndcHash);
-    trace.check('Claim names the pharmacy that filled it', fd.pharmacyWalletId === String(results.pharmacyWalletId), results.pharmacyWalletId, fd.pharmacyWalletId);
+    trace.check(
+      'Claim names the pharmacy that filled it',
+      fd.pharmacyWalletId === String(results.pharmacyWalletId),
+      results.pharmacyWalletId,
+      fd.pharmacyWalletId,
+    );
 
     // B1 step two: the fill produced a wallet update the member's device must prove; the claim lands with it
     let fin: any = null;
@@ -812,72 +1624,198 @@ async function main() {
       if (run.status === 200 && Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0) break;
       await sleep(5000);
     }
-    trace.check(`${sc.label}: the member's device finalized the fill by proving its own wallet update`, Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0, 'pending 0, no errors', fin);
+    trace.check(
+      `${sc.label}: the member's device finalized the fill by proving its own wallet update`,
+      Number(fin?.pending) === 0 && (fin?.errors ?? []).length === 0 && (fin?.refused ?? []).length === 0,
+      'pending 0, no errors',
+      fin,
+    );
     const walletNow = await rpc('l2_getWalletState', { walletId });
-    trace.check(`${sc.label}: the ledger holds the credential root the device proved`, !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot, abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14), abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14));
+    trace.check(
+      `${sc.label}: the ledger holds the credential root the device proved`,
+      !!r.walletUpdate?.newInventoryRoot && walletNow.result?.credentialInventoryRoot === r.walletUpdate.newInventoryRoot,
+      abbrev(String(r.walletUpdate?.newInventoryRoot ?? 'walletUpdate missing from the fill result'), 14),
+      abbrev(String(walletNow.result?.credentialInventoryRoot ?? walletNow), 14),
+    );
     const ledgerNow = (await rpc('l2_getClaimsByMember', { walletId })).result;
-    const ledgerClaim = ((ledgerNow?.claims ?? ledgerNow ?? []) as any[]).filter((c: any) => (c.leaf ?? c).ndcHash === drug.ndcHash && String((c.leaf ?? c).operationType) === '1').pop();
+    const ledgerClaim = ((ledgerNow?.claims ?? ledgerNow ?? []) as any[])
+      .filter((c: any) => (c.leaf ?? c).ndcHash === drug.ndcHash && String((c.leaf ?? c).operationType) === '1')
+      .pop();
     const lm = ledgerClaim?.metadata ?? {};
-    trace.check(`${sc.label}: the ledger claim records NADAC x quantity + fee`, Number(lm.nadacUnitPriceE5) === Number(nadacE5(sc.nadac)) && Number(lm.quantityDispensed) === sc.qty && BigInt(lm.ingredientCostCents ?? -1) === sc.ingredient && BigInt(lm.dispensingFeeCents ?? -1) === sc.fee && lm.dispensingFeeSource === 'plan', `${nadacE5(sc.nadac)} x ${sc.qty} = ${sc.ingredient} + ${sc.fee} (plan)`, ledgerClaim ? `${lm.nadacUnitPriceE5} x ${lm.quantityDispensed} = ${lm.ingredientCostCents} + ${lm.dispensingFeeCents} (${lm.dispensingFeeSource})` : 'no claim on the ledger');
-    results.claims.push({ label: sc.label, drug: drug.med.brandName, ndcHash: drug.ndcHash, prescriptionId, ingredient: sc.ingredient.toString(), fee: sc.fee.toString(), adjudication: adj, accumulator: r.accumulator, expected: { ...exp, total: exp.total.toString(), patientPay: exp.patientPay.toString(), planPay: exp.planPay.toString(), deductibleCredit: exp.deductibleCredit.toString() }, proofTimesMs: r.proofTimesMs, receiptId: r.l2Receipt?.receiptId, settlementCommitment: r.settlementCommitment });
-    acc0 = { ...accNow, deductiblePaidCents: BigInt(after.deductiblePaidCents), oopPaidCents: BigInt(after.oopPaidCents), annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0) };
+    trace.check(
+      `${sc.label}: the ledger claim records NADAC x quantity + fee`,
+      Number(lm.nadacUnitPriceE5) === Number(nadacE5(sc.nadac)) &&
+        Number(lm.quantityDispensed) === sc.qty &&
+        BigInt(lm.ingredientCostCents ?? -1) === sc.ingredient &&
+        BigInt(lm.dispensingFeeCents ?? -1) === sc.fee &&
+        lm.dispensingFeeSource === 'plan',
+      `${nadacE5(sc.nadac)} x ${sc.qty} = ${sc.ingredient} + ${sc.fee} (plan)`,
+      ledgerClaim
+        ? `${lm.nadacUnitPriceE5} x ${lm.quantityDispensed} = ${lm.ingredientCostCents} + ${lm.dispensingFeeCents} (${lm.dispensingFeeSource})`
+        : 'no claim on the ledger',
+    );
+    results.claims.push({
+      label: sc.label,
+      drug: drug.med.brandName,
+      ndcHash: drug.ndcHash,
+      prescriptionId,
+      ingredient: sc.ingredient.toString(),
+      fee: sc.fee.toString(),
+      adjudication: adj,
+      accumulator: r.accumulator,
+      expected: {
+        ...exp,
+        total: exp.total.toString(),
+        patientPay: exp.patientPay.toString(),
+        planPay: exp.planPay.toString(),
+        deductibleCredit: exp.deductibleCredit.toString(),
+      },
+      proofTimesMs: r.proofTimesMs,
+      receiptId: r.l2Receipt?.receiptId,
+      settlementCommitment: r.settlementCommitment,
+    });
+    acc0 = {
+      ...accNow,
+      deductiblePaidCents: BigInt(after.deductiblePaidCents),
+      oopPaidCents: BigInt(after.oopPaidCents),
+      annualBenefitUsedCents: BigInt(after.benefitUsedCents ?? 0),
+    };
   }
 
   // ── 8b. Out-of-network prescriber ───────────────────────────
   trace.begin('prescriber', 'Out-of-network doctor prescribes for this member');
-  const network = networkPrescriberIdx;   // the network this run's plan named (stage 3); the engine bound it from the plan overlay
+  const network = networkPrescriberIdx; // the network this run's plan named (stage 3); the engine bound it from the plan overlay
   const outIdx = prescribers.findIndex((_p: any, i: number) => !network.includes(i));
   const oonRx = `RX-${RUN}-OON`;
   // B5: the member's device authorizes this doctor for the visit, so what the engine judges next is the network, not consent.
   const oonProviders = await rpc('l2_getNetworkProviders', { role: 'prescriber' });
   const oonFixture = prescribers[outIdx] ?? {};
-  const oonDoctor = (Array.isArray(oonProviders.result) ? oonProviders.result : []).find((p: any) => typeof p.displayName === 'string' && (p.displayName === oonFixture.name || (p.displayName.includes(String(oonFixture.firstName ?? '\u0000')) && p.displayName.includes(String(oonFixture.lastName ?? '\u0000')))));
-  const oonAuth = oonDoctor ? await mem('POST', '/authorizations/prescriber', { prescriberWalletId: String(oonDoctor.walletId), hours: 2 }) : { status: 0, json: { error: 'the out-of-network doctor is not in the provider registry' } };
-  trace.check('The device authorizes the out-of-network doctor for this visit, so consent is not what is tested next', oonAuth.status === 200, 200, oonAuth.status === 200 ? 'authorized' : (unwrap(oonAuth.json) ?? oonAuth.json));
-  const oon = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: outIdx, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: oonRx });
+  const oonDoctor = (Array.isArray(oonProviders.result) ? oonProviders.result : []).find(
+    (p: any) =>
+      typeof p.displayName === 'string' &&
+      (p.displayName === oonFixture.name ||
+        (p.displayName.includes(String(oonFixture.firstName ?? '\u0000')) &&
+          p.displayName.includes(String(oonFixture.lastName ?? '\u0000')))),
+  );
+  const oonAuth = oonDoctor
+    ? await mem('POST', '/authorizations/prescriber', { prescriberWalletId: String(oonDoctor.walletId), hours: 2 })
+    : { status: 0, json: { error: 'the out-of-network doctor is not in the provider registry' } };
+  trace.check(
+    'The device authorizes the out-of-network doctor for this visit, so consent is not what is tested next',
+    oonAuth.status === 200,
+    200,
+    oonAuth.status === 200 ? 'authorized' : (unwrap(oonAuth.json) ?? oonAuth.json),
+  );
+  const oon = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: outIdx,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash,
+    quantity: 30,
+    refills: 0,
+    rxId: oonRx,
+  });
   let oonStatus: string | undefined = oon.json?.status;
   if (oon.status === 504 || (!oon.json?.error && !oonStatus)) {
-    const f = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => x.id === oonRx && x.status), 600_000, 5000);
+    const f = await poll(
+      quietAdmin,
+      `${SEQ}/interactive/state`,
+      (j) => (j?.prescriptions ?? []).some((x: any) => x.id === oonRx && x.status),
+      600_000,
+      5000,
+    );
     oonStatus = (f.json?.prescriptions ?? []).find((x: any) => x.id === oonRx)?.status;
   }
-  const oonName = prescribers[outIdx] ? `${prescribers[outIdx].firstName ?? ''} ${prescribers[outIdx].lastName ?? ''}`.trim() : `#${outIdx}`;
+  const oonName = prescribers[outIdx]
+    ? `${prescribers[outIdx].firstName ?? ''} ${prescribers[outIdx].lastName ?? ''}`.trim()
+    : `#${outIdx}`;
   trace.note(`prescriber #${outIdx} (${oonName}) is outside the plan network; result: ${oon.json?.error ?? oonStatus}`);
   const oonState = unwrap((await httpAdmin('GET', `${SEQ}/interactive/state`)).json) ?? {};
   const oonRecorded = ((oonState.prescriptions ?? []) as any[]).some((x: any) => x.id === oonRx || x.rxId === oonRx);
-  trace.check('Out-of-network prescriber is refused by the plan network, before any record', oon.status === 403 && /plan network/.test(String(oon.json?.error ?? '')) && !oonRecorded, '403 plan network, no record', `${oon.status} ${oon.json?.error ?? oonStatus ?? ''}${oonRecorded ? ' (a record exists)' : ''}`.trim());
+  trace.check(
+    'Out-of-network prescriber is refused by the plan network, before any record',
+    oon.status === 403 && /plan network/.test(String(oon.json?.error ?? '')) && !oonRecorded,
+    '403 plan network, no record',
+    `${oon.status} ${oon.json?.error ?? oonStatus ?? ''}${oonRecorded ? ' (a record exists)' : ''}`.trim(),
+  );
   if (oonRecorded) {
-    results.findings.push({ id: 'network-not-enforced', severity: 'high', title: 'Out-of-network prescribers are not checked', evidence: `Prescriber #${outIdx} (${oonName}) is not in the plan network, yet POST /interactive/prescribe returned status ${oonStatus ?? oon.status}. InNetworkProgram is not among the compiled circuits and createPrescription has no network check.` });
+    results.findings.push({
+      id: 'network-not-enforced',
+      severity: 'high',
+      title: 'Out-of-network prescribers are not checked',
+      evidence: `Prescriber #${outIdx} (${oonName}) is not in the plan network, yet POST /interactive/prescribe returned status ${oonStatus ?? oon.status}. InNetworkProgram is not among the compiled circuits and createPrescription has no network check.`,
+    });
   }
 
   // ── 8d. D4 (A-10): a duplicate claim is refused before any amount is billed, and the ledger does not change
-  trace.begin('pharmacy', 'The same drug again — same member, same pharmacy, same day — is refused as a duplicate: nothing billed, nothing recorded');
+  trace.begin(
+    'pharmacy',
+    'The same drug again — same member, same pharmacy, same day — is refused as a duplicate: nothing billed, nothing recorded',
+  );
   const claimsOf = (r: any) => (r?.claims ?? r ?? []) as any[];
   const lastClaim = [...results.claims].reverse().find((c: any) => c.adjudication);
   if (lastClaim) {
     const beforeCount = claimsOf((await rpc('l2_getClaimsByMember', { walletId })).result).length;
     const beforeRecon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
     const dupRxId = `RX-${RUN}-DUP`;
-    const dupRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: lastClaim.ndcHash, quantity: 30, refills: 0, rxId: dupRxId });
+    const dupRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+      prescriberIndex: 0,
+      pharmacyIndex: 0,
+      memberWalletId: walletId,
+      ndcHash: lastClaim.ndcHash,
+      quantity: 30,
+      refills: 0,
+      rxId: dupRxId,
+    });
     let dupPid: string | undefined = dupRx.json?.prescriptionId;
     if (!dupPid) {
       const mine = (x: any) => x.id === dupRxId || x.rxId === dupRxId || x.prescriptionId === dupRxId;
-      const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => mine(x) && x.status === 'ADJUDICATED'), 900_000, 5000);
+      const found = await poll(
+        quietAdmin,
+        `${SEQ}/interactive/state`,
+        (j) => (j?.prescriptions ?? []).some((x: any) => mine(x) && x.status === 'ADJUDICATED'),
+        900_000,
+        5000,
+      );
       const p = (found.json?.prescriptions ?? []).find(mine);
       dupPid = p?.id ?? p?.prescriptionId;
     }
-    trace.check('A second prescription for the same drug is written (the duplicate rule is about the fill)', !!dupPid, 'prescriptionId', dupPid ?? dupRx.json);
+    trace.check(
+      'A second prescription for the same drug is written (the duplicate rule is about the fill)',
+      !!dupPid,
+      'prescriptionId',
+      dupPid ?? dupRx.json,
+    );
     if (dupPid) {
       await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: dupPid });
       const dupDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: dupPid, quantityDispensed: 30 });
       let dupFill: any = unwrap(dupDisp.json);
       if (dupDisp.status < 300 && dupFill?.jobKey) {
-        const fd = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(dupFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 900_000, 5000);
+        const fd = await poll(
+          quiet,
+          `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(dupFill.jobKey)}`,
+          (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+          900_000,
+          5000,
+        );
         dupFill = unwrap(fd.json);
       }
-      trace.check('The duplicate fill is refused before any proof or payment', dupFill?.status === 'error' && /duplicate/i.test(String(dupFill?.error ?? '')), 'error: duplicate', dupFill?.error ?? dupFill?.status ?? dupDisp.json);
+      trace.check(
+        'The duplicate fill is refused before any proof or payment',
+        dupFill?.status === 'error' && /duplicate/i.test(String(dupFill?.error ?? '')),
+        'error: duplicate',
+        dupFill?.error ?? dupFill?.status ?? dupDisp.json,
+      );
       const afterCount = claimsOf((await rpc('l2_getClaimsByMember', { walletId })).result).length;
       const afterRecon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
-      trace.check('The ledger did not change', afterCount === beforeCount && String(afterRecon?.oopPaidCents) === String(beforeRecon?.oopPaidCents) && String(afterRecon?.benefitUsedCents) === String(beforeRecon?.benefitUsedCents), `${beforeCount} claims`, `${afterCount} claims`);
+      trace.check(
+        'The ledger did not change',
+        afterCount === beforeCount &&
+          String(afterRecon?.oopPaidCents) === String(beforeRecon?.oopPaidCents) &&
+          String(afterRecon?.benefitUsedCents) === String(beforeRecon?.benefitUsedCents),
+        `${beforeCount} claims`,
+        `${afterCount} claims`,
+      );
     }
   }
 
@@ -886,26 +1824,50 @@ async function main() {
   await http('POST', `${SEQ}/interactive/force-batch`, {});
   const cbm = await rpc('l2_getClaimsByMember', { walletId });
   const claimEntries = (cbm.result?.claims ?? cbm.result ?? []) as any[];
-  trace.check('Sequencer lists this member\'s claims', claimEntries.length >= results.claims.filter((c: any) => c.adjudication).length, results.claims.length, claimEntries.length);
+  trace.check(
+    "Sequencer lists this member's claims",
+    claimEntries.length >= results.claims.filter((c: any) => c.adjudication).length,
+    results.claims.length,
+    claimEntries.length,
+  );
   const rootNow = (await rpc('l2_getClaimAccumulatorRoot', {}, false)).result?.root;
   for (const ce of claimEntries) {
     const idx = String(ce.leafIndex ?? ce.index);
     const cp = (await rpc('l2_getClaimWithProof', { leafIndex: idx })).result;
-    if (!cp) { trace.check(`Leaf ${idx} has an inclusion proof`, false, 'proof', null); continue; }
+    if (!cp) {
+      trace.check(`Leaf ${idx} has an inclusion proof`, false, 'proof', null);
+      continue;
+    }
     const leaf = cp.entry.leaf ?? cp.entry;
     const leafHash = Poseidon.hash([
-      Field(BigInt(leaf.memberWalletId)), Field(BigInt(leaf.ndcHash)), Field(BigInt(leaf.pharmacyWalletId)), Field(BigInt(leaf.prescriberWalletId)),
-      Poseidon.hash([Field(BigInt(leaf.dateOfService))]), Field(BigInt(leaf.patientPayCents)), Field(BigInt(leaf.planPayCents)),
-      Field(BigInt(leaf.operationType)), Field(BigInt(leaf.deductibleCreditCents)),
+      Field(BigInt(leaf.memberWalletId)),
+      Field(BigInt(leaf.ndcHash)),
+      Field(BigInt(leaf.pharmacyWalletId)),
+      Field(BigInt(leaf.prescriberWalletId)),
+      Poseidon.hash([Field(BigInt(leaf.dateOfService))]),
+      Field(BigInt(leaf.patientPayCents)),
+      Field(BigInt(leaf.planPayCents)),
+      Field(BigInt(leaf.operationType)),
+      Field(BigInt(leaf.deductibleCreditCents)),
     ]);
     const w = JSON.parse(cp.witnessJson);
     let h = leafHash;
-    const pathArr = (w.path ?? []) as string[], isLeft = (w.isLeft ?? []) as boolean[];
-    for (let i = 0; i < pathArr.length; i++) h = isLeft[i] ? Poseidon.hash([h, Field(BigInt(pathArr[i]))]) : Poseidon.hash([Field(BigInt(pathArr[i])), h]);
+    const pathArr = (w.path ?? []) as string[],
+      isLeft = (w.isLeft ?? []) as boolean[];
+    for (let i = 0; i < pathArr.length; i++)
+      h = isLeft[i] ? Poseidon.hash([h, Field(BigInt(pathArr[i]))]) : Poseidon.hash([Field(BigInt(pathArr[i])), h]);
     trace.check(`Leaf ${idx}: recomputed root equals the sequencer's claim root`, h.toString() === cp.root, cp.root, h.toString());
     trace.check(`Leaf ${idx}: belongs to this member`, leaf.memberWalletId === walletId, walletId, leaf.memberWalletId);
-    const match = results.claims.find((c: any) => c.adjudication && String(c.adjudication.patientPayCents) === String(leaf.patientPayCents) && String(c.adjudication.planPayCents) === String(leaf.planPayCents));
-    trace.check(`Leaf ${idx}: amounts match an adjudicated claim`, !!match, 'a matching claim', { patient: leaf.patientPayCents, plan: leaf.planPayCents });
+    const match = results.claims.find(
+      (c: any) =>
+        c.adjudication &&
+        String(c.adjudication.patientPayCents) === String(leaf.patientPayCents) &&
+        String(c.adjudication.planPayCents) === String(leaf.planPayCents),
+    );
+    trace.check(`Leaf ${idx}: amounts match an adjudicated claim`, !!match, 'a matching claim', {
+      patient: leaf.patientPayCents,
+      plan: leaf.planPayCents,
+    });
   }
   trace.check('Witness roots agree with the published root', claimEntries.length === 0 || true, rootNow, rootNow);
 
@@ -916,36 +1878,87 @@ async function main() {
   // the review of round eight of the security fixes (2026-10-24).
   for (const m of ['l2_verifyChainIntegrity', 'l2_verifyFinancialBalance', 'l2_detectDuplicateClaims']) {
     const a = await rpc(m);
-    const ok = a.result && (a.result.valid === true || a.result.ok === true || a.result.passed === true || (Array.isArray(a.result.duplicates) && a.result.duplicates.length === 0) || a.result.balanced === true);
+    const ok =
+      a.result &&
+      (a.result.valid === true ||
+        a.result.ok === true ||
+        a.result.passed === true ||
+        (Array.isArray(a.result.duplicates) && a.result.duplicates.length === 0) ||
+        a.result.balanced === true);
     trace.check(`${m}`, !!ok, 'pass', a.result ?? a.error);
   }
   // D5 (A-26): the audit chain binds the money, and it agrees with the ledger
   const moneyAudit = (await rpc('l2_verifyFinancialBalance')).result ?? {};
   const filed = results.claims.filter((c: any) => c.adjudication);
-  trace.check('The audit chain counts every claim filed', Number(moneyAudit.totalClaims) === filed.length, filed.length, moneyAudit.totalClaims);
-  trace.check('The audit chain\'s patient pay is the sum billed', String(moneyAudit.totalPatientPayCents) === filed.reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n).toString(), 'sum of patient pay', moneyAudit.totalPatientPayCents);
-  trace.check('The audit chain and the ledger agree on the money', moneyAudit.reconciled === true && moneyAudit.balanced === true, 'reconciled and balanced', `reconciled=${moneyAudit.reconciled} balanced=${moneyAudit.balanced}`);
+  trace.check(
+    'The audit chain counts every claim filed',
+    Number(moneyAudit.totalClaims) === filed.length,
+    filed.length,
+    moneyAudit.totalClaims,
+  );
+  trace.check(
+    "The audit chain's patient pay is the sum billed",
+    String(moneyAudit.totalPatientPayCents) ===
+      filed.reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n).toString(),
+    'sum of patient pay',
+    moneyAudit.totalPatientPayCents,
+  );
+  trace.check(
+    'The audit chain and the ledger agree on the money',
+    moneyAudit.reconciled === true && moneyAudit.balanced === true,
+    'reconciled and balanced',
+    `reconciled=${moneyAudit.reconciled} balanced=${moneyAudit.balanced}`,
+  );
   const recon = (await rpc('l2_reconstructAccumulator', { walletId })).result;
-  const sumPatient = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n);
-  const sumPlan = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.adjudication.planPayCents), 0n);
-  const sumCredit = results.claims.filter((c: any) => c.adjudication).reduce((s: bigint, c: any) => s + BigInt(c.expected.deductibleCredit), 0n);
-  trace.check('Rebuilt out-of-pocket total = sum of patient pay', String(recon?.oopPaidCents) === sumPatient.toString(), sumPatient, recon?.oopPaidCents);
-  trace.check('Rebuilt benefit used = sum of plan pay', String(recon?.benefitUsedCents) === sumPlan.toString(), sumPlan, recon?.benefitUsedCents);
-  trace.check('Rebuilt deductible paid = sum of deductible credits', String(recon?.deductiblePaidCents) === sumCredit.toString(), sumCredit, recon?.deductiblePaidCents);
-  trace.check('Rebuilt claim count = claims filed', Number(recon?.claimCount) === results.claims.filter((c: any) => c.adjudication).length, results.claims.length, recon?.claimCount);
+  const sumPatient = results.claims
+    .filter((c: any) => c.adjudication)
+    .reduce((s: bigint, c: any) => s + BigInt(c.adjudication.patientPayCents), 0n);
+  const sumPlan = results.claims
+    .filter((c: any) => c.adjudication)
+    .reduce((s: bigint, c: any) => s + BigInt(c.adjudication.planPayCents), 0n);
+  const sumCredit = results.claims
+    .filter((c: any) => c.adjudication)
+    .reduce((s: bigint, c: any) => s + BigInt(c.expected.deductibleCredit), 0n);
+  trace.check(
+    'Rebuilt out-of-pocket total = sum of patient pay',
+    String(recon?.oopPaidCents) === sumPatient.toString(),
+    sumPatient,
+    recon?.oopPaidCents,
+  );
+  trace.check(
+    'Rebuilt benefit used = sum of plan pay',
+    String(recon?.benefitUsedCents) === sumPlan.toString(),
+    sumPlan,
+    recon?.benefitUsedCents,
+  );
+  trace.check(
+    'Rebuilt deductible paid = sum of deductible credits',
+    String(recon?.deductiblePaidCents) === sumCredit.toString(),
+    sumCredit,
+    recon?.deductiblePaidCents,
+  );
+  trace.check(
+    'Rebuilt claim count = claims filed',
+    Number(recon?.claimCount) === results.claims.filter((c: any) => c.adjudication).length,
+    results.claims.length,
+    recon?.claimCount,
+  );
 
   // ── 11. Verify proofs against locally compiled keys ─────────
-  trace.begin('verifier', 'Compile the circuits here and verify the network\'s proofs independently');
+  trace.begin('verifier', "Compile the circuits here and verify the network's proofs independently");
   const { StateTransitionProgram } = await import('../../src/engine/state-transition.js');
   const { BatchProgram } = await import('../../src/l2/batch-program.js');
   const tCompile = Date.now();
   await StateTransitionProgram.compile();
   const { verificationKey: batchVk } = await BatchProgram.compile();
-  trace.note(`compiled StateTransitionProgram + BatchProgram locally in ${Date.now() - tCompile} ms; batch VK hash ${batchVk.hash.toString()}`);
+  trace.note(
+    `compiled StateTransitionProgram + BatchProgram locally in ${Date.now() - tCompile} ms; batch VK hash ${batchVk.hash.toString()}`,
+  );
   results.localBatchVkHash = batchVk.hash.toString();
   const allBatches = (await rpc('l2_getAllBatches', {}, false)).result;
   const batchList = (allBatches?.batches ?? allBatches ?? []) as any[];
-  let verified = 0, tested = 0;
+  let verified = 0,
+    tested = 0;
   for (const b of batchList) {
     const full = (await rpc('l2_getBatch', { batchNumber: String(b.batchNumber) }, false)).result;
     const pj = full?.batchProofJson;
@@ -965,7 +1978,9 @@ async function main() {
       trace.check(`Batch ${b.batchNumber}: tampered copy is rejected`, badOk === false, false, badOk);
     }
     // Public output roots should match the batch metadata.
-    trace.note(`batch ${b.batchNumber}: ${full.transitionCount ?? full.transitions?.length ?? '?'} transitions, roots ${abbrev(String(full.oldRegistryRoot ?? ''), 24)} → ${abbrev(String(full.newRegistryRoot ?? ''), 24)}`);
+    trace.note(
+      `batch ${b.batchNumber}: ${full.transitionCount ?? full.transitions?.length ?? '?'} transitions, roots ${abbrev(String(full.oldRegistryRoot ?? ''), 24)} → ${abbrev(String(full.newRegistryRoot ?? ''), 24)}`,
+    );
     results.verifyMs = vms;
   }
   trace.check('At least one batch proof was available and verified', verified > 0, '≥1', `${verified}/${tested}`);
@@ -975,12 +1990,29 @@ async function main() {
   // B1 step two (A-17): the device proves its own portable credential; the engine mints none for a member with a device
   const devCred = await mem('POST', '/credential/generate', {});
   const credential = unwrap(devCred.json)?.credential;
-  trace.check('The device generated its own portable credential', devCred.status === 200 && !!credential?.proofJson, 'credential.proofJson', devCred.status === 200 ? 'present' : (unwrap(devCred.json) ?? devCred.json));
+  trace.check(
+    'The device generated its own portable credential',
+    devCred.status === 200 && !!credential?.proofJson,
+    'credential.proofJson',
+    devCred.status === 200 ? 'present' : (unwrap(devCred.json) ?? devCred.json),
+  );
   const engineMint = await httpAdmin('POST', `${SEQ}/interactive/generate-credential`, { walletId });
-  const mintJob = engineMint.status < 300
-    ? await poll(quietAdmin, `${SEQ}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}`, j => ['complete', 'error'].includes(j?.status), 300_000, 3000)
-    : engineMint;
-  trace.check('The engine refuses to mint a credential for a member with a device, even for the operator', mintJob.json?.status === 'error' && /own portable credential/.test(String(mintJob.json?.error ?? '')), 'error: own portable credential', mintJob.json?.status === 'error' ? mintJob.json.error : (mintJob.json ?? engineMint.status));
+  const mintJob =
+    engineMint.status < 300
+      ? await poll(
+          quietAdmin,
+          `${SEQ}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}`,
+          (j) => ['complete', 'error'].includes(j?.status),
+          300_000,
+          3000,
+        )
+      : engineMint;
+  trace.check(
+    'The engine refuses to mint a credential for a member with a device, even for the operator',
+    mintJob.json?.status === 'error' && /own portable credential/.test(String(mintJob.json?.error ?? '')),
+    'error: own portable credential',
+    mintJob.json?.status === 'error' ? mintJob.json.error : (mintJob.json ?? engineMint.status),
+  );
 
   if (credential?.proofJson) {
     const { ProofGateProgram } = await import('../../src/wallets/proof-gate.js');
@@ -1003,60 +2035,181 @@ async function main() {
   // ── 13. More security probes ────────────────────────────────
   trace.begin('attacker', 'Probe routes that touch this member without credentials');
   const dur = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`);
-  trace.check('Drug history for this member is refused without consent or credentials', dur.status === 401 || dur.status === 403, '401/403', dur.status, dur.status < 300 ? 'served to an unauthenticated caller' : undefined);
+  trace.check(
+    'Drug history for this member is refused without consent or credentials',
+    dur.status === 401 || dur.status === 403,
+    '401/403',
+    dur.status,
+    dur.status < 300 ? 'served to an unauthenticated caller' : undefined,
+  );
   // D1 (A-2): a member's data answers no bare wallet ID; the plan still reads it, and the member's own node reads it signed as the wallet.
   const bareClaims = await rpc('l2_getClaimsByMember', { walletId }, false);
-  trace.check('A bare wallet ID no longer returns the member\'s claims', !!bareClaims.error, 'error', bareClaims.error ? bareClaims.error.message : `${(bareClaims.result ?? []).length} claims served`);
+  trace.check(
+    "A bare wallet ID no longer returns the member's claims",
+    !!bareClaims.error,
+    'error',
+    bareClaims.error ? bareClaims.error.message : `${(bareClaims.result ?? []).length} claims served`,
+  );
   const bareReceipts = await rpc('l2_getReceiptsByWallet', { walletId }, false);
-  trace.check('A bare wallet ID no longer returns the member\'s receipts', !!bareReceipts.error, 'error', bareReceipts.error ? bareReceipts.error.message : 'served');
+  trace.check(
+    "A bare wallet ID no longer returns the member's receipts",
+    !!bareReceipts.error,
+    'error',
+    bareReceipts.error ? bareReceipts.error.message : 'served',
+  );
   const bareAll = await rpc('l2_getAllReceipts', {}, false);
-  trace.check('Wallets cannot be enumerated from the receipt list without a credential', !!bareAll.error, 'error', bareAll.error ? bareAll.error.message : 'served');
+  trace.check(
+    'Wallets cannot be enumerated from the receipt list without a credential',
+    !!bareAll.error,
+    'error',
+    bareAll.error ? bareAll.error.message : 'served',
+  );
   const bareEntities = await http('GET', `${SEQ}/viz/entities`);
-  trace.check('The entity directory is refused without a credential', bareEntities.status === 401 || bareEntities.status === 403, '401/403', bareEntities.status);
+  trace.check(
+    'The entity directory is refused without a credential',
+    bareEntities.status === 401 || bareEntities.status === 403,
+    '401/403',
+    bareEntities.status,
+  );
   const planClaims = await rpc('l2_getClaimsByMember', { walletId });
-  trace.check('The plan, with its credential, still reads the member\'s claims for audit', Array.isArray(planClaims.result), 'array', planClaims.error?.message ?? `${planClaims.result?.length} claims`);
+  trace.check(
+    "The plan, with its credential, still reads the member's claims for audit",
+    Array.isArray(planClaims.result),
+    'array',
+    planClaims.error?.message ?? `${planClaims.result?.length} claims`,
+  );
   const ownReceipts = await mem('GET', '/receipts');
-  trace.check('The member\'s own node reads its receipts, signed as the wallet', ownReceipts.status === 200, 200, ownReceipts.status === 200 ? 200 : (unwrap(ownReceipts.json) ?? ownReceipts.status));
+  trace.check(
+    "The member's own node reads its receipts, signed as the wallet",
+    ownReceipts.status === 200,
+    200,
+    ownReceipts.status === 200 ? 200 : (unwrap(ownReceipts.json) ?? ownReceipts.status),
+  );
   // D2: the engine's write routes, its mirror of the member-data reads and the sequencer's event stream answer credentials only.
-  const barePrescribe = await http('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 1, refills: 0 });
-  trace.check('Anonymous prescribing on the engine is refused', barePrescribe.status === 401 || barePrescribe.status === 403, '401/403', barePrescribe.status);
+  const barePrescribe = await http('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash,
+    quantity: 1,
+    refills: 0,
+  });
+  trace.check(
+    'Anonymous prescribing on the engine is refused',
+    barePrescribe.status === 401 || barePrescribe.status === 403,
+    '401/403',
+    barePrescribe.status,
+  );
   const bareNodeClaims = await http('GET', `${SEQ}/node/claims-by-member?walletId=${walletId}`);
-  trace.check('The engine\'s own claims-by-member read is refused without a credential', bareNodeClaims.status === 401 || bareNodeClaims.status === 403, '401/403', bareNodeClaims.status);
+  trace.check(
+    "The engine's own claims-by-member read is refused without a credential",
+    bareNodeClaims.status === 401 || bareNodeClaims.status === 403,
+    '401/403',
+    bareNodeClaims.status,
+  );
   const bareEvents = await http('GET', `${SEQ}/events`);
-  trace.check('The sequencer\'s event stream is refused without a credential', bareEvents.status === 401 || bareEvents.status === 403, '401/403', bareEvents.status);
+  trace.check(
+    "The sequencer's event stream is refused without a credential",
+    bareEvents.status === 401 || bareEvents.status === 403,
+    '401/403',
+    bareEvents.status,
+  );
   const att = await rpc('l2_requestAttestation', { walletId }, false);
-  trace.check('Signed NFC attestation for this member is refused without proof of ownership', !!att.error, 'error', att.error ? att.error.message : 'issued');
+  trace.check(
+    'Signed NFC attestation for this member is refused without proof of ownership',
+    !!att.error,
+    'error',
+    att.error ? att.error.message : 'issued',
+  );
   // A10b: the three writes that speak for a wallet take only that wallet's own signature.
-  const forgedMsg = await rpc('l2_storeMessage', { message: { messageCommitment: '1', senderWalletId: walletId, recipientWalletId: String(results.prescriberWalletId), messageType: 'text', threadIdHash: '1' }, payload: { ciphertext: '00', iv: '00', tag: '00' } }, false);
-  trace.check('A message in this member\'s name without the member\'s signature is refused', !!forgedMsg.error, 'error', forgedMsg.error ? forgedMsg.error.message : 'stored');
-  const forgedPcp = await rpc('l2_registerPcpAssignment', { memberWalletId: walletId, prescriberWalletId: String(results.prescriberWalletId), effectiveDate: '2026-10-18' }, false);
-  trace.check('A primary-care link for this member without the member\'s signature is refused', !!forgedPcp.error, 'error', forgedPcp.error ? forgedPcp.error.message : 'linked');
+  const forgedMsg = await rpc(
+    'l2_storeMessage',
+    {
+      message: {
+        messageCommitment: '1',
+        senderWalletId: walletId,
+        recipientWalletId: String(results.prescriberWalletId),
+        messageType: 'text',
+        threadIdHash: '1',
+      },
+      payload: { ciphertext: '00', iv: '00', tag: '00' },
+    },
+    false,
+  );
+  trace.check(
+    "A message in this member's name without the member's signature is refused",
+    !!forgedMsg.error,
+    'error',
+    forgedMsg.error ? forgedMsg.error.message : 'stored',
+  );
+  const forgedPcp = await rpc(
+    'l2_registerPcpAssignment',
+    { memberWalletId: walletId, prescriberWalletId: String(results.prescriberWalletId), effectiveDate: '2026-10-18' },
+    false,
+  );
+  trace.check(
+    "A primary-care link for this member without the member's signature is refused",
+    !!forgedPcp.error,
+    'error',
+    forgedPcp.error ? forgedPcp.error.message : 'linked',
+  );
   const bearerAtt = await rpc('l2_requestAttestation', { walletId }, true);
-  trace.check('The operator token does not substitute for the member\'s signature on an attestation', !!bearerAtt.error, 'error', bearerAtt.error ? bearerAtt.error.message : 'issued');
+  trace.check(
+    "The operator token does not substitute for the member's signature on an attestation",
+    !!bearerAtt.error,
+    'error',
+    bearerAtt.error ? bearerAtt.error.message : 'issued',
+  );
   const fb = await http('POST', `${SEQ}/interactive/force-batch`, {});
   trace.check('Unauthenticated /interactive/force-batch is refused', fb.status === 401 || fb.status === 403, '401/403', fb.status);
 
   // ── 13b. The wallet speaks for itself (A10b) ─────────────
-  trace.begin('member', 'The member\'s own node signs as the wallet: its attestation, and a message');
+  trace.begin('member', "The member's own node signs as the wallet: its attestation, and a message");
   const ownAtt = await mem('POST', '/attestation/request', { expirySeconds: 3600 });
   const ownAttData = unwrap(ownAtt.json) ?? ownAtt.json;
-  trace.check('The member node obtains the sequencer-signed NFC attestation for its wallet', ownAtt.status === 200 && ownAttData?.w === walletId, walletId, ownAttData?.w ?? ownAtt.json);
-  trace.check('The attestation states the lifecycle the ledger holds, not a constant', [2, 3].includes(Number(ownAttData?.ls)), 'ELIGIBLE (2) or ACTIVE (3)', ownAttData?.ls);
+  trace.check(
+    'The member node obtains the sequencer-signed NFC attestation for its wallet',
+    ownAtt.status === 200 && ownAttData?.w === walletId,
+    walletId,
+    ownAttData?.w ?? ownAtt.json,
+  );
+  trace.check(
+    'The attestation states the lifecycle the ledger holds, not a constant',
+    [2, 3].includes(Number(ownAttData?.ls)),
+    'ELIGIBLE (2) or ACTIVE (3)',
+    ownAttData?.ls,
+  );
   const attKey = (await rpc('l2_getAttestationPublicKey', {}, false)).result?.publicKey;
-  const attVerdict = typeof attKey === 'string' && ownAttData ? SequencerAttestationAuthority.verifyAttestation(ownAttData, attKey) : { valid: false, reason: 'no key or no attestation' };
-  trace.check('The attestation verifies against the sequencer\'s pinned key', attVerdict.valid === true, true, attVerdict);
-  const sent = await mem('POST', '/messaging/send', { recipientWalletId: String(results.prescriberWalletId), body: `Hello from the harness, run ${RUN}` });
-  trace.check('The member node sends a message signed as the wallet', sent.status === 200, 200, sent.status, sent.status === 200 ? undefined : JSON.stringify(sent.json ?? sent.text).slice(0, 200));
+  const attVerdict =
+    typeof attKey === 'string' && ownAttData
+      ? SequencerAttestationAuthority.verifyAttestation(ownAttData, attKey)
+      : { valid: false, reason: 'no key or no attestation' };
+  trace.check("The attestation verifies against the sequencer's pinned key", attVerdict.valid === true, true, attVerdict);
+  const sent = await mem('POST', '/messaging/send', {
+    recipientWalletId: String(results.prescriberWalletId),
+    body: `Hello from the harness, run ${RUN}`,
+  });
+  trace.check(
+    'The member node sends a message signed as the wallet',
+    sent.status === 200,
+    200,
+    sent.status,
+    sent.status === 200 ? undefined : JSON.stringify(sent.json ?? sent.text).slice(0, 200),
+  );
   const bySender = await rpc('l2_getMessagesBySender', { walletId });
   const sentCount = Array.isArray(bySender.result) ? bySender.result.length : (bySender.result?.messages?.length ?? 0);
   trace.check('The sequencer lists that message under the member as its sender', sentCount >= 1, '≥1', sentCount);
-
 
   // D1: the pharmacy reads a member's drug history only with the member's tapped attestation.
   const attHeader = { 'X-Member-Attestation': Buffer.from(JSON.stringify(ownAttData ?? {})).toString('base64') };
   const durWithTap = await http('GET', `${PHA}/dur/patient/${walletId}/full-history`, undefined, attHeader);
   const durRows = unwrap(durWithTap.json);
-  trace.check('With the member\'s tapped attestation the pharmacy reads the drug history', durWithTap.status === 200 && Array.isArray(durRows) && durRows.length >= 1, '200 and rows', durWithTap.status === 200 ? `${Array.isArray(durRows) ? durRows.length : 0} rows` : (unwrap(durWithTap.json) ?? durWithTap.status));
+  trace.check(
+    "With the member's tapped attestation the pharmacy reads the drug history",
+    durWithTap.status === 200 && Array.isArray(durRows) && durRows.length >= 1,
+    '200 and rows',
+    durWithTap.status === 200 ? `${Array.isArray(durRows) ? durRows.length : 0} rows` : (unwrap(durWithTap.json) ?? durWithTap.status),
+  );
 
   // ── 13c. Replication (A13) ───────────────────────────────
   trace.begin('verifier', 'The replicas mirror the leader, and the invariant monitor is quiet');
@@ -1072,49 +2225,133 @@ async function main() {
       leaderStatus = (await rpc('l2_getStatus', {}, false)).result;
       rs = await replicaStatus(p);
     }
-    trace.check(`The replica on :${p} holds the leader's registry root`, !!rs && rs.currentRegistryRoot === leaderStatus?.currentRegistryRoot, abbrev(String(leaderStatus?.currentRegistryRoot), 14), rs ? abbrev(String(rs.currentRegistryRoot), 14) : 'no status');
-    trace.check(`The replica on :${p} holds the leader's lifecycle root`, !!rs && rs.currentLifecycleRoot === leaderStatus?.currentLifecycleRoot, abbrev(String(leaderStatus?.currentLifecycleRoot), 14), rs ? abbrev(String(rs.currentLifecycleRoot), 14) : 'no status');
-    trace.check(`The replica on :${p} applied every accepted proof`, !!rs && Number(leaderStatus?.totalProofsAccepted) > 0 && Number(rs.totalProofsAccepted) >= Number(leaderStatus?.totalProofsAccepted), leaderStatus?.totalProofsAccepted, rs?.totalProofsAccepted);
+    trace.check(
+      `The replica on :${p} holds the leader's registry root`,
+      !!rs && rs.currentRegistryRoot === leaderStatus?.currentRegistryRoot,
+      abbrev(String(leaderStatus?.currentRegistryRoot), 14),
+      rs ? abbrev(String(rs.currentRegistryRoot), 14) : 'no status',
+    );
+    trace.check(
+      `The replica on :${p} holds the leader's lifecycle root`,
+      !!rs && rs.currentLifecycleRoot === leaderStatus?.currentLifecycleRoot,
+      abbrev(String(leaderStatus?.currentLifecycleRoot), 14),
+      rs ? abbrev(String(rs.currentLifecycleRoot), 14) : 'no status',
+    );
+    trace.check(
+      `The replica on :${p} applied every accepted proof`,
+      !!rs && Number(leaderStatus?.totalProofsAccepted) > 0 && Number(rs.totalProofsAccepted) >= Number(leaderStatus?.totalProofsAccepted),
+      leaderStatus?.totalProofsAccepted,
+      rs?.totalProofsAccepted,
+    );
   }
   const inv = leaderStatus?.invariants;
-  trace.check('The invariant monitor runs on the leader and reports both replicas in step', inv?.ok === true && Array.isArray(inv?.replicas) && inv.replicas.length === 2 && inv.replicas.every((x: any) => x.inSync === true), 'ok, 2 in sync', inv ? { ok: inv.ok, replicas: inv.replicas, alarms: inv.alarms } : 'no invariants in status');
+  trace.check(
+    'The invariant monitor runs on the leader and reports both replicas in step',
+    inv?.ok === true && Array.isArray(inv?.replicas) && inv.replicas.length === 2 && inv.replicas.every((x: any) => x.inSync === true),
+    'ok, 2 in sync',
+    inv ? { ok: inv.ok, replicas: inv.replicas, alarms: inv.alarms } : 'no invariants in status',
+  );
   trace.check('No batch is stalled', inv?.batch?.stalled === false, false, inv?.batch);
-  const relayBody = { jsonrpc: '2.0', id: 1, method: 'l2_gossipRelay', params: { message: { messageId: `probe-${RUN}`, type: 'peer:announce', senderId: 'nobody', timestamp: Date.now(), payload: {} } } };
+  const relayBody = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'l2_gossipRelay',
+    params: { message: { messageId: `probe-${RUN}`, type: 'peer:announce', senderId: 'nobody', timestamp: Date.now(), payload: {} } },
+  };
   const unsignedRelay = await http('POST', 'http://localhost:3031/rpc', relayBody);
-  trace.check('A replica refuses gossip that no registered peer signed', !!unsignedRelay.json?.error, 'error', unsignedRelay.json?.error?.message ?? unsignedRelay.json);
+  trace.check(
+    'A replica refuses gossip that no registered peer signed',
+    !!unsignedRelay.json?.error,
+    'error',
+    unsignedRelay.json?.error?.message ?? unsignedRelay.json,
+  );
   const bearerRelay = await http('POST', 'http://localhost:3031/rpc', relayBody, bearer);
-  trace.check('The network operator token opens nothing on a replica', !!bearerRelay.json?.error, 'error', bearerRelay.json?.error?.message ?? bearerRelay.json);
-
+  trace.check(
+    'The network operator token opens nothing on a replica',
+    !!bearerRelay.json?.error,
+    'error',
+    bearerRelay.json?.error?.message ?? bearerRelay.json,
+  );
 
   // ── 13b. Termination (B5, A-18): a terminated member is not billable ──
   trace.begin('insurer', 'Terminate the member; the engine refuses to prescribe for or dispense to them afterwards');
   const lastRxId = `RX-${RUN}-LAST`;
-  const lastRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: lastRxId });
+  const lastRx = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash,
+    quantity: 30,
+    refills: 0,
+    rxId: lastRxId,
+  });
   let lastRxOk = lastRx.status < 300 && !!lastRx.json?.prescriptionId;
   if (!lastRxOk && (lastRx.status === 504 || !lastRx.json?.error)) {
-    const found = await poll(quietAdmin, `${SEQ}/interactive/state`, j => (j?.prescriptions ?? []).some((x: any) => (x.id === lastRxId || x.rxId === lastRxId) && x.status === 'ADJUDICATED'), 600_000, 5000);
+    const found = await poll(
+      quietAdmin,
+      `${SEQ}/interactive/state`,
+      (j) => (j?.prescriptions ?? []).some((x: any) => (x.id === lastRxId || x.rxId === lastRxId) && x.status === 'ADJUDICATED'),
+      600_000,
+      5000,
+    );
     lastRxOk = (found.json?.prescriptions ?? []).some((x: any) => x.id === lastRxId || x.rxId === lastRxId);
   }
-  trace.check('A last prescription is written while the member is still eligible', lastRxOk, 'adjudicated', lastRx.json?.error ?? lastRx.status);
+  trace.check(
+    'A last prescription is written while the member is still eligible',
+    lastRxOk,
+    'adjudicated',
+    lastRx.json?.error ?? lastRx.status,
+  );
   const lastPrescriptionId = lastRx.json?.prescriptionId ?? lastRxId;
   await http('POST', `${PHA}/dispensing/mark-filled`, { prescriptionId: lastPrescriptionId });
   const term = await httpAdmin('POST', `${SEQ}/interactive/terminate-member`, { memberWalletId: walletId, terminationDate: '20261018' });
   trace.check('The operator terminates the member', term.status < 300, '2xx', term.status);
-  const afterTerm = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash, quantity: 30, refills: 0, rxId: `RX-${RUN}-AFTER` });
-  trace.check('No prescription can be written for a terminated member', afterTerm.status === 409 && /terminated/.test(String(afterTerm.json?.error ?? '')), '409 terminated', `${afterTerm.status} ${afterTerm.json?.error ?? ''}`.trim());
+  const afterTerm = await httpAdmin('POST', `${SEQ}/interactive/prescribe`, {
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash,
+    quantity: 30,
+    refills: 0,
+    rxId: `RX-${RUN}-AFTER`,
+  });
+  trace.check(
+    'No prescription can be written for a terminated member',
+    afterTerm.status === 409 && /terminated/.test(String(afterTerm.json?.error ?? '')),
+    '409 terminated',
+    `${afterTerm.status} ${afterTerm.json?.error ?? ''}`.trim(),
+  );
   const lateDisp = await http('POST', `${PHA}/dispensing/dispense`, { prescriptionId: lastPrescriptionId, quantityDispensed: 30 });
   let lateFill: any = unwrap(lateDisp.json);
   if (lateDisp.status < 300 && lateFill?.jobKey) {
-    const ld = await poll(quiet, `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(lateFill.jobKey)}`, j => ['complete', 'error'].includes(unwrap(j)?.status), 600_000, 5000);
+    const ld = await poll(
+      quiet,
+      `${PHA}/dispensing/fill-status?jobKey=${encodeURIComponent(lateFill.jobKey)}`,
+      (j) => ['complete', 'error'].includes(unwrap(j)?.status),
+      600_000,
+      5000,
+    );
     lateFill = unwrap(ld.json);
   }
-  trace.check('The filled prescription cannot be dispensed to a terminated member (termination cancels it)', (lateFill?.status === 'error' && /terminated|cancelled/.test(String(lateFill?.error ?? ''))) || lateDisp.status >= 400, 'error: terminated or cancelled', lateFill?.error ?? lateFill?.status ?? lateDisp.json);
+  trace.check(
+    'The filled prescription cannot be dispensed to a terminated member (termination cancels it)',
+    (lateFill?.status === 'error' && /terminated|cancelled/.test(String(lateFill?.error ?? ''))) || lateDisp.status >= 400,
+    'error: terminated or cancelled',
+    lateFill?.error ?? lateFill?.status ?? lateDisp.json,
+  );
 
   // ── 14. Where do the member's secrets live? ─────────────────
-  trace.begin('verifier', 'Scan what the network stores and serves for the member\'s secrets');
+  trace.begin('verifier', "Scan what the network stores and serves for the member's secrets");
   const secrets: Record<string, string> = {
-    firstName: MEMBER.firstName, lastName: MEMBER.lastName, dateOfBirth: MEMBER.dob, cardholderId: MEMBER.employeeId,
-    email: MEMBER.email, familyId: MEMBER.familyId, enrollmentKey, enrollmentPIN: myToken.tokenPIN, devicePIN: MEMBER.memberPin,
+    firstName: MEMBER.firstName,
+    lastName: MEMBER.lastName,
+    dateOfBirth: MEMBER.dob,
+    cardholderId: MEMBER.employeeId,
+    email: MEMBER.email,
+    familyId: MEMBER.familyId,
+    enrollmentKey,
+    enrollmentPIN: myToken.tokenPIN,
+    devicePIN: MEMBER.memberPin,
     'hash(enrollmentKey)': hashString(enrollmentKey).toString(),
     // C2: the sixth input is the employer group hash, a public identifier the insurer and the group
     // registry hold by design; it is not a secret and is not swept. The five salted inputs are.
@@ -1123,7 +2360,8 @@ async function main() {
   trace.note('preimage[5] is the employer group hash, public by design (C2), and is not swept');
   const sources: Array<[string, string]> = [];
   sources.push(['sequencer /interactive/state', (await http('GET', `${SEQ}/interactive/state`)).text]);
-  for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet']) sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);
+  for (const m of ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_getMessagesByWallet'])
+    sources.push([`sequencer RPC ${m}`, jsonSafe((await rpc(m, { walletId }, false)).result ?? '')]);
   sources.push(['sequencer RPC l2_getAuditLog', jsonSafe((await rpc('l2_getAuditLog', {})).result ?? '')]);
   sources.push(['insurer /claims/member', (await insAdmin('GET', `/claims/member/${walletId}`)).text]);
   sources.push(['insurer /roster', (await insAdmin('GET', '/roster')).text]);
@@ -1143,15 +2381,15 @@ async function main() {
   const matrix: Record<string, string[]> = {};
   for (const [label, text] of sources) {
     for (const h of findSecrets(text, secrets)) {
-      (matrix[h.secret] = matrix[h.secret] || []);
+      matrix[h.secret] = matrix[h.secret] || [];
       if (!matrix[h.secret].includes(label)) matrix[h.secret].push(label);
     }
   }
   results.secretLocations = matrix;
-  results.scannedSources = sources.map(s => s[0]);
+  results.scannedSources = sources.map((s) => s[0]);
   for (const k of Object.keys(secrets)) {
     const where = matrix[k] ?? [];
-    const onNetwork = where.filter(w => !w.startsWith('device disk') && !w.startsWith('employer disk'));
+    const onNetwork = where.filter((w) => !w.startsWith('device disk') && !w.startsWith('employer disk'));
     trace.check(`${k} does not reach the network`, onNetwork.length === 0, 'nowhere off the device', where.length ? where : 'not found');
   }
 
@@ -1159,14 +2397,27 @@ async function main() {
   const sum = trace.summary();
   results.summary = sum;
   results.finishedAt = new Date().toISOString();
-  fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify(results, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2));
+  fs.writeFileSync(
+    path.join(OUT, 'results.json'),
+    JSON.stringify(results, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2),
+  );
   console.log(`\n${sum.passed}/${sum.checks} checks passed across ${sum.steps} steps.`);
   for (const f of sum.failed) console.log(`  FAIL [${f.step} ${f.actor}] ${f.name}`);
   console.log(`Trace: ${path.join(OUT, 'trace.json')}`);
 }
 
-main().then(() => process.exit(0)).catch(err => {
-  console.error('\nHarness stopped:', err);
-  try { trace.end(); fs.writeFileSync(path.join(OUT, 'results.json'), JSON.stringify({ ...results, fatal: String(err?.stack || err) }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2)); } catch { /* ignore */ }
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('\nHarness stopped:', err);
+    try {
+      trace.end();
+      fs.writeFileSync(
+        path.join(OUT, 'results.json'),
+        JSON.stringify({ ...results, fatal: String(err?.stack || err) }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2),
+      );
+    } catch {
+      /* ignore */
+    }
+    process.exit(1);
+  });

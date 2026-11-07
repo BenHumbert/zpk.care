@@ -39,14 +39,14 @@ import { l2Stringify, l2Parse } from './l2-json.js';
 
 /** Type of WAL entry */
 export type WalEntryType =
-  | 'proof'          // Proof accepted — all pre-computed state change data
-  | 'batch_begin'    // Batch build started — pending pool drained
-  | 'batch_commit'   // Batch build completed — all mutations applied
-  | 'batch_abort'    // Batch build failed — pending pool restored
-  | 'settle'         // Batch settlement confirmed
-  | 'fail'           // Batch settlement failed
-  | 'plan_store'     // Plan created or updated
-  | 'plan_delete';   // Plan deleted
+  | 'proof' // Proof accepted — all pre-computed state change data
+  | 'batch_begin' // Batch build started — pending pool drained
+  | 'batch_commit' // Batch build completed — all mutations applied
+  | 'batch_abort' // Batch build failed — pending pool restored
+  | 'settle' // Batch settlement confirmed
+  | 'fail' // Batch settlement failed
+  | 'plan_store' // Plan created or updated
+  | 'plan_delete'; // Plan deleted
 
 /**
  * WalEntry — one line in the append-only proof log.
@@ -157,18 +157,21 @@ export const WAL_CHAIN_GENESIS = '0';
  * Falls back to plain SHA-256 if no secret is provided (InMemoryWalProvider
  * in tests, or legacy WAL files from before this change).
  */
-export function computeWalIntegrityHash(entry: {
-  type: WalEntryType;
-  partitionIndex: number;
-  sequenceNumber: bigint;
-  walletId?: string;
-  stateSnapshot?: { registryRoot: string; lifecycleRoot: string; walletCount: string; auditChainHash: string };
-  timestamp: number;
-  proofJson?: string;
-  receiptData?: unknown;
-  claimEntryData?: unknown;
-  prevIntegrityHash?: string;
-}, hmacSecret?: Buffer): string {
+export function computeWalIntegrityHash(
+  entry: {
+    type: WalEntryType;
+    partitionIndex: number;
+    sequenceNumber: bigint;
+    walletId?: string;
+    stateSnapshot?: { registryRoot: string; lifecycleRoot: string; walletCount: string; auditChainHash: string };
+    timestamp: number;
+    proofJson?: string;
+    receiptData?: unknown;
+    claimEntryData?: unknown;
+    prevIntegrityHash?: string;
+  },
+  hmacSecret?: Buffer,
+): string {
   const content = [
     entry.prevIntegrityHash ?? WAL_CHAIN_GENESIS,
     entry.type,
@@ -181,9 +184,7 @@ export function computeWalIntegrityHash(entry: {
     entry.stateSnapshot?.auditChainHash ?? '',
     String(entry.timestamp),
   ].join('|');
-  const hash = hmacSecret
-    ? createHmac('sha256', hmacSecret).update(content)
-    : createHash('sha256').update(content);
+  const hash = hmacSecret ? createHmac('sha256', hmacSecret).update(content) : createHash('sha256').update(content);
   // Include proof payload in integrity hash for tamper detection on recovery
   if (entry.proofJson) hash.update('|p:').update(entry.proofJson);
   if (entry.receiptData) hash.update('|r:').update(JSON.stringify(entry.receiptData));
@@ -195,12 +196,7 @@ export function computeWalIntegrityHash(entry: {
  * Generate a unique entry ID.
  * SHA-256 of type + partition + sequence + timestamp.
  */
-function generateEntryId(entry: {
-  type: WalEntryType;
-  partitionIndex: number;
-  sequenceNumber: bigint;
-  timestamp: number;
-}): string {
+function generateEntryId(entry: { type: WalEntryType; partitionIndex: number; sequenceNumber: bigint; timestamp: number }): string {
   const content = `${entry.type}:${entry.partitionIndex}:${entry.sequenceNumber}:${entry.timestamp}`;
   return createHash('sha256').update(content).digest('hex').slice(0, 32);
 }
@@ -222,9 +218,7 @@ export class InMemoryWalProvider implements IWalProvider {
   /** Map of partitionIndex → last integrity hash for chaining */
   private lastHash: Map<number, string> = new Map();
 
-  async append(
-    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>,
-  ): Promise<string> {
+  async append(entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>): Promise<string> {
     const entryId = generateEntryId(entry);
     const prevIntegrityHash = this.lastHash.get(entry.partitionIndex) ?? WAL_CHAIN_GENESIS;
     const integrityHash = computeWalIntegrityHash({ ...entry, prevIntegrityHash });
@@ -448,7 +442,9 @@ export class FileWalProvider implements IWalProvider {
             // Fall back to plain SHA-256 for legacy entries (pre-HMAC WAL files)
             const recomputedPlain = computeWalIntegrityHash(entry);
             if (entry.integrityHash !== recomputedHmac && entry.integrityHash !== recomputedPlain) {
-              console.warn(`[WAL] Tampered entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (HMAC mismatch), skipping`);
+              console.warn(
+                `[WAL] Tampered entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (HMAC mismatch), skipping`,
+              );
               chainBroken = true;
               continue;
             }
@@ -458,11 +454,15 @@ export class FileWalProvider implements IWalProvider {
           if (!entry.prevIntegrityHash) {
             // Legacy entry without chain link — chain validation degraded for this entry
             if (partitionEntries.length === 0) {
-              console.info(`[WAL] Legacy entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (no prevIntegrityHash — pre-HMAC format)`);
+              console.info(
+                `[WAL] Legacy entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (no prevIntegrityHash — pre-HMAC format)`,
+              );
             }
           } else if (!chainBroken) {
             if (entry.prevIntegrityHash !== expectedPrevHash) {
-              console.warn(`[WAL] Chain break at entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (prev hash mismatch: expected ${expectedPrevHash.slice(0, 8)}…, got ${entry.prevIntegrityHash.slice(0, 8)}…), skipping this and all subsequent injected entries`);
+              console.warn(
+                `[WAL] Chain break at entry ${entry.entryId} seq=${entry.sequenceNumber} in partition ${partitionIndex} (prev hash mismatch: expected ${expectedPrevHash.slice(0, 8)}…, got ${entry.prevIntegrityHash.slice(0, 8)}…), skipping this and all subsequent injected entries`,
+              );
               chainBroken = true;
               continue;
             }
@@ -530,9 +530,7 @@ export class FileWalProvider implements IWalProvider {
     }
   }
 
-  async append(
-    entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>,
-  ): Promise<string> {
+  async append(entry: Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'>): Promise<string> {
     await this.ensureInitialized(entry.partitionIndex);
     const secret = await this.ensureHmacSecret();
 

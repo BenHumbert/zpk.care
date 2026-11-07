@@ -50,10 +50,7 @@ export function buildTreeBottomUp(tree: MerkleTree, leaves: Field[]): void {
   for (let level = 0; level < tree.height - 1 && width > 0; level++) {
     const parents = Math.ceil(width / 2);
     for (let p = 0; p < parents; p++) {
-      put(level + 1, p, Poseidon.hash([
-        tree.getNode(level, BigInt(2 * p)),
-        tree.getNode(level, BigInt(2 * p + 1)),
-      ]));
+      put(level + 1, p, Poseidon.hash([tree.getNode(level, BigInt(2 * p)), tree.getNode(level, BigInt(2 * p + 1))]));
     }
     width = parents;
   }

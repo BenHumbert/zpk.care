@@ -39,12 +39,17 @@ const FIXTURE = path.join(REPO, 'tests', 'fixtures', 'data');
 const LIVE = path.join(REPO, 'src', 'data');
 const FILES = ['formulary.json', 'formulary-100.json', 'pharmacies.json', 'prescribers.json'];
 
-interface CatalogRecord { ndc: string; nadacPerUnit: number; pricingUnit: string; effectiveDate: string }
+interface CatalogRecord {
+  ndc: string;
+  nadacPerUnit: number;
+  pricingUnit: string;
+  effectiveDate: string;
+}
 const readCatalog = (dir: string, file = 'formulary.json'): CatalogRecord[] => JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
 
 describe('the catalog the tests read', () => {
   test('is the frozen copy', () => {
-    expect(process.env.ZKP_DATA_DIR).toBe(FIXTURE);   // before: unset, so every suite read src/data
+    expect(process.env.ZKP_DATA_DIR).toBe(FIXTURE); // before: unset, so every suite read src/data
   });
 
   test('has every file the data loaders read', () => {
@@ -70,7 +75,12 @@ describe('the live catalog', () => {
     const problems: string[] = [];
     for (const r of live) {
       let priceE5 = -1;
-      try { priceE5 = nadacUnitPriceE5(r.nadacPerUnit); } catch (err) { problems.push(`${r.ndc}: ${(err as Error).message}`); continue; }
+      try {
+        priceE5 = nadacUnitPriceE5(r.nadacPerUnit);
+      } catch (err) {
+        problems.push(`${r.ndc}: ${(err as Error).message}`);
+        continue;
+      }
       const entry = { ndc: r.ndc, basis: 'NADAC', priceE5, unit: r.pricingUnit, effectiveDate: toIso(r.effectiveDate) } as PriceEntry;
       const err = priceEntryError(entry);
       if (err) problems.push(`${r.ndc}: ${err}`);

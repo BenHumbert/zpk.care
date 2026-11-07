@@ -62,7 +62,13 @@ import { registerInteractiveRoutes } from '../src/adjudication/interactive-route
 import { RegistrationRefused } from '../src/adjudication/interactive-service.js';
 import type { NfcBridgeStatus, NfcTagEvent } from '../src/adjudication/nfc-port.js';
 import type { BadgeTapEvent } from '../src/credentials/provider-badge-types.js';
-import { isValidStatusTransition, RX_STATUS_CANCELLED, RX_STATUS_DISPENSED, RX_STATUS_FILLED, RX_STATUS_PARTIALLY_FILLED } from '../src/prescription/prescription-data.js';
+import {
+  isValidStatusTransition,
+  RX_STATUS_CANCELLED,
+  RX_STATUS_DISPENSED,
+  RX_STATUS_FILLED,
+  RX_STATUS_PARTIALLY_FILLED,
+} from '../src/prescription/prescription-data.js';
 import { generateNodeKey } from '../src/security/node-roles.js';
 import { signRequest, privateKeyFromSeedHex } from '../src/security/signed-request.js';
 import { deriveWalletSigningKey, walletSigner } from '../src/security/wallet-key.js';
@@ -120,19 +126,34 @@ let ending = false;
 /** What the stand-in engine answers for a badge tap that proves and is issued a session. */
 function badgeEvents(providerType: 'prescriber' | 'pharmacy', providerIndex: number): BadgeTapEvent[] {
   const tap = { providerType, providerIndex, displayName: `${providerType}-${providerIndex}`, timestamp: 0 };
-  return [{ type: 'badge:proof', ...tap, data: { verified: true } }, { type: 'badge:session', ...tap }];
+  return [
+    { type: 'badge:proof', ...tap, data: { verified: true } },
+    { type: 'badge:session', ...tap },
+  ];
 }
 
 /** Only what the routes under test call; anything else throws, so a wider dependency shows up. */
 function standInEngine() {
   const own: Record<string, unknown> = {
     isProvingReady: () => true,
-    getState: () => ({ compiled: true, enrolledMembers: [], members: [{ enrolled: { walletId: ALICE, lastCredentialJson: ALICE_CREDENTIAL } }] }),
+    getState: () => ({
+      compiled: true,
+      enrolledMembers: [],
+      members: [{ enrolled: { walletId: ALICE, lastCredentialJson: ALICE_CREDENTIAL } }],
+    }),
     // the sequencer's own chain node, as the engine's is, so the routes take its real proving lock
-    getL2Node: () => ({ withProvingLock: <T>(fn: () => Promise<T>) => { lockRequests++; return node.withProvingLock(fn); } }),
+    getL2Node: () => ({
+      withProvingLock: <T>(fn: () => Promise<T>) => {
+        lockRequests++;
+        return node.withProvingLock(fn);
+      },
+    }),
     dispensePrescription: async (opts: { prescriptionId: string; quantityDispensed?: number }) => {
       events.push('fill proof starts');
-      await new Promise<void>((resolve) => { endProof = () => resolve(); if (ending) resolve(); });
+      await new Promise<void>((resolve) => {
+        endProof = () => resolve();
+        if (ending) resolve();
+      });
       events.push('fill proof ends');
       // as the engine's dispense does, the status is written after the proof without being read again: a fill that names
       // a quantity dispenses part of the prescription, one that names none dispenses the rest
@@ -143,37 +164,58 @@ function standInEngine() {
     assignPcpForDevice: async (opts: { walletId: string; pcpWalletId: string; effectiveDate: string }) => {
       events.push('assignPcpForDevice');
       if (opts.pcpWalletId === NOT_A_PRESCRIBER) throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
-      return { walletId: opts.walletId, pcpWalletId: opts.pcpWalletId, effectiveDate: opts.effectiveDate, commitment: '55', walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' } };
+      return {
+        walletId: opts.walletId,
+        pcpWalletId: opts.pcpWalletId,
+        effectiveDate: opts.effectiveDate,
+        commitment: '55',
+        walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' },
+      };
     },
     terminateMember: (opts: { memberWalletId: string; terminationDate: string }) => {
       events.push('terminateMember');
       if (opts.memberWalletId === UNKNOWN_MEMBER) throw new Error(`Member not found: ${opts.memberWalletId}`);
-      return { memberWalletId: opts.memberWalletId, lifecycle: 'REVOKED', terminationDate: opts.terminationDate, credentialRevoked: true, cancelledPrescriptions: [] };
+      return {
+        memberWalletId: opts.memberWalletId,
+        lifecycle: 'REVOKED',
+        terminationDate: opts.terminationDate,
+        credentialRevoked: true,
+        cancelledPrescriptions: [],
+      };
     },
     terminateGroup: (opts: { groupId: string; terminationDate: string }) => {
       events.push('terminateGroup');
       return { groupId: opts.groupId, terminationDate: opts.terminationDate, terminatedCount: 1, members: [] };
     },
-    reset: () => { events.push('reset'); },
+    reset: () => {
+      events.push('reset');
+    },
     updateRxStatus: (opts: { prescriptionId: string; newStatus: string }) => {
       events.push('updateRxStatus');
       const from = rxStatus.get(opts.prescriptionId) ?? 'FILLED';
       // the engine's state rule, as its updateRxStatus applies it, and its refusal: a plain error, which the route answers 500
-      if (!isValidStatusTransition(STATUS_CODE[from], STATUS_CODE[opts.newStatus])) throw new Error(`Invalid status transition: ${from} → ${opts.newStatus}`);
+      if (!isValidStatusTransition(STATUS_CODE[from], STATUS_CODE[opts.newStatus]))
+        throw new Error(`Invalid status transition: ${from} → ${opts.newStatus}`);
       rxStatus.set(opts.prescriptionId, opts.newStatus);
       return { prescriptionId: opts.prescriptionId, previousStatus: from, newStatus: opts.newStatus };
     },
     simulateBadgeTap: async (providerType: 'prescriber' | 'pharmacy', providerIndex: number): Promise<BadgeTapEvent[]> => {
       const tap = `${providerType}-${providerIndex}`;
       events.push(`${tap} badge proof starts`);
-      await new Promise<void>((resolve) => { tapProofs.set(tap, resolve); if (ending) resolve(); });
+      await new Promise<void>((resolve) => {
+        tapProofs.set(tap, resolve);
+        if (ending) resolve();
+      });
       events.push(`${tap} badge proof ends`);
       return badgeEvents(providerType, providerIndex);
     },
     // the engine's round as its autoTapSimulation runs it: each provider in turn, through this.simulateBadgeTap
-    async autoTapSimulation(this: { simulateBadgeTap(type: 'prescriber', index: number): Promise<BadgeTapEvent[]> }, opts: { maxProviders?: number }) {
+    async autoTapSimulation(
+      this: { simulateBadgeTap(type: 'prescriber', index: number): Promise<BadgeTapEvent[]> },
+      opts: { maxProviders?: number },
+    ) {
       const all: BadgeTapEvent[] = [];
-      for (let i = 0; i < (opts.maxProviders ?? 1); i++) all.push(...await this.simulateBadgeTap('prescriber', i));
+      for (let i = 0; i < (opts.maxProviders ?? 1); i++) all.push(...(await this.simulateBadgeTap('prescriber', i)));
       return all;
     },
     verifyCredential: async (credentialJson: string) => {
@@ -192,9 +234,15 @@ function standInEngine() {
 
 /** A stand-in NFC reader: the test raises its tag events, and it writes nothing. */
 class StandInReader extends EventEmitter {
-  getStatus(): NfcBridgeStatus { return { state: 'polling', devicePath: null, tagUid: null, pendingWrite: null, error: null }; }
-  async queueWrite(): Promise<void> { /* no tag is written here */ }
-  cancelWrite(): void { /* nothing is queued to cancel */ }
+  getStatus(): NfcBridgeStatus {
+    return { state: 'polling', devicePath: null, tagUid: null, pendingWrite: null, error: null };
+  }
+  async queueWrite(): Promise<void> {
+    /* no tag is written here */
+  }
+  cancelWrite(): void {
+    /* nothing is queued to cancel */
+  }
 }
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -208,7 +256,12 @@ type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 async function readerAndStream(): Promise<{ reader: StandInReader; sent: Array<{ event: string; data: any }> }> {
   const reader = new StandInReader();
   const routes = new Map<string, Handler>();
-  const capture = { registerRoute: (method: string, p: string, handler: Handler) => { routes.set(`${method}:${p}`, handler); }, setMemberCostQuoteProvider: () => undefined };
+  const capture = {
+    registerRoute: (method: string, p: string, handler: Handler) => {
+      routes.set(`${method}:${p}`, handler);
+    },
+    setMemberCostQuoteProvider: () => undefined,
+  };
   registerInteractiveRoutes(capture as any, standInEngine() as any, reader);
   const sent: Array<{ event: string; data: any }> = [];
   const stream = {
@@ -227,10 +280,18 @@ async function readerAndStream(): Promise<{ reader: StandInReader; sent: Array<{
 type Reply = { status: number; json: any };
 
 async function post(p: string, body: unknown, headers: Record<string, string>): Promise<Reply> {
-  const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const r = await fetch(url + p, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = null; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
 
@@ -256,10 +317,18 @@ async function fillProving(prescriptionId: string, extra: Record<string, unknown
  * that takes no lock makes its engine call before it answers. A route whose engine call holds open until the test ends
  * it (a badge tap's proof) says when that call has started, which is how such a route is seen if it takes no lock.
  */
-async function sendWhileProving(p: string, body: unknown, headers: Record<string, string>, started: () => boolean = () => false): Promise<{ answered: () => boolean; reply: Promise<Reply> }> {
+async function sendWhileProving(
+  p: string,
+  body: unknown,
+  headers: Record<string, string>,
+  started: () => boolean = () => false,
+): Promise<{ answered: () => boolean; reply: Promise<Reply> }> {
   let answered = false;
   const asked = lockRequests;
-  const reply = post(p, body, headers).then((r) => { answered = true; return r; });
+  const reply = post(p, body, headers).then((r) => {
+    answered = true;
+    return r;
+  });
   replies.push(reply);
   await until(() => lockRequests > asked || answered || started());
   return { answered: () => answered, reply };
@@ -274,20 +343,41 @@ function endTap(tap: string): void {
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-wallet-locks' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-wallet-locks' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
   registerInteractiveRoutes(server, standInEngine() as any);
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
   // Alice's wallet signing key, registered as her member node registers it, so her device can sign pcp-assignment
-  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params: { walletId: ALICE, displayName: 'alice', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(ALICE_EK).publicKeyHex } });
-  const headers = signRequest({ signerId: memberNode.nodeId, privateKey: privateKeyFromSeedHex(memberNode.seedHex), method: 'POST', path: '/rpc', body });
-  const registered = await (await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body })).json() as { error?: { message: string } };
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'l2_registerEntity',
+    params: { walletId: ALICE, displayName: 'alice', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(ALICE_EK).publicKeyHex },
+  });
+  const headers = signRequest({
+    signerId: memberNode.nodeId,
+    privateKey: privateKeyFromSeedHex(memberNode.seedHex),
+    method: 'POST',
+    path: '/rpc',
+    body,
+  });
+  const registered = (await (
+    await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body })
+  ).json()) as { error?: { message: string } };
   if (registered.error) throw new Error(`fixture registration failed: ${registered.error.message}`);
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
 beforeEach(() => {
   events.length = 0;
@@ -310,35 +400,53 @@ afterEach(async () => {
 
 describe('while a fill holds the proving lock', () => {
   test('a primary-care choice waits for the fill, then runs and answers as before', async () => {
-    const choice = { walletId: ALICE, pcpWalletId: DR_PRIMARY, effectiveDate: '20261024', specialty: 'Internal Medicine', consentScopeFlags: 7 };
+    const choice = {
+      walletId: ALICE,
+      pcpWalletId: DR_PRIMARY,
+      effectiveDate: '20261024',
+      specialty: 'Internal Medicine',
+      consentScopeFlags: 7,
+    };
     await fillProving('RX-LOCK-PCP');
     const sent = await sendWhileProving(PCP, choice, asAlice(choice));
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'assignPcpForDevice']: the choice was written while the fill proved
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'assignPcpForDevice']: the choice was written while the fill proved
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ walletId: ALICE, pcpWalletId: DR_PRIMARY, effectiveDate: '20261024', commitment: '55', walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' } });
+    expect(r.json).toEqual({
+      walletId: ALICE,
+      pcpWalletId: DR_PRIMARY,
+      effectiveDate: '20261024',
+      commitment: '55',
+      walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' },
+    });
     expect(events).toEqual(['fill proof starts', 'fill proof ends', 'assignPcpForDevice']); // before: the choice came between the proof's start and its end
   });
 
   test('a termination waits for the fill, then runs and answers as before', async () => {
     await fillProving('RX-LOCK-TERMINATE');
     const sent = await sendWhileProving(TERMINATE_MEMBER, { memberWalletId: ALICE, terminationDate: '20261031' }, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'terminateMember']: the credential was revoked while the fill proved
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'terminateMember']: the credential was revoked while the fill proved
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ memberWalletId: ALICE, lifecycle: 'REVOKED', terminationDate: '20261031', credentialRevoked: true, cancelledPrescriptions: [] });
+    expect(r.json).toEqual({
+      memberWalletId: ALICE,
+      lifecycle: 'REVOKED',
+      terminationDate: '20261031',
+      credentialRevoked: true,
+      cancelledPrescriptions: [],
+    });
     expect(events).toEqual(['fill proof starts', 'fill proof ends', 'terminateMember']); // before: the termination came between the proof's start and its end
   });
 
   test('a group termination waits for the fill, then runs and answers as before', async () => {
     await fillProving('RX-LOCK-GROUP');
     const sent = await sendWhileProving(TERMINATE_GROUP, { groupId: 'ACME-CORP', terminationDate: '20261031' }, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'terminateGroup']
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'terminateGroup']
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
     expect(r.status).toBe(200);
@@ -349,8 +457,8 @@ describe('while a fill holds the proving lock', () => {
   test('a session reset waits for the fill, then runs and answers as before', async () => {
     await fillProving('RX-LOCK-RESET');
     const sent = await sendWhileProving(RESET, {}, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'reset']: the records the fill goes on to write were cleared while it proved
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'reset']: the records the fill goes on to write were cleared while it proved
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
     expect(r.status).toBe(200);
@@ -358,12 +466,16 @@ describe('while a fill holds the proving lock', () => {
     expect(events).toEqual(['fill proof starts', 'fill proof ends', 'reset']); // before: the reset came between the proof's start and its end
   });
 
-  test('the engine\'s refusals wait for the fill too, and answer as before: a wallet that is no prescriber 404, an unknown member 500', async () => {
+  test("the engine's refusals wait for the fill too, and answer as before: a wallet that is no prescriber 404, an unknown member 500", async () => {
     const notADoctor = { walletId: ALICE, pcpWalletId: NOT_A_PRESCRIBER, effectiveDate: '20261025' };
     await fillProving('RX-LOCK-REFUSALS');
     const refusedChoice = await sendWhileProving(PCP, notADoctor, asAlice(notADoctor));
-    const refusedTermination = await sendWhileProving(TERMINATE_MEMBER, { memberWalletId: UNKNOWN_MEMBER, terminationDate: '20261031' }, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'assignPcpForDevice', 'terminateMember']: each refusal ran at once, while the fill proved
+    const refusedTermination = await sendWhileProving(
+      TERMINATE_MEMBER,
+      { memberWalletId: UNKNOWN_MEMBER, terminationDate: '20261031' },
+      bearer,
+    );
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'assignPcpForDevice', 'terminateMember']: each refusal ran at once, while the fill proved
     endProof!();
     const choice = await refusedChoice.reply;
     expect(choice.status).toBe(404);
@@ -381,7 +493,12 @@ describe('while a fill holds the proving lock', () => {
       [PCP, noDate, asAlice(noDate), 'Missing effectiveDate'],
       [TERMINATE_MEMBER, {}, bearer, 'Missing required field: memberWalletId'],
       [TERMINATE_GROUP, {}, bearer, 'Missing required field: groupId'],
-      [UPDATE_RX_STATUS, { prescriptionId: 'RX-LOCK-BODY', newStatus: 'CANCELLED', role: 'prescriber' }, bearer, 'Missing required fields: prescriptionId, newStatus, role, actorIndex'],
+      [
+        UPDATE_RX_STATUS,
+        { prescriptionId: 'RX-LOCK-BODY', newStatus: 'CANCELLED', role: 'prescriber' },
+        bearer,
+        'Missing required fields: prescriptionId, newStatus, role, actorIndex',
+      ],
       [BADGE_TAP, { providerType: 'nurse', providerIndex: 0 }, bearer, 'providerType must be "prescriber" or "pharmacy"'],
     ] as Array<[string, unknown, Record<string, string>, string]>) {
       const r = await post(p, body, headers);
@@ -391,15 +508,21 @@ describe('while a fill holds the proving lock', () => {
     expect(lockRequests).toBe(1); // the fill's own
   });
 
-  test('a cancellation waits for the fill, then the engine\'s state rules refuse it for the prescription the fill dispensed, where before it was taken and then overwritten', async () => {
+  test("a cancellation waits for the fill, then the engine's state rules refuse it for the prescription the fill dispensed, where before it was taken and then overwritten", async () => {
     await fillProving('RX-LOCK-CANCEL');
-    const cancel = { prescriptionId: 'RX-LOCK-CANCEL', newStatus: 'CANCELLED', role: 'prescriber', actorIndex: 0, note: 'Treatment changed' };
+    const cancel = {
+      prescriptionId: 'RX-LOCK-CANCEL',
+      newStatus: 'CANCELLED',
+      role: 'prescriber',
+      actorIndex: 0,
+      note: 'Treatment changed',
+    };
     const sent = await sendWhileProving(UPDATE_RX_STATUS, cancel, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'updateRxStatus']: the cancellation was written while the fill proved
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'updateRxStatus']: the cancellation was written while the fill proved
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
-    expect(r.status).toBe(500);                      // before: 200: the cancellation was taken from FILLED, then overwritten with DISPENSED when the fill ended
+    expect(r.status).toBe(500); // before: 200: the cancellation was taken from FILLED, then overwritten with DISPENSED when the fill ended
     expect(r.json).toEqual({ error: 'Invalid status transition: DISPENSED → CANCELLED' }); // before: { prescriptionId: 'RX-LOCK-CANCEL', previousStatus: 'FILLED', newStatus: 'CANCELLED' }, which the fill then made untrue
     expect(events).toEqual(['fill proof starts', 'fill proof ends', 'updateRxStatus']); // before: the cancellation came between the proof's start and its end
     expect(rxStatus.get('RX-LOCK-CANCEL')).toBe('DISPENSED');
@@ -409,8 +532,8 @@ describe('while a fill holds the proving lock', () => {
     await fillProving('RX-LOCK-PARTIAL', { quantityDispensed: 10 });
     const cancel = { prescriptionId: 'RX-LOCK-PARTIAL', newStatus: 'CANCELLED', role: 'prescriber', actorIndex: 0 };
     const sent = await sendWhileProving(UPDATE_RX_STATUS, cancel, bearer);
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'updateRxStatus']: the cancellation was written while the fill proved
-    expect(sent.answered()).toBe(false);             // before: answered 200 while the fill was still proving
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'updateRxStatus']: the cancellation was written while the fill proved
+    expect(sent.answered()).toBe(false); // before: answered 200 while the fill was still proving
     endProof!();
     const r = await sent.reply;
     expect(r.status).toBe(200);
@@ -420,8 +543,10 @@ describe('while a fill holds the proving lock', () => {
 
   test('a badge tap waits for the fill, then proves and answers as before; another badge request meanwhile is answered 429 at once, as before', async () => {
     await fillProving('RX-LOCK-BADGE');
-    const tap = await sendWhileProving(BADGE_TAP, { providerType: 'pharmacy', providerIndex: 2 }, bearer, () => events.includes('pharmacy-2 badge proof starts'));
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'pharmacy-2 badge proof starts']: the badge's proof ran beside the fill's
+    const tap = await sendWhileProving(BADGE_TAP, { providerType: 'pharmacy', providerIndex: 2 }, bearer, () =>
+      events.includes('pharmacy-2 badge proof starts'),
+    );
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'pharmacy-2 badge proof starts']: the badge's proof ran beside the fill's
     const another = await post(BADGE_TAP, { providerType: 'prescriber', providerIndex: 0 }, bearer);
     expect(another).toEqual({ status: 429, json: { error: 'Badge tap already in progress — please wait' } });
     endProof!();
@@ -437,38 +562,64 @@ describe('while a fill holds the proving lock', () => {
   test('an auto-tap round takes the lock for each tap and lets it go before the next: a fill sent during a tap runs before the next tap', async () => {
     await fillProving('RX-LOCK-ROUND');
     const round = await sendWhileProving(AUTO_TAP, { maxProviders: 2 }, bearer, () => events.includes('prescriber-0 badge proof starts'));
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'prescriber-0 badge proof starts']: the round's first proof ran beside the fill's
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'prescriber-0 badge proof starts']: the round's first proof ran beside the fill's
     endProof!();
     await until(() => events.includes('prescriber-0 badge proof starts'));
     // a second fill, sent while the first tap proves, asks for the lock before the round asks for it again
     expect((await post('/interactive/fill', { prescriptionId: 'RX-LOCK-ROUND-2' }, bearer)).status).toBe(202);
     endTap('prescriber-0');
     await until(() => events.filter((e) => e === 'fill proof starts').length === 2);
-    expect(events).toEqual(['fill proof starts', 'fill proof ends', 'prescriber-0 badge proof starts', 'prescriber-0 badge proof ends', 'fill proof starts']); // before: the first tap proved beside both fills: [fill starts, tap starts, fill ends, fill starts, tap ends]
+    expect(events).toEqual([
+      'fill proof starts',
+      'fill proof ends',
+      'prescriber-0 badge proof starts',
+      'prescriber-0 badge proof ends',
+      'fill proof starts',
+    ]); // before: the first tap proved beside both fills: [fill starts, tap starts, fill ends, fill starts, tap ends]
     endProof!();
     await until(() => events.includes('prescriber-1 badge proof starts'));
     endTap('prescriber-1');
     const r = await round.reply;
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ summary: { totalProviders: 2, authenticated: 2, errors: 0, proofsGenerated: 2 }, events: [...badgeEvents('prescriber', 0), ...badgeEvents('prescriber', 1)] });
-    const inTurn = ['fill proof starts', 'fill proof ends', 'prescriber-0 badge proof starts', 'prescriber-0 badge proof ends', 'fill proof starts', 'fill proof ends', 'prescriber-1 badge proof starts', 'prescriber-1 badge proof ends'];
-    expect(events).toEqual(inTurn);                  // before: each tap's proof overlapped a fill's
+    expect(r.json).toEqual({
+      summary: { totalProviders: 2, authenticated: 2, errors: 0, proofsGenerated: 2 },
+      events: [...badgeEvents('prescriber', 0), ...badgeEvents('prescriber', 1)],
+    });
+    const inTurn = [
+      'fill proof starts',
+      'fill proof ends',
+      'prescriber-0 badge proof starts',
+      'prescriber-0 badge proof ends',
+      'fill proof starts',
+      'fill proof ends',
+      'prescriber-1 badge proof starts',
+      'prescriber-1 badge proof ends',
+    ];
+    expect(events).toEqual(inTurn); // before: each tap's proof overlapped a fill's
     expect(lockRequests).toBe(4); // each fill's, and one for each tap   // before: 2, the fills' alone
   });
 
-  test('a credential checked at the NFC reader is verified once the fill has finished, and reported on the reader\'s stream as before', async () => {
+  test("a credential checked at the NFC reader is verified once the fill has finished, and reported on the reader's stream as before", async () => {
     const { reader, sent } = await readerAndStream();
     expect(sent.map((s) => s.event)).toEqual(['nfc:status']);
     await fillProving('RX-LOCK-NFC');
     const asked = lockRequests;
     const tag: NfcTagEvent = { type: 'tag:read', uid: '04A1B2C3', walletId: ALICE, timestamp: 1_000 };
     reader.emit('tag:read', tag);
-    expect(lockRequests).toBe(asked + 1);            // before: unchanged: the reader's handler verified without asking for the lock
-    expect(events).toEqual(['fill proof starts']);   // before: ['fill proof starts', 'verifyCredential']: the credential was verified while the fill proved
+    expect(lockRequests).toBe(asked + 1); // before: unchanged: the reader's handler verified without asking for the lock
+    expect(events).toEqual(['fill proof starts']); // before: ['fill proof starts', 'verifyCredential']: the credential was verified while the fill proved
     endProof!();
     await until(() => sent.length === 2);
     expect(events).toEqual(['fill proof starts', 'fill proof ends', 'verifyCredential']); // before: the verification came between the proof's start and its end
-    expect(sent[1]).toEqual({ event: 'nfc:tag_read', data: { ...tag, verified: true, verificationMethod: 'zk-proof', verification: { valid: true, walletId: ALICE, proofType: 'holding' } } });
+    expect(sent[1]).toEqual({
+      event: 'nfc:tag_read',
+      data: {
+        ...tag,
+        verified: true,
+        verificationMethod: 'zk-proof',
+        verification: { valid: true, walletId: ALICE, proofType: 'holding' },
+      },
+    });
   });
 });
 
@@ -500,7 +651,10 @@ describe('the engine calls these routes make under the lock', () => {
         for (const m of [...reach]) {
           if (!line.includes(`this.${m}(`)) continue;
           const caller = enclosing(i);
-          if (caller && !reach.has(caller)) { reach.add(caller); grew = true; }
+          if (caller && !reach.has(caller)) {
+            reach.add(caller);
+            grew = true;
+          }
         }
       });
     }
@@ -525,7 +679,16 @@ describe('the engine calls these routes make under the lock', () => {
   test('take no lock and start no batch themselves: the lock is not re-entrant, so a route would wait on itself', () => {
     const reach = lockTakingMethods();
     expect(reach.has('forceBatch')).toBe(true); // the search finds the engine's own batch trigger
-    for (const m of ['assignPcpForDevice', 'terminateMember', 'terminateGroup', 'reset', 'updateRxStatus', 'simulateBadgeTap', 'autoTapSimulation', 'verifyCredential']) {
+    for (const m of [
+      'assignPcpForDevice',
+      'terminateMember',
+      'terminateGroup',
+      'reset',
+      'updateRxStatus',
+      'simulateBadgeTap',
+      'autoTapSimulation',
+      'verifyCredential',
+    ]) {
       expect([m, reach.has(m)]).toEqual([m, false]);
     }
   });

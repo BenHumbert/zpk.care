@@ -34,11 +34,7 @@
  */
 
 import { Field } from 'o1js';
-import type {
-  ProofCoordinatorMessage,
-  ProofJobRequest,
-  ProofJobResult,
-} from './proof-pool-types.js';
+import type { ProofCoordinatorMessage, ProofJobRequest, ProofJobResult } from './proof-pool-types.js';
 
 // ─── Program Imports ──────────────────────────────────────
 
@@ -46,10 +42,7 @@ import type {
 import { ProofGateProgram, ProofGateProof } from '../wallets/proof-gate.js';
 
 // Engine
-import {
-  StateTransitionProgram,
-  StateTransitionProof,
-} from '../engine/state-transition.js';
+import { StateTransitionProgram, StateTransitionProof } from '../engine/state-transition.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
 
 // Eligibility
@@ -71,11 +64,7 @@ import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
 // Messaging
 import { MessageData } from '../messaging/message-data.js';
 import { MessagingProgram } from '../messaging/messaging-program.js';
-import {
-  MessageRegistryWitness,
-  DelegationRegistryWitness,
-  KeyRegistryWitness,
-} from '../messaging/message-registry.js';
+import { MessageRegistryWitness, DelegationRegistryWitness, KeyRegistryWitness } from '../messaging/message-registry.js';
 import { DelegationData } from '../messaging/delegation-data.js';
 
 // Prescription
@@ -112,7 +101,10 @@ const TYPE_REGISTRY: Record<string, { toJSON: (v: any) => any; fromJSON: (v: any
   MessageData: { toJSON: (v: any) => MessageData.toJSON(v), fromJSON: (v: any) => MessageData.fromJSON(v) },
   DelegationData: { toJSON: (v: any) => DelegationData.toJSON(v), fromJSON: (v: any) => DelegationData.fromJSON(v) },
   PrescriptionData: { toJSON: (v: any) => PrescriptionData.toJSON(v), fromJSON: (v: any) => PrescriptionData.fromJSON(v) },
-  PrescriptionStatusData: { toJSON: (v: any) => PrescriptionStatusData.toJSON(v), fromJSON: (v: any) => PrescriptionStatusData.fromJSON(v) },
+  PrescriptionStatusData: {
+    toJSON: (v: any) => PrescriptionStatusData.toJSON(v),
+    fromJSON: (v: any) => PrescriptionStatusData.fromJSON(v),
+  },
   FulfillmentData: { toJSON: (v: any) => FulfillmentData.toJSON(v), fromJSON: (v: any) => FulfillmentData.fromJSON(v) },
   ReversalData: { toJSON: (v: any) => ReversalData.toJSON(v), fromJSON: (v: any) => ReversalData.fromJSON(v) },
   PcpAssignmentData: { toJSON: (v: any) => PcpAssignmentData.toJSON(v), fromJSON: (v: any) => PcpAssignmentData.fromJSON(v) },
@@ -120,14 +112,26 @@ const TYPE_REGISTRY: Record<string, { toJSON: (v: any) => any; fromJSON: (v: any
   // MerkleWitness classes
   // ForestMerkleWitness covers all forest domain witnesses (ACCESS_CONTROL, MEDICATION, TRANSACTION, etc.)
   ForestMerkleWitness: { toJSON: (v: any) => ForestMerkleWitness.toJSON(v), fromJSON: (v: any) => ForestMerkleWitness.fromJSON(v) },
-  FormularyMerkleWitness: { toJSON: (v: any) => FormularyMerkleWitness.toJSON(v), fromJSON: (v: any) => FormularyMerkleWitness.fromJSON(v) },
+  FormularyMerkleWitness: {
+    toJSON: (v: any) => FormularyMerkleWitness.toJSON(v),
+    fromJSON: (v: any) => FormularyMerkleWitness.fromJSON(v),
+  },
   BenefitPlanWitness: { toJSON: (v: any) => BenefitPlanWitness.toJSON(v), fromJSON: (v: any) => BenefitPlanWitness.fromJSON(v) },
   WalletRegistryWitness: { toJSON: (v: any) => WalletRegistryWitness.toJSON(v), fromJSON: (v: any) => WalletRegistryWitness.fromJSON(v) },
   LifecycleWitness: { toJSON: (v: any) => LifecycleWitness.toJSON(v), fromJSON: (v: any) => LifecycleWitness.fromJSON(v) },
-  MessageRegistryWitness: { toJSON: (v: any) => MessageRegistryWitness.toJSON(v), fromJSON: (v: any) => MessageRegistryWitness.fromJSON(v) },
-  DelegationRegistryWitness: { toJSON: (v: any) => DelegationRegistryWitness.toJSON(v), fromJSON: (v: any) => DelegationRegistryWitness.fromJSON(v) },
+  MessageRegistryWitness: {
+    toJSON: (v: any) => MessageRegistryWitness.toJSON(v),
+    fromJSON: (v: any) => MessageRegistryWitness.fromJSON(v),
+  },
+  DelegationRegistryWitness: {
+    toJSON: (v: any) => DelegationRegistryWitness.toJSON(v),
+    fromJSON: (v: any) => DelegationRegistryWitness.fromJSON(v),
+  },
   KeyRegistryWitness: { toJSON: (v: any) => KeyRegistryWitness.toJSON(v), fromJSON: (v: any) => KeyRegistryWitness.fromJSON(v) },
-  CredentialInventoryWitness: { toJSON: (v: any) => CredentialInventoryWitness.toJSON(v), fromJSON: (v: any) => CredentialInventoryWitness.fromJSON(v) },
+  CredentialInventoryWitness: {
+    toJSON: (v: any) => CredentialInventoryWitness.toJSON(v),
+    fromJSON: (v: any) => CredentialInventoryWitness.fromJSON(v),
+  },
 
   // Proofs
   StateTransitionProof: { toJSON: (v: any) => v.toJSON(), fromJSON: (v: any) => StateTransitionProof.fromJSON(v) },
@@ -153,7 +157,7 @@ type ProveFn = (...args: any[]) => Promise<any>;
 
 interface MethodDef {
   fn: ProveFn;
-  argTypes: string[];  // type names in TYPE_REGISTRY
+  argTypes: string[]; // type names in TYPE_REGISTRY
   hasPublicOutput: boolean;
 }
 
@@ -185,12 +189,34 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
   AccessControl: {
     proveFormularyAccess: {
       fn: (...args: any[]) => (AccessControlProgram.proveFormularyAccess as ProveFn)(...args),
-      argTypes: ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field', 'Field', 'Field'],
+      argTypes: [
+        'CredentialData',
+        'EligibilityData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'FormularyEntry',
+        'FormularyMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+      ],
       hasPublicOutput: false,
     },
     provePriorAuth: {
       fn: (...args: any[]) => (AccessControlProgram.provePriorAuth as ProveFn)(...args),
-      argTypes: ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
+      argTypes: [
+        'CredentialData',
+        'EligibilityData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'PriorAuthData',
+        'FormularyEntry',
+        'FormularyMerkleWitness',
+        'Field',
+        'Field',
+      ],
       hasPublicOutput: false,
     },
   },
@@ -209,19 +235,59 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
   StateTransition: {
     proveRegistration: {
       fn: (...args: any[]) => (StateTransitionProgram.proveRegistration as ProveFn)(...args),
-      argTypes: ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field'],
+      argTypes: [
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'WalletRegistryWitness',
+        'LifecycleWitness',
+        'Field',
+        'Field',
+      ],
       hasPublicOutput: true,
     },
     proveWalletUpdate: {
       fn: (...args: any[]) => (StateTransitionProgram.proveWalletUpdate as ProveFn)(...args),
-      argTypes: ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
+      argTypes: [
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'WalletRegistryWitness',
+        'LifecycleWitness',
+        'Field',
+        'Field',
+        'Field',
+      ],
       hasPublicOutput: true,
     },
   },
   Prescription: {
     proveStatusUpdate: {
       fn: (...args: any[]) => (PrescriptionProgram.proveStatusUpdate as ProveFn)(...args),
-      argTypes: ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'PrescriptionStatusData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'Field', 'Field', 'Field'],
+      argTypes: [
+        'CredentialData',
+        'PrescriptionData',
+        'PrescriptionStatusData',
+        'PrescriptionStatusData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+      ],
       hasPublicOutput: false,
     },
   },
@@ -229,29 +295,56 @@ const PROGRAM_REGISTRY: Record<string, Record<string, MethodDef>> = {
     proveFulfillmentWithAccumulator: {
       fn: (...args: any[]) => (AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator as ProveFn)(...args),
       argTypes: [
-        'CredentialData', 'PrescriptionData', 'PrescriptionStatusData',
-        'FulfillmentData', 'FormularyEntry', 'ForestRoots',
-        'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness',
-        'FormularyMerkleWitness', 'Field',
-        'CredentialData', 'ForestRoots',
-        'AccumulatorData', 'ForestMerkleWitness',
-        'Field', 'Field', 'Field',
+        'CredentialData',
+        'PrescriptionData',
+        'PrescriptionStatusData',
+        'FulfillmentData',
+        'FormularyEntry',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'FormularyMerkleWitness',
+        'Field',
+        'CredentialData',
+        'ForestRoots',
+        'AccumulatorData',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
         // B8: the family's totals before the fill and the plan's family limits
-        'Field', 'Field', 'Field', 'Field', 'Field', 'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
       ],
       hasPublicOutput: true,
     },
     proveReversalWithAccumulator: {
       fn: (...args: any[]) => (AccumulatorFulfillmentProgram.proveReversalWithAccumulator as ProveFn)(...args),
       argTypes: [
-        'CredentialData', 'PrescriptionData',
-        'FulfillmentData', 'ReversalData', 'ForestRoots',
-        'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness',
-        'Field', 'Field', 'Field',
-        'CredentialData', 'ForestRoots',
-        'AccumulatorData', 'ForestMerkleWitness',
+        'CredentialData',
+        'PrescriptionData',
+        'FulfillmentData',
+        'ReversalData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+        'CredentialData',
+        'ForestRoots',
+        'AccumulatorData',
+        'ForestMerkleWitness',
         // H2: pharmacy wallet identity preimage — the circuit has taken these since H2; the table had not caught up
-        'Field', 'Field', 'Field',
+        'Field',
+        'Field',
+        'Field',
       ],
       hasPublicOutput: true,
     },
@@ -359,7 +452,9 @@ async function handleProve(jobId: string, request: ProofJobRequest): Promise<voi
   const memBefore = process.memoryUsage();
   const rssBefore = Math.round(memBefore.rss / 1024 / 1024);
   const heapBefore = Math.round(memBefore.heapUsed / 1024 / 1024);
-  console.log(`[proof-worker] ${jobId}: ${request.program}.${request.method} — START (RSS: ${rssBefore}MB, Heap: ${heapBefore}MB, args: ${request.args.length})`);
+  console.log(
+    `[proof-worker] ${jobId}: ${request.program}.${request.method} — START (RSS: ${rssBefore}MB, Heap: ${heapBefore}MB, args: ${request.args.length})`,
+  );
 
   const start = Date.now();
 
@@ -370,7 +465,9 @@ async function handleProve(jobId: string, request: ProofJobRequest): Promise<voi
   if (!methodDef) throw new Error(`Unknown method: ${request.program}.${request.method}`);
 
   if (request.args.length !== methodDef.argTypes.length) {
-    throw new Error(`Arg count mismatch for ${request.program}.${request.method}: expected ${methodDef.argTypes.length}, got ${request.args.length}`);
+    throw new Error(
+      `Arg count mismatch for ${request.program}.${request.method}: expected ${methodDef.argTypes.length}, got ${request.args.length}`,
+    );
   }
 
   // Deserialize arguments — per-arg error reporting
@@ -393,13 +490,17 @@ async function handleProve(jobId: string, request: ProofJobRequest): Promise<voi
   } catch (err: any) {
     const memAfter = process.memoryUsage();
     const rssAfter = Math.round(memAfter.rss / 1024 / 1024);
-    console.error(`[proof-worker] ${jobId}: PROVE FAILED after ${Date.now() - start}ms (RSS: ${rssAfter}MB, delta: +${rssAfter - rssBefore}MB)`);
+    console.error(
+      `[proof-worker] ${jobId}: PROVE FAILED after ${Date.now() - start}ms (RSS: ${rssAfter}MB, delta: +${rssAfter - rssBefore}MB)`,
+    );
     throw err;
   }
 
   const memAfter = process.memoryUsage();
   const rssAfter = Math.round(memAfter.rss / 1024 / 1024);
-  console.log(`[proof-worker] ${jobId}: ${request.program}.${request.method} — DONE in ${Date.now() - start}ms (RSS: ${rssAfter}MB, delta: +${rssAfter - rssBefore}MB)`);
+  console.log(
+    `[proof-worker] ${jobId}: ${request.program}.${request.method} — DONE in ${Date.now() - start}ms (RSS: ${rssAfter}MB, delta: +${rssAfter - rssBefore}MB)`,
+  );
 
   // Build result
   const result: ProofJobResult = {
@@ -427,13 +528,19 @@ async function handleProve(jobId: string, request: ProofJobRequest): Promise<voi
         out[key] = val;
       } else {
         // Fallback: try toString
-        try { out[key] = String(val); } catch { console.warn(`[proof-worker] ${jobId}: publicOutput.${key} — cannot serialize (${typeof val})`); }
+        try {
+          out[key] = String(val);
+        } catch {
+          console.warn(`[proof-worker] ${jobId}: publicOutput.${key} — cannot serialize (${typeof val})`);
+        }
       }
     }
     console.log(`[proof-worker] ${jobId}: publicOutput keys: [${Object.keys(out).join(', ')}] (${Object.keys(out).length} fields)`);
     result.publicOutput = out;
   } else if (methodDef.hasPublicOutput) {
-    console.warn(`[proof-worker] ${jobId}: hasPublicOutput=true but proof.publicOutput is ${proveResult?.proof?.publicOutput === undefined ? 'undefined' : 'null'}`);
+    console.warn(
+      `[proof-worker] ${jobId}: hasPublicOutput=true but proof.publicOutput is ${proveResult?.proof?.publicOutput === undefined ? 'undefined' : 'null'}`,
+    );
   }
 
   process.send!({ type: 'result', jobId, result });
@@ -471,21 +578,29 @@ process.on('disconnect', () => process.exit(0));
 
 process.on('uncaughtException', (err) => {
   const mem = process.memoryUsage();
-  console.error(`[proof-worker] UNCAUGHT EXCEPTION — RSS: ${Math.round(mem.rss / 1024 / 1024)}MB, Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}/${Math.round(mem.heapTotal / 1024 / 1024)}MB`);
+  console.error(
+    `[proof-worker] UNCAUGHT EXCEPTION — RSS: ${Math.round(mem.rss / 1024 / 1024)}MB, Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}/${Math.round(mem.heapTotal / 1024 / 1024)}MB`,
+  );
   console.error(`[proof-worker] ${err.stack || err.message || err}`);
   try {
     process.send!({ type: 'error', jobId: '__crash__', message: `Uncaught: ${err.message || err}` });
-  } catch { /* IPC may be dead */ }
+  } catch {
+    /* IPC may be dead */
+  }
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
   const mem = process.memoryUsage();
   const msg = reason instanceof Error ? reason.stack || reason.message : String(reason);
-  console.error(`[proof-worker] UNHANDLED REJECTION — RSS: ${Math.round(mem.rss / 1024 / 1024)}MB, Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}/${Math.round(mem.heapTotal / 1024 / 1024)}MB`);
+  console.error(
+    `[proof-worker] UNHANDLED REJECTION — RSS: ${Math.round(mem.rss / 1024 / 1024)}MB, Heap: ${Math.round(mem.heapUsed / 1024 / 1024)}/${Math.round(mem.heapTotal / 1024 / 1024)}MB`,
+  );
   console.error(`[proof-worker] ${msg}`);
   try {
     process.send!({ type: 'error', jobId: '__crash__', message: `Unhandled rejection: ${msg}` });
-  } catch { /* IPC may be dead */ }
+  } catch {
+    /* IPC may be dead */
+  }
   process.exit(1);
 });

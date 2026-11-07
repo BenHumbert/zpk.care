@@ -47,13 +47,13 @@ import { Field, MerkleTree } from 'o1js';
 jest.setTimeout(300_000);
 
 const OPERATOR = 'operator-token-for-pa-review';
-const ABACAVIR = '00378410591';   // tier 1: no prior authorization, 90 EA per fill
-const PA_DRUG = '59148004580';    // ABILIFY MAINTENA ER 300 MG SYR: prior authorization and step therapy, 30 EA per fill
+const ABACAVIR = '00378410591'; // tier 1: no prior authorization, 90 EA per fill
+const PA_DRUG = '59148004580'; // ABILIFY MAINTENA ER 300 MG SYR: prior authorization and step therapy, 30 EA per fill
 const PA_ML_DRUG = '50242014301'; // ACTEMRA ACTPEN 162 MG/0.9 ML: prior authorization, 30 ML per fill
-const W1 = '79300000000000000001';   // names prescriber 0, then prescriber 1
-const W2 = '79300000000000000002';   // names prescriber 2, which the insurer then suspends
-const W3 = '79300000000000000003';   // names prescriber 3
-const W4 = '79300000000000000004';   // names prescriber 3
+const W1 = '79300000000000000001'; // names prescriber 0, then prescriber 1
+const W2 = '79300000000000000002'; // names prescriber 2, which the insurer then suspends
+const W3 = '79300000000000000003'; // names prescriber 3
+const W4 = '79300000000000000004'; // names prescriber 3
 
 let node: any;
 let seq: any;
@@ -86,35 +86,81 @@ function asPrescriber(i: number, method: string, path: string, body?: string): R
 }
 
 async function quoteAsPrescriber(i: number, walletId: string, ndc: string, quantity = 30): Promise<any> {
-  const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_estimateCost', params: { walletId, ndcHash: ndcHashOf(ndc), quantity } });
-  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...asPrescriber(i, 'POST', '/rpc', body) }, body });
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: rpcId++,
+    method: 'l2_estimateCost',
+    params: { walletId, ndcHash: ndcHashOf(ndc), quantity },
+  });
+  const r = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...asPrescriber(i, 'POST', '/rpc', body) },
+    body,
+  });
   return r.json();
 }
 
 /** The member's claims, read as seed prescriber i's own wallet: the 'pcp' reader (A-59). */
 async function claimsAsPrescriber(i: number, walletId: string): Promise<any> {
   const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_getClaimsByMember', params: { walletId } });
-  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...asPrescriber(i, 'POST', '/rpc', body) }, body });
+  const r = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...asPrescriber(i, 'POST', '/rpc', body) },
+    body,
+  });
   return r.json();
 }
 
-async function engine(method: 'GET' | 'POST', path: string, bodyObj: unknown, headers: Record<string, string>): Promise<{ status: number; json: any }> {
+async function engine(
+  method: 'GET' | 'POST',
+  path: string,
+  bodyObj: unknown,
+  headers: Record<string, string>,
+): Promise<{ status: number; json: any }> {
   const body = bodyObj === undefined ? undefined : JSON.stringify(bodyObj);
   const r = await fetch(url + path, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, body });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = text; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
   return { status: r.status, json };
 }
-const requestAs = (i: number, body: unknown) => engine('POST', '/interactive/request-prior-auth', body, asPrescriber(i, 'POST', '/interactive/request-prior-auth', JSON.stringify(body)));
+const requestAs = (i: number, body: unknown) =>
+  engine('POST', '/interactive/request-prior-auth', body, asPrescriber(i, 'POST', '/interactive/request-prior-auth', JSON.stringify(body)));
 const statusAs = (i: number, member: string, ndc: string) =>
-  engine('GET', `/interactive/prior-auth-status?memberWalletId=${member}&ndcHash=${ndcHashOf(ndc)}`, undefined, asPrescriber(i, 'GET', '/interactive/prior-auth-status'));
+  engine(
+    'GET',
+    `/interactive/prior-auth-status?memberWalletId=${member}&ndcHash=${ndcHashOf(ndc)}`,
+    undefined,
+    asPrescriber(i, 'GET', '/interactive/prior-auth-status'),
+  );
 
 /** The member's primary-care choice as its device makes it: the engine's record, then the sequencer link signed as the wallet. */
 async function namePcp(member: string, prescriberIndex: number): Promise<void> {
-  await svc.assignPcpForDevice({ walletId: member, pcpWalletId: prescriberWallet(prescriberIndex), effectiveDate: '20261019', specialty: 'Family Medicine', consentScopeFlags: 7 });
-  const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_registerPcpAssignment', params: { memberWalletId: member, prescriberWalletId: prescriberWallet(prescriberIndex), effectiveDate: '2026-10-19' } });
-  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signRequest({ signerId: member, privateKey: memberKeys[member].privateKey, method: 'POST', path: '/rpc', body }) }, body });
+  await svc.assignPcpForDevice({
+    walletId: member,
+    pcpWalletId: prescriberWallet(prescriberIndex),
+    effectiveDate: '20261019',
+    specialty: 'Family Medicine',
+    consentScopeFlags: 7,
+  });
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: rpcId++,
+    method: 'l2_registerPcpAssignment',
+    params: { memberWalletId: member, prescriberWalletId: prescriberWallet(prescriberIndex), effectiveDate: '2026-10-19' },
+  });
+  const r = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...signRequest({ signerId: member, privateKey: memberKeys[member].privateKey, method: 'POST', path: '/rpc', body }),
+    },
+    body,
+  });
   expect(((await r.json()) as Record<string, unknown>).error).toBeUndefined();
 }
 
@@ -141,11 +187,21 @@ beforeAll(async () => {
   MEDICATIONS = data.MEDICATIONS;
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pa-review' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pa-review' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   seq = node.getSequencer();
   seq.getFormularyService().loadFromNadac(formularyRaw);
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
   svc.dispatchProof = async () => ({ proofJson: null, publicOutput: null, proveTimeMs: 0 });
@@ -158,36 +214,72 @@ beforeAll(async () => {
   // Seed prescribers 0 to 3, registered as their nodes register them: the wallet with its signing key, credentialed ACTIVE.
   for (let i = 0; i < 4; i++) {
     const r = await rpc('l2_registerEntity', {
-      walletId: prescriberWallet(i), displayName: `Prescriber ${i}`, type: 'prescriber', npi: String(PRESCRIBERS[i].localData.prescriberId),
+      walletId: prescriberWallet(i),
+      displayName: `Prescriber ${i}`,
+      type: 'prescriber',
+      npi: String(PRESCRIBERS[i].localData.prescriberId),
       signingPublicKeyHex: deriveWalletSigningKey(PRESCRIBERS[i].enrollmentKey).publicKeyHex,
     });
     expect(r.error).toBeUndefined();
   }
   const base: any = {
-    planId: 'PLAN-PA-REVIEW', name: 'PA review plan', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1300,
-    formularyNdcs: [ABACAVIR, PA_DRUG, PA_ML_DRUG], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-PA-REVIEW',
+    name: 'PA review plan',
+    coverageType: 1,
+    copayAmountCents: 1000,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1300,
+    formularyNdcs: [ABACAVIR, PA_DRUG, PA_ML_DRUG],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, data.getAllFormularyEntries()).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
   for (const w of [W1, W2, W3, W4]) {
-    seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED); });
-    svc.approveMember({ walletId: w, groupIdHash: ndcHashOf('GRP-PA-REVIEW'), planIdHash: ndcHashOf(base.planId), planId: base.planId, employerId: null, familyIdHash: null });
+    seq.adminMutate('test', ({ provision }: any) => {
+      provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED);
+    });
+    svc.approveMember({
+      walletId: w,
+      groupIdHash: ndcHashOf('GRP-PA-REVIEW'),
+      planIdHash: ndcHashOf(base.planId),
+      planId: base.planId,
+      employerId: null,
+      familyIdHash: null,
+    });
     await svc.registerMemberFromEnrollment({ walletId: w, ownershipProofJson: '{}', displayName: 'PA review member' });
     // the member's wallet with its own signing key, as its device registers it
     memberKeys[w] = deriveWalletSigningKey(`enrollment-key-of-${w}`);
-    expect((await rpc('l2_registerEntity', { walletId: w, displayName: 'PA review member', type: 'member', signingPublicKeyHex: memberKeys[w].publicKeyHex })).error).toBeUndefined();
+    expect(
+      (
+        await rpc('l2_registerEntity', {
+          walletId: w,
+          displayName: 'PA review member',
+          type: 'member',
+          signingPublicKeyHex: memberKeys[w].publicKeyHex,
+        })
+      ).error,
+    ).toBeUndefined();
   }
   await namePcp(W3, 3);
   await namePcp(W4, 3);
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
 describe('1. the quote answers the prescriber the member consents to now, not a PCP link the sequencer kept', () => {
   test('the D1 table: the quote is read by the member, a prescriber it consents to and its attestation; claim reads keep the PCP links', async () => {
     const { MEMBER_DATA_METHODS } = await import('../src/l2/member-data-methods.js');
-    expect(MEMBER_DATA_METHODS.l2_estimateCost.readers).toEqual(['self', 'prescriber', 'attestation']);   // before: 'pcp' too
+    expect(MEMBER_DATA_METHODS.l2_estimateCost.readers).toEqual(['self', 'prescriber', 'attestation']); // before: 'pcp' too
     expect(MEMBER_DATA_METHODS.l2_getClaimsByMember.readers).toContain('pcp');
   });
 
@@ -198,18 +290,20 @@ describe('1. the quote answers the prescriber the member consents to now, not a 
     await namePcp(W1, 1);
     // A-59: the sequencer keeps the old link but lists and answers by the member's latest choice, as the engine records it
     const links = (await rpc('l2_getPcpAssignments', { prescriberWalletId: prescriberWallet(0) })).result;
-    expect(links.map((l: any) => l.memberWalletId)).not.toContain(W1);           // before A-59: listed for good
+    expect(links.map((l: any) => l.memberWalletId)).not.toContain(W1); // before A-59: listed for good
     const current = (await rpc('l2_getPcpAssignments', { prescriberWalletId: prescriberWallet(1) })).result;
     expect(current.map((l: any) => l.memberWalletId)).toContain(W1);
     expect((await claimsAsPrescriber(0, W1)).error?.message).toMatch(/Forbidden/); // before A-59: every claim
     expect(Array.isArray((await claimsAsPrescriber(1, W1)).result)).toBe(true);
     expect(svc.prescribingConsentFor(W1, prescriberWallet(0), ndcHashOf(ABACAVIR))).toBeNull();
     const former = await quoteAsPrescriber(0, W1, ABACAVIR);
-    expect(former.result).toBeUndefined();                 // before: her share and phase, through the kept link
+    expect(former.result).toBeUndefined(); // before: her share and phase, through the kept link
     expect(former.error?.message).toMatch(/Forbidden/);
-    expect(former.error?.message).toMatch(/a prescriber it consented to \(its primary-care prescriber, or one its device authorized for this visit\)/);
+    expect(former.error?.message).toMatch(
+      /a prescriber it consented to \(its primary-care prescriber, or one its device authorized for this visit\)/,
+    );
     const formerPa = await quoteAsPrescriber(0, W1, PA_DRUG, 1);
-    expect(formerPa.result).toBeUndefined();               // before: her prior-authorization status for the drug
+    expect(formerPa.result).toBeUndefined(); // before: her prior-authorization status for the drug
     expect((await statusAs(0, W1, PA_DRUG)).status).toBe(403);
     expect((await quoteAsPrescriber(1, W1, ABACAVIR)).result).toMatchObject({ covered: true, phase: 'deductible' });
   });
@@ -219,7 +313,7 @@ describe('1. the quote answers the prescriber the member consents to now, not a 
     expect((await quoteAsPrescriber(2, W2, ABACAVIR)).result).toMatchObject({ covered: true });
     expect((await rpc('l2_updateProviderStatus', { walletId: prescriberWallet(2), newState: 3 })).error).toBeUndefined();
     const suspended = await quoteAsPrescriber(2, W2, ABACAVIR);
-    expect(suspended.result).toBeUndefined();              // before: answered through the sequencer's link
+    expect(suspended.result).toBeUndefined(); // before: answered through the sequencer's link
     expect(suspended.error?.message).toMatch(/Forbidden/);
     expect((await claimsAsPrescriber(2, W2)).error?.message).toMatch(/Forbidden/); // before A-59: every claim
   });
@@ -228,59 +322,90 @@ describe('1. the quote answers the prescriber the member consents to now, not a 
 describe('2. a reason is plain text where it enters', () => {
   const C = (code: number) => String.fromCharCode(code);
 
-  test('a prescriber\'s reason with markup or a control character is refused with 400 and nothing is recorded; a line break is kept', async () => {
+  test("a prescriber's reason with markup or a control character is refused with 400 and nothing is recorded; a line break is kept", async () => {
     const before = svc.priorAuths.size;
-    const markup = await requestAs(3, { memberWalletId: W3, ndcHash: ndcHashOf(PA_DRUG), quantity: 10, reason: '<img src=x onerror="fetch(1)">' });
-    expect([markup.status, markup.json.error]).toEqual([400, expect.stringMatching(/may not contain < or >/)]);   // before: 200
+    const markup = await requestAs(3, {
+      memberWalletId: W3,
+      ndcHash: ndcHashOf(PA_DRUG),
+      quantity: 10,
+      reason: '<img src=x onerror="fetch(1)">',
+    });
+    expect([markup.status, markup.json.error]).toEqual([400, expect.stringMatching(/may not contain < or >/)]); // before: 200
     const bell = await requestAs(3, { memberWalletId: W3, ndcHash: ndcHashOf(PA_DRUG), quantity: 10, reason: `Two agents failed${C(7)}` });
     expect([bell.status, bell.json.error]).toEqual([400, expect.stringMatching(/control characters other than a line break/)]);
     expect(svc.priorAuths.size).toBe(before);
-    const ok = await requestAs(3, { memberWalletId: W3, ndcHash: ndcHashOf(PA_DRUG), quantity: 10, reason: 'Two oral agents failed.\nA1c 9.1%' });
+    const ok = await requestAs(3, {
+      memberWalletId: W3,
+      ndcHash: ndcHashOf(PA_DRUG),
+      quantity: 10,
+      reason: 'Two oral agents failed.\nA1c 9.1%',
+    });
     expect(ok.status).toBe(200);
-    expect(svc.listPriorAuths('PENDING').find((p: any) => p.memberWalletId === W3)).toMatchObject({ quantity: 10, reason: 'Two oral agents failed.\nA1c 9.1%' });
+    expect(svc.listPriorAuths('PENDING').find((p: any) => p.memberWalletId === W3)).toMatchObject({
+      quantity: 10,
+      reason: 'Two oral agents failed.\nA1c 9.1%',
+    });
   });
 
-  test('an insurer\'s denial reason with markup or a control character is refused with 400, and the request stays pending', async () => {
+  test("an insurer's denial reason with markup or a control character is refused with 400, and the request stays pending", async () => {
     const pa = pendingFor(W3, PA_DRUG);
     const markup = await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: pa.id, reason: '<script>steal()</script>' }, bearer);
-    expect([markup.status, markup.json.error]).toEqual([400, expect.stringMatching(/may not contain < or >/)]);   // before: 200, and DENIED
+    expect([markup.status, markup.json.error]).toEqual([400, expect.stringMatching(/may not contain < or >/)]); // before: 200, and DENIED
     const escape = await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: pa.id, reason: `${C(27)}[2J cleared` }, bearer);
     expect(escape.status).toBe(400);
     let refusal: any = null;
-    try { svc.denyPriorAuth(pa.id, 'dose > 30'); } catch (err) { refusal = err; }
+    try {
+      svc.denyPriorAuth(pa.id, 'dose > 30');
+    } catch (err) {
+      refusal = err;
+    }
     expect(refusal).toMatchObject({ status: 400 });
     expect(pa.status).toBe('PENDING');
     expect(pa.decisionReason).toBeUndefined();
   });
 
   test('an unknown request is a 404 and a decided one a 409, not a 500', async () => {
-    expect((await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: 'PA-9999', reason: 'No such request' }, bearer)).status).toBe(404);
+    expect(
+      (await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: 'PA-9999', reason: 'No such request' }, bearer)).status,
+    ).toBe(404);
     expect((await engine('POST', '/interactive/approve-prior-auth', { priorAuthId: 'PA-9999' }, bearer)).status).toBe(404);
   });
 });
 
-describe('3. an approval holds the quantity the prescriber asked for, within the plan\'s limit', () => {
+describe("3. an approval holds the quantity the prescriber asked for, within the plan's limit", () => {
   test('asked for 10 EA: the authorization, its proof and the answer say 10 EA; 30 EA is refused at prescribing before any proof', async () => {
     const pa = pendingFor(W3, PA_DRUG);
     const proofs: Array<{ program: string; method: string; args: any[] }> = [];
     const skip = svc.dispatchProof;
-    svc.dispatchProof = async (program: string, method: string, _types: string[], args: any[]) => { proofs.push({ program, method, args }); return skip(); };
+    svc.dispatchProof = async (program: string, method: string, _types: string[], args: any[]) => {
+      proofs.push({ program, method, args });
+      return skip();
+    };
     try {
       const approved = await svc.approvePriorAuth(pa.id);
       expect(approved).toMatchObject({ status: 'APPROVED', approvedQuantity: 10, pricingUnit: 'EA' });
-      expect(pa.priorAuthData.approvedQuantity.toBigInt()).toBe(10_000n);   // before: 30000, the plan's whole limit
+      expect(pa.priorAuthData.approvedQuantity.toBigInt()).toBe(10_000n); // before: 30000, the plan's whole limit
       const paProof = proofs.find((p) => p.program === 'AccessControl' && p.method === 'provePriorAuth');
       expect(paProof!.args[paProof!.args.length - 1].toBigInt()).toBe(10_000n);
       expect(svc.listPriorAuths('RESOLVED').find((p: any) => p.id === pa.id)).toMatchObject({ status: 'APPROVED', quantity: 10 });
       // the prescriber is told what was approved
-      const toPrescriber = svc.getThreads(prescriberWallet(3))
+      const toPrescriber = svc
+        .getThreads(prescriberWallet(3))
         .flatMap((t: any) => svc.decryptThread(t.messageIndices, prescriberWallet(3)))
         .filter((m: any) => m && m.subject === 'PA Approved: ABILIFY MAINTENA ER 300 MG SYR');
       expect(toPrescriber.map((m: any) => m.body.endsWith(`Auth #${pa.id}, 10 EA per fill`))).toEqual([true]);
 
       proofs.length = 0;
-      await expect(svc.createPrescription({ prescriberIndex: 3, pharmacyIndex: 0, memberWalletId: W3, ndcHash: ndcHashOf(PA_DRUG), quantity: 30, refills: 0 }))
-        .rejects.toMatchObject({ status: 409, message: expect.stringMatching(/approves at most 10 EA per fill; 30 EA is more/) });   // before: on to the proofs
+      await expect(
+        svc.createPrescription({
+          prescriberIndex: 3,
+          pharmacyIndex: 0,
+          memberWalletId: W3,
+          ndcHash: ndcHashOf(PA_DRUG),
+          quantity: 30,
+          refills: 0,
+        }),
+      ).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/approves at most 10 EA per fill; 30 EA is more/) }); // before: on to the proofs
       expect(proofs).toEqual([]);
     } finally {
       svc.dispatchProof = skip;
@@ -289,17 +414,29 @@ describe('3. an approval holds the quantity the prescriber asked for, within the
 
   test('10 EA passes the prior-authorization check at prescribing', async () => {
     const stepTherapy = svc.checkStepTherapy;
-    svc.checkStepTherapy = () => ({ allowed: true, message: 'met' });   // the drug also needs step therapy; not this test's subject
+    svc.checkStepTherapy = () => ({ allowed: true, message: 'met' }); // the drug also needs step therapy; not this test's subject
     try {
-      const rx = await svc.createPrescription({ prescriberIndex: 3, pharmacyIndex: 0, memberWalletId: W3, ndcHash: ndcHashOf(PA_DRUG), quantity: 10, refills: 0 });
+      const rx = await svc.createPrescription({
+        prescriberIndex: 3,
+        pharmacyIndex: 0,
+        memberWalletId: W3,
+        ndcHash: ndcHashOf(PA_DRUG),
+        quantity: 10,
+        refills: 0,
+      });
       expect(rx.prescriptionId).toEqual(expect.any(String));
     } finally {
       svc.checkStepTherapy = stepTherapy;
     }
   });
 
-  test('a request the console made names no quantity and is approved at the plan\'s limit per fill', async () => {
-    const r = await engine('POST', '/interactive/request-prior-auth', { memberWalletId: W4, prescriberIndex: 3, ndcHash: ndcHashOf(PA_ML_DRUG) }, bearer);
+  test("a request the console made names no quantity and is approved at the plan's limit per fill", async () => {
+    const r = await engine(
+      'POST',
+      '/interactive/request-prior-auth',
+      { memberWalletId: W4, prescriberIndex: 3, ndcHash: ndcHashOf(PA_ML_DRUG) },
+      bearer,
+    );
     expect(r.status).toBe(200);
     const approved = await svc.approvePriorAuth(r.json.paId);
     expect(approved).toMatchObject({ approvedQuantity: 30, pricingUnit: 'ML' });
@@ -312,21 +449,37 @@ describe('4. a request being approved takes no other decision', () => {
     expect((await requestAs(3, { memberWalletId: W4, ndcHash: ndcHashOf(PA_DRUG), quantity: 30 })).status).toBe(200);
     const pa = pendingFor(W4, PA_DRUG);
     let entered: () => void = () => {};
-    const proving = new Promise<void>((resolve) => { entered = resolve; });
+    const proving = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const skip = svc.dispatchProof;
     svc.dispatchProof = async (program: string, method: string) => {
-      if (program === 'AccessControl' && method === 'provePriorAuth') { entered(); await gate; }
+      if (program === 'AccessControl' && method === 'provePriorAuth') {
+        entered();
+        await gate;
+      }
       return skip();
     };
     try {
       const approving = svc.approvePriorAuth(pa.id);
       await proving;
       let denial: any = null;
-      try { svc.denyPriorAuth(pa.id, 'Step therapy not documented'); } catch (err) { denial = err; }
-      expect(denial).toMatchObject({ status: 409, message: expect.stringMatching(/being proven/) });   // before: no refusal, DENIED
-      const viaRoute = await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: pa.id, reason: 'Step therapy not documented' }, bearer);
+      try {
+        svc.denyPriorAuth(pa.id, 'Step therapy not documented');
+      } catch (err) {
+        denial = err;
+      }
+      expect(denial).toMatchObject({ status: 409, message: expect.stringMatching(/being proven/) }); // before: no refusal, DENIED
+      const viaRoute = await engine(
+        'POST',
+        '/interactive/deny-prior-auth',
+        { priorAuthId: pa.id, reason: 'Step therapy not documented' },
+        bearer,
+      );
       expect(viaRoute.status).toBe(409);
       await expect(svc.approvePriorAuth(pa.id)).rejects.toMatchObject({ status: 409 });
       expect(pa.status).toBe('PENDING');
@@ -339,7 +492,7 @@ describe('4. a request being approved takes no other decision', () => {
     expect(pa.status).toBe('APPROVED');
     expect(pa.decisionReason).toBeUndefined();
     const decided = await engine('POST', '/interactive/deny-prior-auth', { priorAuthId: pa.id, reason: 'Too late' }, bearer);
-    expect([decided.status, decided.json.error]).toEqual([409, `Prior auth is already APPROVED: ${pa.id}`]);   // before: 500
+    expect([decided.status, decided.json.error]).toEqual([409, `Prior auth is already APPROVED: ${pa.id}`]); // before: 500
   });
 
   test('a failed approval releases the request for the next decision', async () => {
@@ -359,7 +512,7 @@ describe('4. a request being approved takes no other decision', () => {
   });
 });
 
-describe('5. /node/state sends what the pharmacy console\'s NADAC column reads', () => {
+describe("5. /node/state sends what the pharmacy console's NADAC column reads", () => {
   const NL = '\n';
   const read = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n/g, NL);
   function liftModule(src: string, name: string): string {
@@ -375,7 +528,7 @@ describe('5. /node/state sends what the pharmacy console\'s NADAC column reads',
     const meds: any[] = r.json.medications;
     expect(meds.length).toBe(MEDICATIONS.length);
     for (const [i, m] of meds.entries()) {
-      expect([m.ndc, m.nadacPerUnit, m.pricingUnit]).toEqual([MEDICATIONS[i].ndc, MEDICATIONS[i].nadacPerUnit, MEDICATIONS[i].pricingUnit]);   // before: undefined
+      expect([m.ndc, m.nadacPerUnit, m.pricingUnit]).toEqual([MEDICATIONS[i].ndc, MEDICATIONS[i].nadacPerUnit, MEDICATIONS[i].pricingUnit]); // before: undefined
     }
 
     const PHARMACY = read('visualizer/src/js/pharmacy-dashboard.js');
@@ -384,17 +537,23 @@ describe('5. /node/state sends what the pharmacy console\'s NADAC column reads',
     const nadac = new Function(`'use strict';\n${NADAC.replace(/^export\s+/gm, '')}\nreturn { nadacPerUnitLabel, nadacUnitPriceE5 };`)();
     const els: Record<string, any> = {};
     const scope: Record<string, unknown> = {
-      medications: meds, ...nadac, formatCents: (c: number) => '$' + (c / 100).toFixed(2),
+      medications: meds,
+      ...nadac,
+      formatCents: (c: number) => '$' + (c / 100).toFixed(2),
       renderSectionCard: (title: string, _kind: string, body: string) => `<h3>${title}</h3>${body}`,
       document: { getElementById: (id: string) => (els[id] = els[id] ?? { id, innerHTML: '' }) },
     };
     const names = Object.keys(scope);
-    const code = [liftModule(PHARMACY, 'tierBadge'), liftModule(PHARMACY, 'renderFormulary'), liftModule(COMMON, 'renderSortableTable')].join(NL);
+    const code = [
+      liftModule(PHARMACY, 'tierBadge'),
+      liftModule(PHARMACY, 'renderFormulary'),
+      liftModule(COMMON, 'renderSortableTable'),
+    ].join(NL);
     new Function(...names, `'use strict';\n${code}\nreturn renderFormulary;`)(...names.map((n) => scope[n]))();
     const html = String(els['section-formulary'].innerHTML);
     const abacavir = meds.find((m) => m.ndc === ABACAVIR);
     expect(html).toContain(`>${nadac.nadacPerUnitLabel(abacavir)}</td>`);
     expect(nadac.nadacPerUnitLabel(abacavir)).toBe('$0.64179/EA');
-    expect(html).not.toContain('No NADAC price');           // before: every row
+    expect(html).not.toContain('No NADAC price'); // before: every row
   });
 });

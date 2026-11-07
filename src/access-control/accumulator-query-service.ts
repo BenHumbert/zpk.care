@@ -65,8 +65,12 @@ export function accumulatorAmountsOf(acc: AccumulatorData): AccumulatorAmounts {
 }
 
 const NO_FAMILY: FamilyAmounts = {
-  deductiblePaidCents: 0, oopPaidCents: 0, annualBenefitUsedCents: 0,
-  familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
+  deductiblePaidCents: 0,
+  oopPaidCents: 0,
+  annualBenefitUsedCents: 0,
+  familyDeductibleAmountCents: 0,
+  familyOopMaxCents: 0,
+  familyAnnualBenefitMaxCents: 0,
 };
 
 /**
@@ -131,21 +135,39 @@ export function splitClaimCost(input: {
   const familyBenefitExhausted = hasFamilyBenefitMax && f.annualBenefitUsedCents >= f.familyAnnualBenefitMaxCents;
   const familyOopRemaining = familyOopMet ? 0 : hasFamilyOopMax ? f.familyOopMaxCents - f.oopPaidCents : individualPatientPay;
   const familyOopCapApplies = hasFamilyOopMax && !familyOopMet && individualPatientPay > familyOopRemaining;
-  const familyBenefitRemaining = familyBenefitExhausted ? 0 : hasFamilyBenefitMax ? f.familyAnnualBenefitMaxCents - f.annualBenefitUsedCents : individualPlanPay;
+  const familyBenefitRemaining = familyBenefitExhausted
+    ? 0
+    : hasFamilyBenefitMax
+      ? f.familyAnnualBenefitMaxCents - f.annualBenefitUsedCents
+      : individualPlanPay;
   const familyBenefitCapApplies = hasFamilyBenefitMax && !familyBenefitExhausted && individualPlanPay > familyBenefitRemaining;
-  const familyRule: ClaimSplit['familyRule'] = familyOopMet ? 1 : familyBenefitExhausted ? 2 : familyOopCapApplies ? 3 : familyBenefitCapApplies ? 4 : 0;
-  const patientPay = familyRule === 1 ? 0
-    : familyRule === 2 ? total
-      : familyRule === 3 ? familyOopRemaining
-        : familyRule === 4 ? total - familyBenefitRemaining
-          : individualPatientPay;
+  const familyRule: ClaimSplit['familyRule'] = familyOopMet
+    ? 1
+    : familyBenefitExhausted
+      ? 2
+      : familyOopCapApplies
+        ? 3
+        : familyBenefitCapApplies
+          ? 4
+          : 0;
+  const patientPay =
+    familyRule === 1
+      ? 0
+      : familyRule === 2
+        ? total
+        : familyRule === 3
+          ? familyOopRemaining
+          : familyRule === 4
+            ? total - familyBenefitRemaining
+            : individualPatientPay;
 
   // 16e: only the deductible portion counts toward the deductible
   const deductibleCredit = patientPay < deductiblePay ? patientPay : deductiblePay;
 
   let phase: ClaimPhase;
   if (familyRule === 1 || familyRule === 3 || (familyRule === 0 && (oopMet || oopCapApplies))) phase = 'oop-max-reached';
-  else if (familyRule === 2 || familyRule === 4 || (familyRule === 0 && (benefitExhausted || benefitCapApplies))) phase = 'benefit-max-reached';
+  else if (familyRule === 2 || familyRule === 4 || (familyRule === 0 && (benefitExhausted || benefitCapApplies)))
+    phase = 'benefit-max-reached';
   else if (inDeductiblePhase) phase = 'deductible';
   else phase = 'copay';
 
@@ -243,14 +265,8 @@ export class AccumulatorQueryService {
    *
    * @returns true if the data matches the forest leaf
    */
-  static verifyInForest(
-    forest: MerkleForest,
-    accumulatorData: AccumulatorData,
-  ): boolean {
-    const storedLeaf = forest.getLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      ACCUMULATOR_LEAF_INDEX,
-    );
+  static verifyInForest(forest: MerkleForest, accumulatorData: AccumulatorData): boolean {
+    const storedLeaf = forest.getLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
     return accumulatorData.commitment().toString() === storedLeaf.toString();
   }
 

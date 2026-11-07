@@ -39,9 +39,15 @@ const PHARMACY_X = '2001';
 const PHARMACY_Y = '2002';
 const PRESCRIBER_P = '3001';
 const PRESCRIBER_Q = '3002';
-const NDC_LISINOPRIL = Poseidon.hash([Field(BigInt('00378180510'))]).toBigInt().toString();
-const NDC_METFORMIN = Poseidon.hash([Field(BigInt('00093721510'))]).toBigInt().toString();
-const NDC_ATORVASTATIN = Poseidon.hash([Field(BigInt('00378217710'))]).toBigInt().toString();
+const NDC_LISINOPRIL = Poseidon.hash([Field(BigInt('00378180510'))])
+  .toBigInt()
+  .toString();
+const NDC_METFORMIN = Poseidon.hash([Field(BigInt('00093721510'))])
+  .toBigInt()
+  .toString();
+const NDC_ATORVASTATIN = Poseidon.hash([Field(BigInt('00378217710'))])
+  .toBigInt()
+  .toString();
 
 function makeLeaf(overrides: Partial<ClaimLeaf> = {}): ClaimLeaf {
   return {
@@ -89,8 +95,14 @@ describe('Claim Accumulator Types', () => {
 
     // Change each field and verify hash differs
     const fields: (keyof ClaimLeaf)[] = [
-      'memberWalletId', 'ndcHash', 'pharmacyWalletId', 'prescriberWalletId',
-      'dateOfService', 'patientPayCents', 'planPayCents', 'operationType',
+      'memberWalletId',
+      'ndcHash',
+      'pharmacyWalletId',
+      'prescriberWalletId',
+      'dateOfService',
+      'patientPayCents',
+      'planPayCents',
+      'operationType',
       'deductibleCreditCents',
     ];
     for (const field of fields) {
@@ -144,10 +156,7 @@ describe('ClaimAccumulatorService — Basic Operations', () => {
     const entry0 = service.appendClaim(makeLeaf(), makeMetadata());
     expect(entry0.leafIndex).toBe(0n);
 
-    const entry1 = service.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
+    const entry1 = service.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-002' }));
     expect(entry1.leafIndex).toBe(1n);
 
     expect(service.getLeafCount()).toBe(2n);
@@ -188,10 +197,7 @@ describe('ClaimAccumulatorService — Index Queries', () => {
     service = new ClaimAccumulatorService();
 
     // Claim 0: Member A, Pharmacy X, Prescriber P, Lisinopril
-    service.appendClaim(
-      makeLeaf(),
-      makeMetadata({ receiptId: 'rcpt-001' }),
-    );
+    service.appendClaim(makeLeaf(), makeMetadata({ receiptId: 'rcpt-001' }));
 
     // Claim 1: Member A, Pharmacy Y, Prescriber P, Metformin
     service.appendClaim(
@@ -227,7 +233,7 @@ describe('ClaimAccumulatorService — Index Queries', () => {
   test('getClaimsByMember returns correct claims', () => {
     const memberAClaims = service.getClaimsByMember(MEMBER_A);
     expect(memberAClaims.length).toBe(3); // claims 0, 1, 3
-    expect(memberAClaims.map(c => c.leafIndex)).toEqual([0n, 1n, 3n]);
+    expect(memberAClaims.map((c) => c.leafIndex)).toEqual([0n, 1n, 3n]);
 
     const memberBClaims = service.getClaimsByMember(MEMBER_B);
     expect(memberBClaims.length).toBe(1); // claim 2
@@ -237,7 +243,7 @@ describe('ClaimAccumulatorService — Index Queries', () => {
   test('getClaimsByPharmacy returns correct claims', () => {
     const pharmacyXClaims = service.getClaimsByPharmacy(PHARMACY_X);
     expect(pharmacyXClaims.length).toBe(3); // claims 0, 2, 3
-    expect(pharmacyXClaims.map(c => c.leafIndex)).toEqual([0n, 2n, 3n]);
+    expect(pharmacyXClaims.map((c) => c.leafIndex)).toEqual([0n, 2n, 3n]);
 
     const pharmacyYClaims = service.getClaimsByPharmacy(PHARMACY_Y);
     expect(pharmacyYClaims.length).toBe(1); // claim 1
@@ -285,10 +291,7 @@ describe('ClaimAccumulatorService — Merkle Proofs', () => {
   beforeEach(() => {
     service = new ClaimAccumulatorService();
     service.appendClaim(makeLeaf(), makeMetadata({ receiptId: 'rcpt-001' }));
-    service.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
+    service.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-002' }));
   });
 
   test('getWitness returns valid witness for leaf 0', () => {
@@ -335,10 +338,7 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
   test('exportState captures all entries and root', () => {
     const service = new ClaimAccumulatorService();
     service.appendClaim(makeLeaf(), makeMetadata({ receiptId: 'rcpt-001' }));
-    service.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
+    service.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-002' }));
 
     const state = service.exportState();
     expect(state.nextLeafIndex).toBe(2n);
@@ -352,14 +352,8 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
     // Build original
     const original = new ClaimAccumulatorService();
     original.appendClaim(makeLeaf(), makeMetadata({ receiptId: 'rcpt-001' }));
-    original.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B, ndcHash: NDC_METFORMIN }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
-    original.appendClaim(
-      makeLeaf({ pharmacyWalletId: PHARMACY_Y }),
-      makeMetadata({ receiptId: 'rcpt-003' }),
-    );
+    original.appendClaim(makeLeaf({ memberWalletId: MEMBER_B, ndcHash: NDC_METFORMIN }), makeMetadata({ receiptId: 'rcpt-002' }));
+    original.appendClaim(makeLeaf({ pharmacyWalletId: PHARMACY_Y }), makeMetadata({ receiptId: 'rcpt-003' }));
 
     const originalRoot = original.getRoot();
     const state = original.exportState();
@@ -375,10 +369,7 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
   test('restoreState rebuilds all indexes', () => {
     const original = new ClaimAccumulatorService();
     original.appendClaim(makeLeaf(), makeMetadata({ receiptId: 'rcpt-001' }));
-    original.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
+    original.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-002' }));
 
     const state = original.exportState();
 
@@ -404,10 +395,7 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
 
     // Restore with just 1 entry
     const singleEntry = new ClaimAccumulatorService();
-    singleEntry.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-only' }),
-    );
+    singleEntry.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-only' }));
     const state = singleEntry.exportState();
 
     service.restoreState(state);
@@ -419,10 +407,7 @@ describe('ClaimAccumulatorService — Export / Restore', () => {
   test('export/restore round-trip preserves Merkle witnesses', () => {
     const original = new ClaimAccumulatorService();
     original.appendClaim(makeLeaf(), makeMetadata());
-    original.appendClaim(
-      makeLeaf({ memberWalletId: MEMBER_B }),
-      makeMetadata({ receiptId: 'rcpt-002' }),
-    );
+    original.appendClaim(makeLeaf({ memberWalletId: MEMBER_B }), makeMetadata({ receiptId: 'rcpt-002' }));
 
     const state = original.exportState();
     const restored = new ClaimAccumulatorService();
@@ -454,14 +439,8 @@ describe('ClaimAccumulatorService — Edge Cases', () => {
   test('operationType distinguishes fulfillment (1) from reversal (2)', () => {
     const service = new ClaimAccumulatorService();
 
-    service.appendClaim(
-      makeLeaf({ operationType: '1' }),
-      makeMetadata({ receiptId: 'fill' }),
-    );
-    service.appendClaim(
-      makeLeaf({ operationType: '2' }),
-      makeMetadata({ receiptId: 'reversal' }),
-    );
+    service.appendClaim(makeLeaf({ operationType: '1' }), makeMetadata({ receiptId: 'fill' }));
+    service.appendClaim(makeLeaf({ operationType: '2' }), makeMetadata({ receiptId: 'reversal' }));
 
     const claims = service.getClaimsByMember(MEMBER_A);
     expect(claims.length).toBe(2);

@@ -27,11 +27,7 @@
  */
 import { Field, Poseidon } from 'o1js';
 import { hashString, dateToField } from '../src/zkp/hash-utils.js';
-import {
-  MerkleForest,
-  ForestDomain,
-  ForestMerkleWitness,
-} from '../src/zkp/merkle-forest.js';
+import { MerkleForest, ForestDomain, ForestMerkleWitness } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import {
   PcpAssignmentData,
@@ -45,13 +41,8 @@ import {
 import type { PcpAssignmentLocalData } from '../src/eligibility/pcp-assignment-data.js';
 import { PcpVerificationOutput } from '../src/eligibility/pcp-verification-program.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
-import {
-  buildEligibilityData,
-} from '../src/eligibility/eligibility-data.js';
-import {
-  buildAccumulatorData,
-  ACCUMULATOR_LEAF_INDEX,
-} from '../src/access-control/accumulator-data.js';
+import { buildEligibilityData } from '../src/eligibility/eligibility-data.js';
+import { buildAccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 
 // ─── Test Data ─────────────────────────────────────────────
 
@@ -244,9 +235,7 @@ describe('MEMBER Tree Integration', () => {
   test('ForestRoots.fromForest matches forest after PCP write', () => {
     forest.setLeaf(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX, pcpData.commitment());
     const forestRoots = ForestRoots.fromForest(forest);
-    expect(forestRoots.memberRoot.toBigInt()).toEqual(
-      forest.getTreeRoot(ForestDomain.MEMBER).toBigInt()
-    );
+    expect(forestRoots.memberRoot.toBigInt()).toEqual(forest.getTreeRoot(ForestDomain.MEMBER).toBigInt());
     const computedForestRoot = forestRoots.computeForestRoot();
     expect(computedForestRoot.toBigInt()).toEqual(forest.getForestRoot().toBigInt());
   });
@@ -467,9 +456,7 @@ describe('PcpVerification Constraint Logic', () => {
   });
 
   test('constraint 5 fails: wrong prescriber claims PCP', () => {
-    expect(OTHER_PRESCRIBER_WALLET_ID.toBigInt()).not.toEqual(
-      pcpData.pcpWalletId.toBigInt()
-    );
+    expect(OTHER_PRESCRIBER_WALLET_ID.toBigInt()).not.toEqual(pcpData.pcpWalletId.toBigInt());
   });
 
   test('constraint 6: effective date <= current date', () => {
@@ -570,9 +557,7 @@ describe('PCP Reassignment', () => {
     // Witness for new PCP data is valid
     const witness = forest.getWitness(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX);
     const computedRoot = witness.calculateRoot(pcp2.commitment());
-    expect(computedRoot.toBigInt()).toEqual(
-      forest.getTreeRoot(ForestDomain.MEMBER).toBigInt()
-    );
+    expect(computedRoot.toBigInt()).toEqual(forest.getTreeRoot(ForestDomain.MEMBER).toBigInt());
   });
 
   test('old witness is invalid after reassignment', () => {
@@ -592,9 +577,7 @@ describe('PCP Reassignment', () => {
 
     // Old witness + old data doesn't match new MEMBER root
     const computedRoot = oldWitness.calculateRoot(pcp1.commitment());
-    expect(computedRoot.toBigInt()).not.toEqual(
-      forest.getTreeRoot(ForestDomain.MEMBER).toBigInt()
-    );
+    expect(computedRoot.toBigInt()).not.toEqual(forest.getTreeRoot(ForestDomain.MEMBER).toBigInt());
   });
 });
 
@@ -634,19 +617,13 @@ describe('MEMBER + ACCESS_CONTROL Coexistence', () => {
     forest.setLeaf(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX, pcpData.commitment());
 
     // ACCESS_CONTROL tree unchanged
-    expect(forest.getTreeRoot(ForestDomain.ACCESS_CONTROL).toBigInt()).toEqual(
-      accessControlRootBefore.toBigInt()
-    );
+    expect(forest.getTreeRoot(ForestDomain.ACCESS_CONTROL).toBigInt()).toEqual(accessControlRootBefore.toBigInt());
 
     // Both trees' witnesses remain valid
     const eligWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    expect(eligWitness.calculateRoot(eligData.commitment()).toBigInt()).toEqual(
-      accessControlRootBefore.toBigInt()
-    );
+    expect(eligWitness.calculateRoot(eligData.commitment()).toBigInt()).toEqual(accessControlRootBefore.toBigInt());
 
     const pcpWitness = forest.getWitness(ForestDomain.MEMBER, PCP_ASSIGNMENT_LEAF_INDEX);
-    expect(pcpWitness.calculateRoot(pcpData.commitment()).toBigInt()).toEqual(
-      forest.getTreeRoot(ForestDomain.MEMBER).toBigInt()
-    );
+    expect(pcpWitness.calculateRoot(pcpData.commitment()).toBigInt()).toEqual(forest.getTreeRoot(ForestDomain.MEMBER).toBigInt());
   });
 });

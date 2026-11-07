@@ -54,11 +54,7 @@ import { SlidingWindowLimiter } from '../../security/rate-limit.js';
 import type { RecoveryDeposit } from '../../security/recovery-card.js';
 import { deriveInsurerKeypair, buildAgreementTerms } from '../../onboarding/employer-attestation.js';
 import { getApplicationStore } from './marketplace-routes.js';
-import {
-  canonicalizeEnrollmentCode,
-  enrollmentCodeRoutingPrefix,
-  routingPrefixOf,
-} from '../../onboarding/enrollment-code.js';
+import { canonicalizeEnrollmentCode, enrollmentCodeRoutingPrefix, routingPrefixOf } from '../../onboarding/enrollment-code.js';
 import type {
   ReportFilter,
   PriorAuthContext,
@@ -223,7 +219,12 @@ export function openPlanRecords(server: NautilusAppServer, keys: { subkey(label:
   s.__enrollmentRegistry = registry;
   s.__planPinPepper = keys.subkey(SUBKEYS.planPinPepper);
   s.__planRecordStores = [redeemed, deposits, registry] as Array<SealedRecordStore<unknown>>;
-  console.log('[insurer] Enrollment records opened from the sealed stores: %d redeemed codes, %d recovery deposits, %d enrollments', redeemed.size, deposits.size, registry.size);
+  console.log(
+    '[insurer] Enrollment records opened from the sealed stores: %d redeemed codes, %d recovery deposits, %d enrollments',
+    redeemed.size,
+    deposits.size,
+    registry.size,
+  );
 }
 
 /** Close the plan's sealed stores (shutdown, or a test that plays a restart). */
@@ -270,12 +271,28 @@ function parseDeposits(value: unknown): RecoveryDeposit[] | null {
     if (!d || typeof d !== 'object') return null;
     const { cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag } = d;
     if (typeof cardId !== 'string' || !HEX16.test(cardId)) return null;
-    if (typeof share2Hex !== 'string' || !/^[0-9a-f]+$/i.test(share2Hex) || share2Hex.length % 2 !== 0 || share2Hex.length < 32 || share2Hex.length > 256) return null;
+    if (
+      typeof share2Hex !== 'string' ||
+      !/^[0-9a-f]+$/i.test(share2Hex) ||
+      share2Hex.length % 2 !== 0 ||
+      share2Hex.length < 32 ||
+      share2Hex.length > 256
+    )
+      return null;
     if (typeof pinVerifier !== 'string' || !HEX64.test(pinVerifier)) return null;
     if (typeof identitySalt !== 'string' || !HEX64.test(identitySalt)) return null;
-    if (typeof groupIdHash !== 'string' || !DECIMAL.test(groupIdHash) || typeof planIdHash !== 'string' || !DECIMAL.test(planIdHash)) return null;
+    if (typeof groupIdHash !== 'string' || !DECIMAL.test(groupIdHash) || typeof planIdHash !== 'string' || !DECIMAL.test(planIdHash))
+      return null;
     if (typeof domainTag !== 'number' || !Number.isInteger(domainTag) || domainTag < 0 || domainTag > 3) return null;
-    out.push({ cardId: cardId.toLowerCase(), share2Hex: share2Hex.toLowerCase(), pinVerifier: pinVerifier.toLowerCase(), identitySalt: identitySalt.toLowerCase(), groupIdHash, planIdHash, domainTag });
+    out.push({
+      cardId: cardId.toLowerCase(),
+      share2Hex: share2Hex.toLowerCase(),
+      pinVerifier: pinVerifier.toLowerCase(),
+      identitySalt: identitySalt.toLowerCase(),
+      groupIdHash,
+      planIdHash,
+      domainTag,
+    });
   }
   return out;
 }
@@ -307,7 +324,10 @@ function insurerSigner(server: NautilusAppServer): { privateKey: KeyObject } | n
   return (s.__insurerRequestSigner ??= { privateKey: deriveInsurerKeypair(seed).privateKey });
 }
 
-interface CodeTarget { employerId: string | null; url: string }
+interface CodeTarget {
+  employerId: string | null;
+  url: string;
+}
 type ResolvedTargets = { candidates: CodeTarget[] } | { status: number; error: string };
 
 /**
@@ -327,8 +347,8 @@ async function registeredEmployerNodes(server: NautilusAppServer): Promise<Array
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_listEmployerNodes', params: {} }),
       signal: AbortSignal.timeout(5000),
     });
-    const json = await resp.json() as { result?: unknown };
-    return Array.isArray(json.result) ? json.result as Array<{ employerId: string; employerNodeUrl: string }> : [];
+    const json = (await resp.json()) as { result?: unknown };
+    return Array.isArray(json.result) ? (json.result as Array<{ employerId: string; employerNodeUrl: string }>) : [];
   } catch {
     return null;
   }
@@ -346,11 +366,7 @@ async function resolveEmployerTargets(server: NautilusAppServer, employerId: str
   return { candidates: matching.map((n) => ({ employerId: n.employerId, url: n.employerNodeUrl })) };
 }
 
-async function resolveCodeTargets(
-  server: NautilusAppServer,
-  code: string,
-  hintEmployerId: string | undefined,
-): Promise<ResolvedTargets> {
+async function resolveCodeTargets(server: NautilusAppServer, code: string, hintEmployerId: string | undefined): Promise<ResolvedTargets> {
   const staticUrl = (server.getConfig() as { employerUrl?: string }).employerUrl;
   if (staticUrl) return { candidates: [{ employerId: hintEmployerId ?? null, url: staticUrl }] };
 
@@ -361,7 +377,8 @@ async function resolveCodeTargets(
   if (nodes.length === 0) {
     return {
       status: 503,
-      error: 'Cannot validate enrollment code: no employer nodes are registered. ' +
+      error:
+        'Cannot validate enrollment code: no employer nodes are registered. ' +
         'The employer must complete marketplace activation before employees can enroll.',
     };
   }
@@ -409,15 +426,24 @@ async function redeemWithEmployers(
     let json: Record<string, unknown> = {};
     try {
       const resp = await fetch(`${c.url.replace(/\/+$/, '')}${path}`, {
-        method: 'POST', headers, body, signal: AbortSignal.timeout(5000),
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.timeout(5000),
       });
       status = resp.status;
-      json = await resp.json() as Record<string, unknown>;
+      json = (await resp.json()) as Record<string, unknown>;
     } catch {
       unreachable++;
       continue;
     }
-    const data = (json.data ?? json) as { valid?: boolean; reason?: string; groupIdHash?: string; planIdHash?: string; familyIdHash?: string };
+    const data = (json.data ?? json) as {
+      valid?: boolean;
+      reason?: string;
+      groupIdHash?: string;
+      planIdHash?: string;
+      familyIdHash?: string;
+    };
 
     if (status === 401 || status === 503 || status === 429) {
       // The oracle would not answer us at all: a trust or capacity problem on that node, not a
@@ -428,7 +454,13 @@ async function redeemWithEmployers(
     if (data.valid === true) {
       // A-34: the family hash the code carries; anything but a decimal hash is no family.
       const familyIdHash = typeof data.familyIdHash === 'string' && DECIMAL.test(data.familyIdHash) ? data.familyIdHash : null;
-      return { ok: true, employerId: c.employerId, groupIdHash: data.groupIdHash ?? null, planIdHash: data.planIdHash ?? null, familyIdHash };
+      return {
+        ok: true,
+        employerId: c.employerId,
+        groupIdHash: data.groupIdHash ?? null,
+        planIdHash: data.planIdHash ?? null,
+        familyIdHash,
+      };
     }
     const reason = String(data.reason ?? json.error ?? 'Token validation failed');
     // "Token not found" means this is not that employer's code; the next candidate may own it.
@@ -546,7 +578,11 @@ export function priorAuthView(raw: unknown): PriorAuthView | null {
 }
 
 /** What the engine answered a call: the HTTP status, the JSON body, and its error or message text. */
-interface EngineAnswer { status: number; json: Record<string, unknown> | null; message: string }
+interface EngineAnswer {
+  status: number;
+  json: Record<string, unknown> | null;
+  message: string;
+}
 
 /**
  * Tell the employer that issued a code that the plan cancelled the enrollment the code made (A-109), signed as the
@@ -565,26 +601,37 @@ async function tellEmployerCancelled(server: NautilusAppServer, tokenIdHash: str
   const path = `/invites/${encodeURIComponent(tokenIdHash)}/enrollment-cancelled`;
   for (const c of targets.candidates) {
     const body = JSON.stringify({ reason: 'reported', nonce: randomBytes(16).toString('hex') });
-    const headers = { 'Content-Type': 'application/json', ...signRequest({ signerId: 'insurer', privateKey: signer.privateKey, method: 'POST', path, body }) };
+    const headers = {
+      'Content-Type': 'application/json',
+      ...signRequest({ signerId: 'insurer', privateKey: signer.privateKey, method: 'POST', path, body }),
+    };
     try {
       const resp = await fetch(`${c.url.replace(/\/+$/, '')}${path}`, { method: 'POST', headers, body, signal: AbortSignal.timeout(5000) });
       if (resp.status === 200) return true;
-    } catch { /* the next candidate */ }
+    } catch {
+      /* the next candidate */
+    }
   }
   return false;
 }
 
 /** A call to an engine route, signed with this node's key (A9) over the exact request sent. */
-async function callEngine(server: NautilusAppServer, method: 'GET' | 'POST', pathAndQuery: string, body?: Record<string, unknown>): Promise<EngineAnswer> {
+async function callEngine(
+  server: NautilusAppServer,
+  method: 'GET' | 'POST',
+  pathAndQuery: string,
+  body?: Record<string, unknown>,
+): Promise<EngineAnswer> {
   const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-  const resp = await server.signedFetch(seqUrl + pathAndQuery, method === 'POST'
-    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) }
-    : { method });
+  const resp = await server.signedFetch(
+    seqUrl + pathAndQuery,
+    method === 'POST' ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) } : { method },
+  );
   const text = await resp.text();
   let json: Record<string, unknown> | null = null;
   try {
     const parsed: unknown = JSON.parse(text);
-    json = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+    json = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
   } catch {
     json = null;
   }
@@ -651,23 +698,56 @@ export const REPORT_LIMITS = {
 
 /** The fields of a claim the reports read. Anything else a claim carries is passed through untouched. */
 const REPORT_CLAIM_FIELDS = [
-  'prescriptionHash', 'entryCommitment', 'patientPayCents', 'planPayCents', 'operationType', 'pharmacyWalletId',
-  'memberWalletId', 'prescriberWalletId', 'ndcHash', 'ingredientCostCents', 'dispensingFeeCents', 'quantityDispensed',
-  'dateOfService', 'ndc', 'gpi', 'daysSupply', 'fillNumber', 'brandName', 'therapeuticClass', 'tierLevel', 'dawCode',
+  'prescriptionHash',
+  'entryCommitment',
+  'patientPayCents',
+  'planPayCents',
+  'operationType',
+  'pharmacyWalletId',
+  'memberWalletId',
+  'prescriberWalletId',
+  'ndcHash',
+  'ingredientCostCents',
+  'dispensingFeeCents',
+  'quantityDispensed',
+  'dateOfService',
+  'ndc',
+  'gpi',
+  'daysSupply',
+  'fillNumber',
+  'brandName',
+  'therapeuticClass',
+  'tierLevel',
+  'dawCode',
 ] as const satisfies readonly (keyof VerifiedClaim)[];
 
 /** The fields of a prior authorization the prior-authorization report reads. */
 const REPORT_PRIOR_AUTH_FIELDS = [
-  'ndcHash', 'memberWalletId', 'prescriberWalletId', 'approvalDate', 'expirationDate', 'approvedQuantity',
+  'ndcHash',
+  'memberWalletId',
+  'prescriberWalletId',
+  'approvalDate',
+  'expirationDate',
+  'approvedQuantity',
 ] as const satisfies readonly (keyof PriorAuthContext)[];
 
 /** A filter's lists, each matched against every claim. */
 const REPORT_FILTER_LISTS = [
-  'pharmacyWalletIds', 'memberWalletIds', 'prescriberWalletIds', 'ndcs', 'gpis', 'tierLevels', 'therapeuticClasses', 'operationTypes',
+  'pharmacyWalletIds',
+  'memberWalletIds',
+  'prescriberWalletIds',
+  'ndcs',
+  'gpis',
+  'tierLevels',
+  'therapeuticClasses',
+  'operationTypes',
 ] as const satisfies readonly (keyof ReportFilter)[];
 
 /** A refused report request: 400 for a body of the wrong shape, 413 for one over REPORT_LIMITS. */
-interface ReportRefusal { status: 400 | 413; error: string }
+interface ReportRefusal {
+  status: 400 | 413;
+  error: string;
+}
 
 /**
  * Why one value a report computes over is refused, or null: it is absent, null, a boolean, a number, or text within
@@ -676,7 +756,9 @@ interface ReportRefusal { status: 400 | 413; error: string }
  */
 function reportValueError(where: string, v: unknown): ReportRefusal | null {
   if (typeof v === 'string') {
-    return v.length > REPORT_LIMITS.textChars ? { status: 413, error: `${where} is longer than ${REPORT_LIMITS.textChars} characters` } : null;
+    return v.length > REPORT_LIMITS.textChars
+      ? { status: 413, error: `${where} is longer than ${REPORT_LIMITS.textChars} characters` }
+      : null;
   }
   if (v === undefined || v === null || typeof v === 'boolean' || typeof v === 'number') return null;
   return { status: 400, error: `${where} must be a number or text` };
@@ -688,7 +770,8 @@ function reportRecordsError(name: string, value: unknown, max: number, fields: r
   if (value.length > max) return { status: 413, error: `A report reads at most ${max} ${name}; this request has ${value.length}` };
   for (let i = 0; i < value.length; i++) {
     const record: unknown = value[i];
-    if (record === null || typeof record !== 'object' || Array.isArray(record)) return { status: 400, error: `${name}[${i}] is not a record` };
+    if (record === null || typeof record !== 'object' || Array.isArray(record))
+      return { status: 400, error: `${name}[${i}] is not a record` };
     for (const field of fields) {
       const refused = reportValueError(`${name}[${i}].${field}`, (record as Record<string, unknown>)[field]);
       if (refused) return refused;
@@ -711,13 +794,18 @@ export function reportBodyError(body: unknown, opts: { priorAuths?: boolean } = 
     if (priorAuths) return priorAuths;
   }
   if (b.filter === undefined) return null;
-  if (b.filter === null || typeof b.filter !== 'object' || Array.isArray(b.filter)) return { status: 400, error: 'filter must be an object' };
+  if (b.filter === null || typeof b.filter !== 'object' || Array.isArray(b.filter))
+    return { status: 400, error: 'filter must be an object' };
   const filter = b.filter as Record<string, unknown>;
   // The date range is compared with every claim; the service also takes a bare { startDate, endDate } as one.
-  const dates: Array<[string, unknown]> = [['filter.startDate', filter.startDate], ['filter.endDate', filter.endDate]];
+  const dates: Array<[string, unknown]> = [
+    ['filter.startDate', filter.startDate],
+    ['filter.endDate', filter.endDate],
+  ];
   const range = filter.dateRange;
   if (range !== undefined) {
-    if (range === null || typeof range !== 'object' || Array.isArray(range)) return { status: 400, error: 'filter.dateRange must be an object' };
+    if (range === null || typeof range !== 'object' || Array.isArray(range))
+      return { status: 400, error: 'filter.dateRange must be an object' };
     const r = range as Record<string, unknown>;
     dates.push(['filter.dateRange.startDate', r.startDate], ['filter.dateRange.endDate', r.endDate]);
   }
@@ -872,7 +960,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
        * to a secret of its own by redeeming it again.
        */
       if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
-      const b = body as { tokenId?: string; tokenPinHash?: string; completionCommitment?: string; role?: string; employerId?: string } | undefined;
+      const b = body as
+        { tokenId?: string; tokenPinHash?: string; completionCommitment?: string; role?: string; employerId?: string } | undefined;
       if (typeof b?.tokenId !== 'string' || b.tokenId.trim().length === 0) {
         return server.sendResponse(res, 400, false, undefined, 'An enrollment code is required.');
       }
@@ -880,8 +969,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN hash is required.');
       }
       if (typeof b.completionCommitment !== 'string' || !HEX64.test(b.completionCommitment)) {
-        return server.sendResponse(res, 400, false, undefined,
-          'A completion commitment is required: the SHA-256, in hex, of a secret the device keeps to complete the enrollment.');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'A completion commitment is required: the SHA-256, in hex, of a secret the device keeps to complete the enrollment.',
+        );
       }
       const commitment = b.completionCommitment.toLowerCase();
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
@@ -899,31 +993,58 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           // A-139: the right PIN from another device means another device used the code: the phone says so and offers
           // the report (/enrollment/report), where a wrong PIN gets the refusal it always got. The difference tells a
           // holder of the code that a PIN is right only for a code already spent, five tries an hour.
-          return server.sendResponse(res, 403, false, samePin ? { errorCode: 'USED_ELSEWHERE', ...(prior.report ? { reported: true } : {}) } : undefined,
-            'Enrollment denied: this enrollment code has already been used.');
+          return server.sendResponse(
+            res,
+            403,
+            false,
+            samePin ? { errorCode: 'USED_ELSEWHERE', ...(prior.report ? { reported: true } : {}) } : undefined,
+            'Enrollment denied: this enrollment code has already been used.',
+          );
         }
         console.log('[enrollment] Code already redeemed with this PIN; answering the same group and plan');
-        return server.sendResponse(res, 200, true, { redeemed: true, repeated: true, groupIdHash: prior.groupIdHash, planIdHash: prior.planIdHash, employerId: prior.employerId });
+        return server.sendResponse(res, 200, true, {
+          redeemed: true,
+          repeated: true,
+          groupIdHash: prior.groupIdHash,
+          planIdHash: prior.planIdHash,
+          employerId: prior.employerId,
+        });
       }
       const signer = insurerSigner(server);
       if (!signer) {
-        return server.sendResponse(res, 500, false, undefined,
-          'The insurer signing seed is not configured, so enrollment codes cannot be validated.');
+        return server.sendResponse(
+          res,
+          500,
+          false,
+          undefined,
+          'The insurer signing seed is not configured, so enrollment codes cannot be validated.',
+        );
       }
       // Counted here, before the tenant registry or any employer is asked: the employer's oracle sees every relay as the
       // insurer's, so this limit is what keeps one client from spending the 600 answers a minute every member's
       // enrollment with that employer shares.
       if (!redemptionsPerSource.allow(server.callerKey(req))) {
         res.setHeader('Retry-After', '60');
-        return server.sendResponse(res, 429, false, undefined,
-          'Too many enrollment codes from this address in the last minute. Try again in a minute.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many enrollment codes from this address in the last minute. Try again in a minute.',
+        );
       }
       const targets = await resolveCodeTargets(server, code, b.employerId);
       if ('error' in targets) return server.sendResponse(res, targets.status, false, undefined, targets.error);
       const outcome = await redeemWithEmployers(targets.candidates, code, b.tokenPinHash, signer);
       if (!outcome.ok) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
       if (!outcome.groupIdHash || !outcome.planIdHash) {
-        return server.sendResponse(res, 502, false, undefined, 'The employer redeemed the code but did not say which group and plan it enrols into.');
+        return server.sendResponse(
+          res,
+          502,
+          false,
+          undefined,
+          'The employer redeemed the code but did not say which group and plan it enrols into.',
+        );
       }
       redeemed.set(fp, {
         walletId: null,
@@ -936,7 +1057,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         at: Date.now(),
       });
       console.log('[enrollment] Code redeemed with employer %s; awaiting the wallet', outcome.employerId ?? 'static');
-      server.sendResponse(res, 200, true, { redeemed: true, groupIdHash: outcome.groupIdHash, planIdHash: outcome.planIdHash, employerId: outcome.employerId });
+      server.sendResponse(res, 200, true, {
+        redeemed: true,
+        groupIdHash: outcome.groupIdHash,
+        planIdHash: outcome.planIdHash,
+        employerId: outcome.employerId,
+      });
     },
   });
 
@@ -963,12 +1089,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 400, false, undefined, 'The enrollment PIN hash is required.');
       }
       if (typeof b.completionCommitment !== 'string' || !HEX64.test(b.completionCommitment)) {
-        return server.sendResponse(res, 400, false, undefined, 'The reporting device\'s completion commitment is required.');
+        return server.sendResponse(res, 400, false, undefined, "The reporting device's completion commitment is required.");
       }
       const source = server.callerKey(req);
       if (refusedReportsPerSource.count(source) >= REFUSED_REPORTS_PER_SOURCE_PER_MINUTE) {
         res.setHeader('Retry-After', '60');
-        return server.sendResponse(res, 429, false, undefined, 'Too many refused reports from this address in the last minute. Try again in a minute.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many refused reports from this address in the last minute. Try again in a minute.',
+        );
       }
       const code = canonicalizeEnrollmentCode(b.tokenId) ?? b.tokenId.trim();
       const fp = fingerprintOfCode(code);
@@ -989,14 +1121,37 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // A completion in flight for the other device is waited for, so its wallet is what is held, not a completion
       // already past the check.
       const inFlight = completing.get(fp);
-      if (inFlight) { try { await inFlight.approval; } catch { /* its outcome is read from the record below */ } }
+      if (inFlight) {
+        try {
+          await inFlight.approval;
+        } catch {
+          /* its outcome is read from the record below */
+        }
+      }
       const held: EnrollmentReport['held'] = rec.walletId ? 'wallet' : 'completion';
       if (rec.walletId) {
         let answer: EngineAnswer | null = null;
-        try { answer = await callEngine(server, 'POST', '/interactive/hold-member', { walletId: rec.walletId, held: true, reason: HOLD_REASON }); } catch { answer = null; }
+        try {
+          answer = await callEngine(server, 'POST', '/interactive/hold-member', {
+            walletId: rec.walletId,
+            held: true,
+            reason: HOLD_REASON,
+          });
+        } catch {
+          answer = null;
+        }
         if (!answer || answer.status !== 200) {
-          console.warn('[enrollment] A report was not filed: the engine did not hold the wallet (%s)', answer ? `${answer.status} ${answer.message}` : 'unreachable');
-          return server.sendResponse(res, 502, false, undefined, 'The report could not be filed now: the plan could not hold the wallet this code enrolled. Try again later.');
+          console.warn(
+            '[enrollment] A report was not filed: the engine did not hold the wallet (%s)',
+            answer ? `${answer.status} ${answer.message}` : 'unreachable',
+          );
+          return server.sendResponse(
+            res,
+            502,
+            false,
+            undefined,
+            'The report could not be filed now: the plan could not hold the wallet this code enrolled. Try again later.',
+          );
         }
       }
       rec.report = { at: Date.now(), reporterCommitment: commitment, held, status: 'open' };
@@ -1015,16 +1170,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     adminOnly: true,
     handler: async (_req, res) => {
       if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
-      const reports = [...redeemedCodes(server)].filter(([, r]) => r.report).map(([fp, r]) => ({
-        tokenIdHash: fp,
-        employerId: r.employerId,
-        walletId: r.walletId,
-        reportedAt: r.report!.at,
-        held: r.report!.held,
-        status: r.report!.status,
-        resolvedAt: r.report!.resolvedAt ?? null,
-        employerTold: r.report!.employerTold ?? null,
-      }));
+      const reports = [...redeemedCodes(server)]
+        .filter(([, r]) => r.report)
+        .map(([fp, r]) => ({
+          tokenIdHash: fp,
+          employerId: r.employerId,
+          walletId: r.walletId,
+          reportedAt: r.report!.at,
+          held: r.report!.held,
+          status: r.report!.status,
+          resolvedAt: r.report!.resolvedAt ?? null,
+          employerTold: r.report!.employerTold ?? null,
+        }));
       server.sendResponse(res, 200, true, { reports });
     },
   });
@@ -1056,8 +1213,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (b.action === 'release') {
         if (report.status !== 'open') return server.sendResponse(res, 409, false, undefined, `This report is already ${report.status}`);
         if (rec.walletId) {
-          const answer = await callEngine(server, 'POST', '/interactive/hold-member', { walletId: rec.walletId, held: false, reason: HOLD_REASON });
-          if (answer.status !== 200) return server.sendResponse(res, 502, false, undefined, `The engine did not lift the hold: ${answer.message}`);
+          const answer = await callEngine(server, 'POST', '/interactive/hold-member', {
+            walletId: rec.walletId,
+            held: false,
+            reason: HOLD_REASON,
+          });
+          if (answer.status !== 200)
+            return server.sendResponse(res, 502, false, undefined, `The engine did not lift the hold: ${answer.message}`);
         }
         report.status = 'released';
         report.resolvedAt = Date.now();
@@ -1067,8 +1229,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (report.status === 'open') {
         if (rec.walletId) {
           const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-          const answer = await callEngine(server, 'POST', '/interactive/terminate-member', { memberWalletId: rec.walletId, terminationDate: today });
-          if (answer.status !== 200) return server.sendResponse(res, 502, false, undefined, `The engine did not terminate the wallet: ${answer.message}`);
+          const answer = await callEngine(server, 'POST', '/interactive/terminate-member', {
+            memberWalletId: rec.walletId,
+            terminationDate: today,
+          });
+          if (answer.status !== 200)
+            return server.sendResponse(res, 502, false, undefined, `The engine did not terminate the wallet: ${answer.message}`);
         }
         report.status = 'cancelled';
         report.resolvedAt = Date.now();
@@ -1077,8 +1243,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       report.employerTold = await tellEmployerCancelled(server, fp, rec.employerId);
       redeemedCodes(server).set(fp, rec);
       if (!report.employerTold) {
-        return server.sendResponse(res, 502, false, undefined,
-          'The enrollment was cancelled, but the employer could not be told, so HR cannot send a new invite yet: cancel again to retry.');
+        return server.sendResponse(
+          res,
+          502,
+          false,
+          undefined,
+          'The enrollment was cancelled, but the employer could not be told, so HR cannot send a new invite yet: cancel again to retry.',
+        );
       }
       server.sendResponse(res, 200, true, { status: 'cancelled', employerTold: true });
     },
@@ -1134,21 +1305,38 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    */
   async function approveAndBind(node: InsurerNode, fp: string, rec: RedeemedCode, walletId: string): Promise<Approval> {
     let plans: BenefitPlanConfig[] = [];
-    try { plans = (await node.listPlans()) ?? []; } catch { plans = []; }
+    try {
+      plans = (await node.listPlans()) ?? [];
+    } catch {
+      plans = [];
+    }
     if (!Array.isArray(plans)) plans = [];
-    const plan = rec.planIdHash ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash) : undefined;
+    const plan = rec.planIdHash
+      ? plans.find((p) => p && typeof p.planId === 'string' && hashString(p.planId).toString() === rec.planIdHash)
+      : undefined;
     // Plan-bound formularies: a wallet is approved only into a plan the insurer has published (one with published
     // terms), whose formulary the engine will bind; a draft being edited still enrols at its published terms.
     if (!plan || !publishedTermsOf(plan)) {
-      return { approved: false, status: 409,
-        error: 'The plan this enrollment code enrols into is not published on the sequencer; the insurer must publish it before members enroll.' };
+      return {
+        approved: false,
+        status: 409,
+        error:
+          'The plan this enrollment code enrols into is not published on the sequencer; the insurer must publish it before members enroll.',
+      };
     }
     try {
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
       const approval = await server.signedFetch(`${seqUrl}/interactive/approve-member`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletId, groupIdHash: rec.groupIdHash, planIdHash: rec.planIdHash, planId: plan.planId, employerId: rec.employerId, familyIdHash: rec.familyIdHash ?? null }),
+        body: JSON.stringify({
+          walletId,
+          groupIdHash: rec.groupIdHash,
+          planIdHash: rec.planIdHash,
+          planId: plan.planId,
+          employerId: rec.employerId,
+          familyIdHash: rec.familyIdHash ?? null,
+        }),
       });
       if (!approval.ok) {
         const text = await approval.text().catch(() => '');
@@ -1175,7 +1363,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 503, false, undefined, 'Insurer node not configured');
       }
       if (planRecordsRefusal(server)) return server.sendResponse(res, 503, false, undefined, planRecordsRefusal(server)!);
-      const b = body as { tokenId?: string; completionSecret?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
+      const b = body as
+        { tokenId?: string; completionSecret?: string; walletId?: string; role?: string; recoveryDeposits?: unknown } | undefined;
       if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       }
@@ -1187,8 +1376,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const source = server.callerKey(req);
       if (refusedCompletionsPerSource.count(source) >= REFUSED_COMPLETIONS_PER_SOURCE_PER_MINUTE) {
         res.setHeader('Retry-After', '60');
-        return server.sendResponse(res, 429, false, undefined,
-          'Too many refused enrollment completions from this address in the last minute. Try again in a minute.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many refused enrollment completions from this address in the last minute. Try again in a minute.',
+        );
       }
       if (wrongAttemptsPerCode.count(fp) >= WRONG_ATTEMPTS_PER_CODE_PER_HOUR) return tooManyForCode(res);
       const rec = redeemedCodes(server).get(fp);
@@ -1197,8 +1391,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // it for.
       const inFlight = completing.get(fp);
       const takenFor = rec?.walletId ?? inFlight?.walletId ?? null;
-      if (!rec || !rec.completionCommitment || answered === null || !sameHex(rec.completionCommitment, answered)
-        || (takenFor !== null && takenFor !== b.walletId)) {
+      if (
+        !rec ||
+        !rec.completionCommitment ||
+        answered === null ||
+        !sameHex(rec.completionCommitment, answered) ||
+        (takenFor !== null && takenFor !== b.walletId)
+      ) {
         refusedCompletionsPerSource.allow(source);
         wrongAttemptsPerCode.allow(fp);
         return server.sendResponse(res, 403, false, undefined, NOT_COMPLETED);
@@ -1209,7 +1408,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       const deposits = b.recoveryDeposits === undefined ? [] : parseDeposits(b.recoveryDeposits);
       if (deposits === null) {
-        return server.sendResponse(res, 400, false, undefined, 'recoveryDeposits must be a list of {cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag}');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'recoveryDeposits must be a list of {cardId, share2Hex, pinVerifier, identitySalt, groupIdHash, planIdHash, domainTag}',
+        );
       }
       const registry = enrollmentRegistry(server);
       const existing = registry.get(b.walletId);
@@ -1225,7 +1430,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       } else {
         const approving = approveAndBind(node, fp, rec, b.walletId);
         completing.set(fp, { walletId: b.walletId, approval: approving });
-        try { outcome = await approving; } finally { completing.delete(fp); }
+        try {
+          outcome = await approving;
+        } finally {
+          completing.delete(fp);
+        }
       }
       if (!outcome.approved) return server.sendResponse(res, outcome.status, false, undefined, outcome.error);
       const enrollmentRecord = {
@@ -1284,10 +1493,19 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       limiter.recordFailure(key);
       if (dep && !dep.revokedAt) {
         dep.failures = (dep.failures ?? 0) + 1;
-        if (dep.failures >= RELEASE_LOCK_AFTER) { dep.revokedAt = Date.now(); dep.revokedReason = 'locked after repeated failed attempts'; }
+        if (dep.failures >= RELEASE_LOCK_AFTER) {
+          dep.revokedAt = Date.now();
+          dep.revokedReason = 'locked after repeated failed attempts';
+        }
         recoveryDeposits(server).set(cardId, dep);
       }
-      return server.sendResponse(res, 403, false, undefined, mode === 'release' ? 'This card and PIN do not release a deposit.' : 'This card and PIN do not revoke a deposit.');
+      return server.sendResponse(
+        res,
+        403,
+        false,
+        undefined,
+        mode === 'release' ? 'This card and PIN do not release a deposit.' : 'This card and PIN do not revoke a deposit.',
+      );
     }
     limiter.reset(key);
     if (mode === 'revoke') {
@@ -1302,10 +1520,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     recoveryDeposits(server).set(cardId, dep!);
     console.log('[recovery] deposit released for card %s', cardId);
     server.sendResponse(res, 200, true, {
-      share2Hex: dep!.share2Hex, identitySalt: dep!.identitySalt, groupIdHash: dep!.groupIdHash, planIdHash: dep!.planIdHash, domainTag: dep!.domainTag,
+      share2Hex: dep!.share2Hex,
+      identitySalt: dep!.identitySalt,
+      groupIdHash: dep!.groupIdHash,
+      planIdHash: dep!.planIdHash,
+      domainTag: dep!.domainTag,
     });
   }
-  routes.push({ method: 'POST', path: '/recovery/release', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'release') });
+  routes.push({
+    method: 'POST',
+    path: '/recovery/release',
+    handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'release'),
+  });
   routes.push({ method: 'POST', path: '/recovery/revoke', handler: (req, res, _p, _q, body) => releaseOrRevoke(req, res, body, 'revoke') });
 
   /*
@@ -1337,10 +1563,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // The plan reads the entity registry (D1, node-roles.ts); each entry carries the key its wallet registered.
       const resp = await server.signedFetch(`${seqUrl}/viz/entities`, { signal: AbortSignal.timeout(5000) });
       if (!resp.ok) return null;
-      const entities = await resp.json() as unknown;
+      const entities = (await resp.json()) as unknown;
       const byWallet = new Map<string, string>();
-      for (const e of Array.isArray(entities) ? entities as Array<{ walletId?: unknown; signingPublicKeyHex?: unknown }> : []) {
-        if (e && typeof e.walletId === 'string' && typeof e.signingPublicKeyHex === 'string') byWallet.set(e.walletId, e.signingPublicKeyHex);
+      for (const e of Array.isArray(entities) ? (entities as Array<{ walletId?: unknown; signingPublicKeyHex?: unknown }>) : []) {
+        if (e && typeof e.walletId === 'string' && typeof e.signingPublicKeyHex === 'string')
+          byWallet.set(e.walletId, e.signingPublicKeyHex);
       }
       signingKeys = { byWallet, readAt: Date.now() };
       return byWallet;
@@ -1357,18 +1584,29 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     if (signerIdFromHeaders(req.headers) !== walletId) return false;
     let keys = signingKeys && Date.now() - signingKeys.readAt < SIGNING_KEYS_TTL_MS ? signingKeys.byWallet : null;
     if (!keys) {
-      signingKeysReading ??= readSigningKeys().finally(() => { signingKeysReading = null; });
+      signingKeysReading ??= readSigningKeys().finally(() => {
+        signingKeysReading = null;
+      });
       keys = await signingKeysReading;
     }
     if (!keys) return undefined;
     let path: string;
-    try { path = new URL(req.url ?? '/', 'http://localhost').pathname; } catch { path = req.url ?? '/'; }
+    try {
+      path = new URL(req.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      path = req.url ?? '/';
+    }
     // The bytes that arrived when the server read them; a handler called with a parsed body alone has its JSON.
     const received = cachedRequestBody(req);
     const text = received ? await received : body === undefined ? '' : JSON.stringify(body);
     return verifySignedRequest({
-      method: 'POST', path, headers: req.headers, expectedSignerId: walletId, publicKeyHex: keys.get(walletId) ?? '',
-      body: text, replayCache: depositSignatures,
+      method: 'POST',
+      path,
+      headers: req.headers,
+      expectedSignerId: walletId,
+      publicKeyHex: keys.get(walletId) ?? '',
+      body: text,
+      replayCache: depositSignatures,
     }).ok;
   }
 
@@ -1384,12 +1622,19 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         return server.sendResponse(res, 429, false, undefined, 'Too many recovery requests. Try again in a minute.');
       }
       const b = body as { walletId?: string; deposits?: unknown } | undefined;
-      if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId)) return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
+      if (typeof b?.walletId !== 'string' || !DECIMAL.test(b.walletId))
+        return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
       const deposits = parseDeposits(b.deposits);
       if (!deposits || deposits.length === 0) return server.sendResponse(res, 400, false, undefined, 'deposits must be a non-empty list');
       const signed = await signedByWallet(req, body, b.walletId);
       if (signed === undefined) {
-        return server.sendResponse(res, 502, false, undefined, 'Cannot reach the sequencer to check the wallet\'s signature. Try again later.');
+        return server.sendResponse(
+          res,
+          502,
+          false,
+          undefined,
+          "Cannot reach the sequencer to check the wallet's signature. Try again later.",
+        );
       }
       if (!signed || !enrollmentRegistry(server).has(b.walletId)) return server.sendResponse(res, 403, false, undefined, DEPOSIT_REFUSED);
       const filed = fileDeposits(server, b.walletId, deposits);
@@ -1410,15 +1655,17 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       try {
         // Get all registration receipts from sequencer
         const allReceipts = await node.getAllReceipts();
-        const registrations = allReceipts.filter(r => r.isRegistration);
+        const registrations = allReceipts.filter((r) => r.isRegistration);
 
         // Get entity metadata from sequencer (names, roles, specialties)
         let entities: any[] = [];
         try {
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, ''); // the configured sequencer, not a field the client never has
           const entityResp = await server.signedFetch(`${seqUrl}/viz/entities`);
-          if (entityResp.ok) entities = await entityResp.json() as any[];
-        } catch { /* no entity data available */ }
+          if (entityResp.ok) entities = (await entityResp.json()) as any[];
+        } catch {
+          /* no entity data available */
+        }
 
         const entityMap = new Map(entities.map((e: any) => [e.walletId, e]));
 
@@ -1426,7 +1673,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const registry = enrollmentRegistry(server) as RecordMap<any>;
 
         // Build roster view
-        const roster = registrations.map(r => {
+        const roster = registrations.map((r) => {
           const entity = entityMap.get(r.walletId);
           const enrollment = registry?.get(r.walletId);
           return {
@@ -1448,8 +1695,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         const groupFilter = query?.get('groupId') ?? undefined;
         const roleFilter = query?.get('role') ?? undefined;
         let filtered = roster;
-        if (groupFilter) filtered = filtered.filter(r => r.groupId === groupFilter);
-        if (roleFilter) filtered = filtered.filter(r => r.role === roleFilter);
+        if (groupFilter) filtered = filtered.filter((r) => r.groupId === groupFilter);
+        if (roleFilter) filtered = filtered.filter((r) => r.role === roleFilter);
 
         // Employer summary: count by group
         const groupSummary: Record<string, { count: number; roles: Record<string, number> }> = {};
@@ -1479,13 +1726,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     path: '/roster/register',
     adminOnly: true,
     handler: async (_req, res, _params, _query, body) => {
-      const b = body as {
-        walletId?: string;
-        role?: string;
-        groupId?: string;
-        planId?: string;
-        employerId?: string;
-      } | undefined;
+      const b = body as
+        | {
+            walletId?: string;
+            role?: string;
+            groupId?: string;
+            planId?: string;
+            employerId?: string;
+          }
+        | undefined;
 
       if (!b?.walletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing walletId');
@@ -1726,10 +1975,12 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
 
-      const b = body as {
-        onChainState?: { walletRegistryRoot: string; lifecycleRoot: string; walletCount: string };
-        rosterEntries?: { walletId: string }[];
-      } | undefined;
+      const b = body as
+        | {
+            onChainState?: { walletRegistryRoot: string; lifecycleRoot: string; walletCount: string };
+            rosterEntries?: { walletId: string }[];
+          }
+        | undefined;
 
       if (!b?.onChainState || !b?.rosterEntries) {
         return server.sendResponse(res, 400, false, undefined, 'Missing onChainState or rosterEntries');
@@ -1987,13 +2238,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as InsurerNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const b = body as {
-        claims?: VerifiedClaim[];
-        row?: CrossTabDimension;
-        col?: CrossTabDimension;
-        measure?: CrossTabMeasure;
-        filter?: ReportFilter;
-      } | undefined;
+      const b = body as
+        | {
+            claims?: VerifiedClaim[];
+            row?: CrossTabDimension;
+            col?: CrossTabDimension;
+            measure?: CrossTabMeasure;
+            filter?: ReportFilter;
+          }
+        | undefined;
       if (!b?.claims || !b?.row || !b?.col || !b?.measure) {
         return server.sendResponse(res, 400, false, undefined, 'Missing claims, row, col, or measure');
       }
@@ -2003,7 +2256,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         server.sendResponse(res, 200, true, node.generateCrossTab(b.claims, b.row, b.col, b.measure, b.filter));
       } catch (err) {
         // More cells than MAX_CROSS_TAB_CELLS is the request's size, not this node's failure.
-        server.sendResponse(res, err instanceof ReportTooLargeError ? 413 : 500, false, undefined, err instanceof Error ? err.message : 'Operation failed');
+        server.sendResponse(
+          res,
+          err instanceof ReportTooLargeError ? 413 : 500,
+          false,
+          undefined,
+          err instanceof Error ? err.message : 'Operation failed',
+        );
       }
     },
   });
@@ -2045,8 +2304,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         // to the sequencer: they settle on its timer, and the operator can force one from the
         // Leviathan dashboard. Say that with a 403 instead of passing the refusal on as a 500.
         if (/^RPC error -32004:/.test(msg)) {
-          return server.sendResponse(res, 403, false, undefined,
-            'Forbidden: only the network operator can force a batch. Batches settle on the sequencer\'s timer.');
+          return server.sendResponse(
+            res,
+            403,
+            false,
+            undefined,
+            "Forbidden: only the network operator can force a batch. Batches settle on the sequencer's timer.",
+          );
         }
         server.sendResponse(res, 500, false, undefined, msg);
       }
@@ -2068,24 +2332,27 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
   // ══════════════════════════════════════════════════════════
 
   // The applications, kept in memory: a restart forgets the open ones, and their providers apply again.
-  const applications = new Map<string, {
-    applicationId: string;
-    providerType: 'prescriber' | 'pharmacy';
-    npi: string;
-    displayName: string;
-    specialty?: string;
-    pharmacyType?: string;
-    deaNumber?: string;
-    stateOfLicense?: string;
-    walletId?: string;
-    /** The caller as server.callerKey writes it: what the per-source limits count, and never listed. */
-    source: string;
-    submittedAt: number;
-    status: 'pending' | 'under_review' | 'verified' | 'approved' | 'denied';
-    denialReason?: string;
-    verifiedAt?: number;
-    approvedAt?: number;
-  }>();
+  const applications = new Map<
+    string,
+    {
+      applicationId: string;
+      providerType: 'prescriber' | 'pharmacy';
+      npi: string;
+      displayName: string;
+      specialty?: string;
+      pharmacyType?: string;
+      deaNumber?: string;
+      stateOfLicense?: string;
+      walletId?: string;
+      /** The caller as server.callerKey writes it: what the per-source limits count, and never listed. */
+      source: string;
+      submittedAt: number;
+      status: 'pending' | 'under_review' | 'verified' | 'approved' | 'denied';
+      denialReason?: string;
+      verifiedAt?: number;
+      approvedAt?: number;
+    }
+  >();
 
   // In-flight approval guard — prevents concurrent approvals of the same application
   const approvalsInFlight = new Set<string>();
@@ -2136,16 +2403,18 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     method: 'POST',
     path: '/credentialing/apply',
     handler: async (req, res, _params, _query, body) => {
-      const b = body as {
-        providerType?: string;
-        npi?: string;
-        displayName?: string;
-        specialty?: unknown;
-        pharmacyType?: unknown;
-        deaNumber?: unknown;
-        stateOfLicense?: unknown;
-        walletId?: unknown;
-      } | undefined;
+      const b = body as
+        | {
+            providerType?: string;
+            npi?: string;
+            displayName?: string;
+            specialty?: unknown;
+            pharmacyType?: unknown;
+            deaNumber?: unknown;
+            stateOfLicense?: unknown;
+            walletId?: unknown;
+          }
+        | undefined;
 
       if (!b?.providerType || !b?.npi || !b?.displayName) {
         return server.sendResponse(res, 400, false, undefined, 'Missing providerType, npi, or displayName');
@@ -2158,7 +2427,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // check digit, the one form the insurer compares (holderOfNpi) and the sequencer hashes into its registry's key.
       const fieldProblem = displayNameError(b.displayName) ?? npiError(b.npi);
       if (fieldProblem) return server.sendResponse(res, 400, false, undefined, fieldProblem);
-      const given: Partial<Record<typeof OPTIONAL_APPLICATION_FIELDS[number], string>> = {};
+      const given: Partial<Record<(typeof OPTIONAL_APPLICATION_FIELDS)[number], string>> = {};
       for (const field of OPTIONAL_APPLICATION_FIELDS) {
         const value = b[field];
         if (value === undefined || value === null || value === '') continue;
@@ -2184,15 +2453,33 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       }
       if (openFromSource >= MAX_OPEN_PER_SOURCE) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 429, false, undefined, 'Too many open credentialing applications from this address. Apply again once the insurer decides one.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many open credentialing applications from this address. Apply again once the insurer decides one.',
+        );
       }
       if (applicationsPerSource.count(source) >= APPLICATIONS_PER_SOURCE_PER_HOUR) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 429, false, undefined, 'Too many credentialing applications from this address in the last hour. Try again in an hour.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many credentialing applications from this address in the last hour. Try again in an hour.',
+        );
       }
       if (open >= MAX_OPEN_APPLICATIONS) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 503, false, undefined, 'The insurer holds as many open credentialing applications as it keeps: apply again once some are decided');
+        return server.sendResponse(
+          res,
+          503,
+          false,
+          undefined,
+          'The insurer holds as many open credentialing applications as it keeps: apply again once some are decided',
+        );
       }
       applicationsPerSource.allow(source);
 
@@ -2231,7 +2518,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // Verifying one application for an NPI picks it from the others for that NPI.
       const holder = holderOfNpi(app.npi, app.applicationId);
       if (holder) {
-        return server.sendResponse(res, 409, false, undefined, `Application ${holder.applicationId} for the same NPI is already ${holder.status}`);
+        return server.sendResponse(
+          res,
+          409,
+          false,
+          undefined,
+          `Application ${holder.applicationId} for the same NPI is already ${holder.status}`,
+        );
       }
 
       // The insurer's staff check the NPI, the DEA registration and the state license outside this system, then mark the
@@ -2267,7 +2560,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // the genuine application cannot credential the squatter's beside it.
       const holder = holderOfNpi(app.npi, app.applicationId);
       if (holder) {
-        return server.sendResponse(res, 409, false, undefined, `Application ${holder.applicationId} for the same NPI is already ${holder.status}`);
+        return server.sendResponse(
+          res,
+          409,
+          false,
+          undefined,
+          `Application ${holder.applicationId} for the same NPI is already ${holder.status}`,
+        );
       }
 
       // Prevent concurrent approvals of the same application
@@ -2294,7 +2593,8 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers,
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_credentialProvider',
             params: {
               walletId,
@@ -2310,7 +2610,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
             },
           }),
         });
-        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await rpcRes.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
 
         app.status = 'approved';
@@ -2367,7 +2667,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res, _params, query) => {
       const statusFilter = query.get('status');
       let apps = Array.from(applications.values());
-      if (statusFilter) apps = apps.filter(a => a.status === statusFilter);
+      if (statusFilter) apps = apps.filter((a) => a.status === statusFilter);
       server.sendResponse(res, 200, true, {
         total: apps.length,
         applications: apps.map(({ source: _source, ...entered }) => entered),
@@ -2389,12 +2689,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_getProvider',
             params: { walletId: params.walletId },
           }),
         });
-        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await rpcRes.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
 
         if (json.result === null) {
@@ -2425,12 +2726,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers,
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_updateProviderStatus',
             params: { walletId: params.walletId, newState: 3 }, // SUSPENDED
           }),
         });
-        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await rpcRes.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -2456,12 +2758,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers,
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_updateProviderStatus',
             params: { walletId: params.walletId, newState: 4 }, // TERMINATED
           }),
         });
-        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await rpcRes.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -2485,12 +2788,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_getNetworkProviders',
             params: roleFilter ? { role: roleFilter } : {},
           }),
         });
-        const json = await rpcRes.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await rpcRes.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) throw new Error(json.error.message ?? 'Sequencer error');
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -2543,8 +2847,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    * refused before the sequencer is called.
    */
   const PLAN_CENTS_FIELDS = [
-    'copayAmountCents', 'deductibleAmountCents', 'oopMaxCents', 'annualBenefitMaxCents',
-    'familyDeductibleAmountCents', 'familyOopMaxCents', 'familyAnnualBenefitMaxCents',
+    'copayAmountCents',
+    'deductibleAmountCents',
+    'oopMaxCents',
+    'annualBenefitMaxCents',
+    'familyDeductibleAmountCents',
+    'familyOopMaxCents',
+    'familyAnnualBenefitMaxCents',
   ] as const;
   function planAmountsError(b: Partial<BenefitPlanConfig>): string | null {
     for (const field of PLAN_CENTS_FIELDS) {
@@ -2571,7 +2880,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       const amountsError = planAmountsError(b);
       if (amountsError) return server.sendResponse(res, 400, false, undefined, amountsError);
       if (b.formularyNdcs !== undefined && (!Array.isArray(b.formularyNdcs) || b.formularyNdcs.some((n) => typeof n !== 'string'))) {
-        return server.sendResponse(res, 400, false, undefined, 'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'formularyNdcs must be a list of NDC strings (empty for every drug in the formulary)',
+        );
       }
       // NADAC pricing (owner decision 2026-10-18): the plan's dispensing fee in whole cents; absent, the network default applies
       const feeError = dispensingFeeError(b.dispensingFeeCents);
@@ -2613,11 +2928,16 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           const defaults = planCopayDefaults(plan);
 
           const overlayRes = await server.signedFetch(seqUrl + '/rpc', {
-            method: 'POST', headers: pubHeaders,
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_publishPlanOverlay',
-              params: { planIdHash: plan.planId, planName: plan.name, overrides, defaults } }),
+            method: 'POST',
+            headers: pubHeaders,
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'l2_publishPlanOverlay',
+              params: { planIdHash: plan.planId, planName: plan.name, overrides, defaults },
+            }),
           });
-          const overlayJson = await overlayRes.json() as any;
+          const overlayJson = (await overlayRes.json()) as any;
           if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
 
           const networkRoot = planNetworkRoot(plan.networkProviderWalletIds).toString(); // '0' = all providers accepted
@@ -2636,7 +2956,11 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           publishError = pubErr.message;
         }
 
-        server.sendResponse(res, 201, true, { ...plan, ...(publishError ? { publishError } : {}), ...(draftPending ? { draftPending } : {}) });
+        server.sendResponse(res, 201, true, {
+          ...plan,
+          ...(publishError ? { publishError } : {}),
+          ...(draftPending ? { draftPending } : {}),
+        });
       } catch (err: any) {
         server.sendResponse(res, 409, false, undefined, err.message);
       }
@@ -2656,7 +2980,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // Plan-bound formularies: the roots, the published flag and the published terms are set only by publishing, from
       // the plan itself; an edit leaves the plan unpublished until it is published again, and its members bound to the
       // terms last published.
-      const { formularyRoot: _formularyRoot, networkRoot: _networkRoot, published: _published, publishedTerms: _publishedTerms, ...edits } = (b ?? {}) as Partial<BenefitPlanConfig>;
+      const {
+        formularyRoot: _formularyRoot,
+        networkRoot: _networkRoot,
+        published: _published,
+        publishedTerms: _publishedTerms,
+        ...edits
+      } = (b ?? {}) as Partial<BenefitPlanConfig>;
       // NADAC pricing: a fee sent here replaces the plan's (whole cents), and null returns the plan to the network
       // default; like any edit, fills are charged it only once the plan is published again.
       const feeError = dispensingFeeError(edits.dispensingFeeCents);
@@ -2717,12 +3047,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           method: 'POST',
           headers,
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_publishPlanOverlay',
             params: { planIdHash: params.planId, planName: plan.name, overrides, defaults },
           }),
         });
-        const overlayJson = await overlayRes.json() as any;
+        const overlayJson = (await overlayRes.json()) as any;
         if (overlayJson.error) throw new Error(overlayJson.error.message ?? 'Sequencer error');
 
         const networkRoot = planNetworkRoot(plan.networkProviderWalletIds).toString(); // '0' = all providers accepted
@@ -2737,7 +3068,10 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
           published: updated.published,
           draftPending,
           ...(draftPending
-            ? { message: 'Published the plan as it was when publishing began. A newer draft was saved meanwhile and is not published; publish again to publish it.' }
+            ? {
+                message:
+                  'Published the plan as it was when publishing began. A newer draft was saved meanwhile and is not published; publish again to publish it.',
+              }
             : {}),
           planId: params.planId,
           overlayVersion: overlayJson.result?.version ?? 1,
@@ -2772,9 +3106,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     handler: async (_req, res) => {
       const listed = await engineListPriorAuths(server, 'PENDING');
       if ('error' in listed) return server.sendResponse(res, listed.status, false, undefined, listed.error);
-      const requests = listed.items
-        .filter((p) => p.status === 'PENDING')
-        .sort((a, b) => (a.requestedAt ?? 0) - (b.requestedAt ?? 0));
+      const requests = listed.items.filter((p) => p.status === 'PENDING').sort((a, b) => (a.requestedAt ?? 0) - (b.requestedAt ?? 0));
       server.sendResponse(res, 200, true, { requests });
     },
   });
@@ -2804,7 +3136,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
    */
   async function decidePriorAuth(res: ServerResponse, id: string, decision: 'approve' | 'deny', body: unknown): Promise<void> {
     if (!PRIOR_AUTH_ID.test(id)) {
-      return server.sendResponse(res, 400, false, undefined, 'A prior-authorization request ID is letters, digits, "-" and "_", at most 64 characters');
+      return server.sendResponse(
+        res,
+        400,
+        false,
+        undefined,
+        'A prior-authorization request ID is letters, digits, "-" and "_", at most 64 characters',
+      );
     }
     let reason: string | undefined;
     if (decision === 'deny') {
@@ -2823,9 +3161,10 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
     }
     priorAuthDecisionsInFlight.add(id);
     try {
-      const answer = decision === 'approve'
-        ? await callEngine(server, 'POST', '/interactive/approve-prior-auth', { priorAuthId: id })
-        : await callEngine(server, 'POST', '/interactive/deny-prior-auth', { priorAuthId: id, reason });
+      const answer =
+        decision === 'approve'
+          ? await callEngine(server, 'POST', '/interactive/approve-prior-auth', { priorAuthId: id })
+          : await callEngine(server, 'POST', '/interactive/deny-prior-auth', { priorAuthId: id, reason });
       if (answer.status !== 200) {
         const refusal = priorAuthRefusal(answer, `${decision} prior authorization ${id}`);
         return server.sendResponse(res, refusal.status, false, undefined, refusal.error);
@@ -2838,9 +3177,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         id,
         status: decision === 'approve' ? 'APPROVED' : 'DENIED',
         drugName: displayText(medication.brandName, 200),
-        ...(decision === 'approve'
-          ? { walletUpdate: update === 'pending' || update === 'applied' ? update : null }
-          : { reason }),
+        ...(decision === 'approve' ? { walletUpdate: update === 'pending' || update === 'applied' ? update : null } : { reason }),
       });
     } catch {
       server.sendResponse(res, 502, false, undefined, 'Cannot reach the engine to send the decision. Try again later.');
@@ -2887,7 +3224,7 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
       if (typeof b.ndcHash !== 'string' || !DECIMAL.test(b.ndcHash)) {
-        return server.sendResponse(res, 400, false, undefined, 'ndcHash, the drug\'s NDC hash in decimal, is required');
+        return server.sendResponse(res, 400, false, undefined, "ndcHash, the drug's NDC hash in decimal, is required");
       }
       const quantityProblem = quantityError(b.quantity);
       if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
@@ -2898,10 +3235,15 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       if (given(b.planId) && (typeof b.planId !== 'string' || b.planId.length > 128)) {
         return server.sendResponse(res, 400, false, undefined, 'planId must be a plan ID');
       }
-      const walletId = given(b.walletId) ? b.walletId as string : undefined;
-      const planId = !walletId && given(b.planId) ? b.planId as string : undefined;
+      const walletId = given(b.walletId) ? (b.walletId as string) : undefined;
+      const planId = !walletId && given(b.planId) ? (b.planId as string) : undefined;
       try {
-        server.sendResponse(res, 200, true, await node.estimateCost({ ndcHash: b.ndcHash, quantity: b.quantity as number, walletId, planId }));
+        server.sendResponse(
+          res,
+          200,
+          true,
+          await node.estimateCost({ ndcHash: b.ndcHash, quantity: b.quantity as number, walletId, planId }),
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const rpc = /^RPC error (-?\d+): ([\s\S]*)$/.exec(msg);
@@ -2911,7 +3253,13 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
         if (code === -32602) return server.sendResponse(res, 400, false, undefined, text);
         if (/^Drug not found/.test(text)) return server.sendResponse(res, 404, false, undefined, text);
         if (code === -32003 || code === -32004) {
-          return server.sendResponse(res, 502, false, undefined, `The sequencer refused this insurer node's credential for the estimate: ${text}`);
+          return server.sendResponse(
+            res,
+            502,
+            false,
+            undefined,
+            `The sequencer refused this insurer node's credential for the estimate: ${text}`,
+          );
         }
         server.sendResponse(res, 502, false, undefined, `The estimate failed: ${text}`);
       }
@@ -2958,7 +3306,9 @@ export function buildInsurerRoutes(server: NautilusAppServer): RouteRegistration
       // The plans an agreement signed now would cover (each selected plan with published terms), less those the latest
       // attestation authorizes; an application signed before authorizedPlanIds was kept authorized every plan it selected.
       const authorized = new Set(app.authorizedPlanIds ?? app.selectedPlanIds);
-      const plansToAdd = buildAgreementTerms(app, plans).selectedPlans.map((p) => p.planId).filter((planId) => !authorized.has(planId));
+      const plansToAdd = buildAgreementTerms(app, plans)
+        .selectedPlans.map((p) => p.planId)
+        .filter((planId) => !authorized.has(planId));
       server.sendResponse(res, 200, true, { applicationId: app.applicationId, plansToAdd });
     },
   });

@@ -49,8 +49,7 @@
   // ---- Connection Status ----
   function setConnectionStatus(state) {
     statusDot.className = 'status-dot ' + state;
-    statusLabel.textContent = state === 'connected' ? 'Connected' :
-      state === 'connecting' ? 'Connecting...' : 'Disconnected';
+    statusLabel.textContent = state === 'connected' ? 'Connected' : state === 'connecting' ? 'Connecting...' : 'Disconnected';
   }
 
   async function checkConnection() {
@@ -102,14 +101,19 @@
   }
 
   function emptyState(title, detail) {
-    return '<div class="empty-state"><div class="empty-title">' + esc(title) + '</div>' +
-      (detail ? '<div class="empty-detail">' + esc(detail) + '</div>' : '') + '</div>';
+    return (
+      '<div class="empty-state"><div class="empty-title">' +
+      esc(title) +
+      '</div>' +
+      (detail ? '<div class="empty-detail">' + esc(detail) + '</div>' : '') +
+      '</div>'
+    );
   }
 
   // ---- Router ----
   function navigate(page) {
     currentPage = page || 'overview';
-    navLinks.forEach(l => {
+    navLinks.forEach((l) => {
       l.classList.toggle('active', l.dataset.tab === currentPage);
     });
     clearInterval(refreshTimer);
@@ -125,22 +129,40 @@
 
   function renderPage() {
     switch (currentPage) {
-      case 'overview': renderOverview(); break;
-      case 'groups': renderGroups(); break;
-      case 'roster': renderRoster(); break;
-      case 'messaging': renderMessaging(); break;
-      case 'admin': renderAdmin(); break;
-      default: renderOverview();
+      case 'overview':
+        renderOverview();
+        break;
+      case 'groups':
+        renderGroups();
+        break;
+      case 'roster':
+        renderRoster();
+        break;
+      case 'messaging':
+        renderMessaging();
+        break;
+      case 'admin':
+        renderAdmin();
+        break;
+      default:
+        renderOverview();
     }
   }
 
   // ==== OVERVIEW ====
   async function renderOverview() {
-    app.innerHTML = '<div class="section-header"><div class="section-title">Overview</div></div>' +
-      '<div class="stats-grid" id="ov-stats">' + loading() + '</div>' +
+    app.innerHTML =
+      '<div class="section-header"><div class="section-title">Overview</div></div>' +
+      '<div class="stats-grid" id="ov-stats">' +
+      loading() +
+      '</div>' +
       '<div class="two-col">' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Onboarding Status</span></div><div class="panel-body" id="ov-onboard">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Live Events</span><span id="ov-event-count" style="font-size:11px;color:var(--text-muted)"></span></div><div class="events-log" id="ov-events">' + emptyState('No events yet', 'Events appear as they arrive via SSE') + '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Onboarding Status</span></div><div class="panel-body" id="ov-onboard">' +
+      loading() +
+      '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Live Events</span><span id="ov-event-count" style="font-size:11px;color:var(--text-muted)"></span></div><div class="events-log" id="ov-events">' +
+      emptyState('No events yet', 'Events appear as they arrive via SSE') +
+      '</div></div>' +
       '</div>';
 
     loadOverviewStats();
@@ -156,14 +178,22 @@
     const grid = document.getElementById('ov-stats');
     if (!grid) return;
     try {
-      const [groups, roster, health] = await Promise.allSettled([
-        API.listGroups(),
-        API.listRoster(),
-        API.getHealth(),
-      ]);
+      const [groups, roster, health] = await Promise.allSettled([API.listGroups(), API.listRoster(), API.getHealth()]);
 
-      const groupCount = groups.status === 'fulfilled' && Array.isArray(groups.value) ? groups.value.length : (groups.status === 'fulfilled' && groups.value && groups.value.groups ? groups.value.groups.length : '--');
-      const rosterEntries = roster.status === 'fulfilled' ? (Array.isArray(roster.value) ? roster.value : (roster.value && roster.value.entries ? roster.value.entries : [])) : [];
+      const groupCount =
+        groups.status === 'fulfilled' && Array.isArray(groups.value)
+          ? groups.value.length
+          : groups.status === 'fulfilled' && groups.value && groups.value.groups
+            ? groups.value.groups.length
+            : '--';
+      const rosterEntries =
+        roster.status === 'fulfilled'
+          ? Array.isArray(roster.value)
+            ? roster.value
+            : roster.value && roster.value.entries
+              ? roster.value.entries
+              : []
+          : [];
       const rosterCount = Array.isArray(rosterEntries) ? rosterEntries.length : '--';
       const healthOk = health.status === 'fulfilled';
       const healthData = healthOk ? health.value : null;
@@ -179,7 +209,15 @@
   }
 
   function statCard(label, value, color) {
-    return '<div class="stat-card"><div class="stat-label">' + esc(label) + '</div><div class="stat-value ' + (color || '') + '">' + esc(String(value)) + '</div></div>';
+    return (
+      '<div class="stat-card"><div class="stat-label">' +
+      esc(label) +
+      '</div><div class="stat-value ' +
+      (color || '') +
+      '">' +
+      esc(String(value)) +
+      '</div></div>'
+    );
   }
 
   async function loadOnboardingStatus() {
@@ -187,10 +225,11 @@
     if (!el) return;
     try {
       const data = await API.getOnboardingStatus();
-      el.innerHTML = '<div class="detail-grid"><div>' +
+      el.innerHTML =
+        '<div class="detail-grid"><div>' +
         detailRow('Role', data.role || '--') +
         detailRow('Phase', data.phase || (data.onboarding && data.onboarding.phase) || '--') +
-        detailRow('Configured', (data.phase === 'ready' || data.configured) ? 'Yes' : 'No') +
+        detailRow('Configured', data.phase === 'ready' || data.configured ? 'Yes' : 'No') +
         detailRow('Display Name', data.displayName || '--') +
         '</div></div>';
     } catch (e) {
@@ -199,7 +238,13 @@
   }
 
   function detailRow(label, value) {
-    return '<div class="detail-row"><span class="detail-label">' + esc(label) + '</span><span class="detail-value mono">' + esc(String(value)) + '</span></div>';
+    return (
+      '<div class="detail-row"><span class="detail-label">' +
+      esc(label) +
+      '</span><span class="detail-value mono">' +
+      esc(String(value)) +
+      '</span></div>'
+    );
   }
 
   function renderEventLog() {
@@ -209,24 +254,37 @@
       el.innerHTML = emptyState('No events yet', 'Events appear as they arrive via SSE');
       return;
     }
-    el.innerHTML = sseEvents.slice(-50).reverse().map(ev => {
-      const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '--';
-      const type = ev.type || ev.event || 'event';
-      const data = ev.data || ev.message || JSON.stringify(ev).slice(0, 120);
-      return '<div class="event-item"><span class="event-time">' + esc(time) +
-        '</span><span class="event-type">' + esc(type) +
-        '</span><span class="event-data">' + esc(String(data)) + '</span></div>';
-    }).join('');
+    el.innerHTML = sseEvents
+      .slice(-50)
+      .reverse()
+      .map((ev) => {
+        const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '--';
+        const type = ev.type || ev.event || 'event';
+        const data = ev.data || ev.message || JSON.stringify(ev).slice(0, 120);
+        return (
+          '<div class="event-item"><span class="event-time">' +
+          esc(time) +
+          '</span><span class="event-type">' +
+          esc(type) +
+          '</span><span class="event-data">' +
+          esc(String(data)) +
+          '</span></div>'
+        );
+      })
+      .join('');
     const countEl = document.getElementById('ov-event-count');
     if (countEl) countEl.textContent = sseEvents.length + ' total';
   }
 
   // ==== GROUPS ====
   async function renderGroups() {
-    app.innerHTML = '<div class="section-header"><div class="section-title">Groups</div><button class="btn primary" id="btn-show-create-group">Create Group</button></div>' +
+    app.innerHTML =
+      '<div class="section-header"><div class="section-title">Groups</div><button class="btn primary" id="btn-show-create-group">Create Group</button></div>' +
       '<div id="attestation-banner"></div>' +
       '<div id="create-group-form" style="display:none"></div>' +
-      '<div class="panel"><div class="panel-header"><span class="panel-title">All Groups</span><button class="btn sm" id="btn-refresh-groups">Refresh</button></div><div class="panel-body no-pad" id="groups-table">' + loading() + '</div></div>';
+      '<div class="panel"><div class="panel-header"><span class="panel-title">All Groups</span><button class="btn sm" id="btn-refresh-groups">Refresh</button></div><div class="panel-body no-pad" id="groups-table">' +
+      loading() +
+      '</div></div>';
 
     document.getElementById('btn-show-create-group').onclick = toggleCreateGroupForm;
     document.getElementById('btn-refresh-groups').onclick = loadGroupsTable;
@@ -251,25 +309,47 @@
     var reasons = [];
     if (data.termsChanged === true) {
       var gone = Array.isArray(data.unavailablePlanIds) ? data.unavailablePlanIds : [];
-      reasons.push('<strong>Terms changed since you signed.</strong> A plan your agreement covers was published again with other terms, or withdrawn' +
-        (gone.length > 0 ? ' (no longer published: ' + esc(gone.join(', ')) + ')' : '') +
-        '. Your members are billed the plans\' published terms, not the terms you signed.');
+      reasons.push(
+        '<strong>Terms changed since you signed.</strong> A plan your agreement covers was published again with other terms, or withdrawn' +
+          (gone.length > 0 ? ' (no longer published: ' + esc(gone.join(', ')) + ')' : '') +
+          ". Your members are billed the plans' published terms, not the terms you signed.",
+      );
     } else if (data.signedBeforeFullTerms === true) {
-      reasons.push('<strong>Signed before full terms.</strong> Your agreement was signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it covered are unchanged.');
+      reasons.push(
+        '<strong>Signed before full terms.</strong> Your agreement was signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it covered are unchanged.',
+      );
     }
     var adding = Array.isArray(data.plansToAdd) ? data.plansToAdd : [];
     if (adding.length > 0) {
       var one = adding.length === 1;
-      reasons.push('<strong>Plans to add.</strong> ' + esc(adding.join(', ')) + (one ? ' is' : ' are') +
-        ' published now, and your agreement does not cover ' + (one ? 'it' : 'them') + ', so no group can be created on ' + (one ? 'it' : 'them') + ' yet.');
+      reasons.push(
+        '<strong>Plans to add.</strong> ' +
+          esc(adding.join(', ')) +
+          (one ? ' is' : ' are') +
+          ' published now, and your agreement does not cover ' +
+          (one ? 'it' : 'them') +
+          ', so no group can be created on ' +
+          (one ? 'it' : 'them') +
+          ' yet.',
+      );
     }
     if (reasons.length === 0) return '';
     var next = typeof data.attestationSeq === 'number' ? '; they register as attestation #' + esc(String(data.attestationSeq + 1)) : '';
-    return '<div class="attestation-notice" style="margin-top:10px;padding:10px 12px;border:1px solid #f59e0b;border-radius:6px">' +
+    return (
+      '<div class="attestation-notice" style="margin-top:10px;padding:10px 12px;border:1px solid #f59e0b;border-radius:6px">' +
       '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:6px">ACTION NEEDED: SIGN THE NEW TERMS</div>' +
-      reasons.map(function (r) { return '<div style="font-size:13px;margin-bottom:4px">' + r + '</div>'; }).join('') +
-      '<div style="font-size:13px;margin-top:6px">Sign the new terms on <a href="' + esc(marketplaceHref(data)) + '" target="_blank" rel="noopener">the marketplace</a>' + next + '.</div>' +
-      '</div>';
+      reasons
+        .map(function (r) {
+          return '<div style="font-size:13px;margin-bottom:4px">' + r + '</div>';
+        })
+        .join('') +
+      '<div style="font-size:13px;margin-top:6px">Sign the new terms on <a href="' +
+      esc(marketplaceHref(data)) +
+      '" target="_blank" rel="noopener">the marketplace</a>' +
+      next +
+      '.</div>' +
+      '</div>'
+    );
   }
 
   // Phase 3.4: Fetch current attestation status and render a banner at the top of the Groups tab.
@@ -280,45 +360,64 @@
       var res = await API.getAttestation();
       var data = res && res.data ? res.data : res;
       if (data && data.loaded) {
-        var plans = (data.authorizedPlanIds || []).map(function(p) { return '<span class="badge primary">' + esc(p) + '</span>'; }).join(' ');
+        var plans = (data.authorizedPlanIds || [])
+          .map(function (p) {
+            return '<span class="badge primary">' + esc(p) + '</span>';
+          })
+          .join(' ');
         var eff = data.effectiveDate ? data.effectiveDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : 'n/a';
         var notice = attestationNotice(data);
-        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid ' + (notice ? '#f59e0b' : '#10b981') + '"><div class="panel-body" style="padding:12px 16px">' +
+        banner.innerHTML =
+          '<div class="panel" style="margin-bottom:12px;border-left:3px solid ' +
+          (notice ? '#f59e0b' : '#10b981') +
+          '"><div class="panel-body" style="padding:12px 16px">' +
           '<div style="font-size:12px;color:#10b981;font-weight:600;margin-bottom:4px">MARKETPLACE ATTESTATION LOADED</div>' +
-          '<div style="font-size:13px">Authorized plans: ' + (plans || '<em>none</em>') + '</div>' +
-          '<div style="font-size:11px;color:#888;margin-top:4px">Effective: ' + esc(eff) + ' | Cap: ' + esc(String(data.enrollmentCap || 'n/a')) + ' members</div>' +
+          '<div style="font-size:13px">Authorized plans: ' +
+          (plans || '<em>none</em>') +
+          '</div>' +
+          '<div style="font-size:11px;color:#888;margin-top:4px">Effective: ' +
+          esc(eff) +
+          ' | Cap: ' +
+          esc(String(data.enrollmentCap || 'n/a')) +
+          ' members</div>' +
           notice +
           '</div></div>';
       } else {
-        banner.innerHTML = '<div class="panel" style="margin-bottom:12px;border-left:3px solid #f59e0b"><div class="panel-body" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+        banner.innerHTML =
+          '<div class="panel" style="margin-bottom:12px;border-left:3px solid #f59e0b"><div class="panel-body" style="padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
           '<div>' +
-            '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px">WAITING FOR MARKETPLACE ATTESTATION</div>' +
-            '<div style="font-size:13px">No attestation loaded. Groups cannot be created yet. Complete the marketplace flow at <a href="' + esc(marketplaceHref(data)) + '" target="_blank" rel="noopener">' + esc(marketplaceHref(data)) + '</a> first.</div>' +
+          '<div style="font-size:12px;color:#f59e0b;font-weight:600;margin-bottom:4px">WAITING FOR MARKETPLACE ATTESTATION</div>' +
+          '<div style="font-size:13px">No attestation loaded. Groups cannot be created yet. Complete the marketplace flow at <a href="' +
+          esc(marketplaceHref(data)) +
+          '" target="_blank" rel="noopener">' +
+          esc(marketplaceHref(data)) +
+          '</a> first.</div>' +
           '</div>' +
           '<button class="btn sm" id="btn-refresh-attestation">Refresh Attestation</button>' +
-        '</div></div>';
+          '</div></div>';
         var refreshBtn = document.getElementById('btn-refresh-attestation');
-        if (refreshBtn) refreshBtn.onclick = async function() {
-          refreshBtn.disabled = true;
-          refreshBtn.textContent = 'Refreshing...';
-          try {
-            var r = await API.refreshAttestation();
-            var d = r && r.data ? r.data : r;
-            if (d && d.loaded) {
-              toast('Attestation loaded (' + (d.authorizedPlanIds || []).length + ' plan(s))', 'success');
-              loadAttestationBanner();
-              loadGroupsTable();
-            } else {
-              toast('No attestation on sequencer: ' + (d && d.reason ? d.reason : 'unknown'), 'error');
+        if (refreshBtn)
+          refreshBtn.onclick = async function () {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Refreshing...';
+            try {
+              var r = await API.refreshAttestation();
+              var d = r && r.data ? r.data : r;
+              if (d && d.loaded) {
+                toast('Attestation loaded (' + (d.authorizedPlanIds || []).length + ' plan(s))', 'success');
+                loadAttestationBanner();
+                loadGroupsTable();
+              } else {
+                toast('No attestation on sequencer: ' + (d && d.reason ? d.reason : 'unknown'), 'error');
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = 'Refresh Attestation';
+              }
+            } catch (e) {
+              toast('Refresh failed: ' + e.message, 'error');
               refreshBtn.disabled = false;
               refreshBtn.textContent = 'Refresh Attestation';
             }
-          } catch (e) {
-            toast('Refresh failed: ' + e.message, 'error');
-            refreshBtn.disabled = false;
-            refreshBtn.textContent = 'Refresh Attestation';
-          }
-        };
+          };
       }
     } catch (e) {
       banner.innerHTML = '';
@@ -335,37 +434,60 @@
       try {
         const plans = await API.getAvailablePlans();
         if (Array.isArray(plans) && plans.length > 0) {
-          planOptions += plans.map(function (p) {
-            var pid = p.planId || p.id;
-            var label = esc(p.name) + ' (' + esc(pid) + ')';
-            if (p.published) label += ' [Published]';
-            return '<option value="' + esc(pid) + '">' + label + '</option>';
-          }).join('');
+          planOptions += plans
+            .map(function (p) {
+              var pid = p.planId || p.id;
+              var label = esc(p.name) + ' (' + esc(pid) + ')';
+              if (p.published) label += ' [Published]';
+              return '<option value="' + esc(pid) + '">' + label + '</option>';
+            })
+            .join('');
         }
-      } catch { /* insurer not reachable — allow manual entry */ }
+      } catch {
+        /* insurer not reachable — allow manual entry */
+      }
 
-      el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Create New Group</span></div><div class="panel-body">' +
+      el.innerHTML =
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Create New Group</span></div><div class="panel-body">' +
         '<div class="form-grid">' +
-          formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-ENG') +
-          '<div class="form-group"><label for="cg-planId">Benefit Plan</label>' +
-            '<select id="cg-planId" style="width:100%;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:4px;font-size:13px">' + planOptions + '</select>' +
-            '<span class="field-error" id="cg-planId-err"></span></div>' +
-          formField('cg-effectiveDate', 'Effective Date', 'date', '') +
-          formField('cg-enrollmentCap', 'Enrollment Cap', 'number', 'e.g. 100') +
+        formField('cg-groupId', 'Group ID', 'text', 'e.g. GRP-ENG') +
+        '<div class="form-group"><label for="cg-planId">Benefit Plan</label>' +
+        '<select id="cg-planId" style="width:100%;padding:8px;border:1px solid var(--border-color,#ccc);border-radius:4px;font-size:13px">' +
+        planOptions +
+        '</select>' +
+        '<span class="field-error" id="cg-planId-err"></span></div>' +
+        formField('cg-effectiveDate', 'Effective Date', 'date', '') +
+        formField('cg-enrollmentCap', 'Enrollment Cap', 'number', 'e.g. 100') +
         '</div>' +
         '<div class="form-actions"><button class="btn primary" id="btn-create-group">Create</button><button class="btn" id="btn-cancel-create-group">Cancel</button><span id="cg-status"></span></div>' +
         '</div></div>';
       document.getElementById('btn-create-group').onclick = doCreateGroup;
-      document.getElementById('btn-cancel-create-group').onclick = () => { el.style.display = 'none'; };
+      document.getElementById('btn-cancel-create-group').onclick = () => {
+        el.style.display = 'none';
+      };
     } else {
       el.style.display = 'none';
     }
   }
 
   function formField(id, label, type, placeholder) {
-    return '<div class="form-group"><label for="' + id + '">' + esc(label) + '</label>' +
-      '<input type="' + type + '" id="' + id + '" placeholder="' + esc(placeholder) + '">' +
-      '<span class="field-error" id="' + id + '-err"></span></div>';
+    return (
+      '<div class="form-group"><label for="' +
+      id +
+      '">' +
+      esc(label) +
+      '</label>' +
+      '<input type="' +
+      type +
+      '" id="' +
+      id +
+      '" placeholder="' +
+      esc(placeholder) +
+      '">' +
+      '<span class="field-error" id="' +
+      id +
+      '-err"></span></div>'
+    );
   }
 
   async function doCreateGroup() {
@@ -376,10 +498,22 @@
     const enrollmentCap = val('cg-enrollmentCap');
     let valid = true;
 
-    if (!groupId) { setErr('cg-groupId', 'Group ID is required'); valid = false; }
-    if (!planId) { setErr('cg-planId', 'Plan ID is required'); valid = false; }
-    if (!effectiveDate) { setErr('cg-effectiveDate', 'Effective date is required'); valid = false; }
-    if (!enrollmentCap || isNaN(Number(enrollmentCap)) || Number(enrollmentCap) < 1) { setErr('cg-enrollmentCap', 'Must be a positive number'); valid = false; }
+    if (!groupId) {
+      setErr('cg-groupId', 'Group ID is required');
+      valid = false;
+    }
+    if (!planId) {
+      setErr('cg-planId', 'Plan ID is required');
+      valid = false;
+    }
+    if (!effectiveDate) {
+      setErr('cg-effectiveDate', 'Effective date is required');
+      valid = false;
+    }
+    if (!enrollmentCap || isNaN(Number(enrollmentCap)) || Number(enrollmentCap) < 1) {
+      setErr('cg-enrollmentCap', 'Must be a positive number');
+      valid = false;
+    }
     if (!valid) return;
 
     const btn = document.getElementById('btn-create-group');
@@ -404,39 +538,58 @@
     el.innerHTML = loading();
     try {
       const data = await API.listGroups();
-      const groups = Array.isArray(data) ? data : (data && data.groups ? data.groups : []);
+      const groups = Array.isArray(data) ? data : data && data.groups ? data.groups : [];
       if (groups.length === 0) {
         el.innerHTML = emptyState('No groups', 'Create a group to get started');
         return;
       }
-      el.innerHTML = '<div class="hint-banner" style="margin-bottom:12px;padding:10px 14px;background:var(--accent-light);border-left:3px solid var(--accent);font-size:13px;border-radius:var(--radius-sm)">' +
+      el.innerHTML =
+        '<div class="hint-banner" style="margin-bottom:12px;padding:10px 14px;background:var(--accent-light);border-left:3px solid var(--accent);font-size:13px;border-radius:var(--radius-sm)">' +
         'To issue enrollment codes to employees, use the <strong>HR Tool</strong>. ' +
         'The HR Tool is designed to handle PII safely — this dashboard intentionally does not generate tokens.' +
         '</div>' +
         '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Group ID</th><th>Plan ID</th><th>Effective Date</th><th>Utilization</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
-        groups.map(g => {
-          const gid = g.groupId || g.id || '--';
-          const status = g.status || g.state || 'active';
-          const badgeClass = status === 'active' ? 'green' : status === 'terminated' ? 'red' : 'yellow';
-          // Phase F1: stats inlined in /groups response — show used/cap
-          const cap = g.enrollmentCap || 0;
-          const used = (g.enrolledCount || 0) + (g.pendingTokens || 0);
-          const isUnlimited = g.isUnlimited === true || cap === 0;
-          const capDisplay = isUnlimited
-            ? (used + ' (unlimited)')
-            : (used + ' / ' + cap);
-          const capPct = isUnlimited ? 0 : Math.round((used / cap) * 100);
-          const capColor = capPct >= 90 ? 'var(--red)' : capPct >= 70 ? 'var(--yellow)' : 'var(--text-primary)';
-          return '<tr><td class="mono">' + esc(gid) + '</td>' +
-            '<td class="mono">' + esc(g.planId || '--') + '</td>' +
-            '<td>' + esc(fmtDateShort(g.effectiveDate)) + '</td>' +
-            '<td style="color:' + capColor + ';font-variant-numeric:tabular-nums">' + esc(capDisplay) + '</td>' +
-            '<td><span class="badge ' + badgeClass + '">' + esc(status) + '</span></td>' +
-            '<td class="actions-cell"><button class="btn sm danger btn-delete-group" data-gid="' + esc(gid) + '">Delete</button></td></tr>';
-        }).join('') +
+        groups
+          .map((g) => {
+            const gid = g.groupId || g.id || '--';
+            const status = g.status || g.state || 'active';
+            const badgeClass = status === 'active' ? 'green' : status === 'terminated' ? 'red' : 'yellow';
+            // Phase F1: stats inlined in /groups response — show used/cap
+            const cap = g.enrollmentCap || 0;
+            const used = (g.enrolledCount || 0) + (g.pendingTokens || 0);
+            const isUnlimited = g.isUnlimited === true || cap === 0;
+            const capDisplay = isUnlimited ? used + ' (unlimited)' : used + ' / ' + cap;
+            const capPct = isUnlimited ? 0 : Math.round((used / cap) * 100);
+            const capColor = capPct >= 90 ? 'var(--red)' : capPct >= 70 ? 'var(--yellow)' : 'var(--text-primary)';
+            return (
+              '<tr><td class="mono">' +
+              esc(gid) +
+              '</td>' +
+              '<td class="mono">' +
+              esc(g.planId || '--') +
+              '</td>' +
+              '<td>' +
+              esc(fmtDateShort(g.effectiveDate)) +
+              '</td>' +
+              '<td style="color:' +
+              capColor +
+              ';font-variant-numeric:tabular-nums">' +
+              esc(capDisplay) +
+              '</td>' +
+              '<td><span class="badge ' +
+              badgeClass +
+              '">' +
+              esc(status) +
+              '</span></td>' +
+              '<td class="actions-cell"><button class="btn sm danger btn-delete-group" data-gid="' +
+              esc(gid) +
+              '">Delete</button></td></tr>'
+            );
+          })
+          .join('') +
         '</tbody></table></div>';
-      el.querySelectorAll('.btn-delete-group').forEach(btn => {
+      el.querySelectorAll('.btn-delete-group').forEach((btn) => {
         btn.onclick = () => doDeleteGroup(btn.dataset.gid);
       });
     } catch (e) {
@@ -462,12 +615,15 @@
 
   // ==== ROSTER ====
   async function renderRoster() {
-    app.innerHTML = '<div class="section-header"><div class="section-title">Roster</div></div>' +
+    app.innerHTML =
+      '<div class="section-header"><div class="section-title">Roster</div></div>' +
       '<div class="panel"><div class="filter-bar">' +
-        '<label for="roster-filter">Status:</label>' +
-        '<select id="roster-filter"><option value="">All</option><option value="pending">Pending</option><option value="enrolled">Enrolled</option><option value="terminated">Terminated</option></select>' +
-        '<button class="btn sm" id="btn-refresh-roster">Refresh</button>' +
-      '</div><div class="panel-body no-pad" id="roster-table">' + loading() + '</div></div>';
+      '<label for="roster-filter">Status:</label>' +
+      '<select id="roster-filter"><option value="">All</option><option value="pending">Pending</option><option value="enrolled">Enrolled</option><option value="terminated">Terminated</option></select>' +
+      '<button class="btn sm" id="btn-refresh-roster">Refresh</button>' +
+      '</div><div class="panel-body no-pad" id="roster-table">' +
+      loading() +
+      '</div></div>';
 
     document.getElementById('roster-filter').onchange = loadRosterTable;
     document.getElementById('btn-refresh-roster').onclick = loadRosterTable;
@@ -482,27 +638,48 @@
     const status = filterEl ? filterEl.value : '';
     try {
       const data = await API.listRoster(status || undefined);
-      const entries = Array.isArray(data) ? data : (data && data.entries ? data.entries : []);
+      const entries = Array.isArray(data) ? data : data && data.entries ? data.entries : [];
       if (entries.length === 0) {
         el.innerHTML = emptyState('No roster entries', status ? 'Try a different filter' : 'No employees enrolled yet');
         return;
       }
-      el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      el.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Employee ID Hash</th><th>Group Hash</th><th>Status</th><th>Enrolled</th><th>Actions</th></tr></thead><tbody>' +
-        entries.map(r => {
-          const eHash = r.employeeIdHash || r.id || '--';
-          const st = r.status || r.state || 'pending';
-          const bc = st === 'enrolled' ? 'green' : st === 'terminated' ? 'red' : 'yellow';
-          return '<tr><td class="mono truncate" title="' + esc(eHash) + '">' + esc(truncHash(eHash, 16)) + '</td>' +
-            '<td class="mono truncate" title="' + esc(r.groupIdHash || '') + '">' + esc(truncHash(r.groupIdHash, 16)) + '</td>' +
-            '<td><span class="badge ' + bc + '">' + esc(st) + '</span></td>' +
-            '<td>' + esc(fmtDateShort(r.enrolledAt || r.enrollmentDate || r.consumedAt || r.createdAt)) + '</td>' +
-            '<td class="actions-cell">' +
-              (st !== 'terminated' ? '<button class="btn sm danger btn-terminate-roster" data-id="' + esc(eHash) + '">Terminate</button>' : '') +
-            '</td></tr>';
-        }).join('') +
+        entries
+          .map((r) => {
+            const eHash = r.employeeIdHash || r.id || '--';
+            const st = r.status || r.state || 'pending';
+            const bc = st === 'enrolled' ? 'green' : st === 'terminated' ? 'red' : 'yellow';
+            return (
+              '<tr><td class="mono truncate" title="' +
+              esc(eHash) +
+              '">' +
+              esc(truncHash(eHash, 16)) +
+              '</td>' +
+              '<td class="mono truncate" title="' +
+              esc(r.groupIdHash || '') +
+              '">' +
+              esc(truncHash(r.groupIdHash, 16)) +
+              '</td>' +
+              '<td><span class="badge ' +
+              bc +
+              '">' +
+              esc(st) +
+              '</span></td>' +
+              '<td>' +
+              esc(fmtDateShort(r.enrolledAt || r.enrollmentDate || r.consumedAt || r.createdAt)) +
+              '</td>' +
+              '<td class="actions-cell">' +
+              (st !== 'terminated'
+                ? '<button class="btn sm danger btn-terminate-roster" data-id="' + esc(eHash) + '">Terminate</button>'
+                : '') +
+              '</td></tr>'
+            );
+          })
+          .join('') +
         '</tbody></table></div>';
-      el.querySelectorAll('.btn-terminate-roster').forEach(btn => {
+      el.querySelectorAll('.btn-terminate-roster').forEach((btn) => {
         btn.onclick = () => doTerminateRoster(btn.dataset.id);
       });
     } catch (e) {
@@ -528,22 +705,25 @@
   async function renderMessaging() {
     msgSubTab = 'inbox';
     currentThread = null;
-    app.innerHTML = '<div class="section-header"><div class="section-title">Messaging</div><button class="btn primary" id="btn-show-compose">Compose</button></div>' +
+    app.innerHTML =
+      '<div class="section-header"><div class="section-title">Messaging</div><button class="btn primary" id="btn-show-compose">Compose</button></div>' +
       '<div id="compose-form" style="display:none"></div>' +
       '<div class="panel" id="msg-panel">' +
-        '<div class="sub-tabs" id="msg-tabs">' +
-          '<button class="sub-tab active" data-sub="inbox">Inbox</button>' +
-          '<button class="sub-tab" data-sub="sent">Sent</button>' +
-        '</div>' +
-        '<div id="msg-content">' + loading() + '</div>' +
+      '<div class="sub-tabs" id="msg-tabs">' +
+      '<button class="sub-tab active" data-sub="inbox">Inbox</button>' +
+      '<button class="sub-tab" data-sub="sent">Sent</button>' +
+      '</div>' +
+      '<div id="msg-content">' +
+      loading() +
+      '</div>' +
       '</div>';
 
     document.getElementById('btn-show-compose').onclick = toggleComposeForm;
-    document.querySelectorAll('#msg-tabs .sub-tab').forEach(btn => {
+    document.querySelectorAll('#msg-tabs .sub-tab').forEach((btn) => {
       btn.onclick = () => {
         msgSubTab = btn.dataset.sub;
         currentThread = null;
-        document.querySelectorAll('#msg-tabs .sub-tab').forEach(b => b.classList.toggle('active', b.dataset.sub === msgSubTab));
+        document.querySelectorAll('#msg-tabs .sub-tab').forEach((b) => b.classList.toggle('active', b.dataset.sub === msgSubTab));
         loadMessages();
       };
     });
@@ -554,16 +734,19 @@
     const el = document.getElementById('compose-form');
     if (el.style.display === 'none') {
       el.style.display = 'block';
-      el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Compose Message</span></div><div class="panel-body">' +
+      el.innerHTML =
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Compose Message</span></div><div class="panel-body">' +
         '<div class="form-grid">' +
-          formField('cm-recipient', 'Recipient Wallet ID', 'text', 'Wallet ID of recipient') +
-          formField('cm-subject', 'Subject', 'text', 'Message subject') +
+        formField('cm-recipient', 'Recipient Wallet ID', 'text', 'Wallet ID of recipient') +
+        formField('cm-subject', 'Subject', 'text', 'Message subject') +
         '</div>' +
         '<div class="form-group" style="margin-top:12px"><label for="cm-body">Message</label><textarea id="cm-body" placeholder="Type your message..."></textarea><span class="field-error" id="cm-body-err"></span></div>' +
         '<div class="form-actions"><button class="btn primary" id="btn-send-msg">Send</button><button class="btn" id="btn-cancel-compose">Cancel</button></div>' +
         '</div></div>';
       document.getElementById('btn-send-msg').onclick = doSendMessage;
-      document.getElementById('btn-cancel-compose').onclick = () => { el.style.display = 'none'; };
+      document.getElementById('btn-cancel-compose').onclick = () => {
+        el.style.display = 'none';
+      };
     } else {
       el.style.display = 'none';
     }
@@ -576,9 +759,18 @@
     const body = val('cm-body');
     let valid = true;
 
-    if (!recipient) { setErr('cm-recipient', 'Recipient is required'); valid = false; }
-    if (!subject) { setErr('cm-subject', 'Subject is required'); valid = false; }
-    if (!body) { setErr('cm-body', 'Message body is required'); valid = false; }
+    if (!recipient) {
+      setErr('cm-recipient', 'Recipient is required');
+      valid = false;
+    }
+    if (!subject) {
+      setErr('cm-subject', 'Subject is required');
+      valid = false;
+    }
+    if (!body) {
+      setErr('cm-body', 'Message body is required');
+      valid = false;
+    }
     if (!valid) return;
 
     const btn = document.getElementById('btn-send-msg');
@@ -589,7 +781,7 @@
       toast('Message sent', 'success');
       document.getElementById('compose-form').style.display = 'none';
       msgSubTab = 'sent';
-      document.querySelectorAll('#msg-tabs .sub-tab').forEach(b => b.classList.toggle('active', b.dataset.sub === 'sent'));
+      document.querySelectorAll('#msg-tabs .sub-tab').forEach((b) => b.classList.toggle('active', b.dataset.sub === 'sent'));
       loadMessages();
     } catch (e) {
       toast('Failed to send message: ' + e.message, 'error');
@@ -607,21 +799,38 @@
       el.innerHTML = loading();
       try {
         const data = await API.getThread(currentThread);
-        const messages = Array.isArray(data) ? data : (data && data.messages ? data.messages : [data]);
-        el.innerHTML = '<div><span class="back-link" id="msg-back-btn">[back] Return to ' + esc(msgSubTab) + '</span></div>' +
-          messages.map(m => {
-            var msg = m.message || {};
-            var payload = m.payload || {};
-            var sender = msg.senderWalletId || m.senderWalletId || m.sender || '--';
-            var ts = payload.timestamp || m.timestamp || m.createdAt;
-            var msgType = msg.messageType || m.messageType || 'message';
-            return '<div class="thread-message"><div class="thread-message-header">' +
-              '<span class="thread-message-sender">' + esc(truncHash(sender, 20)) + '</span>' +
-              '<span class="thread-message-time">' + esc(fmtDate(ts)) + '</span></div>' +
-              '<div class="thread-message-body"><span style="color:var(--text-secondary)">[' + esc(msgType) + '] Encrypted content</span></div></div>';
-          }).join('');
+        const messages = Array.isArray(data) ? data : data && data.messages ? data.messages : [data];
+        el.innerHTML =
+          '<div><span class="back-link" id="msg-back-btn">[back] Return to ' +
+          esc(msgSubTab) +
+          '</span></div>' +
+          messages
+            .map((m) => {
+              var msg = m.message || {};
+              var payload = m.payload || {};
+              var sender = msg.senderWalletId || m.senderWalletId || m.sender || '--';
+              var ts = payload.timestamp || m.timestamp || m.createdAt;
+              var msgType = msg.messageType || m.messageType || 'message';
+              return (
+                '<div class="thread-message"><div class="thread-message-header">' +
+                '<span class="thread-message-sender">' +
+                esc(truncHash(sender, 20)) +
+                '</span>' +
+                '<span class="thread-message-time">' +
+                esc(fmtDate(ts)) +
+                '</span></div>' +
+                '<div class="thread-message-body"><span style="color:var(--text-secondary)">[' +
+                esc(msgType) +
+                '] Encrypted content</span></div></div>'
+              );
+            })
+            .join('');
         const backBtn = document.getElementById('msg-back-btn');
-        if (backBtn) backBtn.onclick = () => { currentThread = null; loadMessages(); };
+        if (backBtn)
+          backBtn.onclick = () => {
+            currentThread = null;
+            loadMessages();
+          };
       } catch (e) {
         el.innerHTML = '<div class="error-banner">Failed to load thread: ' + esc(e.message) + '</div>';
       }
@@ -631,31 +840,45 @@
     el.innerHTML = loading();
     try {
       const data = msgSubTab === 'inbox' ? await API.getInbox() : await API.getSent();
-      const messages = Array.isArray(data) ? data : (data && data.messages ? data.messages : []);
+      const messages = Array.isArray(data) ? data : data && data.messages ? data.messages : [];
       if (messages.length === 0) {
         el.innerHTML = emptyState('No messages', msgSubTab === 'inbox' ? 'Your inbox is empty' : 'No sent messages');
         return;
       }
-      el.innerHTML = messages.map(m => {
-        // MessageStoreEntry: m.message is an object, m.payload is encrypted
-        const msg = m.message || {};
-        const payload = m.payload || {};
-        const peer = msgSubTab === 'inbox'
-          ? (msg.senderWalletId || m.senderWalletId || m.sender || '--')
-          : (msg.recipientWalletId || m.recipientWalletId || m.recipient || '--');
-        const threadId = msg.threadIdHash || m.threadIdHash || m.threadId || null;
-        const ts = payload.timestamp || m.timestamp || m.createdAt;
-        const msgType = msg.messageType || m.messageType || 'message';
-        return '<div class="message-item" ' + (threadId ? 'data-thread="' + esc(threadId) + '"' : '') + '>' +
-          '<div class="message-item-header">' +
-            '<span class="message-subject">' + esc(msgType) + '</span>' +
-            '<span class="message-meta">' + esc(fmtDate(ts)) + '</span>' +
-          '</div>' +
-          '<span class="message-sender">' + (msgSubTab === 'inbox' ? 'From: ' : 'To: ') + esc(truncHash(peer, 20)) + '</span>' +
-          '<div class="message-preview" style="color:var(--text-secondary);font-style:italic">Encrypted content</div>' +
-        '</div>';
-      }).join('');
-      el.querySelectorAll('.message-item[data-thread]').forEach(item => {
+      el.innerHTML = messages
+        .map((m) => {
+          // MessageStoreEntry: m.message is an object, m.payload is encrypted
+          const msg = m.message || {};
+          const payload = m.payload || {};
+          const peer =
+            msgSubTab === 'inbox'
+              ? msg.senderWalletId || m.senderWalletId || m.sender || '--'
+              : msg.recipientWalletId || m.recipientWalletId || m.recipient || '--';
+          const threadId = msg.threadIdHash || m.threadIdHash || m.threadId || null;
+          const ts = payload.timestamp || m.timestamp || m.createdAt;
+          const msgType = msg.messageType || m.messageType || 'message';
+          return (
+            '<div class="message-item" ' +
+            (threadId ? 'data-thread="' + esc(threadId) + '"' : '') +
+            '>' +
+            '<div class="message-item-header">' +
+            '<span class="message-subject">' +
+            esc(msgType) +
+            '</span>' +
+            '<span class="message-meta">' +
+            esc(fmtDate(ts)) +
+            '</span>' +
+            '</div>' +
+            '<span class="message-sender">' +
+            (msgSubTab === 'inbox' ? 'From: ' : 'To: ') +
+            esc(truncHash(peer, 20)) +
+            '</span>' +
+            '<div class="message-preview" style="color:var(--text-secondary);font-style:italic">Encrypted content</div>' +
+            '</div>'
+          );
+        })
+        .join('');
+      el.querySelectorAll('.message-item[data-thread]').forEach((item) => {
         item.onclick = () => {
           currentThread = item.dataset.thread;
           loadMessages();
@@ -669,19 +892,28 @@
   // ==== ADMIN ====
   async function renderAdmin() {
     const savedToken = API.getAdminToken();
-    app.innerHTML = '<div class="section-header"><div class="section-title">Admin</div></div>' +
-      '<div class="admin-token-bar"><label>Admin Token:</label><input type="password" id="admin-token-input" placeholder="Enter admin bearer token" value="' + esc(savedToken) + '"><button class="btn sm" id="btn-set-token">Set</button></div>' +
+    app.innerHTML =
+      '<div class="section-header"><div class="section-title">Admin</div></div>' +
+      '<div class="admin-token-bar"><label>Admin Token:</label><input type="password" id="admin-token-input" placeholder="Enter admin bearer token" value="' +
+      esc(savedToken) +
+      '"><button class="btn sm" id="btn-set-token">Set</button></div>' +
       '<div class="two-col">' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Node Health</span><button class="btn sm" id="btn-refresh-health">Refresh</button></div><div class="panel-body" id="admin-health">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Chain State</span><button class="btn sm" id="btn-refresh-chain">Refresh</button></div><div class="panel-body" id="admin-chain">' + loading() + '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Node Health</span><button class="btn sm" id="btn-refresh-health">Refresh</button></div><div class="panel-body" id="admin-health">' +
+      loading() +
+      '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Chain State</span><button class="btn sm" id="btn-refresh-chain">Refresh</button></div><div class="panel-body" id="admin-chain">' +
+      loading() +
+      '</div></div>' +
       '</div>' +
-      '<div class="panel"><div class="panel-header"><span class="panel-title">Sequencer Status</span><button class="btn sm" id="btn-refresh-seq">Refresh</button></div><div class="panel-body" id="admin-seq">' + loading() + '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Sequencer Status</span><button class="btn sm" id="btn-refresh-seq">Refresh</button></div><div class="panel-body" id="admin-seq">' +
+      loading() +
+      '</div></div>' +
       '<div class="panel"><div class="panel-header"><span class="panel-title">Onboarding Configuration</span></div><div class="panel-body">' +
-        '<div class="form-grid">' +
-          formField('adm-employerId', 'Employer ID', 'text', 'Your employer ID') +
-          formField('adm-insurerUrl', 'Insurer URL', 'text', 'e.g. http://localhost:3001') +
-        '</div>' +
-        '<div class="form-actions" style="margin-top:12px"><button class="btn primary" id="btn-configure">Configure</button></div>' +
+      '<div class="form-grid">' +
+      formField('adm-employerId', 'Employer ID', 'text', 'Your employer ID') +
+      formField('adm-insurerUrl', 'Insurer URL', 'text', 'e.g. http://localhost:3001') +
+      '</div>' +
+      '<div class="form-actions" style="margin-top:12px"><button class="btn primary" id="btn-configure">Configure</button></div>' +
       '</div></div>';
 
     document.getElementById('btn-set-token').onclick = () => {
@@ -736,8 +968,14 @@
     const employerId = val('adm-employerId');
     const insurerUrl = val('adm-insurerUrl');
     let valid = true;
-    if (!employerId) { setErr('adm-employerId', 'Employer ID is required'); valid = false; }
-    if (!insurerUrl) { setErr('adm-insurerUrl', 'Insurer URL is required'); valid = false; }
+    if (!employerId) {
+      setErr('adm-employerId', 'Employer ID is required');
+      valid = false;
+    }
+    if (!insurerUrl) {
+      setErr('adm-insurerUrl', 'Insurer URL is required');
+      valid = false;
+    }
     if (!valid) return;
     try {
       await API.configure(employerId, insurerUrl);
@@ -751,13 +989,17 @@
     if (!obj || typeof obj !== 'object') return '<div class="detail-value mono">' + esc(String(obj)) + '</div>';
     const keys = Object.keys(obj);
     if (keys.length === 0) return emptyState('Empty', 'No data returned');
-    return '<div class="detail-grid"><div>' +
-      keys.map(k => {
-        const v = obj[k];
-        const display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-        return detailRow(k, display);
-      }).join('') +
-      '</div></div>';
+    return (
+      '<div class="detail-grid"><div>' +
+      keys
+        .map((k) => {
+          const v = obj[k];
+          const display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+          return detailRow(k, display);
+        })
+        .join('') +
+      '</div></div>'
+    );
   }
 
   // ---- Form helpers ----

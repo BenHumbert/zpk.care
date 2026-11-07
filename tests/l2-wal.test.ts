@@ -29,7 +29,11 @@ import * as os from 'os';
 
 // ─── Test Helpers ──────────────────────────────────────────
 
-function makeProofEntry(partitionIndex: number, seqNum: bigint, walletId?: string): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
+function makeProofEntry(
+  partitionIndex: number,
+  seqNum: bigint,
+  walletId?: string,
+): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
   return {
     type: 'proof',
     partitionIndex,
@@ -45,7 +49,11 @@ function makeProofEntry(partitionIndex: number, seqNum: bigint, walletId?: strin
   };
 }
 
-function makeBatchEntry(partitionIndex: number, seqNum: bigint, type: 'batch_begin' | 'batch_commit' | 'batch_abort'): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
+function makeBatchEntry(
+  partitionIndex: number,
+  seqNum: bigint,
+  type: 'batch_begin' | 'batch_commit' | 'batch_abort',
+): Omit<WalEntry, 'entryId' | 'committed' | 'integrityHash' | 'prevIntegrityHash'> {
   return {
     type,
     partitionIndex,
@@ -215,7 +223,7 @@ describe('InMemoryWalProvider', () => {
     await wal.commit(id1);
     await wal.commit(id2);
 
-    expect((await wal.getUncommitted(0))).toHaveLength(0);
+    expect(await wal.getUncommitted(0)).toHaveLength(0);
   });
 
   test('commit with unknown entryId is a no-op', async () => {
@@ -430,7 +438,7 @@ describe('FileWalProvider', () => {
 
     // Only the 2 legitimate entries survive — the forged entry is rejected
     expect(entries).toHaveLength(2);
-    expect(entries.find(e => e.walletId === 'attacker-wallet')).toBeUndefined();
+    expect(entries.find((e) => e.walletId === 'attacker-wallet')).toBeUndefined();
     await wal2.close();
   });
 

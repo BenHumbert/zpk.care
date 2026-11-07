@@ -37,7 +37,11 @@ function standInService() {
     approveMember(a: Omit<MemberApproval, 'approvedAt'>) {
       const existing = approvals.get(a.walletId);
       if (existing) {
-        if (existing.planId !== a.planId || existing.groupIdHash !== a.groupIdHash || (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)) {
+        if (
+          existing.planId !== a.planId ||
+          existing.groupIdHash !== a.groupIdHash ||
+          (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)
+        ) {
           throw new RegistrationRefused(409, 'already approved under a different group, plan or family');
         }
         return { approved: true as const, alreadyApproved: true };
@@ -45,18 +49,30 @@ function standInService() {
       approvals.set(a.walletId, { ...a, approvedAt: Date.now() });
       return { approved: true as const, alreadyApproved: false };
     },
-    approvalFor(walletId: string) { return approvals.get(walletId); },
+    approvalFor(walletId: string) {
+      return approvals.get(walletId);
+    },
     async registerMemberFromEnrollment(opts: { walletId: string; ownershipProofJson: string; displayName: string }) {
       // the same order the engine applies: the ownership proof, then the approval, then the ledger, then the rest
       if (opts.ownershipProofJson !== PROOF) throw new RegistrationRefused(403, 'The ownership proof does not verify');
-      if (!approvals.has(opts.walletId)) throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
-      if (!registered.has(opts.walletId)) throw new RegistrationRefused(409, 'The wallet is not registered on the ledger yet: submit the registration proof first');
+      if (!approvals.has(opts.walletId))
+        throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
+      if (!registered.has(opts.walletId))
+        throw new RegistrationRefused(409, 'The wallet is not registered on the ledger yet: submit the registration proof first');
       return { walletId: opts.walletId, displayName: opts.displayName, planId: approvals.get(opts.walletId)!.planId };
     },
-    getState() { return { compiled: true, enrolledMembers: [] }; },
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
     __registered: registered,
   };
-  return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`); return undefined; } }) as unknown as AdjudicationService & { __registered: Set<string> };
+  return new Proxy(svc, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`);
+      return undefined;
+    },
+  }) as unknown as AdjudicationService & { __registered: Set<string> };
 }
 
 let server: L2RpcServer;
@@ -69,7 +85,11 @@ async function post(p: string, body: unknown, headers: Record<string, string> = 
   const text = JSON.stringify(body);
   const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: text });
   let json: any = null;
-  try { json = await r.json(); } catch { json = null; }
+  try {
+    json = await r.json();
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
 const approval = { walletId: '123456789', groupIdHash: '777', planIdHash: '888', planId: 'PLAN-E2E-TEST', employerId: 'EMP-1' };
@@ -77,7 +97,13 @@ const approval = { walletId: '123456789', groupIdHash: '777', planIdHash: '888',
 const PROOF = '{"stand-in":true}';
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-gate-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-gate-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(insurer.nodeId, insurer.publicKeyHex, 'insurer');
   server.registerNodeKey(member.nodeId, member.publicKeyHex, 'member');
@@ -87,7 +113,9 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
 describe('approve-member', () => {
   test('is admin-gated: unsigned 401, a member key 403, the insurer key and the operator bearer 200', async () => {
@@ -108,7 +136,7 @@ describe('approve-member', () => {
     expect(conflict.status).toBe(409);
   });
 
-  test('carries the employer\'s family hash, refuses one that is not a hash, and refuses another family for an approved wallet (A-34)', async () => {
+  test("carries the employer's family hash, refuses one that is not a hash, and refuses another family for an approved wallet (A-34)", async () => {
     const bearer = { Authorization: `Bearer ${OPERATOR}` };
     const fam = { ...approval, walletId: '555', familyIdHash: '424242' };
     expect((await post('/interactive/approve-member', fam, bearer)).status).toBe(200);
@@ -130,11 +158,21 @@ describe('register-member', () => {
   });
 
   test('an approved wallet with no registration on the ledger is 409, and passes once registered', async () => {
-    const early = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice' });
+    const early = await post('/interactive/register-member', {
+      walletId: approval.walletId,
+      ownershipProofJson: PROOF,
+      displayName: 'Alice',
+    });
     expect(early.status).toBe(409);
     expect(early.json.error).toMatch(/not registered on the ledger/);
     service.__registered.add(approval.walletId);
-    const ok = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', planId: 'IGNORED', groupId: 'IGNORED' });
+    const ok = await post('/interactive/register-member', {
+      walletId: approval.walletId,
+      ownershipProofJson: PROOF,
+      displayName: 'Alice',
+      planId: 'IGNORED',
+      groupId: 'IGNORED',
+    });
     expect(ok.status).toBe(200);
     expect(ok.json.planId).toBe('PLAN-E2E-TEST'); // from the approval, never from the body
   });
@@ -143,11 +181,21 @@ describe('register-member', () => {
     expect((await post('/interactive/register-member', { walletId: '42' })).status).toBe(400);
   });
 
-  test('refuses a body that names a family or an employee ID: the family is the approval\'s, the employee ID the employer\'s (A-34)', async () => {
-    const fam = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', familyId: 'FAM-OF-SOMEONE-ELSE' });
+  test("refuses a body that names a family or an employee ID: the family is the approval's, the employee ID the employer's (A-34)", async () => {
+    const fam = await post('/interactive/register-member', {
+      walletId: approval.walletId,
+      ownershipProofJson: PROOF,
+      displayName: 'Alice',
+      familyId: 'FAM-OF-SOMEONE-ELSE',
+    });
     expect(fam.status).toBe(400);
     expect(fam.json.error).toMatch(/insurer approval/);
-    const emp = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: PROOF, displayName: 'Alice', employeeId: 'E-1' });
+    const emp = await post('/interactive/register-member', {
+      walletId: approval.walletId,
+      ownershipProofJson: PROOF,
+      displayName: 'Alice',
+      employeeId: 'E-1',
+    });
     expect(emp.status).toBe(400);
   });
 
@@ -155,7 +203,11 @@ describe('register-member', () => {
     service.__registered.add(approval.walletId);
     const forged = '{"forged":true}';
     const unknown = await post('/interactive/register-member', { walletId: '43', ownershipProofJson: forged, displayName: 'Mallory' });
-    const known = await post('/interactive/register-member', { walletId: approval.walletId, ownershipProofJson: forged, displayName: 'Mallory' });
+    const known = await post('/interactive/register-member', {
+      walletId: approval.walletId,
+      ownershipProofJson: forged,
+      displayName: 'Mallory',
+    });
     expect(unknown).toEqual({ status: 403, json: { error: 'The ownership proof does not verify' } });
     expect(known).toEqual(unknown);
   });

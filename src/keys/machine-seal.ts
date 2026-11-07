@@ -74,13 +74,23 @@ function powershellPath(): string {
 
 function runDpapi(mode: 'protect' | 'unprotect', data: Uint8Array, entropy: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const child = spawn(powershellPath(), [
-      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-EncodedCommand', Buffer.from(DPAPI_SCRIPT, 'utf16le').toString('base64'),
-    ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(
+      powershellPath(),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-EncodedCommand',
+        Buffer.from(DPAPI_SCRIPT, 'utf16le').toString('base64'),
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+    );
     const out: Buffer[] = [];
     child.stdout.on('data', (d: Buffer) => out.push(d));
-    child.stderr.on('data', () => { /* PowerShell's error text is not passed on: it can quote its input */ });
+    child.stderr.on('data', () => {
+      /* PowerShell's error text is not passed on: it can quote its input */
+    });
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error('machine seal (DPAPI): PowerShell did not answer within 30 s'));
@@ -93,9 +103,13 @@ function runDpapi(mode: 'protect' | 'unprotect', data: Uint8Array, entropy: Buff
       clearTimeout(timer);
       const text = Buffer.concat(out).toString('utf8').trim();
       if (code !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) {
-        reject(new Error(mode === 'unprotect'
-          ? 'machine seal (DPAPI): the sealed key could not be opened (another machine or account, another purpose, or changed)'
-          : 'machine seal (DPAPI): the key could not be sealed'));
+        reject(
+          new Error(
+            mode === 'unprotect'
+              ? 'machine seal (DPAPI): the sealed key could not be opened (another machine or account, another purpose, or changed)'
+              : 'machine seal (DPAPI): the key could not be sealed',
+          ),
+        );
         return;
       }
       resolve(Buffer.from(text, 'base64'));
@@ -181,10 +195,14 @@ export function resolveMachineSeal(env: NodeJS.ProcessEnv, platform: NodeJS.Plat
   }
   if (chosen === 'development' || (!chosen && unsecure)) {
     if (!unsecure) {
-      throw new Error('ZKTRIDENT_KEY_SEAL=development keeps the node master in the clear; only an unsecure boot (ZKTRIDENT_UNSECURE=true) may use it');
+      throw new Error(
+        'ZKTRIDENT_KEY_SEAL=development keeps the node master in the clear; only an unsecure boot (ZKTRIDENT_UNSECURE=true) may use it',
+      );
     }
     return developmentSeal();
   }
   if (chosen) throw new Error(`ZKTRIDENT_KEY_SEAL=${chosen}: not a machine seal this node knows (dpapi, development)`);
-  throw new Error(`no machine seal for ${platform}: this node cannot keep its master sealed here (a TPM seal comes with packaging); set ZKTRIDENT_UNSECURE=true for a development boot`);
+  throw new Error(
+    `no machine seal for ${platform}: this node cannot keep its master sealed here (a TPM seal comes with packaging); set ZKTRIDENT_UNSECURE=true for a development boot`,
+  );
 }

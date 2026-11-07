@@ -14,14 +14,7 @@
  * limitations under the License.
  */
 
-import {
-  Field,
-  Poseidon,
-  MerkleTree,
-  Mina,
-  PrivateKey,
-  AccountUpdate,
-} from 'o1js';
+import { Field, Poseidon, MerkleTree, Mina, PrivateKey, AccountUpdate } from 'o1js';
 import {
   EligibilityData,
   COVERAGE_PHARMACY,
@@ -31,16 +24,8 @@ import {
 } from '../src/eligibility/eligibility-data.js';
 import type { EligibilityLocalData } from '../src/eligibility/eligibility-data.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
-import {
-  BenefitPlanRegistry,
-  BENEFIT_PLAN_TREE_HEIGHT,
-} from '../src/eligibility/benefit-plan-registry.js';
-import {
-  EligibilityProgram,
-  EligibilityOutput,
-  InNetworkProgram,
-  InNetworkOutput,
-} from '../src/eligibility/eligibility-program.js';
+import { BenefitPlanRegistry, BENEFIT_PLAN_TREE_HEIGHT } from '../src/eligibility/benefit-plan-registry.js';
+import { EligibilityProgram, EligibilityOutput, InNetworkProgram, InNetworkOutput } from '../src/eligibility/eligibility-program.js';
 import { EligibilityService } from '../src/eligibility/eligibility-service.js';
 import { VerificationService } from '../src/eligibility/verification-service.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../src/credentials/credential-data.js';
@@ -65,10 +50,7 @@ import {
   pharmacyWalletPreimage,
   ProofGateProgram,
 } from '../src/wallets/index.js';
-import {
-  WalletRegistry,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
+import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { hashString } from '../src/zkp/hash-utils.js';
@@ -112,7 +94,7 @@ const sampleEligLocalData: EligibilityLocalData = {
   effectiveDate: '20260101',
   terminationDate: '20261231',
   copayAmount: 2000, // $20.00 in cents
-  coverageType: 1,   // pharmacy
+  coverageType: 1, // pharmacy
   formularyRoot: '0', // empty formulary for testing
 };
 
@@ -296,8 +278,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const roots1 = ForestRoots.fromForest(forest1);
       const roots2 = ForestRoots.fromForest(forest2);
 
-      expect(roots1.computeForestRoot().toString())
-        .not.toBe(roots2.computeForestRoot().toString());
+      expect(roots1.computeForestRoot().toString()).not.toBe(roots2.computeForestRoot().toString());
     });
 
     test('fromForest constructs correctly from MerkleForest', () => {
@@ -305,12 +286,9 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, Poseidon.hash([Field(7)]));
 
       const roots = ForestRoots.fromForest(forest);
-      expect(roots.memberRoot.toString())
-        .toBe(forest.getTreeRoot(ForestDomain.MEMBER).toString());
-      expect(roots.accessControlRoot.toString())
-        .toBe(forest.getTreeRoot(ForestDomain.ACCESS_CONTROL).toString());
-      expect(roots.transactionRoot.toString())
-        .toBe(forest.getTreeRoot(ForestDomain.TRANSACTION).toString());
+      expect(roots.memberRoot.toString()).toBe(forest.getTreeRoot(ForestDomain.MEMBER).toString());
+      expect(roots.accessControlRoot.toString()).toBe(forest.getTreeRoot(ForestDomain.ACCESS_CONTROL).toString());
+      expect(roots.transactionRoot.toString()).toBe(forest.getTreeRoot(ForestDomain.TRANSACTION).toString());
     });
   });
 
@@ -364,8 +342,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const planWitness = planRegistry.getPlanWitness(planIndex);
 
       const result = await EligibilityProgram.proveEligibility(
-        credentialData, eligData, forestRoots, forestWitness,
-        planWitness, planRegistry.getRoot(), Field(20260601),
+        credentialData,
+        eligData,
+        forestRoots,
+        forestWitness,
+        planWitness,
+        planRegistry.getRoot(),
+        Field(20260601),
       );
 
       const isValid = await EligibilityProgram.verify(result.proof);
@@ -395,8 +378,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          wrongCredential, eligData, forestRoots, forestWitness,
-          planWitness, planRegistry.getRoot(), Field(20260601),
+          wrongCredential,
+          eligData,
+          forestRoots,
+          forestWitness,
+          planWitness,
+          planRegistry.getRoot(),
+          Field(20260601),
         ),
       ).rejects.toThrow();
     });
@@ -423,8 +411,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          revokedCredential, eligData, forestRoots, forestWitness,
-          planWitness, planRegistry.getRoot(), Field(20260601),
+          revokedCredential,
+          eligData,
+          forestRoots,
+          forestWitness,
+          planWitness,
+          planRegistry.getRoot(),
+          Field(20260601),
         ),
       ).rejects.toThrow();
     });
@@ -444,8 +437,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          credentialData, eligData, forestRoots, forestWitness,
-          planWitness, planRegistry.getRoot(), expiredDate,
+          credentialData,
+          eligData,
+          forestRoots,
+          forestWitness,
+          planWitness,
+          planRegistry.getRoot(),
+          expiredDate,
         ),
       ).rejects.toThrow();
     });
@@ -464,8 +462,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       await expect(
         EligibilityProgram.proveEligibility(
-          credentialData, eligData, forestRoots, forestWitness,
-          planWitness, planRegistry.getRoot(), Field(20260601),
+          credentialData,
+          eligData,
+          forestRoots,
+          forestWitness,
+          planWitness,
+          planRegistry.getRoot(),
+          Field(20260601),
         ),
       ).rejects.toThrow();
     });
@@ -493,10 +496,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const witness = new LifecycleWitness(tree.getWitness(0n));
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const result = await InNetworkProgram.proveInNetwork(
         pgResult.proof,
@@ -519,10 +519,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const witness = new LifecycleWitness(tree.getWitness(0n));
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const result = await InNetworkProgram.proveInNetwork(
         pgResult.proof,
@@ -542,20 +539,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const witness = new LifecycleWitness(tree.getWitness(0n));
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       await expect(
-        InNetworkProgram.proveInNetwork(
-          pgResult.proof,
-          LIFECYCLE_REGISTERED,
-          witness,
-          tree.getRoot(),
-          Field(0),
-          dummyNetworkWitness(),
-        ),
+        InNetworkProgram.proveInNetwork(pgResult.proof, LIFECYCLE_REGISTERED, witness, tree.getRoot(), Field(0), dummyNetworkWitness()),
       ).rejects.toThrow();
     });
 
@@ -564,20 +551,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const witness = new LifecycleWitness(tree.getWitness(0n));
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       await expect(
-        InNetworkProgram.proveInNetwork(
-          pgResult.proof,
-          LIFECYCLE_REVOKED,
-          witness,
-          tree.getRoot(),
-          Field(0),
-          dummyNetworkWitness(),
-        ),
+        InNetworkProgram.proveInNetwork(pgResult.proof, LIFECYCLE_REVOKED, witness, tree.getRoot(), Field(0), dummyNetworkWitness()),
       ).rejects.toThrow();
     });
   });
@@ -590,16 +567,12 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const registry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
       const planRegistry = new BenefitPlanRegistry();
-      const service = new EligibilityService(
-        store, registry, lifecycleTree, planRegistry, prescriberWalletId,
-      );
+      const service = new EligibilityService(store, registry, lifecycleTree, planRegistry, prescriberWalletId);
 
       const eligData = createTestEligibilityData();
       const forest = new MerkleForest();
 
-      const credentialData = service.buildEligibilityCredential(
-        memberWalletId, eligData, forest, 0n, Field(20260201),
-      );
+      const credentialData = service.buildEligibilityCredential(memberWalletId, eligData, forest, 0n, Field(20260201));
 
       expect(credentialData.credentialType.toString()).toBe(CREDENTIAL_TYPE_ELIGIBILITY.toString());
       expect(credentialData.subjectWalletId.toString()).toBe(memberWalletId.toString());
@@ -619,15 +592,19 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       registry.register(memberWalletId);
 
-      const service = new EligibilityService(
-        store, registry, lifecycleTree, planRegistry, prescriberWalletId,
-      );
+      const service = new EligibilityService(store, registry, lifecycleTree, planRegistry, prescriberWalletId);
       const inventory = new CredentialInventory();
       const forest = new MerkleForest();
 
       const result = await service.mintEligibilityCredential(
-        memberWalletId, eligData, forest, inventory,
-        0n, 0n, Field(20260601), Field(20260201),
+        memberWalletId,
+        eligData,
+        forest,
+        inventory,
+        0n,
+        0n,
+        Field(20260601),
+        Field(20260201),
       );
 
       expect(result.credentialIndex).toBe(0n);
@@ -644,16 +621,12 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const store = new InMemoryStore();
       const registry = new WalletRegistry();
       const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      const service = new EligibilityService(
-        store, registry, lifecycleTree, planRegistry, prescriberWalletId,
-      );
+      const service = new EligibilityService(store, registry, lifecycleTree, planRegistry, prescriberWalletId);
 
       const forest = createTestForest(eligData);
       const credentialData = createTestEligibilityCredential(forest);
 
-      const proof = await service.proveEligibility(
-        credentialData, eligData, forest, 0n, planIndex, Field(20260601),
-      );
+      const proof = await service.proveEligibility(credentialData, eligData, forest, 0n, planIndex, Field(20260601));
 
       const isValid = await EligibilityProgram.verify(proof);
       expect(isValid).toBe(true);
@@ -670,14 +643,10 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const lifecycleLeaf = lifecycleLeafCommitment(prescriberWalletId, LIFECYCLE_ELIGIBLE);
       lifecycleTree.setLeaf(prescriberIndex, lifecycleLeaf);
 
-      const service = new EligibilityService(
-        store, registry, lifecycleTree, planRegistry, prescriberWalletId,
-      );
+      const service = new EligibilityService(store, registry, lifecycleTree, planRegistry, prescriberWalletId);
 
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
-      const proof = await service.proveInNetwork(
-        preimage, 'prescriber', prescriberWalletId, LIFECYCLE_ELIGIBLE,
-      );
+      const proof = await service.proveInNetwork(preimage, 'prescriber', prescriberWalletId, LIFECYCLE_ELIGIBLE);
 
       const isValid = await InNetworkProgram.verify(proof);
       expect(isValid).toBe(true);
@@ -694,16 +663,20 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       // Register member
       registry.register(memberWalletId);
 
-      const service = new EligibilityService(
-        store, registry, lifecycleTree, planRegistry, prescriberWalletId,
-      );
+      const service = new EligibilityService(store, registry, lifecycleTree, planRegistry, prescriberWalletId);
       const inventory = new CredentialInventory();
       const forest = new MerkleForest();
 
       // Insurer mints eligibility credential
       const mintResult = await service.mintEligibilityCredential(
-        memberWalletId, eligData, forest, inventory,
-        0n, 0n, Field(20260601), Field(20260201),
+        memberWalletId,
+        eligData,
+        forest,
+        inventory,
+        0n,
+        0n,
+        Field(20260601),
+        Field(20260201),
       );
 
       // Verify the eligibility proof
@@ -734,8 +707,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const result = await EligibilityProgram.proveEligibility(
-        credentialData, eligData, forestRoots, forestWitness,
-        planWitness, planRegistry.getRoot(), Field(20260601),
+        credentialData,
+        eligData,
+        forestRoots,
+        forestWitness,
+        planWitness,
+        planRegistry.getRoot(),
+        Field(20260601),
       );
 
       const verResult = await verificationService.verifyEligibilityData(result.proof);
@@ -750,14 +728,15 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const witness = new LifecycleWitness(tree.getWitness(0n));
 
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
-      const pgResult = await ProofGateProgram.verifyPrescriber(
-        prescriberWalletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPrescriber(prescriberWalletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       const result = await InNetworkProgram.proveInNetwork(
-        pgResult.proof, LIFECYCLE_ELIGIBLE, witness, tree.getRoot(),
-        Field(0), dummyNetworkWitness(),
+        pgResult.proof,
+        LIFECYCLE_ELIGIBLE,
+        witness,
+        tree.getRoot(),
+        Field(0),
+        dummyNetworkWitness(),
       );
 
       const isValid = await verificationService.verifyInNetwork(result.proof);
@@ -777,8 +756,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const eligResult = await EligibilityProgram.proveEligibility(
-        credentialData, eligData, forestRoots, forestWitness,
-        planWitness, planRegistry.getRoot(), Field(20260601),
+        credentialData,
+        eligData,
+        forestRoots,
+        forestWitness,
+        planWitness,
+        planRegistry.getRoot(),
+        Field(20260601),
       );
 
       // 2. Build credential holding proof (need CredentialProgram compiled)
@@ -786,29 +770,29 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       const inventory = new CredentialInventory();
       inventory.mint(credentialData);
-      const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
+      const memberPreimage = memberWalletPreimage(
+        testMember,
+        TEST_ENROLLMENT_KEY,
+        Field(0),
+        fixtureIdentitySalt({ localData: testMember }),
+      );
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
-        memberPreimage[0]!, memberPreimage[1]!, memberPreimage[2]!,
-        memberPreimage[3]!, memberPreimage[4]!, memberPreimage[5]!,
+        memberPreimage[0]!,
+        memberPreimage[1]!,
+        memberPreimage[2]!,
+        memberPreimage[3]!,
+        memberPreimage[4]!,
+        memberPreimage[5]!,
       );
       const invWitness = inventory.getWitness(0n);
-      const holdingResult = await CredentialProgram.proveHolding(
-        pgResult.proof, credentialData, invWitness, inventory.getRoot(),
-      );
+      const holdingResult = await CredentialProgram.proveHolding(pgResult.proof, credentialData, invWitness, inventory.getRoot());
 
       // 3. Serialize holding proof as PortableCredential
-      const credential = serializeCredential(
-        holdingResult.proof,
-        'credential-holding',
-        Field(12345),
-      );
+      const credential = serializeCredential(holdingResult.proof, 'credential-holding', Field(12345));
 
       // 4. Full point-of-care check
-      const fullResult = await verificationService.fullPointOfCareCheck(
-        credential,
-        eligResult.proof,
-      );
+      const fullResult = await verificationService.fullPointOfCareCheck(credential, eligResult.proof);
 
       expect(fullResult.holdingValid).toBe(true);
       expect(fullResult.eligibilityValid).toBe(true);
@@ -829,8 +813,13 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const planWitness = planRegistry.getPlanWitness(0n);
 
       const eligResult = await EligibilityProgram.proveEligibility(
-        credentialData, eligData, forestRoots, forestWitness,
-        planWitness, planRegistry.getRoot(), Field(20260601),
+        credentialData,
+        eligData,
+        forestRoots,
+        forestWitness,
+        planWitness,
+        planRegistry.getRoot(),
+        Field(20260601),
       );
 
       // Use an expired credential for the holding proof
@@ -850,10 +839,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
         expiresAt: Date.now() - 50000, // already expired
       };
 
-      const result = await verificationService.fullPointOfCareCheck(
-        expiredCredential,
-        eligResult.proof,
-      );
+      const result = await verificationService.fullPointOfCareCheck(expiredCredential, eligResult.proof);
 
       expect(result.holdingValid).toBe(false);
       expect(result.eligibilityValid).toBe(true);
@@ -898,11 +884,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       await deployTx.sign([deployer.key, contractKey]).send();
 
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
@@ -913,21 +895,14 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       const vkHash = Field(999999);
 
       const tx = await Mina.transaction(admin, async () => {
-        await contract.initEligibilityState(
-          planRegistry.getRoot(),
-          credentialRegistryTree.getRoot(),
-          vkHash,
-        );
+        await contract.initEligibilityState(planRegistry.getRoot(), credentialRegistryTree.getRoot(), vkHash);
       });
       await tx.prove();
       await tx.sign([admin.key]).send();
 
-      expect(contract.benefitPlanRoot.get().toString())
-        .toBe(planRegistry.getRoot().toString());
-      expect(contract.credentialRegistryRoot.get().toString())
-        .toBe(credentialRegistryTree.getRoot().toString());
-      expect(contract.eligibilityVkHash.get().toString())
-        .toBe(vkHash.toString());
+      expect(contract.benefitPlanRoot.get().toString()).toBe(planRegistry.getRoot().toString());
+      expect(contract.credentialRegistryRoot.get().toString()).toBe(credentialRegistryTree.getRoot().toString());
+      expect(contract.eligibilityVkHash.get().toString()).toBe(vkHash.toString());
     });
 
     test('updateBenefitPlan changes benefitPlanRoot', async () => {
@@ -943,8 +918,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       await tx.prove();
       await tx.sign([admin.key]).send();
 
-      expect(contract.benefitPlanRoot.get().toString())
-        .toBe(newRoot.toString());
+      expect(contract.benefitPlanRoot.get().toString()).toBe(newRoot.toString());
     });
 
     test('registerGlobalCredential adds credential to global registry', async () => {
@@ -964,8 +938,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
       // Update off-chain tree
       credentialRegistryTree.setLeaf(0n, credentialCommitment);
 
-      expect(contract.credentialRegistryRoot.get().toString())
-        .toBe(credentialRegistryTree.getRoot().toString());
+      expect(contract.credentialRegistryRoot.get().toString()).toBe(credentialRegistryTree.getRoot().toString());
     });
 
     test('non-admin rejected for all new methods', async () => {

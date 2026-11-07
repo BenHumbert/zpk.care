@@ -111,12 +111,7 @@ export class WalletMigrationService {
    * @param local — the entity's local identifying data
    * @returns Recovery result with old key and wallet ID
    */
-  static recoverFromCard(
-    card: RecoveryCard,
-    pin: string,
-    local: EntityLocalData,
-    identitySalt?: string,
-  ): RecoveryResult {
+  static recoverFromCard(card: RecoveryCard, pin: string, local: EntityLocalData, identitySalt?: string): RecoveryResult {
     const oldEnrollmentKey = importRecoveryCard(card, pin);
 
     let oldWalletId: Field;
@@ -127,7 +122,7 @@ export class WalletMigrationService {
       } catch {
         throw new Error(
           `Invalid groupIdHash on recovery card: "${card.groupIdHash}". ` +
-          'Expected a decimal numeric string. The card data may be corrupted.',
+            'Expected a decimal numeric string. The card data may be corrupted.',
         );
       }
       oldWalletId = deriveMemberWalletId(local as MemberLocalData, oldEnrollmentKey, groupIdHash, requireSalt(identitySalt));
@@ -142,8 +137,7 @@ export class WalletMigrationService {
     // Verify derived wallet ID matches card
     if (oldWalletId.toString() !== card.walletId) {
       throw new Error(
-        'Wallet ID mismatch: derived wallet ID does not match recovery card. ' +
-        'Ensure the correct identity data was provided.',
+        'Wallet ID mismatch: derived wallet ID does not match recovery card. ' + 'Ensure the correct identity data was provided.',
       );
     }
 
@@ -165,12 +159,7 @@ export class WalletMigrationService {
    * @param domainTag — 0=member, 1=prescriber, 2=pharmacy
    * @returns New wallet result with new key and wallet ID
    */
-  static prepareNewWallet(
-    local: EntityLocalData,
-    domainTag: number,
-    groupIdHash?: Field,
-    identitySalt?: string,
-  ): NewWalletResult {
+  static prepareNewWallet(local: EntityLocalData, domainTag: number, groupIdHash?: Field, identitySalt?: string): NewWalletResult {
     const newEnrollmentKey = generateEnrollmentKey();
 
     let newWalletId: Field;
@@ -214,8 +203,18 @@ export class WalletMigrationService {
     let newPreimage: Field[];
 
     if (domainTag === 0) {
-      oldPreimage = memberTransitionPreimage(local as MemberLocalData, oldEnrollmentKey, groupIdHash ?? Field(0), requireSalt(identitySalt));
-      newPreimage = memberTransitionPreimage(local as MemberLocalData, newEnrollmentKey, groupIdHash ?? Field(0), requireSalt(identitySalt));
+      oldPreimage = memberTransitionPreimage(
+        local as MemberLocalData,
+        oldEnrollmentKey,
+        groupIdHash ?? Field(0),
+        requireSalt(identitySalt),
+      );
+      newPreimage = memberTransitionPreimage(
+        local as MemberLocalData,
+        newEnrollmentKey,
+        groupIdHash ?? Field(0),
+        requireSalt(identitySalt),
+      );
     } else if (domainTag === 1) {
       oldPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, oldEnrollmentKey);
       newPreimage = prescriberTransitionPreimage(local as PrescriberLocalData, newEnrollmentKey);
@@ -228,8 +227,20 @@ export class WalletMigrationService {
 
     // Both preimages should be 7 Fields: [domainTag, f0, f1, f2, f3, f4, f5]
     const result = await WalletMigrationProgram.proveIdentityContinuity(
-      oldPreimage[0], oldPreimage[1], oldPreimage[2], oldPreimage[3], oldPreimage[4], oldPreimage[5], oldPreimage[6],
-      newPreimage[0], newPreimage[1], newPreimage[2], newPreimage[3], newPreimage[4], newPreimage[5], newPreimage[6],
+      oldPreimage[0],
+      oldPreimage[1],
+      oldPreimage[2],
+      oldPreimage[3],
+      oldPreimage[4],
+      oldPreimage[5],
+      oldPreimage[6],
+      newPreimage[0],
+      newPreimage[1],
+      newPreimage[2],
+      newPreimage[3],
+      newPreimage[4],
+      newPreimage[5],
+      newPreimage[6],
     );
 
     return result.proof as WalletMigrationProof;
@@ -245,11 +256,7 @@ export class WalletMigrationService {
    * @param card — the recovery card (contains insurer identification hashes)
    * @param newWalletId — the new wallet ID from Step 2
    */
-  static buildMigrationRequest(
-    proof: WalletMigrationProof,
-    card: RecoveryCard,
-    newWalletId: string,
-  ): MigrationRequest {
+  static buildMigrationRequest(proof: WalletMigrationProof, card: RecoveryCard, newWalletId: string): MigrationRequest {
     return {
       migrationProofJson: JSON.stringify(proof.toJSON()),
       tokenIdHash: card.tokenIdHash,

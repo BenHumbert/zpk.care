@@ -127,7 +127,8 @@ export function canonicalPriceEntries(entries: readonly PriceEntry[]): PriceEntr
   entries.forEach((e, i) => {
     const err = priceEntryError(e);
     if (err) {
-      const ndc = e && typeof e === 'object' && typeof (e as { ndc?: unknown }).ndc === 'string' ? (e as { ndc: string }).ndc : `entry ${i}`;
+      const ndc =
+        e && typeof e === 'object' && typeof (e as { ndc?: unknown }).ndc === 'string' ? (e as { ndc: string }).ndc : `entry ${i}`;
       throw new Error(`${ndc}: ${err}`);
     }
     if (seen.has(e.ndc)) throw new Error(`${e.ndc} is listed twice`);
@@ -196,7 +197,10 @@ export function mergeByBasis(
   const problems: string[] = [];
   for (const drug of catalog) {
     let chosen: PriceEntry | null = null;
-    for (const [basis, prices] of [['NADAC', sources.nadac], ['WAC', sources.wac]] as const) {
+    for (const [basis, prices] of [
+      ['NADAC', sources.nadac],
+      ['WAC', sources.wac],
+    ] as const) {
       const price = prices?.get(drug.ndc);
       if (!price) continue;
       if (price.unit !== drug.unit) {

@@ -49,21 +49,11 @@ import { PlanTemplate } from '../src/onboarding/plan-template.js';
 import type { PlanTemplateConfig } from '../src/onboarding/plan-template.js';
 
 // ─── GroupRegistry ─────────────────────────────────────────
-import {
-  GroupConfig,
-  buildGroupConfig,
-  GroupRegistry,
-  GROUP_STATUS_ACTIVE,
-} from '../src/onboarding/group-registry.js';
+import { GroupConfig, buildGroupConfig, GroupRegistry, GROUP_STATUS_ACTIVE } from '../src/onboarding/group-registry.js';
 import type { GroupConfigLocalData } from '../src/onboarding/group-registry.js';
 
 // ─── OpaqueRoster ──────────────────────────────────────────
-import {
-  buildRosterEntry,
-  OpaqueRoster,
-  ENROLLMENT_STATUS_ACTIVE,
-  ENROLLMENT_STATUS_TERMINATED,
-} from '../src/onboarding/opaque-roster.js';
+import { buildRosterEntry, OpaqueRoster, ENROLLMENT_STATUS_ACTIVE, ENROLLMENT_STATUS_TERMINATED } from '../src/onboarding/opaque-roster.js';
 
 // ─── TokenAuthority ────────────────────────────────────────
 import { TokenAuthority } from '../src/onboarding/token-authority.js';
@@ -131,9 +121,7 @@ describe('Onboarding — GroupEnrollmentToken', () => {
   test('commitment is deterministic', () => {
     const token1 = buildGroupEnrollmentToken(TEST_TOKEN_LOCAL);
     const token2 = buildGroupEnrollmentToken(TEST_TOKEN_LOCAL);
-    expect(token1.commitment().toString()).toBe(
-      token2.commitment().toString(),
-    );
+    expect(token1.commitment().toString()).toBe(token2.commitment().toString());
   });
 
   test('commitment changes when any field changes', () => {
@@ -147,45 +135,24 @@ describe('Onboarding — GroupEnrollmentToken', () => {
       employeeId: 'EMP-99999',
     });
 
-    expect(token1.commitment().toString()).not.toBe(
-      token2.commitment().toString(),
-    );
-    expect(token1.commitment().toString()).not.toBe(
-      token3.commitment().toString(),
-    );
+    expect(token1.commitment().toString()).not.toBe(token2.commitment().toString());
+    expect(token1.commitment().toString()).not.toBe(token3.commitment().toString());
   });
 
   test('buildGroupEnrollmentToken hashes all string fields', () => {
     const token = buildGroupEnrollmentToken(TEST_TOKEN_LOCAL);
 
-    expect(token.tokenIdHash.toString()).toBe(
-      hashString('TOKEN-001').toString(),
-    );
-    expect(token.groupIdHash.toString()).toBe(
-      hashString('ACME-CORP-001').toString(),
-    );
-    expect(token.planIdHash.toString()).toBe(
-      hashString('PLAN-GOLD-2026').toString(),
-    );
-    expect(token.employeeIdHash.toString()).toBe(
-      hashString('EMP-12345').toString(),
-    );
-    expect(token.validUntil.toString()).toBe(
-      dateToField('20260228').toString(),
-    );
-    expect(token.issuerHash.toString()).toBe(
-      hashString('ACME Corporation').toString(),
-    );
+    expect(token.tokenIdHash.toString()).toBe(hashString('TOKEN-001').toString());
+    expect(token.groupIdHash.toString()).toBe(hashString('ACME-CORP-001').toString());
+    expect(token.planIdHash.toString()).toBe(hashString('PLAN-GOLD-2026').toString());
+    expect(token.employeeIdHash.toString()).toBe(hashString('EMP-12345').toString());
+    expect(token.validUntil.toString()).toBe(dateToField('20260228').toString());
+    expect(token.issuerHash.toString()).toBe(hashString('ACME Corporation').toString());
     expect(token.nonce.toString()).toBe('0');
   });
 
   test('token status constants are distinct', () => {
-    const statuses = [
-      TOKEN_STATUS_UNUSED,
-      TOKEN_STATUS_CONSUMED,
-      TOKEN_STATUS_EXPIRED,
-      TOKEN_STATUS_REVOKED,
-    ];
+    const statuses = [TOKEN_STATUS_UNUSED, TOKEN_STATUS_CONSUMED, TOKEN_STATUS_EXPIRED, TOKEN_STATUS_REVOKED];
     const values = statuses.map((s) => s.toString());
     expect(new Set(values).size).toBe(4);
   });
@@ -202,25 +169,15 @@ describe('Onboarding — PlanTemplate', () => {
 
   test('buildEligibilityData produces correct EligibilityData', () => {
     const plan = new PlanTemplate(TEST_PLAN_CONFIG);
-    const eligData = plan.buildEligibilityData(
-      'ACME-CORP-001',
-      '20260101',
-      '20261231',
-    );
+    const eligData = plan.buildEligibilityData('ACME-CORP-001', '20260101', '20261231');
 
-    expect(eligData.planIdHash.toString()).toBe(
-      hashString('PLAN-GOLD-2026').toString(),
-    );
-    expect(eligData.groupIdHash.toString()).toBe(
-      hashString('ACME-CORP-001').toString(),
-    );
+    expect(eligData.planIdHash.toString()).toBe(hashString('PLAN-GOLD-2026').toString());
+    expect(eligData.groupIdHash.toString()).toBe(hashString('ACME-CORP-001').toString());
     expect(eligData.effectiveDate.toString()).toBe('20260101');
     expect(eligData.terminationDate.toString()).toBe('20261231');
     expect(eligData.copayAmountCents.toString()).toBe('3000');
     expect(eligData.coverageType.toString()).toBe('1');
-    expect(eligData.formularyRoot.toString()).toBe(
-      plan.formularyRoot.toString(),
-    );
+    expect(eligData.formularyRoot.toString()).toBe(plan.formularyRoot.toString());
   });
 
   test('buildAccumulatorData produces fresh accumulators', () => {
@@ -247,9 +204,7 @@ describe('Onboarding — PlanTemplate', () => {
       manualReg.addEntry(buildFormularyEntry(e));
     }
 
-    expect(plan.formularyRoot.toString()).toBe(
-      manualReg.getRoot().toString(),
-    );
+    expect(plan.formularyRoot.toString()).toBe(manualReg.getRoot().toString());
   });
 
   test('different plans produce different formulary roots', () => {
@@ -261,9 +216,7 @@ describe('Onboarding — PlanTemplate', () => {
       formularyEntries: [TEST_PLAN_CONFIG.formularyEntries[0]!],
     });
 
-    expect(gold.formularyRoot.toString()).not.toBe(
-      silver.formularyRoot.toString(),
-    );
+    expect(gold.formularyRoot.toString()).not.toBe(silver.formularyRoot.toString());
   });
 });
 
@@ -281,9 +234,7 @@ describe('Onboarding — GroupRegistry', () => {
   test('commitment is deterministic', () => {
     const config1 = buildGroupConfig(TEST_GROUP_LOCAL);
     const config2 = buildGroupConfig(TEST_GROUP_LOCAL);
-    expect(config1.commitment().toString()).toBe(
-      config2.commitment().toString(),
-    );
+    expect(config1.commitment().toString()).toBe(config2.commitment().toString());
   });
 
   test('prevents duplicate group registration', () => {
@@ -291,9 +242,7 @@ describe('Onboarding — GroupRegistry', () => {
     const config = buildGroupConfig(TEST_GROUP_LOCAL);
     registry.addGroup(config, TEST_GROUP_LOCAL);
 
-    expect(() => registry.addGroup(config, TEST_GROUP_LOCAL)).toThrow(
-      'Group already registered',
-    );
+    expect(() => registry.addGroup(config, TEST_GROUP_LOCAL)).toThrow('Group already registered');
   });
 
   test('getGroupByHash finds registered group', () => {
@@ -303,9 +252,7 @@ describe('Onboarding — GroupRegistry', () => {
 
     const result = registry.getGroupByHash(hashString('ACME-CORP-001'));
     expect(result).toBeDefined();
-    expect(result!.config.groupIdHash.toString()).toBe(
-      hashString('ACME-CORP-001').toString(),
-    );
+    expect(result!.config.groupIdHash.toString()).toBe(hashString('ACME-CORP-001').toString());
     expect(result!.localData.groupId).toBe('ACME-CORP-001');
     expect(result!.index).toBe(0n);
   });
@@ -379,9 +326,7 @@ describe('Onboarding — OpaqueRoster', () => {
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
-    expect(entry1.commitment().toString()).toBe(
-      entry2.commitment().toString(),
-    );
+    expect(entry1.commitment().toString()).toBe(entry2.commitment().toString());
   });
 
   test('prevents duplicate wallet enrollment', () => {
@@ -427,12 +372,8 @@ describe('Onboarding — OpaqueRoster', () => {
 
     const result = roster.getEntryByWallet(testWalletId);
     expect(result).toBeDefined();
-    expect(result!.entry.walletId.toString()).toBe(
-      testWalletId.toString(),
-    );
-    expect(result!.entry.status.toString()).toBe(
-      ENROLLMENT_STATUS_ACTIVE.toString(),
-    );
+    expect(result!.entry.walletId.toString()).toBe(testWalletId.toString());
+    expect(result!.entry.status.toString()).toBe(ENROLLMENT_STATUS_ACTIVE.toString());
   });
 
   test('getEntriesByGroup finds all members in a group', () => {
@@ -484,9 +425,7 @@ describe('Onboarding — OpaqueRoster', () => {
       enrolledDate: '20260115',
       tokenId: 'TOKEN-001',
     });
-    expect(entry.status.toString()).toBe(
-      ENROLLMENT_STATUS_ACTIVE.toString(),
-    );
+    expect(entry.status.toString()).toBe(ENROLLMENT_STATUS_ACTIVE.toString());
     expect(entry.terminatedDate.toString()).toBe('0');
   });
 });
@@ -494,18 +433,10 @@ describe('Onboarding — OpaqueRoster', () => {
 describe('Onboarding — TokenAuthority', () => {
   test('generates valid tokens', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    const { token, tokenId } = authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-    );
+    const { token, tokenId } = authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228');
 
     expect(tokenId).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){4}$/);
-    expect(token.groupIdHash.toString()).toBe(
-      hashString('ACME-CORP-001').toString(),
-    );
+    expect(token.groupIdHash.toString()).toBe(hashString('ACME-CORP-001').toString());
     expect(authority.count).toBe(1);
   });
 
@@ -524,14 +455,7 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('validates unused tokens within date range', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    const { token } = authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-A',
-    );
+    const { token } = authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-A');
 
     // since A-109 an invite carries the group's and the plan's hashes, never the IDs
     const result = authority.validateToken('TOKEN-A', '20260115');
@@ -549,14 +473,7 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('rejects expired tokens', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-B',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-B');
 
     const result = authority.validateToken('TOKEN-B', '20260301');
     expect(result.valid).toBe(false);
@@ -565,14 +482,7 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('rejects consumed tokens', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-C',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-C');
 
     authority.consumeToken('TOKEN-C', Poseidon.hash([Field(1)]));
 
@@ -583,14 +493,7 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('rejects revoked tokens', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-D',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-D');
 
     authority.revokeToken('TOKEN-D');
 
@@ -601,31 +504,15 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('cannot revoke consumed tokens', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-E',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-E');
 
     authority.consumeToken('TOKEN-E', Poseidon.hash([Field(1)]));
-    expect(() => authority.revokeToken('TOKEN-E')).toThrow(
-      'Cannot revoke consumed token',
-    );
+    expect(() => authority.revokeToken('TOKEN-E')).toThrow('Cannot revoke consumed token');
   });
 
   test('consumeToken records wallet and timestamp', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-F',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-F');
 
     const walletId = Poseidon.hash([Field(42)]);
     authority.consumeToken('TOKEN-F', walletId);
@@ -651,9 +538,15 @@ describe('Onboarding — terminating a fixture member (EnrollmentService)', () =
       const walletId = Poseidon.hash([Field(i * 1000)]);
       walletRegistry.register(walletId);
       lifecycleTree.setLeaf(walletRegistry.getIndex(walletId), lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
-      opaqueRoster.addEntry(buildRosterEntry(walletId, {
-        planId: 'PLAN-GOLD-2026', groupId: 'ACME-CORP-001', familyId: `FAM-ACME-${i}`, enrolledDate: '20260115', tokenId: `TOKEN-${i}`,
-      }));
+      opaqueRoster.addEntry(
+        buildRosterEntry(walletId, {
+          planId: 'PLAN-GOLD-2026',
+          groupId: 'ACME-CORP-001',
+          familyId: `FAM-ACME-${i}`,
+          enrolledDate: '20260115',
+          tokenId: `TOKEN-${i}`,
+        }),
+      );
       walletIds.push(walletId);
     }
     const group = groupRegistry.getGroupByHash(hashString('ACME-CORP-001'))!;

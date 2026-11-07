@@ -140,21 +140,23 @@ export function renderSectionCard(title, colorClass, content, options = {}) {
 
 // 2-column data grid (array of {label, value} objects)
 export function renderDataGrid(entries) {
-  return `<div class="data-grid">${
-    entries.map(e => `<div class="label">${e.label}</div><div class="value${e.mono !== false ? ' mono' : ''}">${e.value}</div>`).join('')
-  }</div>`;
+  return `<div class="data-grid">${entries
+    .map((e) => `<div class="label">${e.label}</div><div class="value${e.mono !== false ? ' mono' : ''}">${e.value}</div>`)
+    .join('')}</div>`;
 }
 
 // Row of metric boxes (array of {label, value} objects)
 export function renderMetricRow(metrics) {
-  return `<div class="metric-row">${
-    metrics.map(m => `
+  return `<div class="metric-row">${metrics
+    .map(
+      (m) => `
       <div class="metric-box">
         <div class="metric-label">${m.label}</div>
         <div class="metric-value" style="${m.color ? `color: ${m.color};` : ''}">${m.value}</div>
       </div>
-    `).join('')
-  }</div>`;
+    `,
+    )
+    .join('')}</div>`;
 }
 
 // Progress bar with label and value text
@@ -184,17 +186,21 @@ export function renderSortableTable(tableId, columns, rows, defaultSortKey, rowS
   if (rows.length === 0) {
     return `<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No data available</div>`;
   }
-  const headerCells = columns.map(c =>
-    `<th data-sort-key="${c.key}" style="${c.align === 'right' ? 'text-align: right;' : ''}">${c.label}</th>`
-  ).join('');
-  const bodyRows = rows.map(row => {
-    const cells = columns.map(c => {
-      const val = c.format ? c.format(row[c.key], row) : (row[c.key] ?? '—');
-      return `<td style="${c.align === 'right' ? 'text-align: right;' : ''}">${val}</td>`;
-    }).join('');
-    const rs = rowStyle ? rowStyle(row) : '';
-    return `<tr${rs ? ` style="${rs}"` : ''}>${cells}</tr>`;
-  }).join('');
+  const headerCells = columns
+    .map((c) => `<th data-sort-key="${c.key}" style="${c.align === 'right' ? 'text-align: right;' : ''}">${c.label}</th>`)
+    .join('');
+  const bodyRows = rows
+    .map((row) => {
+      const cells = columns
+        .map((c) => {
+          const val = c.format ? c.format(row[c.key], row) : (row[c.key] ?? '—');
+          return `<td style="${c.align === 'right' ? 'text-align: right;' : ''}">${val}</td>`;
+        })
+        .join('');
+      const rs = rowStyle ? rowStyle(row) : '';
+      return `<tr${rs ? ` style="${rs}"` : ''}>${cells}</tr>`;
+    })
+    .join('');
   return `
     <table class="sortable-table" id="${tableId}">
       <thead><tr>${headerCells}</tr></thead>
@@ -208,11 +214,13 @@ export function renderEntitySelector(entities, selectedId, label) {
   if (!entities || entities.length === 0) {
     return `<select class="entity-selector" disabled><option>No entities enrolled</option></select>`;
   }
-  const options = entities.map(e => {
-    const sel = e.walletId === selectedId ? ' selected' : '';
-    const display = e.displayName || truncHash(e.walletId, 8);
-    return `<option value="${e.walletId}"${sel}>${display}</option>`;
-  }).join('');
+  const options = entities
+    .map((e) => {
+      const sel = e.walletId === selectedId ? ' selected' : '';
+      const display = e.displayName || truncHash(e.walletId, 8);
+      return `<option value="${e.walletId}"${sel}>${display}</option>`;
+    })
+    .join('');
   return `
     <label style="font-size: 12px; color: var(--text-secondary); margin-right: 8px;">${label || 'Select entity:'}</label>
     <select class="entity-selector" id="entity-select">${options}</select>
@@ -292,10 +300,13 @@ export function statusBadge(status) {
 
 // Compute activity summary from EntityClaimView[]
 export function computeSummary(views) {
-  let totalClaims = 0, totalReversals = 0;
-  let totalPatientPay = 0n, totalPlanPay = 0n;
+  let totalClaims = 0,
+    totalReversals = 0;
+  let totalPatientPay = 0n,
+    totalPlanPay = 0n;
   const ndcSet = new Set();
-  let earliest = null, latest = null;
+  let earliest = null,
+    latest = null;
   for (const v of views) {
     if (v.operationType === 'reversal') {
       totalReversals++;
@@ -311,8 +322,12 @@ export function computeSummary(views) {
     if (!latest || v.dateOfService > latest) latest = v.dateOfService;
   }
   return {
-    totalClaims, totalReversals, activeClaims: totalClaims - totalReversals,
-    totalPatientPay, totalPlanPay, uniqueMedications: ndcSet.size,
+    totalClaims,
+    totalReversals,
+    activeClaims: totalClaims - totalReversals,
+    totalPatientPay,
+    totalPlanPay,
+    uniqueMedications: ndcSet.size,
     dateRange: earliest && latest ? { earliest, latest } : null,
   };
 }
@@ -329,7 +344,9 @@ export function computeMedBreakdown(views) {
       e.totalPlanPay += BigInt(v.planPayCents || 0) * sign;
     } else {
       map.set(v.ndcHash, {
-        ndcHash: v.ndcHash, brandName: v.brandName, tierLevel: v.tierLevel,
+        ndcHash: v.ndcHash,
+        brandName: v.brandName,
+        tierLevel: v.tierLevel,
         therapeuticClass: v.therapeuticClass,
         claimCount: 1,
         totalPatientPay: BigInt(v.patientPayCents || 0) * sign,
@@ -364,9 +381,7 @@ export function computeBreakdown(views, keyField, extraFields = []) {
       map.set(key, entry);
     }
   }
-  return [...map.values()]
-    .map(e => ({ ...e, uniqueMeds: e.ndcSet.size }))
-    .sort((a, b) => b.claimCount - a.claimCount);
+  return [...map.values()].map((e) => ({ ...e, uniqueMeds: e.ndcSet.size })).sort((a, b) => b.claimCount - a.claimCount);
 }
 
 // Get active medications (non-reversed) from views

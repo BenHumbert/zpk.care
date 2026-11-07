@@ -51,15 +51,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FORMULARY_SIZE = 32_768; // MerkleTree(16) capacity
 
 // Tier thresholds (NADAC per unit in dollars)
-const BRAND_TIER2_MAX = 50;    // < $50/unit → Tier 2
-const BRAND_TIER3_MAX = 500;   // $50-$500/unit → Tier 3
-                                // > $500/unit → Tier 4
+const BRAND_TIER2_MAX = 50; // < $50/unit → Tier 2
+const BRAND_TIER3_MAX = 500; // $50-$500/unit → Tier 3
+// > $500/unit → Tier 4
 
 // Copay schedule (cents)
-const COPAY_TIER1 = 1000;   // $10
-const COPAY_TIER2 = 3500;   // $35
-const COPAY_TIER3 = 7500;   // $75
-const COPAY_TIER4 = 15000;  // $150
+const COPAY_TIER1 = 1000; // $10
+const COPAY_TIER2 = 3500; // $35
+const COPAY_TIER3 = 7500; // $75
+const COPAY_TIER4 = 15000; // $150
 
 // ── Types ────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ interface NadacRow {
   otc: string;
   explanationCode: string;
   classification: string; // G=Generic, B=Brand
-  asOfDate: string;       // the weekly snapshot the row belongs to
+  asOfDate: string; // the weekly snapshot the row belongs to
 }
 
 interface FormularyRecord {
@@ -100,29 +100,31 @@ function downloadCsv(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     console.log(`  Downloading from ${url.slice(0, 80)}...`);
     const makeRequest = (reqUrl: string) => {
-      https.get(reqUrl, (res) => {
-        // Follow redirects
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          const location = res.headers.location;
-          if (location) return makeRequest(location);
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-        let data = '';
-        let received = 0;
-        res.on('data', (chunk) => {
-          data += chunk;
-          received += chunk.length;
-          if (received % (10 * 1024 * 1024) === 0) {
-            console.log(`  Downloaded ${(received / 1024 / 1024).toFixed(1)} MB...`);
+      https
+        .get(reqUrl, (res) => {
+          // Follow redirects
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            const location = res.headers.location;
+            if (location) return makeRequest(location);
           }
-        });
-        res.on('end', () => {
-          console.log(`  Download complete: ${(received / 1024 / 1024).toFixed(1)} MB`);
-          resolve(data);
-        });
-      }).on('error', reject);
+          if (res.statusCode !== 200) {
+            return reject(new Error(`HTTP ${res.statusCode}`));
+          }
+          let data = '';
+          let received = 0;
+          res.on('data', (chunk) => {
+            data += chunk;
+            received += chunk.length;
+            if (received % (10 * 1024 * 1024) === 0) {
+              console.log(`  Downloaded ${(received / 1024 / 1024).toFixed(1)} MB...`);
+            }
+          });
+          res.on('end', () => {
+            console.log(`  Download complete: ${(received / 1024 / 1024).toFixed(1)} MB`);
+            resolve(data);
+          });
+        })
+        .on('error', reject);
     };
     makeRequest(url);
   });
@@ -215,7 +217,7 @@ function buildFormularyRecords(deduped: Map<string, NadacRow>): FormularyRecord[
     const { tier, copay, priorAuth, stepTherapy } = assignTier(row);
 
     // Default max quantities based on common dispensing practices
-    let maxQty = 90;  // 90-day supply typical
+    let maxQty = 90; // 90-day supply typical
     let maxDays = 90;
 
     // Specialty drugs often limited to 30-day supply
@@ -284,7 +286,10 @@ async function main() {
   if (fs.existsSync(formularyPath)) {
     const previous = (JSON.parse(fs.readFileSync(formularyPath, 'utf8')) as Array<{ ndc: string }>).map((r) => r.ndc);
     const byNdc = new Map(records.map((r) => [r.ndc, r] as const));
-    records = stableCatalogOrder(previous, records.map((r) => r.ndc)).map((ndc) => byNdc.get(ndc)!);
+    records = stableCatalogOrder(
+      previous,
+      records.map((r) => r.ndc),
+    ).map((ndc) => byNdc.get(ndc)!);
   }
 
   // Cap at MerkleTree(16) capacity if needed

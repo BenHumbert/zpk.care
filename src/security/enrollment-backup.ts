@@ -94,12 +94,7 @@ export interface EnrollmentBackup {
  * @param domainTag — 0=member, 1=prescriber, 2=pharmacy
  * @returns EnrollmentBackup ready for NFC storage
  */
-export function exportEnrollmentBackup(
-  enrollmentKey: string,
-  pin: string,
-  walletId: string,
-  domainTag: number,
-): EnrollmentBackup {
+export function exportEnrollmentBackup(enrollmentKey: string, pin: string, walletId: string, domainTag: number): EnrollmentBackup {
   validatePin(pin);
 
   const salt = randomBytes(SALT_LENGTH);
@@ -113,10 +108,7 @@ export function exportEnrollmentBackup(
 
   try {
     const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(enrollmentKey, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(enrollmentKey, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     return {
@@ -144,10 +136,7 @@ export function exportEnrollmentBackup(
  * @returns The decrypted enrollment key
  * @throws If PIN is wrong or backup is corrupted
  */
-export function importEnrollmentBackup(
-  backup: EnrollmentBackup,
-  pin: string,
-): string {
+export function importEnrollmentBackup(backup: EnrollmentBackup, pin: string): string {
   validatePin(pin);
 
   if (backup.version !== 1) {
@@ -174,10 +163,7 @@ export function importEnrollmentBackup(
     decipher.setAuthTag(authTag);
 
     try {
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return decrypted.toString('utf8');
     } catch {
       throw new Error('Decryption failed — wrong PIN or corrupted backup');
@@ -191,8 +177,6 @@ export function importEnrollmentBackup(
 
 function validatePin(pin: string): void {
   if (!pin || pin.length < MIN_PIN_LENGTH) {
-    throw new Error(
-      `PIN must be at least ${MIN_PIN_LENGTH} characters (got ${pin?.length ?? 0})`,
-    );
+    throw new Error(`PIN must be at least ${MIN_PIN_LENGTH} characters (got ${pin?.length ?? 0})`);
   }
 }

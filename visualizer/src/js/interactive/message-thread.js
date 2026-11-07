@@ -44,14 +44,16 @@ export const MESSAGE_TYPE_LABELS = { 1: 'Rx', 2: 'PA Req', 3: 'PA Resp', 4: 'Not
  */
 export function renderMessageBubbles(messages, selfWalletId, directory) {
   const dir = directory || {};
-  return (messages || []).filter(Boolean).map((m) => {
-    const sender = String(m.senderWalletId ?? '');
-    const isSent = sender === selfWalletId;
-    const senderName = dir[sender]?.displayName || sender.slice(0, 8) + '\u2026';
-    const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
-    const type = Number.isInteger(Number(m.messageType)) ? Number(m.messageType) : 0;
-    const typeLabel = MESSAGE_TYPE_LABELS[type] || 'Msg';
-    return `
+  return (messages || [])
+    .filter(Boolean)
+    .map((m) => {
+      const sender = String(m.senderWalletId ?? '');
+      const isSent = sender === selfWalletId;
+      const senderName = dir[sender]?.displayName || sender.slice(0, 8) + '\u2026';
+      const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+      const type = Number.isInteger(Number(m.messageType)) ? Number(m.messageType) : 0;
+      const typeLabel = MESSAGE_TYPE_LABELS[type] || 'Msg';
+      return `
           <div class="msg-bubble ${isSent ? 'msg-sent' : 'msg-received'}">
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
               <span style="font-size: 11px; font-weight: 600;">${escapeHtml(senderName)}</span>
@@ -60,5 +62,6 @@ export function renderMessageBubbles(messages, selfWalletId, directory) {
             ${m.subject ? `<div style="font-weight: 600; font-size: 12px; margin-bottom: 2px;">${escapeHtml(m.subject)}</div>` : ''}
             <div style="font-size: 12px; white-space: pre-wrap;">${escapeHtml(m.body)}</div>
           </div>`;
-  }).join('');
+    })
+    .join('');
 }

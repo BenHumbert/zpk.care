@@ -19,7 +19,10 @@ export function rosterCsv(cast) {
 
 /** A minimal, valid one-page PDF (Helvetica text), with correct cross-reference offsets. */
 export function sampleLetterPdf(cast) {
-  const esc = (s) => String(s).replace(/[\\()]/g, (c) => `\\${c}`).replace(/[^\x20-\x7e]/g, '?');
+  const esc = (s) =>
+    String(s)
+      .replace(/[\\()]/g, (c) => `\\${c}`)
+      .replace(/[^\x20-\x7e]/g, '?');
   const lines = [
     [20, 'Sample EIN letter: fictional, for this demo'],
     [12, ''],
@@ -29,20 +32,22 @@ export function sampleLetterPdf(cast) {
     [12, ''],
     [11, 'This page is a stand-in made for a recorded product walkthrough of zpk.care.'],
     [11, 'It was not issued by any government agency and does not imitate one.'],
-    [11, 'The business, the people and the number above are fictional.']
+    [11, 'The business, the people and the number above are fictional.'],
   ];
   let y = 720;
-  const content = lines.map(([size, text]) => {
-    const op = `BT /F1 ${size} Tf 72 ${y} Td (${esc(text)}) Tj ET`;
-    y -= size + 12;
-    return op;
-  }).join('\n');
+  const content = lines
+    .map(([size, text]) => {
+      const op = `BT /F1 ${size} Tf 72 ${y} Td (${esc(text)}) Tj ET`;
+      y -= size + 12;
+      return op;
+    })
+    .join('\n');
   const objs = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
     `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
   ];
   let pdf = '%PDF-1.4\n';
   const offsets = [];

@@ -34,24 +34,14 @@ import { CredentialProgram } from '../credentials/credential-program.js';
 import { CREDENTIAL_TYPE_ELIGIBILITY, type CredentialData } from '../credentials/credential-data.js';
 import type { CredentialInventory } from '../credentials/credential-inventory.js';
 import { serializeCredential, type PortableCredential } from '../credentials/portable-credential.js';
-import {
-  StateTransitionProgram,
-  type StateTransitionProof,
-} from '../engine/state-transition.js';
-import {
-  memberTransitionPreimage,
-} from '../wallets/wallet-derivation.js';
+import { StateTransitionProgram, type StateTransitionProof } from '../engine/state-transition.js';
+import { memberTransitionPreimage } from '../wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../models/member.js';
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
 import type { L2Receipt } from '../l2/l2-types.js';
 import { EntityNodeBase } from './entity-node-base.js';
-import type {
-  MemberNodeConfig,
-  EntityClaimView,
-  EntityActivitySummary,
-  ProofTimingEstimate,
-} from './entity-node-types.js';
+import type { MemberNodeConfig, EntityClaimView, EntityActivitySummary, ProofTimingEstimate } from './entity-node-types.js';
 
 export class MemberNode extends EntityNodeBase {
   private compiled = false;
@@ -138,13 +128,23 @@ export class MemberNode extends EntityNodeBase {
    * the credential as the engine last handed it, and the inventory witness. The result verifies
    * offline against CredentialProgram's key; nothing in it identifies a person.
    */
-  async proveCredentialHolding(ownershipProofJson: string, credential: CredentialData, inventory: CredentialInventory): Promise<PortableCredential> {
+  async proveCredentialHolding(
+    ownershipProofJson: string,
+    credential: CredentialData,
+    inventory: CredentialInventory,
+  ): Promise<PortableCredential> {
     if (!this.compiled || !this.credentialVkHash) {
       throw new Error('Programs not compiled — call compilePrograms() first');
     }
     const start = Date.now();
     const ownership = await ProofGateProof.fromJSON(JSON.parse(ownershipProofJson));
-    const result = await CredentialProgram.proveHoldingByType(ownership, credential, inventory.getWitness(0n), inventory.getRoot(), CREDENTIAL_TYPE_ELIGIBILITY);
+    const result = await CredentialProgram.proveHoldingByType(
+      ownership,
+      credential,
+      inventory.getWitness(0n),
+      inventory.getRoot(),
+      CREDENTIAL_TYPE_ELIGIBILITY,
+    );
     this.proofTimings.set('proveCredentialHolding', Date.now() - start);
     return serializeCredential(result.proof, 'credential-type-holding', this.credentialVkHash, 0);
   }
@@ -220,10 +220,7 @@ export class MemberNode extends EntityNodeBase {
    * Submit a proof to the sequencer (auto-routes to correct partition).
    */
   async submitProof(proof: StateTransitionProof, opts?: { newCredentialInventoryRoot?: string }): Promise<L2Receipt> {
-    return this.withPartitionRetry(
-      this.config.walletId!,
-      (client) => client.submitProof(proof, opts),
-    );
+    return this.withPartitionRetry(this.config.walletId!, (client) => client.submitProof(proof, opts));
   }
 
   /** Get proof timing estimates for delegation decisions */
@@ -254,10 +251,7 @@ export class MemberNode extends EntityNodeBase {
   }
 
   /** Get claims within a date range (CCYYMMDD strings) */
-  async getDrugHistoryByDateRange(
-    start: string,
-    end: string,
-  ): Promise<EntityClaimView[]> {
+  async getDrugHistoryByDateRange(start: string, end: string): Promise<EntityClaimView[]> {
     const views = await this.getDrugHistory();
     return this.filterByDateRange(views, start, end);
   }
@@ -312,12 +306,7 @@ export class MemberNode extends EntityNodeBase {
    * Returns a 7-element Field array: [domainTag, f0, f1, f2, f3, f4, f5]
    * f5 = groupIdHash (binds wallet to employer group).
    */
-  static buildPreimage(
-    local: MemberLocalData,
-    enrollmentKey: string,
-    identitySalt: string,
-    groupIdHash: Field = Field(0),
-  ): Field[] {
+  static buildPreimage(local: MemberLocalData, enrollmentKey: string, identitySalt: string, groupIdHash: Field = Field(0)): Field[] {
     return memberTransitionPreimage(local, enrollmentKey, groupIdHash, identitySalt);
   }
 }

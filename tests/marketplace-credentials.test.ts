@@ -38,11 +38,7 @@ import os from 'os';
 import path from 'path';
 import http from 'http';
 import { createHash } from 'crypto';
-import {
-  buildMarketplaceRoutes,
-  buildEmployerAdminRoutes,
-  getApplicationStore,
-} from '../src/nodes/routes/marketplace-routes.js';
+import { buildMarketplaceRoutes, buildEmployerAdminRoutes, getApplicationStore } from '../src/nodes/routes/marketplace-routes.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import type { NautilusAppConfig, RouteRegistration } from '../src/nodes/nautilus-app-types.js';
 
@@ -59,7 +55,9 @@ let stubSequencerUrl: string;
 beforeAll(async () => {
   stubSequencer = http.createServer((req, res) => {
     let body = '';
-    req.on('data', (c) => { body += c; });
+    req.on('data', (c) => {
+      body += c;
+    });
     req.on('end', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       // No attestation for any employer ID, so every ID is available.
@@ -84,36 +82,57 @@ function makeTempDir(prefix: string): string {
 
 afterAll(() => {
   for (const dir of tempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
 /** What a handler wrote, captured without a socket. */
-interface Captured { status: number; payload: Record<string, unknown> }
+interface Captured {
+  status: number;
+  payload: Record<string, unknown>;
+}
 
 function fakeRes(): { res: unknown; captured: () => Captured } {
   let status = 0;
   let payload: Record<string, unknown> = {};
   const res = {
-    writeHead(code: number) { status = code; return this; },
-    setHeader() { return this; },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
     end(body?: string) {
       if (body) {
-        try { payload = JSON.parse(body) as Record<string, unknown>; } catch { payload = { raw: body }; }
+        try {
+          payload = JSON.parse(body) as Record<string, unknown>;
+        } catch {
+          payload = { raw: body };
+        }
       }
       return this;
     },
-    get writableEnded() { return status !== 0; },
+    get writableEnded() {
+      return status !== 0;
+    },
   };
   return { res, captured: () => ({ status, payload }) };
 }
 
 function makeServer(): NautilusAppServer {
   const config: NautilusAppConfig = {
-    role: 'insurer', port: 0, host: '127.0.0.1',
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
     sequencerUrl: stubSequencerUrl,
     stateDir: makeTempDir('mktcred-'),
-    enableSSE: false, maxSseConnections: 0,
+    enableSSE: false,
+    maxSseConnections: 0,
     allowedOrigins: ['http://localhost:4004'],
     adminToken: 'insurer-admin-token-for-tests',
   };
@@ -126,19 +145,9 @@ function find(routes: RouteRegistration[], method: string, pathStr: string): Rou
   return r;
 }
 
-async function call(
-  route: RouteRegistration,
-  params: Record<string, string>,
-  body?: unknown,
-): Promise<Captured> {
+async function call(route: RouteRegistration, params: Record<string, string>, body?: unknown): Promise<Captured> {
   const { res, captured } = fakeRes();
-  await route.handler(
-    {} as never,
-    res as never,
-    params,
-    {} as never,
-    body as never,
-  );
+  await route.handler({} as never, res as never, params, {} as never, body as never);
   return captured();
 }
 
@@ -163,9 +172,14 @@ describe('the activation secret is separate from the application ID', () => {
   beforeAll(async () => {
     routes = buildMarketplaceRoutes(makeServer());
     getApplicationStore().clear();
-    const out = await call(find(routes, 'POST', '/marketplace/api/apply'), {}, {
-      ...APPLY_BODY, employerId: `FERNHILL-${Date.now()}`,
-    });
+    const out = await call(
+      find(routes, 'POST', '/marketplace/api/apply'),
+      {},
+      {
+        ...APPLY_BODY,
+        employerId: `FERNHILL-${Date.now()}`,
+      },
+    );
     expect(out.status).toBe(201);
     const data = out.payload.data as Record<string, string>;
     applicationId = data.applicationId;
@@ -192,9 +206,7 @@ describe('the activation secret is separate from the application ID', () => {
 
   test('the application ID alone is not the secret', () => {
     const app = getApplicationStore().get(applicationId)!;
-    expect(app.claimSecretHash).not.toBe(
-      createHash('sha256').update(applicationId, 'utf-8').digest('hex'),
-    );
+    expect(app.claimSecretHash).not.toBe(createHash('sha256').update(applicationId, 'utf-8').digest('hex'));
   });
 });
 
@@ -239,21 +251,21 @@ describe('collecting credentials', () => {
   beforeEach(async () => {
     routes = buildMarketplaceRoutes(makeServer());
     getApplicationStore().clear();
-    const out = await call(find(routes, 'POST', '/marketplace/api/apply'), {}, {
-      ...APPLY_BODY, employerId: `FERNHILL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    });
+    const out = await call(
+      find(routes, 'POST', '/marketplace/api/apply'),
+      {},
+      {
+        ...APPLY_BODY,
+        employerId: `FERNHILL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
+    );
     const data = out.payload.data as Record<string, string>;
     applicationId = data.applicationId;
     secret = data.activationCode.slice(applicationId.length + 1);
   });
 
-  const collect = async (
-    routesIn: RouteRegistration[],
-    id: string,
-    body: unknown,
-  ): Promise<Captured> =>
-    call(find(routesIn, 'POST', '/marketplace/api/activate-credentials/:applicationId'),
-      { applicationId: id }, body);
+  const collect = async (routesIn: RouteRegistration[], id: string, body: unknown): Promise<Captured> =>
+    call(find(routesIn, 'POST', '/marketplace/api/activate-credentials/:applicationId'), { applicationId: id }, body);
 
   test('without the secret it is refused', async () => {
     const out = await collect(routes, applicationId, {});
@@ -299,9 +311,14 @@ describe('rekey needs the secret too, which the audit did not record', () => {
     routes = buildMarketplaceRoutes(server);
     adminRoutes = buildEmployerAdminRoutes(server);
     getApplicationStore().clear();
-    const out = await call(find(routes, 'POST', '/marketplace/api/apply'), {}, {
-      ...APPLY_BODY, employerId: `REKEY-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    });
+    const out = await call(
+      find(routes, 'POST', '/marketplace/api/apply'),
+      {},
+      {
+        ...APPLY_BODY,
+        employerId: `REKEY-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
+    );
     const data = out.payload.data as Record<string, string>;
     applicationId = data.applicationId;
     secret = data.activationCode.slice(applicationId.length + 1);
@@ -310,8 +327,7 @@ describe('rekey needs the secret too, which the audit did not record', () => {
   });
 
   const rekey = async (id: string, body: unknown): Promise<Captured> =>
-    call(find(adminRoutes, 'POST', '/employer-applications/:applicationId/rekey'),
-      { applicationId: id }, body);
+    call(find(adminRoutes, 'POST', '/employer-applications/:applicationId/rekey'), { applicationId: id }, body);
 
   test('the application ID alone can no longer replace the employer signing key', async () => {
     const out = await rekey(applicationId, { publicKeyHex: 'b'.repeat(64) });

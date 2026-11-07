@@ -47,11 +47,26 @@ function dataset(title: string, identifier: string, modified: string, downloadUR
 }
 
 const CATALOG = [
-  dataset('NADAC (National Average Drug Acquisition Cost) 2024', '99315a95', '2024-12-23T21:05:00+00:00', 'https://download.medicaid.gov/data/nadac-12-25-2024.csv'),
+  dataset(
+    'NADAC (National Average Drug Acquisition Cost) 2024',
+    '99315a95',
+    '2024-12-23T21:05:00+00:00',
+    'https://download.medicaid.gov/data/nadac-12-25-2024.csv',
+  ),
   dataset('First Time NADAC Rates', 'f1', '2026-10-30T10:00:00+00:00', 'https://download.medicaid.gov/data/first-time.csv'),
-  dataset('NADAC (National Average Drug Acquisition Cost) 2026', 'fbb83258', '2026-10-27T11:30:01+00:00', 'https://download.medicaid.gov/data/nadac-national-average-drug-acquisition-cost-10-28-2026.csv'),
+  dataset(
+    'NADAC (National Average Drug Acquisition Cost) 2026',
+    'fbb83258',
+    '2026-10-27T11:30:01+00:00',
+    'https://download.medicaid.gov/data/nadac-national-average-drug-acquisition-cost-10-28-2026.csv',
+  ),
   dataset('NADAC Comparison', 'c1', '2026-10-31T10:00:00+00:00', 'https://download.medicaid.gov/data/comparison.csv'),
-  dataset('NADAC (National Average Drug Acquisition Cost) 2025', 'f38d0706', '2025-12-30T15:25:00+00:00', 'https://download.medicaid.gov/data/nadac-12-31-2025.csv'),
+  dataset(
+    'NADAC (National Average Drug Acquisition Cost) 2025',
+    'f38d0706',
+    '2025-12-30T15:25:00+00:00',
+    'https://download.medicaid.gov/data/nadac-12-31-2025.csv',
+  ),
   dataset('State Drug Utilization Data 2026', 's1', '2026-11-01T10:00:00+00:00', 'https://download.medicaid.gov/data/sdud.csv'),
 ];
 
@@ -81,7 +96,9 @@ describe('newestNadacFile', () => {
   });
 
   test('refuses a catalog with no NADAC dataset, saying what it looked for', () => {
-    expect(() => newestNadacFile([CATALOG[1], CATALOG[5]])).toThrow('CMS\'s dataset catalog lists no "NADAC (National Average Drug Acquisition Cost) YYYY" dataset');
+    expect(() => newestNadacFile([CATALOG[1], CATALOG[5]])).toThrow(
+      'CMS\'s dataset catalog lists no "NADAC (National Average Drug Acquisition Cost) YYYY" dataset',
+    );
   });
 
   test('refuses a newest NADAC dataset with no CSV to download', () => {
@@ -94,9 +111,23 @@ describe('newestNadacFile', () => {
   });
 
   test('refuses a download that is not https from medicaid.gov', () => {
-    const elsewhere = [dataset('NADAC (National Average Drug Acquisition Cost) 2026', 'x', '2026-10-27T11:30:01+00:00', 'http://download.medicaid.gov/data/n.csv')];
+    const elsewhere = [
+      dataset(
+        'NADAC (National Average Drug Acquisition Cost) 2026',
+        'x',
+        '2026-10-27T11:30:01+00:00',
+        'http://download.medicaid.gov/data/n.csv',
+      ),
+    ];
     expect(() => newestNadacFile(elsewhere)).toThrow('is not an https download from medicaid.gov');
-    const lookalike = [dataset('NADAC (National Average Drug Acquisition Cost) 2026', 'x', '2026-10-27T11:30:01+00:00', 'https://download.medicaid.gov.example.com/n.csv')];
+    const lookalike = [
+      dataset(
+        'NADAC (National Average Drug Acquisition Cost) 2026',
+        'x',
+        '2026-10-27T11:30:01+00:00',
+        'https://download.medicaid.gov.example.com/n.csv',
+      ),
+    ];
     expect(() => newestNadacFile(lookalike)).toThrow('is not an https download from medicaid.gov');
   });
 });
@@ -104,7 +135,10 @@ describe('newestNadacFile', () => {
 describe('findNewestNadacFile', () => {
   test("asks CMS's metastore and reads the answer", async () => {
     const asked: string[] = [];
-    const file = await findNewestNadacFile(async (url) => { asked.push(url); return CATALOG; });
+    const file = await findNewestNadacFile(async (url) => {
+      asked.push(url);
+      return CATALOG;
+    });
     expect(asked).toEqual([NADAC_CATALOG_URL]);
     expect(NADAC_CATALOG_URL).toBe('https://data.medicaid.gov/api/1/metastore/schemas/dataset/items?show-reference-ids=false');
     expect(file.year).toBe(2026);
@@ -115,7 +149,7 @@ describe('the importer', () => {
   const src = fs.readFileSync(path.join(REPO, 'src', 'data', 'import-nadac.ts'), 'utf8');
 
   test('names no dated CMS file', () => {
-    expect(src).not.toMatch(/nadac-national-average-drug-acquisition-cost-\d\d-\d\d-\d{4}\.csv/);   // before: the 03-11-2026 file
+    expect(src).not.toMatch(/nadac-national-average-drug-acquisition-cost-\d\d-\d\d-\d{4}\.csv/); // before: the 03-11-2026 file
   });
 
   test('finds the newest file unless NADAC_CSV names a local copy', () => {

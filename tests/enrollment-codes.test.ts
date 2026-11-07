@@ -75,12 +75,7 @@ import {
   normalizeTokenId,
   routingPrefixOf,
 } from '../src/onboarding/enrollment-code.js';
-import {
-  ReplayCache,
-  contentHashOf,
-  signRequest,
-  verifySignedRequest,
-} from '../src/security/signed-request.js';
+import { ReplayCache, contentHashOf, signRequest, verifySignedRequest } from '../src/security/signed-request.js';
 import { SlidingWindowLimiter } from '../src/security/rate-limit.js';
 import { TokenAuthority } from '../src/onboarding/token-authority.js';
 import { deriveInsurerKeypair, insurerPublicKeyFromSeed } from '../src/onboarding/employer-attestation.js';
@@ -113,23 +108,43 @@ function makeTempDir(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
-interface Captured { status: number; payload: any }
+interface Captured {
+  status: number;
+  payload: any;
+}
 /** What a handler wrote, captured without a socket. */
 function fakeRes(): { res: unknown; captured: () => Captured } {
   let status = 0;
   let payload: any = {};
   const res = {
-    writeHead(code: number) { status = code; return this; },
-    setHeader() { return this; },
-    end(body?: string) {
-      if (body) { try { payload = JSON.parse(body); } catch { payload = { raw: body }; } }
+    writeHead(code: number) {
+      status = code;
       return this;
     },
-    get writableEnded() { return status !== 0; },
+    setHeader() {
+      return this;
+    },
+    end(body?: string) {
+      if (body) {
+        try {
+          payload = JSON.parse(body);
+        } catch {
+          payload = { raw: body };
+        }
+      }
+      return this;
+    },
+    get writableEnded() {
+      return status !== 0;
+    },
   };
   return { res, captured: () => ({ status, payload }) };
 }
@@ -160,9 +175,14 @@ async function statuses(n: number, send: (i: number) => Promise<Captured>): Prom
 }
 function baseConfig(role: NautilusAppConfig['role'], stateDir: string, extra: Partial<NautilusAppConfig> = {}): NautilusAppConfig {
   return {
-    role, port: 0, host: '127.0.0.1',
+    role,
+    port: 0,
+    host: '127.0.0.1',
     sequencerUrl: 'http://127.0.0.1:1',
-    stateDir, enableSSE: false, maxSseConnections: 0, allowedOrigins: [],
+    stateDir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
     adminToken: 'admin-token-for-tests',
     ...extra,
   } as NautilusAppConfig;
@@ -170,10 +190,22 @@ function baseConfig(role: NautilusAppConfig['role'], stateDir: string, extra: Pa
 /** An attestation as the employer node would have loaded it from the sequencer after A9. */
 function attestationFor(employerId: string, insurerPublicKeyHex: string): EmployerAttestation {
   return {
-    v: 2, employerId, publicKeyHex: 'b'.repeat(64), authorizedPlanIds: ['PLAN-1'], enrollmentCap: 0,
-    agreementCommitment: '1', documentHash: '2', effectiveDate: '20260101',
-    employerSignature: 'c'.repeat(128), insurerSignature: 'd'.repeat(128), insurerPublicKeyHex,
-    ts: 1792200000, applicationId: 'EMPAPP-test', attestationSeq: 1, signerName: 'Test', signerTitle: 'Test',
+    v: 2,
+    employerId,
+    publicKeyHex: 'b'.repeat(64),
+    authorizedPlanIds: ['PLAN-1'],
+    enrollmentCap: 0,
+    agreementCommitment: '1',
+    documentHash: '2',
+    effectiveDate: '20260101',
+    employerSignature: 'c'.repeat(128),
+    insurerSignature: 'd'.repeat(128),
+    insurerPublicKeyHex,
+    ts: 1792200000,
+    applicationId: 'EMPAPP-test',
+    attestationSeq: 1,
+    signerName: 'Test',
+    signerTitle: 'Test',
   };
 }
 /** A tiny JSON HTTP server standing in for a peer node. */
@@ -182,7 +214,9 @@ async function jsonServer(
 ): Promise<{ server: http.Server; url: string }> {
   const server = http.createServer((req, res) => {
     let text = '';
-    req.on('data', (c) => { text += c; });
+    req.on('data', (c) => {
+      text += c;
+    });
     req.on('end', () => {
       const out = handle(req, text);
       res.writeHead(out.status, { 'Content-Type': 'application/json' });
@@ -238,16 +272,15 @@ describe('an enrollment code is random, self-routing and has one spelling', () =
   test('what a person types is repaired into the canonical form', () => {
     expect(canonicalizeEnrollmentCode(' 7q4k-9xmd 2pwt-r8hn-5vzc ')).toBe('7Q4K-9XMD-2PWT-R8HN-5VZC');
     // O reads as 0, I and L as 1 — the confusions a phone keyboard produces.
-    expect(canonicalizeEnrollmentCode('7Q4K9XMD2PWTR8HN5VZC'.replace('0', 'O').replace('1', 'I')))
-      .toBe('7Q4K-9XMD-2PWT-R8HN-5VZC');
+    expect(canonicalizeEnrollmentCode('7Q4K9XMD2PWTR8HN5VZC'.replace('0', 'O').replace('1', 'I'))).toBe('7Q4K-9XMD-2PWT-R8HN-5VZC');
     expect(canonicalizeEnrollmentCode('OIL0-9XMD-2PWT-R8HN-5VZC')).toBe('0110-9XMD-2PWT-R8HN-5VZC');
     // Canonical input is a fixed point.
     expect(canonicalizeEnrollmentCode('7Q4K-9XMD-2PWT-R8HN-5VZC')).toBe('7Q4K-9XMD-2PWT-R8HN-5VZC');
   });
 
   test('things that cannot be a code are not forced into one', () => {
-    expect(canonicalizeEnrollmentCode('7Q4K-9XMD-2PWT-R8HN')).toBeNull();        // too short
-    expect(canonicalizeEnrollmentCode('7Q4K-9XMD-2PWT-R8HN-5VZU')).toBeNull();   // U is not repaired
+    expect(canonicalizeEnrollmentCode('7Q4K-9XMD-2PWT-R8HN')).toBeNull(); // too short
+    expect(canonicalizeEnrollmentCode('7Q4K-9XMD-2PWT-R8HN-5VZU')).toBeNull(); // U is not repaired
     expect(canonicalizeEnrollmentCode('TOKEN-001')).toBeNull();
     expect(canonicalizeEnrollmentCode('')).toBeNull();
     expect(routingPrefixOf('TOKEN-001')).toBeNull();
@@ -294,7 +327,7 @@ describe('TokenAuthority issues codes and consumes them at redemption', () => {
     const record = authority.getTokenRecord(code)!;
     expect(record.status).toBe('consumed');
     expect(record.consumedAt).toBeDefined();
-    expect(record.consumedByWalletId).toBeUndefined();   // the employer learns no wallet (I6)
+    expect(record.consumedByWalletId).toBeUndefined(); // the employer learns no wallet (I6)
 
     const second = authority.redeemTokenWithPin(code, DATE, hashTokenPIN(code, PIN));
     expect(second.valid).toBe(false);
@@ -350,8 +383,14 @@ describe('a signed request binds the signer, the path, the time and the body', (
 
   function verify(headers: Record<string, string>, over: Partial<Parameters<typeof verifySignedRequest>[0]> = {}) {
     return verifySignedRequest({
-      method: 'POST', path: PATH, headers, expectedSignerId: 'insurer',
-      publicKeyHex: insurer.publicKeyHex, body: BODY, now: NOW, ...over,
+      method: 'POST',
+      path: PATH,
+      headers,
+      expectedSignerId: 'insurer',
+      publicKeyHex: insurer.publicKeyHex,
+      body: BODY,
+      now: NOW,
+      ...over,
     });
   }
 
@@ -377,7 +416,14 @@ describe('a signed request binds the signer, the path, the time and the body', (
   });
 
   test('a signature over a different path or method does not transfer', () => {
-    const headers = signRequest({ signerId: 'insurer', privateKey: insurer.privateKey, method: 'POST', path: '/tokens/OTHER/validate', body: BODY, now: NOW });
+    const headers = signRequest({
+      signerId: 'insurer',
+      privateKey: insurer.privateKey,
+      method: 'POST',
+      path: '/tokens/OTHER/validate',
+      body: BODY,
+      now: NOW,
+    });
     expect(verify(headers).ok).toBe(false);
     const h2 = signRequest({ signerId: 'insurer', privateKey: insurer.privateKey, method: 'GET', path: PATH, body: BODY, now: NOW });
     expect(verify(h2).ok).toBe(false);
@@ -434,8 +480,8 @@ describe('the sliding-window limiter', () => {
     expect(lim.allow('a', 100)).toBe(true);
     expect(lim.allow('a', 200)).toBe(true);
     expect(lim.allow('a', 300)).toBe(false);
-    expect(lim.allow('b', 300)).toBe(true);        // keys are independent
-    expect(lim.allow('a', 1001)).toBe(true);       // the first event has slid out
+    expect(lim.allow('b', 300)).toBe(true); // keys are independent
+    expect(lim.allow('a', 1001)).toBe(true); // the first event has slid out
     expect(lim.count('a', 1001)).toBe(3);
   });
 });
@@ -453,13 +499,16 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     if (attest) node.setAttestation(attestationFor('FERNHILL-TEST', insurerPublicKeyFromSeed(INSURER_SEED)));
     const grp = await call(find(routes, 'POST', '/groups'), { body: { groupId: 'G1', planId: 'PLAN-1', effectiveDate: '20260101' } });
     expect(grp.status).toBe(201);
-    const gen = await call(find(routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) } });
+    const gen = await call(find(routes, 'POST', '/tokens/generate'), {
+      body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) },
+    });
     expect(gen.status).toBe(201);
     const code = gen.payload.data.tokenId as string;
     expect(code).toMatch(CODE_RE);
     if (opts.pin !== null) {
       const set = await call(find(routes, 'POST', '/tokens/:tokenId/set-pin-hash'), {
-        params: { tokenId: code }, body: { tokenPinHash: hashTokenPIN(code, opts.pin ?? PIN) },
+        params: { tokenId: code },
+        body: { tokenPinHash: hashTokenPIN(code, opts.pin ?? PIN) },
       });
       expect(set.status).toBe(200);
     }
@@ -469,8 +518,11 @@ describe('the validate oracle answers only the insurer, and consumes what it val
   function signed(code: string, body: unknown, seed = INSURER_SEED, over: { signerId?: string; deliver?: unknown } = {}) {
     const p = `/tokens/${encodeURIComponent(code)}/validate`;
     const headers = signRequest({
-      signerId: over.signerId ?? 'insurer', privateKey: deriveInsurerKeypair(seed).privateKey,
-      method: 'POST', path: p, body: JSON.stringify(body),
+      signerId: over.signerId ?? 'insurer',
+      privateKey: deriveInsurerKeypair(seed).privateKey,
+      method: 'POST',
+      path: p,
+      body: JSON.stringify(body),
     });
     return { req: fakeReq({ url: p, headers }), params: { tokenId: code }, body: over.deliver === undefined ? body : over.deliver };
   }
@@ -481,7 +533,11 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('unsigned, it refuses before looking at the code', async () => {
     const e = await employerWithCode();
-    const r = await call(e.validate, { req: fakeReq({ url: `/tokens/${e.code}/validate` }), params: { tokenId: e.code }, body: { tokenPinHash: hashTokenPIN(e.code, PIN) } });
+    const r = await call(e.validate, {
+      req: fakeReq({ url: `/tokens/${e.code}/validate` }),
+      params: { tokenId: e.code },
+      body: { tokenPinHash: hashTokenPIN(e.code, PIN) },
+    });
     expect(r.status).toBe(401);
     expect(r.payload.error).toMatch(/not signed/);
     expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
@@ -489,7 +545,11 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('unsigned with no attestation loaded is still "not signed": an outsider learns nothing about the node', async () => {
     const e = await employerWithCode({ attest: false });
-    const r = await call(e.validate, { req: fakeReq({ url: `/tokens/${e.code}/validate` }), params: { tokenId: e.code }, body: { tokenPinHash: 'x' } });
+    const r = await call(e.validate, {
+      req: fakeReq({ url: `/tokens/${e.code}/validate` }),
+      params: { tokenId: e.code },
+      body: { tokenPinHash: 'x' },
+    });
     expect(r.status).toBe(401);
     expect(r.payload.error).toMatch(/not signed/);
   });
@@ -503,7 +563,10 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('a signed envelope with a swapped body is refused', async () => {
     const e = await employerWithCode();
-    const r = await call(e.validate, signed(e.code, { tokenPinHash: 'what-was-signed' }, INSURER_SEED, { deliver: { tokenPinHash: hashTokenPIN(e.code, PIN) } }));
+    const r = await call(
+      e.validate,
+      signed(e.code, { tokenPinHash: 'what-was-signed' }, INSURER_SEED, { deliver: { tokenPinHash: hashTokenPIN(e.code, PIN) } }),
+    );
     expect(r.status).toBe(401);
     expect(r.payload.error).toMatch(/content hash/);
     expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
@@ -527,9 +590,9 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect(r1.payload.data.valid).toBe(true);
     expect(r1.payload.data.consumed).toBe(true);
     expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed');
-    const entry = e.node.listRoster().find((x) => x.tokenIdHash === hashString(e.code).toString())!;   // A-109: the roster keeps the code's fingerprint
+    const entry = e.node.listRoster().find((x) => x.tokenIdHash === hashString(e.code).toString())!; // A-109: the roster keeps the code's fingerprint
     expect(entry.status).toBe('enrolled');
-    expect('walletId' in entry).toBe(false);          // I6: the roster has no wallet column at all (B6)
+    expect('walletId' in entry).toBe(false); // I6: the roster has no wallet column at all (B6)
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
 
     // The identical signed request again is a replay.
@@ -571,7 +634,9 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 
   test('a caller-chosen code is refused at generation', async () => {
     const e = await employerWithCode();
-    const r = await call(find(e.routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-2', validUntil: inDays(7), tokenId: 'TKN-CHOSEN' } });
+    const r = await call(find(e.routes, 'POST', '/tokens/generate'), {
+      body: { groupId: 'G1', employeeIdHash: 'emp-hash-2', validUntil: inDays(7), tokenId: 'TKN-CHOSEN' },
+    });
     expect(r.status).toBe(400);
     expect(r.payload.error).toMatch(/caller-chosen/);
   });
@@ -579,10 +644,17 @@ describe('the validate oracle answers only the insurer, and consumes what it val
   test('an expiry past 14 days, already past, or not a calendar date is refused at generation (A-138)', async () => {
     const e = await employerWithCode();
     const generate = find(e.routes, 'POST', '/tokens/generate');
-    const ask = (validUntil: unknown, employeeIdHash = 'emp-hash-3') => call(generate, { body: { groupId: 'G1', employeeIdHash, validUntil } });
-    for (const [validUntil, why] of [[inDays(15), /at most 14 days/], ['20271231', /at most 14 days/], [inDays(-1), /already past/], ['2026-02-30', /calendar date/], ['soon', /calendar date/]] as const) {
+    const ask = (validUntil: unknown, employeeIdHash = 'emp-hash-3') =>
+      call(generate, { body: { groupId: 'G1', employeeIdHash, validUntil } });
+    for (const [validUntil, why] of [
+      [inDays(15), /at most 14 days/],
+      ['20271231', /at most 14 days/],
+      [inDays(-1), /already past/],
+      ['2026-02-30', /calendar date/],
+      ['soon', /calendar date/],
+    ] as const) {
       const r = await ask(validUntil);
-      expect([validUntil, r.status]).toEqual([validUntil, 400]);       // before: 201, an invite good until then
+      expect([validUntil, r.status]).toEqual([validUntil, 400]); // before: 201, an invite good until then
       expect(r.payload.error).toMatch(why);
     }
     expect(e.node.getRosterEntry('emp-hash-3')).toBeUndefined();
@@ -595,7 +667,16 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     const fp = hashString(code).toString();
     const p = `/invites/${fp}/enrollment-cancelled`;
     const body = { reason: 'reported' };
-    const headers = seed === null ? {} : signRequest({ signerId: 'insurer', privateKey: deriveInsurerKeypair(seed).privateKey, method: 'POST', path: p, body: JSON.stringify(body) });
+    const headers =
+      seed === null
+        ? {}
+        : signRequest({
+            signerId: 'insurer',
+            privateKey: deriveInsurerKeypair(seed).privateKey,
+            method: 'POST',
+            path: p,
+            body: JSON.stringify(body),
+          });
     return { req: fakeReq({ url: p, headers }), params: { tokenIdHash: fp }, body };
   }
 
@@ -604,15 +685,17 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect((await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }))).payload.data.consumed).toBe(true);
     expect(e.node.getRosterEntry('emp-hash-1')!.status).toBe('enrolled');
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(1);
-    const cancel = find(e.routes, 'POST', '/invites/:tokenIdHash/enrollment-cancelled');   // before: no such route
+    const cancel = find(e.routes, 'POST', '/invites/:tokenIdHash/enrollment-cancelled'); // before: no such route
     const r = await call(cancel, cancellation(e.code));
     expect(r.status).toBe(200);
     expect(r.payload.data).toMatchObject({ cancelled: true });
-    expect(e.node.getTokenRecord(e.code)!.status).toBe('revoked');        // the code is spent for good
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('revoked'); // the code is spent for good
     expect(e.node.getRosterEntry('emp-hash-1')!.status).toBe('pending');
     expect(e.node.getGroup('G1')!.enrolledCount).toBe(0);
     // HR can now send the employee a new invite, which A-135 refuses for an enrolled employee
-    const again = await call(find(e.routes, 'POST', '/tokens/generate'), { body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) } });
+    const again = await call(find(e.routes, 'POST', '/tokens/generate'), {
+      body: { groupId: 'G1', employeeIdHash: 'emp-hash-1', validUntil: inDays(7) },
+    });
     expect(again.status).toBe(201);
   });
 
@@ -622,7 +705,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     expect((await call(cancel, cancellation(e.code, null))).status).toBe(401);
     expect((await call(cancel, cancellation(e.code, 'some-other-seed'))).status).toBe(401);
     const unused = await call(cancel, cancellation(e.code));
-    expect(unused.status).toBe(409);                                        // nothing to cancel: the code was never used
+    expect(unused.status).toBe(409); // nothing to cancel: the code was never used
     expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
   });
 
@@ -631,8 +714,8 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     const junk = await statuses(600, () => call(e.validate, unsigned(e.code, '203.0.113.7')));
     expect(junk).toEqual([...Array(60).fill(401), ...Array(540).fill(429)]);
     const r = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
-    expect([r.status, r.payload.data?.valid]).toEqual([200, true]);   // before: [429, undefined], the junk had spent the overall 600
-    expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed');   // before: 'unused'
+    expect([r.status, r.payload.data?.valid]).toEqual([200, true]); // before: [429, undefined], the junk had spent the overall 600
+    expect(e.node.getTokenRecord(e.code)!.status).toBe('consumed'); // before: 'unused'
   });
 
   test('the insurer’s signed requests are not held to one caller’s 60 a minute', async () => {
@@ -640,16 +723,16 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     const other = generateEnrollmentCode('SOMEONE-ELSE');
     // Each over a body of its own, so each signature is new and none is refused as a replay.
     const answered = await statuses(61, (i) => call(e.validate, signed(other, { tokenPinHash: `pin-hash-${i}` })));
-    expect(answered).toEqual(Array(61).fill(200));                     // before: the 61st was 429
+    expect(answered).toEqual(Array(61).fill(200)); // before: the 61st was 429
     const r = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
-    expect([r.status, r.payload.data?.valid]).toEqual([200, true]);   // before: [429, undefined]
+    expect([r.status, r.payload.data?.valid]).toEqual([200, true]); // before: [429, undefined]
   });
 
   test('the insurer’s signed requests spend the overall budget: 600 a minute are answered and the next waits', async () => {
     const e = await employerWithCode();
     const other = generateEnrollmentCode('SOMEONE-ELSE');
     const answered = await statuses(600, (i) => call(e.validate, signed(other, { tokenPinHash: `pin-hash-${i}` })));
-    expect(answered).toEqual(Array(600).fill(200));                    // before: 429 from the 61st on
+    expect(answered).toEqual(Array(600).fill(200)); // before: 429 from the 61st on
     const over = await call(e.validate, signed(e.code, { tokenPinHash: hashTokenPIN(e.code, PIN) }));
     expect([over.status, over.payload.error]).toEqual([429, 'Too many validation requests. Try again in a minute.']);
     expect(e.node.getTokenRecord(e.code)!.status).toBe('unused');
@@ -686,7 +769,7 @@ describe('the validate oracle answers only the insurer, and consumes what it val
     // a count, before any signature is checked, and a request that does not prove it is the
     // insurer's is charged to its caller.
     const src = fs.readFileSync('src/nodes/routes/employer-routes.ts', 'utf-8');
-    expect(src).toContain('validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE');   // before: validateOverall.allow('*') || !validatePerCaller.allow(caller)
+    expect(src).toContain('validatePerCaller.count(caller) >= VALIDATE_PER_CALLER_PER_MINUTE'); // before: validateOverall.allow('*') || !validatePerCaller.allow(caller)
     expect(src).toContain('validatePerCaller.allow(caller)');
   });
 });
@@ -694,7 +777,11 @@ describe('the validate oracle answers only the insurer, and consumes what it val
 // ─── 6. The insurer ─────────────────────────────────────────────────────────────
 
 describe('the insurer redeems a code with the employer that issued it, and nobody else', () => {
-  interface Probe { path: string; body: string; verified: boolean }
+  interface Probe {
+    path: string;
+    body: string;
+    verified: boolean;
+  }
   const probesA: Probe[] = [];
   const probesB: Probe[] = [];
   let answerA: () => { status: number; body: unknown };
@@ -704,9 +791,37 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   const P1 = hashString('PLAN-1').toString();
   const F1 = hashString('FAM-1').toString(); // A-34: the code's opaque family hash
   const PLAN_1 = {
-    planId: 'PLAN-1', name: 'Plan 1', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-1',
+    name: 'Plan 1',
+    coverageType: 1,
+    copayAmountCents: 1000,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 800000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    formularyNdcs: [],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
     // Plan-bound formularies: a published plan carries the terms its members are bound to
-    publishedTerms: { copayAmountCents: 1000, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 800000, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [], formularyRoot: '12345', networkRoot: '0', publishedAt: 0 },
+    publishedTerms: {
+      copayAmountCents: 1000,
+      coverageType: 1,
+      deductibleAmountCents: 50000,
+      oopMaxCents: 800000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 0,
+      familyOopMaxCents: 0,
+      familyAnnualBenefitMaxCents: 0,
+      formularyNdcs: [],
+      networkProviderWalletIds: [],
+      formularyRoot: '12345',
+      networkRoot: '0',
+      publishedAt: 0,
+    },
   };
   let plansAnswer = (): unknown[] => [PLAN_1];
   const approvals: unknown[] = [];
@@ -718,7 +833,10 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   /** The device's secret for codeA, and a commitment for redemptions whose completion no test asks for. */
   const DEVICE_A = completionPair();
   const ANY_COMMITMENT = completionPair().commitment;
-  const VALID = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: F1, consumed: true } } });
+  const VALID = () => ({
+    status: 200,
+    body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: F1, consumed: true } },
+  });
   const NOT_FOUND = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Token not found' } } });
   const servers: http.Server[] = [];
   let seqUrl: string;
@@ -728,8 +846,12 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   function stubEmployer(probes: Probe[], answer: () => { status: number; body: unknown }) {
     return jsonServer((req, bodyText) => {
       const v = verifySignedRequest({
-        method: 'POST', path: req.url ?? '/', headers: req.headers as Record<string, string | string[] | undefined>,
-        expectedSignerId: 'insurer', publicKeyHex: insurerPublicKeyFromSeed(INSURER_SEED), body: bodyText,
+        method: 'POST',
+        path: req.url ?? '/',
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        expectedSignerId: 'insurer',
+        publicKeyHex: insurerPublicKeyFromSeed(INSURER_SEED),
+        body: bodyText,
       });
       probes.push({ path: req.url ?? '/', body: bodyText, verified: v.ok });
       return answer();
@@ -753,14 +875,24 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const b = await stubEmployer(probesB, () => answerB());
     servers.push(a.server, b.server);
     const seq = await jsonServer((req, bodyText) => {
-      if ((req.url ?? '') === '/interactive/approve-member') { approvals.push(JSON.parse(bodyText || '{}')); return { status: 200, body: { approved: true } }; }
+      if ((req.url ?? '') === '/interactive/approve-member') {
+        approvals.push(JSON.parse(bodyText || '{}'));
+        return { status: 200, body: { approved: true } };
+      }
       const rpc = JSON.parse(bodyText || '{}') as { method?: string };
       if (rpc.method === 'l2_getPlans') return { status: 200, body: { jsonrpc: '2.0', id: 1, result: plansAnswer() } };
       if (rpc.method === 'l2_listEmployerNodes') {
-        return { status: 200, body: { jsonrpc: '2.0', id: 1, result: [
-          { employerId: 'EMP-A', employerNodeUrl: a.url },
-          { employerId: 'EMP-B', employerNodeUrl: b.url },
-        ] } };
+        return {
+          status: 200,
+          body: {
+            jsonrpc: '2.0',
+            id: 1,
+            result: [
+              { employerId: 'EMP-A', employerNodeUrl: a.url },
+              { employerId: 'EMP-B', employerNodeUrl: b.url },
+            ],
+          },
+        };
       }
       return { status: 200, body: { jsonrpc: '2.0', id: 1, result: null } };
     });
@@ -784,30 +916,39 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
 
   test('the prefix routes the probe to the issuing employer only, signed as the insurer', async () => {
     // C2: the code is redeemed before the member has a wallet; the insurer answers the group and plan.
-    const r = await call(main.process, { body: { tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment } });
+    const r = await call(main.process, {
+      body: { tokenId: codeA.toLowerCase(), tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment },
+    });
     expect(r.status).toBe(200);
     expect(r.payload.data.redeemed).toBe(true);
     expect(r.payload.data.employerId).toBe('EMP-A');
     expect(r.payload.data.groupIdHash).toBe(G1);
     expect(r.payload.data.planIdHash).toBe(P1);
     expect(probesA).toHaveLength(1);
-    expect(probesB).toHaveLength(0);                            // never fanned out
-    expect(probesA[0].verified).toBe(true);                     // a real insurer signature over the body
+    expect(probesB).toHaveLength(0); // never fanned out
+    expect(probesA[0].verified).toBe(true); // a real insurer signature over the body
     expect(probesA[0].path).toBe(`/tokens/${codeA}/validate`);
     // the relay names the PIN hash and a fresh nonce, so no two relays share a signature (A-93), and nothing of the
     // device's commitment, which the employer must never hold (A-108)
     expect(JSON.parse(probesA[0].body)).toEqual({ tokenPinHash: 'pinhash-1', nonce: expect.stringMatching(/^[0-9a-f]{32}$/) });
   });
 
-  test('the redemption is persisted immediately, with no wallet yet, under the code\'s fingerprint and with no PIN hash (A-142, A-143)', async () => {
-    const records = (main.server as unknown as { __redeemedEnrollmentCodes: Map<string, { walletId: string | null; pinCheck?: string | null; pinHash?: string; completionCommitment?: string }> }).__redeemedEnrollmentCodes;
+  test("the redemption is persisted immediately, with no wallet yet, under the code's fingerprint and with no PIN hash (A-142, A-143)", async () => {
+    const records = (
+      main.server as unknown as {
+        __redeemedEnrollmentCodes: Map<
+          string,
+          { walletId: string | null; pinCheck?: string | null; pinHash?: string; completionCommitment?: string }
+        >;
+      }
+    ).__redeemedEnrollmentCodes;
     const rec = records.get(hashString(codeA).toString())!;
     expect(rec.walletId).toBeNull();
-    expect(records.has(codeA)).toBe(false);                     // before: kept under the code itself
-    expect(rec.pinHash).toBeUndefined();                        // before: the PIN hash itself, beside the code
+    expect(records.has(codeA)).toBe(false); // before: kept under the code itself
+    expect(rec.pinHash).toBeUndefined(); // before: the PIN hash itself, beside the code
     expect(rec.pinCheck).toMatch(/^[0-9a-f]{64}$/);
     expect(rec.pinCheck).not.toBe('pinhash-1');
-    expect(rec.completionCommitment).toBe(DEVICE_A.commitment);   // before: undefined, nothing bound the completion to the device
+    expect(rec.completionCommitment).toBe(DEVICE_A.commitment); // before: undefined, nothing bound the completion to the device
     // and it is on disk: a store opened afresh on the same directory holds it
     const files = fs.readdirSync(path.join(stateDir, 'plan-records'));
     expect(files).toEqual(expect.arrayContaining(['redeemed-codes.journal', 'enrollment-registry.journal', 'recovery-deposits.journal']));
@@ -817,25 +958,35 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA.toLowerCase(), completionSecret: DEVICE_A.secret } });
     expect(r.status).toBe(200);
     expect(r.payload.data.enrolled).toBe(true);
-    expect(r.payload.data.tokenIdHash).toBe(hashString(codeA).toString());   // the canonical code's fingerprint, not as typed
-    expect(r.payload.data.tokenId).toBeUndefined();             // A-143: the plan keeps no code
+    expect(r.payload.data.tokenIdHash).toBe(hashString(codeA).toString()); // the canonical code's fingerprint, not as typed
+    expect(r.payload.data.tokenId).toBeUndefined(); // A-143: the plan keeps no code
     expect(r.payload.data.groupIdHash).toBe(G1);
     // completion approved the wallet with the engine, naming the plan it resolved from the hash
     expect(approvals.length).toBe(1);
-    expect(approvals[0]).toMatchObject({ walletId: '11', groupIdHash: G1, planIdHash: P1, planId: 'PLAN-1', employerId: 'EMP-A', familyIdHash: F1 });
-    const records = (main.server as unknown as { __redeemedEnrollmentCodes: Map<string, { walletId: string | null }> }).__redeemedEnrollmentCodes;
+    expect(approvals[0]).toMatchObject({
+      walletId: '11',
+      groupIdHash: G1,
+      planIdHash: P1,
+      planId: 'PLAN-1',
+      employerId: 'EMP-A',
+      familyIdHash: F1,
+    });
+    const records = (main.server as unknown as { __redeemedEnrollmentCodes: Map<string, { walletId: string | null }> })
+      .__redeemedEnrollmentCodes;
     expect(records.get(hashString(codeA).toString())?.walletId).toBe('11');
-    expect(probesA).toHaveLength(1);                            // completion asks the employer nothing
+    expect(probesA).toHaveLength(1); // completion asks the employer nothing
   });
 
   test('the same device retrying is idempotent and does not ask the employer again', async () => {
     // A device that died between redemption and derivation presents the same code, PIN hash and commitment.
-    const again = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment } });
+    const again = await call(main.process, {
+      body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: DEVICE_A.commitment },
+    });
     expect(again.status).toBe(200);
     expect(again.payload.data.repeated).toBe(true);
     expect(again.payload.data.groupIdHash).toBe(G1);
     // Simulate a crash between the completion and the registry write: the same wallet completes again.
-    ((main.server as unknown as { __enrollmentRegistry: Map<string, unknown> }).__enrollmentRegistry).delete('11');
+    (main.server as unknown as { __enrollmentRegistry: Map<string, unknown> }).__enrollmentRegistry.delete('11');
     const r = await call(main.complete, { body: { walletId: '11', tokenId: codeA, completionSecret: DEVICE_A.secret } });
     expect(r.status).toBe(200);
     expect(probesA).toHaveLength(1);
@@ -845,17 +996,26 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const otherWallet = await call(main.complete, { body: { walletId: '22', tokenId: codeA } });
     expect(otherWallet.status).toBe(403);
     expect(otherWallet.payload.error).toMatch(/already been used/);
-    const otherPin = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-other', completionCommitment: DEVICE_A.commitment } });
+    const otherPin = await call(main.process, {
+      body: { tokenId: codeA, tokenPinHash: 'pinhash-other', completionCommitment: DEVICE_A.commitment },
+    });
     expect(otherPin.status).toBe(403);
     expect(otherPin.payload.error).toMatch(/already been used/);
     // The PIN hash the code was redeemed with, which its employer holds, with a commitment of someone else's.
-    const otherCommitment = await call(main.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: ANY_COMMITMENT } });
-    expect([otherCommitment.status, otherCommitment.payload.error]).toEqual([403, 'Enrollment denied: this enrollment code has already been used.']);   // before: [200, undefined], answered from the record
+    const otherCommitment = await call(main.process, {
+      body: { tokenId: codeA, tokenPinHash: 'pinhash-1', completionCommitment: ANY_COMMITMENT },
+    });
+    expect([otherCommitment.status, otherCommitment.payload.error]).toEqual([
+      403,
+      'Enrollment denied: this enrollment code has already been used.',
+    ]); // before: [200, undefined], answered from the record
     expect(probesA).toHaveLength(1);
   });
 
   test('a code whose prefix matches no registered employer is refused without asking anyone', async () => {
-    const r = await call(main.process, { body: { walletId: 'W3', tokenId: generateEnrollmentCode('NOBODY'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
+    const r = await call(main.process, {
+      body: { walletId: 'W3', tokenId: generateEnrollmentCode('NOBODY'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT },
+    });
     expect(r.status).toBe(403);
     expect(r.payload.error).toMatch(/not recognized by any registered employer/);
     expect(probesA.length + probesB.length).toBe(1);
@@ -864,20 +1024,26 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('a wrong PIN is the employer’s verdict and is not recorded as a redemption', async () => {
     answerA = () => ({ status: 200, body: { ok: true, data: { valid: false, reason: 'Invalid enrollment PIN (4 attempts remaining)' } } });
     const code = generateEnrollmentCode('EMP-A');
-    const r = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'wrong', completionCommitment: ANY_COMMITMENT } });
+    const r = await call(main.process, {
+      body: { walletId: 'W4', tokenId: code, tokenPinHash: 'wrong', completionCommitment: ANY_COMMITMENT },
+    });
     expect(r.status).toBe(403);
     expect(r.payload.error).toMatch(/Invalid enrollment PIN/);
     expect(probesA).toHaveLength(2);
     // Not redeemed, so the next attempt asks the employer again rather than refusing as "used".
     answerA = VALID;
-    const again = await call(main.process, { body: { walletId: 'W4', tokenId: code, tokenPinHash: 'right', completionCommitment: ANY_COMMITMENT } });
+    const again = await call(main.process, {
+      body: { walletId: 'W4', tokenId: code, tokenPinHash: 'right', completionCommitment: ANY_COMMITMENT },
+    });
     expect(again.status).toBe(200);
     expect(probesA).toHaveLength(3);
   });
 
   test('an employer that will not answer the insurer is a 502, never read as a verdict', async () => {
     answerB = () => ({ status: 401, body: { ok: false, error: 'This oracle answers only the insurer: the signature does not verify.' } });
-    const r = await call(main.process, { body: { walletId: 'W5', tokenId: generateEnrollmentCode('EMP-B'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
+    const r = await call(main.process, {
+      body: { walletId: 'W5', tokenId: generateEnrollmentCode('EMP-B'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT },
+    });
     expect(r.status).toBe(502);
     expect(r.payload.error).toMatch(/returned 401/);
     answerB = NOT_FOUND;
@@ -886,10 +1052,14 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('an identifier that is not a code is never fanned out: only a named employer is asked', async () => {
     const before = probesA.length + probesB.length;
     const bBefore = probesB.length;
-    const r1 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
+    const r1 = await call(main.process, {
+      body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT },
+    });
     expect(r1.status).toBe(403);
     expect(probesA.length + probesB.length).toBe(before);
-    const r2 = await call(main.process, { body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT, employerId: 'EMP-B' } });
+    const r2 = await call(main.process, {
+      body: { walletId: 'W6', tokenId: 'TOKEN-001', tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT, employerId: 'EMP-B' },
+    });
     expect(r2.status).toBe(403);
     expect(r2.payload.error).toMatch(/not recognized by its employer/);
     expect(probesB).toHaveLength(bBefore + 1);
@@ -899,7 +1069,9 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   test('without a signing seed the insurer refuses rather than probing unsigned', async () => {
     const other = await insurer(makeTempDir('a6-ins-noseed-'), undefined);
     const before = probesA.length;
-    const r = await call(other.process, { body: { walletId: 'W7', tokenId: generateEnrollmentCode('EMP-A'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT } });
+    const r = await call(other.process, {
+      body: { walletId: 'W7', tokenId: generateEnrollmentCode('EMP-A'), tokenPinHash: 'x', completionCommitment: ANY_COMMITMENT },
+    });
     expect(r.status).toBe(500);
     expect(r.payload.error).toMatch(/signing seed/);
     expect(probesA).toHaveLength(before);
@@ -911,14 +1083,16 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
     const restarted = await insurer(stateDir, INSURER_SEED);
     main = restarted;
     const before = probesA.length;
-    const otherPin = await call(restarted.process, { body: { tokenId: codeA, tokenPinHash: 'pinhash-9', completionCommitment: DEVICE_A.commitment } });
+    const otherPin = await call(restarted.process, {
+      body: { tokenId: codeA, tokenPinHash: 'pinhash-9', completionCommitment: DEVICE_A.commitment },
+    });
     expect(otherPin.status).toBe(403);
     expect(otherPin.payload.error).toMatch(/already been used/);
     const otherWallet = await call(restarted.complete, { body: { walletId: '99', tokenId: codeA } });
     expect(otherWallet.status).toBe(403);
     // The device that redeemed it, completing again after the restart, is still answered.
     const own = await call(restarted.complete, { body: { walletId: '11', tokenId: codeA, completionSecret: DEVICE_A.secret } });
-    expect(own.status).toBe(200);   // before: 403, the completion took the PIN hash
+    expect(own.status).toBe(200); // before: 403, the completion took the PIN hash
     expect(probesA).toHaveLength(before);
   });
 
@@ -930,10 +1104,15 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
   });
 
   test('a family the employer names in anything but a hash is no family: the plain ID never reaches the engine (A-34)', async () => {
-    answerA = () => ({ status: 200, body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: 'FAM-PLAINTEXT-1', consumed: true } } });
+    answerA = () => ({
+      status: 200,
+      body: { ok: true, data: { valid: true, groupIdHash: G1, planIdHash: P1, familyIdHash: 'FAM-PLAINTEXT-1', consumed: true } },
+    });
     const code = generateEnrollmentCode('EMP-A');
     const family = completionPair();
-    expect((await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam', completionCommitment: family.commitment } })).status).toBe(200);
+    expect(
+      (await call(main.process, { body: { tokenId: code, tokenPinHash: 'pin-fam', completionCommitment: family.commitment } })).status,
+    ).toBe(200);
     expect((await call(main.complete, { body: { walletId: '33', tokenId: code, completionSecret: family.secret } })).status).toBe(200);
     const last = approvals[approvals.length - 1] as Record<string, unknown>;
     expect(last.walletId).toBe('33');
@@ -944,13 +1123,24 @@ describe('the insurer redeems a code with the employer that issued it, and nobod
 
   test('a plan without published terms enrols no one, and the engine is not asked to approve the wallet (plan-bound formularies)', async () => {
     // a plan published before the terms were kept (its formularyRoot is the overlay version), or a draft never published
-    for (const unpublished of [{ ...PLAN_1, formularyRoot: '1', publishedTerms: undefined }, { ...PLAN_1, published: false, publishedTerms: undefined }]) {
+    for (const unpublished of [
+      { ...PLAN_1, formularyRoot: '1', publishedTerms: undefined },
+      { ...PLAN_1, published: false, publishedTerms: undefined },
+    ]) {
       plansAnswer = () => [unpublished];
       const code = generateEnrollmentCode('EMP-A');
       const own = completionPair();
-      expect((await call(main.process, { body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}`, completionCommitment: own.commitment } })).status).toBe(200);
+      expect(
+        (
+          await call(main.process, {
+            body: { tokenId: code, tokenPinHash: `pin-${unpublished.published}`, completionCommitment: own.commitment },
+          })
+        ).status,
+      ).toBe(200);
       const before = approvals.length;
-      const r = await call(main.complete, { body: { walletId: unpublished.published ? '44' : '45', tokenId: code, completionSecret: own.secret } });
+      const r = await call(main.complete, {
+        body: { walletId: unpublished.published ? '44' : '45', tokenId: code, completionSecret: own.secret },
+      });
       expect(r.status).toBe(409);
       expect(r.payload.error).toMatch(/not published/);
       expect(approvals.length).toBe(before);

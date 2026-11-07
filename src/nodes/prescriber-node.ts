@@ -27,13 +27,8 @@
  * Compiles: StateTransitionProgram (~30-120s one-time).
  */
 import { Field } from 'o1js';
-import {
-  StateTransitionProgram,
-  type StateTransitionProof,
-} from '../engine/state-transition.js';
-import {
-  prescriberTransitionPreimage,
-} from '../wallets/wallet-derivation.js';
+import { StateTransitionProgram, type StateTransitionProof } from '../engine/state-transition.js';
+import { prescriberTransitionPreimage } from '../wallets/wallet-derivation.js';
 import type { PrescriberLocalData } from '../models/prescriber.js';
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
@@ -91,8 +86,13 @@ export class PrescriberNode extends EntityNodeBase {
     }
     const start = Date.now();
     const result = await StateTransitionProgram.proveRegistration(
-      preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5], preimage[6],
+      preimage[0],
+      preimage[1],
+      preimage[2],
+      preimage[3],
+      preimage[4],
+      preimage[5],
+      preimage[6],
       registryWitness,
       lifecycleWitness,
       currentRegistryRoot,
@@ -118,12 +118,20 @@ export class PrescriberNode extends EntityNodeBase {
     }
     const start = Date.now();
     const result = await StateTransitionProgram.proveWalletUpdate(
-      preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5], preimage[6],
-      oldCredentialRoot, oldNonce, newCredentialRoot,
+      preimage[0],
+      preimage[1],
+      preimage[2],
+      preimage[3],
+      preimage[4],
+      preimage[5],
+      preimage[6],
+      oldCredentialRoot,
+      oldNonce,
+      newCredentialRoot,
       registryWitness,
       lifecycleWitness,
-      currentRegistryRoot, currentLifecycleRoot,
+      currentRegistryRoot,
+      currentLifecycleRoot,
       currentLifecycle,
     );
     this.proofTimings.set('proveWalletUpdate', Date.now() - start);
@@ -131,10 +139,7 @@ export class PrescriberNode extends EntityNodeBase {
   }
 
   async submitProof(proof: StateTransitionProof): Promise<L2Receipt> {
-    return this.withPartitionRetry(
-      this.config.walletId!,
-      (client) => client.submitProof(proof),
-    );
+    return this.withPartitionRetry(this.config.walletId!, (client) => client.submitProof(proof));
   }
 
   getProofTimings(): ProofTimingEstimate[] {
@@ -149,10 +154,7 @@ export class PrescriberNode extends EntityNodeBase {
 
   /** Get all claims where this prescriber is listed */
   async getPrescribingHistory(): Promise<EntityClaimView[]> {
-    const entries = await this.client.getClaimsByPrescriber(
-      this.config.walletId!,
-      this.walletSigner() ?? undefined,
-    );
+    const entries = await this.client.getClaimsByPrescriber(this.config.walletId!, this.walletSigner() ?? undefined);
     return this.toClaimViews(entries);
   }
 
@@ -170,10 +172,7 @@ export class PrescriberNode extends EntityNodeBase {
   }
 
   /** Get prescribing history within a date range */
-  async getPrescribingHistoryByDateRange(
-    start: string,
-    end: string,
-  ): Promise<EntityClaimView[]> {
+  async getPrescribingHistoryByDateRange(start: string, end: string): Promise<EntityClaimView[]> {
     const views = await this.getPrescribingHistory();
     return this.filterByDateRange(views, start, end);
   }
@@ -191,9 +190,7 @@ export class PrescriberNode extends EntityNodeBase {
   }
 
   /** Get claims dispensed by a specific pharmacy */
-  async getClaimsByPharmacy(
-    pharmacyWalletId: string,
-  ): Promise<EntityClaimView[]> {
+  async getClaimsByPharmacy(pharmacyWalletId: string): Promise<EntityClaimView[]> {
     const views = await this.getPrescribingHistory();
     return views.filter((v) => v.pharmacyWalletId === pharmacyWalletId);
   }
@@ -233,10 +230,7 @@ export class PrescriberNode extends EntityNodeBase {
 
   // ─── Convenience ────────────────────────────────────────
 
-  static buildPreimage(
-    local: PrescriberLocalData,
-    enrollmentKey: string,
-  ): Field[] {
+  static buildPreimage(local: PrescriberLocalData, enrollmentKey: string): Field[] {
     return prescriberTransitionPreimage(local, enrollmentKey);
   }
 }

@@ -46,10 +46,17 @@ let catalog: any[];
 const ndcHashOf = (ndc: string) => hashString(ndc).toString();
 
 /** A distinct EligibilityData no member holds. */
-const anotherPlanVersion = (i: number) => new EligibilityData({
-  planIdHash: hashString(`PLAN-OTHER-${i}`), groupIdHash: hashString('GRP-OTHER'), effectiveDate: Field(20260101), terminationDate: Field(0),
-  copayAmountCents: Field(1000 + i), coverageType: Field(1), formularyRoot: Field(i + 1), networkRoot: Field(0),
-});
+const anotherPlanVersion = (i: number) =>
+  new EligibilityData({
+    planIdHash: hashString(`PLAN-OTHER-${i}`),
+    groupIdHash: hashString('GRP-OTHER'),
+    effectiveDate: Field(20260101),
+    terminationDate: Field(0),
+    copayAmountCents: Field(1000 + i),
+    coverageType: Field(1),
+    formularyRoot: Field(i + 1),
+    networkRoot: Field(0),
+  });
 
 function fillRegistryToCapacity(): void {
   // index 0 is the console's plan; fill the other 127 leaves with versions no live member names
@@ -72,21 +79,52 @@ beforeAll(async () => {
   catalog = getAllFormularyEntries();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-registry' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-registry' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
 
   const base: any = {
-    planId: 'PLAN-REG', name: 'Registry plan', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
-    formularyNdcs: [ABACAVIR], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-REG',
+    name: 'Registry plan',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    formularyNdcs: [ABACAVIR],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, catalog).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W, groupIdHash: ndcHashOf('GRP-REG'), planIdHash: ndcHashOf('PLAN-REG'), planId: 'PLAN-REG', employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W,
+    groupIdHash: ndcHashOf('GRP-REG'),
+    planIdHash: ndcHashOf('PLAN-REG'),
+    planId: 'PLAN-REG',
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W, ownershipProofJson: '{}', displayName: 'Registry member' });
   svc.enrolledMembers.get(W).pcpAssignment = { pcpWalletId: svc.prescriberWalletIds.get(0) };
 });
@@ -96,11 +134,22 @@ test('a full registry is rebuilt before the witness is taken: the EligibilityPro
   const m = svc.enrolledMembers.get(W);
   let eligibilityArgs: any[] | null = null;
   svc.dispatchProof = async (program: string, _method: string, _types: string[], args: any[]) => {
-    if (program === 'Eligibility') { eligibilityArgs = args; throw new Error('stop after the eligibility inputs'); }
+    if (program === 'Eligibility') {
+      eligibilityArgs = args;
+      throw new Error('stop after the eligibility inputs');
+    }
     return { proofJson: null, publicOutput: null, proveTimeMs: 0 };
   };
-  await expect(svc.createPrescription({ prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: W, ndcHash: ndcHashOf(ABACAVIR), quantity: 30, refills: 0 }))
-    .rejects.toThrow('stop after the eligibility inputs');
+  await expect(
+    svc.createPrescription({
+      prescriberIndex: 0,
+      pharmacyIndex: 0,
+      memberWalletId: W,
+      ndcHash: ndcHashOf(ABACAVIR),
+      quantity: 30,
+      refills: 0,
+    }),
+  ).rejects.toThrow('stop after the eligibility inputs');
   expect(eligibilityArgs).not.toBeNull();
   const [, eligibilityData, , , planWitness, planRoot] = eligibilityArgs!;
   expect(eligibilityData.commitment().toString()).toBe(m.eligibilityData.commitment().toString());
@@ -113,17 +162,29 @@ test('a full registry is rebuilt before the witness is taken: the EligibilityPro
 
 test('more live versions than the registry holds: a 409 that says why, before anything is rebuilt or proved', async () => {
   // a second member with a device, in another group: its EligibilityData is in no registry leaf yet
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W2)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W2, groupIdHash: ndcHashOf('GRP-REG-2'), planIdHash: ndcHashOf('PLAN-REG'), planId: 'PLAN-REG', employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W2)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W2,
+    groupIdHash: ndcHashOf('GRP-REG-2'),
+    planIdHash: ndcHashOf('PLAN-REG'),
+    planId: 'PLAN-REG',
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W2, ownershipProofJson: '{}', displayName: 'Second registry member' });
   svc.enrolledMembers.get(W2).pcpAssignment = { pcpWalletId: svc.prescriberWalletIds.get(0) };
   // 128 live members, each naming its own plan version, and a registry already full
-  for (let i = 0; i < 128; i++) svc.enrolledMembers.set(`live-${i}`, { lifecycle: 'ELIGIBLE', eligibilityData: anotherPlanVersion(1000 + i) });
+  for (let i = 0; i < 128; i++)
+    svc.enrolledMembers.set(`live-${i}`, { lifecycle: 'ELIGIBLE', eligibilityData: anotherPlanVersion(1000 + i) });
   fillRegistryToCapacity();
   const before = svc.benefitPlanRegistry;
   const rootBefore = before.getRoot().toString();
 
-  expect(() => svc.benefitPlanIndexOf(anotherPlanVersion(5000))).toThrow(expect.objectContaining({ name: 'RegistrationRefused', status: 409 }));
+  expect(() => svc.benefitPlanIndexOf(anotherPlanVersion(5000))).toThrow(
+    expect.objectContaining({ name: 'RegistrationRefused', status: 409 }),
+  );
   // the console's plan, the 128, the two registered members and the new version: 132
   expect(() => svc.benefitPlanIndexOf(anotherPlanVersion(5000))).toThrow(/holds 128 plan versions and live members name 132/);
   expect(svc.benefitPlanRegistry).toBe(before);
@@ -132,8 +193,16 @@ test('more live versions than the registry holds: a 409 that says why, before an
   // through prescribing: refused before the pending entry and before the first proof
   const proofs = jest.fn();
   svc.dispatchProof = proofs;
-  await expect(svc.createPrescription({ prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: W2, ndcHash: ndcHashOf(ABACAVIR), quantity: 30, refills: 0 }))
-    .rejects.toMatchObject({ name: 'RegistrationRefused', status: 409 });
+  await expect(
+    svc.createPrescription({
+      prescriberIndex: 0,
+      pharmacyIndex: 0,
+      memberWalletId: W2,
+      ndcHash: ndcHashOf(ABACAVIR),
+      quantity: 30,
+      refills: 0,
+    }),
+  ).rejects.toMatchObject({ name: 'RegistrationRefused', status: 409 });
   expect(proofs).not.toHaveBeenCalled();
   expect(svc.pendingPrescriptions.size).toBe(0);
   for (let i = 0; i < 128; i++) svc.enrolledMembers.delete(`live-${i}`);

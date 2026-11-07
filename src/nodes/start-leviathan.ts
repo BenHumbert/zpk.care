@@ -88,7 +88,14 @@ import type { VizEvent } from '../l2/l2-rpc-server.js';
 import http from 'http';
 import { resolveBindHost, resolveAllowedOrigins, resolveExplorerPort } from '../security/network-policy.js';
 import { planInsurerKeys, type InsurerKeyPlan } from '../keys/launcher-ceremony.js';
-import { generateNodeKey, childEnvironment, deriveNodeAdminToken, NODE_ID_ENV, NODE_KEY_SEED_ENV, type NodeRole } from '../security/node-roles.js';
+import {
+  generateNodeKey,
+  childEnvironment,
+  deriveNodeAdminToken,
+  NODE_ID_ENV,
+  NODE_KEY_SEED_ENV,
+  type NodeRole,
+} from '../security/node-roles.js';
 import { InvariantMonitor, snapshotOf } from '../l2/invariant-monitor.js';
 import { AdjudicationService } from '../adjudication/interactive-service.js';
 import { registerInteractiveRoutes } from '../adjudication/interactive-routes.js';
@@ -107,7 +114,9 @@ const batchIntervalMs = parseInt(env.ZKTRIDENT_BATCH_INTERVAL_MS ?? '30000', 10)
 const partitionCount = parseInt(env.ZKTRIDENT_PARTITION_COUNT ?? '1', 10);
 const partitionIndex = parseInt(env.ZKTRIDENT_PARTITION_INDEX ?? '0', 10);
 const seedPeers = env.ZKTRIDENT_SEED_PEERS
-  ? env.ZKTRIDENT_SEED_PEERS.split(',').map((s) => s.trim()).filter(Boolean)
+  ? env.ZKTRIDENT_SEED_PEERS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
   : [];
 const unsecureMode = env.ZKTRIDENT_UNSECURE === 'true';
 const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : env.ZKTRIDENT_ADMIN_TOKEN;
@@ -118,8 +127,7 @@ const adminToken = unsecureMode ? (env.ZKTRIDENT_ADMIN_TOKEN ?? 'admin123') : en
  * reverse, so a one-variable deployment keeps working without the insurer holding the network's
  * credential. Member and pharmacy nodes have no admin routes and get no token at all.
  */
-const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN
-  ?? (adminToken ? deriveNodeAdminToken(adminToken, 'insurer') : undefined);
+const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN ?? (adminToken ? deriveNodeAdminToken(adminToken, 'insurer') : undefined);
 /*
  * The prescriber node's own admin token, the same way (owner decision 2026-10-19). Until provider
  * sign-in (B4), the prescriber node's routes that return a patient's data or start a member-data
@@ -129,8 +137,8 @@ const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN
  * sets ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, otherwise derived from the operator's token, so the
  * operator can recompute it and the prescriber node never holds the network's credential.
  */
-const prescriberAdminToken = env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN
-  ?? (adminToken ? deriveNodeAdminToken(adminToken, 'prescriber') : undefined);
+const prescriberAdminToken =
+  env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN ?? (adminToken ? deriveNodeAdminToken(adminToken, 'prescriber') : undefined);
 // an empty value means none, as before
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET || undefined;
 // A-149: it also seeds the NFC attestation key, so one that is not 32 bytes of hex stops the boot before anything starts
@@ -188,10 +196,7 @@ const leaderKey = generateNodeKey(nodeId ?? 'sequencer');
 
 // ─── Build Options ────────────────────────────────────────────
 
-const partitionConfig: PartitionConfig | undefined =
-  partitionCount > 1
-    ? { partitionCount, partitionIndex }
-    : undefined;
+const partitionConfig: PartitionConfig | undefined = partitionCount > 1 ? { partitionCount, partitionIndex } : undefined;
 
 const nodeOptions: Partial<L2NodeOptions> = {
   batchIntervalMs,
@@ -228,9 +233,7 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   insurerAttestationPublicKeyHex,
   // TLS is configuration, not code: set both paths and the server listens HTTPS. Left
   // unset it listens HTTP, which is why the default bind is loopback only.
-  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
-    ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
-    : {}),
+  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY } : {}),
 };
 
 // ─── Main ─────────────────────────────────────────────────────
@@ -260,7 +263,8 @@ async function main(): Promise<void> {
     const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const emptyRoot = emptyTree.getRoot();
     // D7 (A-33): the proving lease — one prover at a time per partition — lasts this long before it lapses
-    L2SequencerService.defaultProvingLeaseMs = parseInt(env.ZKTRIDENT_PROVING_LEASE_MS ?? '', 10) || L2SequencerService.defaultProvingLeaseMs;
+    L2SequencerService.defaultProvingLeaseMs =
+      parseInt(env.ZKTRIDENT_PROVING_LEASE_MS ?? '', 10) || L2SequencerService.defaultProvingLeaseMs;
     node = new L2Node(nodeOptions, store, emptyRoot, emptyRoot, Field(0));
     console.log('  [genesis] Empty Merkle trees initialized (height=%d)', WALLET_TREE_HEIGHT);
   }
@@ -322,7 +326,9 @@ async function main(): Promise<void> {
       node.getSequencer().setTransitionVerifier(verifier);
       console.log('  [verify] submitted proofs are verified before any state is written');
 
-      const stopVerifier = async (): Promise<void> => { await pool.shutdown(); };
+      const stopVerifier = async (): Promise<void> => {
+        await pool.shutdown();
+      };
       process.once('SIGINT', () => void stopVerifier());
       process.once('SIGTERM', () => void stopVerifier());
     } catch (err) {
@@ -349,15 +355,24 @@ async function main(): Promise<void> {
     try {
       const cgroupLimit = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
       if (cgroupLimit !== 'max') totalMemMB = Math.floor(parseInt(cgroupLimit, 10) / (1024 * 1024));
-    } catch { /* not in a cgroup — use os.totalmem() */ }
+    } catch {
+      /* not in a cgroup — use os.totalmem() */
+    }
     const freeMemMB = Math.min(Math.floor(os.freemem() / (1024 * 1024)), totalMemMB);
     const usableMemMB = Math.min(totalMemMB, freeMemMB + 200); // allow some reclaim
     const MAIN_RESERVE_MB = 400;
     const WORKER_MB = 800;
     const feasible = Math.floor((usableMemMB - MAIN_RESERVE_MB) / WORKER_MB);
     poolWorkerCount = Math.min(MAX_POOL_WORKERS, Math.max(MIN_POOL_WORKERS, feasible));
-    console.log('  [pool] Memory detection: %dMB total, %dMB free → %d worker(s) (feasible %d, min %d, max %d)',
-      totalMemMB, freeMemMB, poolWorkerCount, feasible, MIN_POOL_WORKERS, MAX_POOL_WORKERS);
+    console.log(
+      '  [pool] Memory detection: %dMB total, %dMB free → %d worker(s) (feasible %d, min %d, max %d)',
+      totalMemMB,
+      freeMemMB,
+      poolWorkerCount,
+      feasible,
+      MIN_POOL_WORKERS,
+      MAX_POOL_WORKERS,
+    );
   } else if (poolSizeEnv === '0') {
     poolWorkerCount = 0; // explicitly disabled
   } else {
@@ -372,8 +387,7 @@ async function main(): Promise<void> {
   // messages wait to be processed.
   try {
     const { formularyRaw } = await import('../data/formulary-loader.js');
-    const { readFormularyTreeCache, writeFormularyTreeCache } =
-      await import('../l2/formulary-tree-cache.js');
+    const { readFormularyTreeCache, writeFormularyTreeCache } = await import('../l2/formulary-tree-cache.js');
     const formulary = node.getSequencer().getFormularyService();
 
     // The tree is identical for identical input, so it is built once and reused. On the full
@@ -385,15 +399,12 @@ async function main(): Promise<void> {
     const loadMs = Date.now() - startedAt;
 
     if (formulary.treeCameFromCache) {
-      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree restored from cache)',
-        formulary.drugCount, loadMs);
+      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree restored from cache)', formulary.drugCount, loadMs);
     } else {
-      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree built)',
-        formulary.drugCount, loadMs);
+      console.log('  [formulary] Loaded %d NADAC drugs in %d ms (tree built)', formulary.drugCount, loadMs);
       const cache = formulary.exportTreeCache();
       if (cache && writeFormularyTreeCache(checkpointDir, cache)) {
-        console.log('  [formulary] Tree cached for the next boot (root %s…)',
-          cache.root.slice(0, 12));
+        console.log('  [formulary] Tree cached for the next boot (root %s…)', cache.root.slice(0, 12));
       }
     }
   } catch (err) {
@@ -433,8 +444,13 @@ async function main(): Promise<void> {
           console.log('  [pool] Worker %d completed %s (%dms)', event.workerId, event.data.jobId, event.data.proveTimeMs);
           break;
         case 'worker:crashed':
-          console.error('  [pool] Worker %d CRASHED (code=%s, signal=%s, restarts=%d)',
-            event.workerId, event.data.code, event.data.signal, event.data.restartCount);
+          console.error(
+            '  [pool] Worker %d CRASHED (code=%s, signal=%s, restarts=%d)',
+            event.workerId,
+            event.data.code,
+            event.data.signal,
+            event.data.restartCount,
+          );
           break;
         case 'worker:recycled':
           console.log('  [pool] Worker %d recycled after %d jobs (WASM heap reclaimed)', event.workerId, event.data.jobsProcessed);
@@ -447,14 +463,22 @@ async function main(): Promise<void> {
       console.error('  [pool:stderr] Worker %d: %s', workerId, data);
     });
 
-    console.log('  [pool] Starting %d proving worker(s) (compile %d at a time, recycle every %d jobs)...', poolWorkerCount, compileConcurrency, recycleAfterJobs);
+    console.log(
+      '  [pool] Starting %d proving worker(s) (compile %d at a time, recycle every %d jobs)...',
+      poolWorkerCount,
+      compileConcurrency,
+      recycleAfterJobs,
+    );
     // Don't await — compile in background so RPC server starts immediately
-    pool.start().then(() => {
-      node.setProvingPool(pool);
-      console.log('  [pool] Proving pool ready');
-    }).catch((err) => {
-      console.error('  [pool] Failed to start proving pool:', err);
-    });
+    pool
+      .start()
+      .then(() => {
+        node.setProvingPool(pool);
+        console.log('  [pool] Proving pool ready');
+      })
+      .catch((err) => {
+        console.error('  [pool] Failed to start proving pool:', err);
+      });
   }
 
   // ── RPC Server (start before pool compilation to pass Render health check) ──
@@ -523,8 +547,11 @@ async function main(): Promise<void> {
     if (fs.existsSync(adjCheckpointPath)) {
       const adjData = JSON.parse(fs.readFileSync(adjCheckpointPath, 'utf-8'));
       interactiveService.restoreState(adjData);
-      console.log('  [interactive] Adjudication state restored (%d prescriptions, %d members)',
-        adjData.prescriptions?.length ?? 0, adjData.enrolledMembers?.length ?? 0);
+      console.log(
+        '  [interactive] Adjudication state restored (%d prescriptions, %d members)',
+        adjData.prescriptions?.length ?? 0,
+        adjData.enrolledMembers?.length ?? 0,
+      );
     }
   } catch (err) {
     console.warn('  [interactive] Failed to restore adjudication state:', err instanceof Error ? err.message : err);
@@ -596,40 +623,43 @@ async function main(): Promise<void> {
   }
 
   // Compile in background (non-blocking — same pattern as proving pool)
-  interactiveService.compileAllPrograms().then(async () => {
-    interactiveReady = true;
-    console.log('  [interactive] ZkPrograms compiled — full proof generation available');
+  interactiveService
+    .compileAllPrograms()
+    .then(async () => {
+      interactiveReady = true;
+      console.log('  [interactive] ZkPrograms compiled — full proof generation available');
 
-    // Set VK commitment on the RPC server AND peer network for software identity verification
-    if (interactiveService.vkCommitment) {
-      rpcServer.setVkCommitment(interactiveService.vkCommitment);
-      const peerNet = node.getPeerNetwork?.();
-      if (peerNet) peerNet.setVkCommitment(interactiveService.vkCommitment);
-      console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
-    }
-
-    // Open all boot-time dashboards in browser when ready.
-    // Employer node + HR Tool are spawned on-demand by marketplace activation
-    // and are NOT included here — they open via the marketplace activate screen.
-    if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
-      const urls = [
-        `http://localhost:${port}/`,      // Leviathan sequencer
-        `http://localhost:4001/`,          // Member
-        `http://localhost:4002/`,          // Prescriber
-        `http://localhost:4003/`,          // Pharmacy
-        `http://localhost:4004/`,          // Insurer (includes marketplace at /marketplace/)
-        `http://localhost:${explorerPort}/`,  // Explorer
-      ];
-      const { exec } = await import('child_process');
-      const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-      for (const url of urls) {
-        exec(`${openCmd} ${url}`, { windowsHide: true });
+      // Set VK commitment on the RPC server AND peer network for software identity verification
+      if (interactiveService.vkCommitment) {
+        rpcServer.setVkCommitment(interactiveService.vkCommitment);
+        const peerNet = node.getPeerNetwork?.();
+        if (peerNet) peerNet.setVkCommitment(interactiveService.vkCommitment);
+        console.log('  [security] VK commitment set: %s…', interactiveService.vkCommitment.slice(0, 24));
       }
-      console.log('  [browser] Opened %d dashboards', urls.length);
-    }
-  }).catch((err: unknown) => {
-    console.error('  [interactive] ZkProgram compilation failed:', err);
-  });
+
+      // Open all boot-time dashboards in browser when ready.
+      // Employer node + HR Tool are spawned on-demand by marketplace activation
+      // and are NOT included here — they open via the marketplace activate screen.
+      if (env.ZKTRIDENT_OPEN_BROWSERS !== '0') {
+        const urls = [
+          `http://localhost:${port}/`, // Leviathan sequencer
+          `http://localhost:4001/`, // Member
+          `http://localhost:4002/`, // Prescriber
+          `http://localhost:4003/`, // Pharmacy
+          `http://localhost:4004/`, // Insurer (includes marketplace at /marketplace/)
+          `http://localhost:${explorerPort}/`, // Explorer
+        ];
+        const { exec } = await import('child_process');
+        const openCmd = process.platform === 'win32' ? 'start ""' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+        for (const url of urls) {
+          exec(`${openCmd} ${url}`, { windowsHide: true });
+        }
+        console.log('  [browser] Opened %d dashboards', urls.length);
+      }
+    })
+    .catch((err: unknown) => {
+      console.error('  [interactive] ZkProgram compilation failed:', err);
+    });
 
   // ── Start Node ──
 
@@ -673,9 +703,7 @@ async function main(): Promise<void> {
       host,
       enableSSE: false,
       allowedOrigins,
-      ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
-        ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
-        : {}),
+      ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY } : {}),
     };
     const replicaRpc = new L2RpcServer(replica, replicaRpcOpts);
     replicaRpc.registerNodeKey(leaderKey.nodeId, leaderKey.publicKeyHex, 'sequencer', 'the leader this replica follows');
@@ -691,7 +719,7 @@ async function main(): Promise<void> {
   }
 
   // Wait for replicas to initialize their peer networks before connecting
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // A13: a server relays gossip through its node's peer network; until now no server here was ever
   // given one, so l2_gossipRelay could only answer "Peer network not configured" once past the gate.
@@ -706,7 +734,9 @@ async function main(): Promise<void> {
   for (let ri = 0; ri < REPLICA_COUNT; ri++) {
     try {
       await leaderPeerNet.connectToPeer(`http://localhost:${port + 1 + ri}`);
-    } catch { /* replica may still be starting; the announce loop reconnects */ }
+    } catch {
+      /* replica may still be starting; the announce loop reconnects */
+    }
   }
   rpcServer.setPeerNetwork(leaderPeerNet);
 
@@ -761,7 +791,11 @@ async function main(): Promise<void> {
   // Spawn all entity nodes as child processes of the leviathan.
   // Each node connects back to the sequencer on this port.
 
-  interface EntityChild { name: string; child: ChildProcess; port: number; }
+  interface EntityChild {
+    name: string;
+    child: ChildProcess;
+    port: number;
+  }
   const entityChildren: EntityChild[] = [];
 
   /*
@@ -772,7 +806,13 @@ async function main(): Promise<void> {
    * process's secrets; what a child needs is passed by name in `extraEnv`. No shell, no npx: the
    * script runs under this same Node with tsx, and the child watches this PID (A7).
    */
-  function spawnEntity(name: string, script: string, entityPort: number, extraEnv: Record<string, string> = {}, role: NodeRole = name as NodeRole): void {
+  function spawnEntity(
+    name: string,
+    script: string,
+    entityPort: number,
+    extraEnv: Record<string, string> = {},
+    role: NodeRole = name as NodeRole,
+  ): void {
     const scriptPath = path.resolve(thisDir, script);
     if (!fs.existsSync(scriptPath)) {
       console.log('  [entity] %s script not found — skipping', name);
@@ -816,10 +856,12 @@ async function main(): Promise<void> {
       try {
         const resp = await fetch(healthUrl);
         if (resp.ok) {
-          const data = await resp.json() as { data?: { phase?: string } };
+          const data = (await resp.json()) as { data?: { phase?: string } };
           if (data?.data?.phase === 'ready') return true;
         }
-      } catch { /* not ready yet */ }
+      } catch {
+        /* not ready yet */
+      }
       await new Promise((r) => setTimeout(r, 1000));
     }
     return false;
@@ -893,14 +935,23 @@ async function main(): Promise<void> {
   // network with more than one member on this machine (the multi-member harness expects 4011-4013).
   // ZKTRIDENT_MEMBER_DEVICE_PORTS=4011,4012,4013  ZKTRIDENT_MEMBER_DEVICES_DIR=./e2e-devices
   {
-    const devicePorts = (env.ZKTRIDENT_MEMBER_DEVICE_PORTS ?? '').split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n > 0);
+    const devicePorts = (env.ZKTRIDENT_MEMBER_DEVICE_PORTS ?? '')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
     const devicesDir = path.resolve(env.ZKTRIDENT_MEMBER_DEVICES_DIR ?? './e2e-devices');
     for (const devicePort of devicePorts) {
-      spawnEntity(`member-${devicePort}`, 'start-member-nautilus.ts', devicePort, {
-        ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
-        ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
-        ZKTRIDENT_STATE_DIR: path.join(devicesDir, `member-${devicePort}`),
-      }, 'member');
+      spawnEntity(
+        `member-${devicePort}`,
+        'start-member-nautilus.ts',
+        devicePort,
+        {
+          ...(env.ZKTRIDENT_MEMBER_PIN ? { ZKTRIDENT_PIN: env.ZKTRIDENT_MEMBER_PIN } : {}),
+          ZKTRIDENT_INSURER_URL: `http://localhost:4004`,
+          ZKTRIDENT_STATE_DIR: path.join(devicesDir, `member-${devicePort}`),
+        },
+        'member',
+      );
     }
   }
 
@@ -912,7 +963,11 @@ async function main(): Promise<void> {
     if (fs.existsSync(explorerScript)) {
       const child = spawn(process.execPath, ['--import', 'tsx', explorerScript], {
         // A9: the explorer serves pages and proxies read methods; it gets no secret and no key.
-        env: childEnvironment(process.env, { ZKTRIDENT_EXPLORER_PORT: String(explorerPort), ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`, ZKTRIDENT_PARENT_PID: String(process.pid) }),
+        env: childEnvironment(process.env, {
+          ZKTRIDENT_EXPLORER_PORT: String(explorerPort),
+          ZKTRIDENT_SEQUENCER_URL: `http://localhost:${port}`,
+          ZKTRIDENT_PARENT_PID: String(process.pid),
+        }),
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
@@ -949,7 +1004,7 @@ async function main(): Promise<void> {
   console.log('  Proof delegate: %s', proverChild ? `http://${host}:${proverPort}/prove` : 'disabled');
   console.log('  Interactive:   %s', interactiveReady ? 'ready' : 'compiling (proof generation pending)');
   if (entityChildren.length > 0) {
-    console.log('  Entity nodes:  %s', entityChildren.map(e => `${e.name}(:${e.port})`).join(', '));
+    console.log('  Entity nodes:  %s', entityChildren.map((e) => `${e.name}(:${e.port})`).join(', '));
   }
   if (partitionConfig) {
     console.log('  Partition:     %d of %d', partitionIndex, partitionCount);
@@ -960,8 +1015,22 @@ async function main(): Promise<void> {
   console.log('  Checkpoint:    %s (max %d)', checkpointDir, maxCheckpoints);
   console.log('  Security:      %s', unsecureMode ? 'UNSECURE MODE (admin123 shared token)' : 'Ed25519 per-node identity');
   console.log('  Admin token:   %s', adminToken ? 'configured' : 'NONE (admin RPC disabled)');
-  console.log('  Insurer token: %s', env.ZKTRIDENT_INSURER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_INSURER_ADMIN_TOKEN)' : insurerAdminToken ? 'derived from the operator token' : 'NONE');
-  console.log('  Prescriber token: %s', env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN ? 'configured (ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN)' : prescriberAdminToken ? 'derived from the operator token' : 'NONE (patient prices and prior authorization refused)');
+  console.log(
+    '  Insurer token: %s',
+    env.ZKTRIDENT_INSURER_ADMIN_TOKEN
+      ? 'configured (ZKTRIDENT_INSURER_ADMIN_TOKEN)'
+      : insurerAdminToken
+        ? 'derived from the operator token'
+        : 'NONE',
+  );
+  console.log(
+    '  Prescriber token: %s',
+    env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN
+      ? 'configured (ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN)'
+      : prescriberAdminToken
+        ? 'derived from the operator token'
+        : 'NONE (patient prices and prior authorization refused)',
+  );
   console.log('  Node keys:     one per child, registered by role; no child holds the operator token');
   console.log('  Gossip secret: %s', gossipSecret ? 'configured' : 'NONE (unauthenticated gossip)');
   console.log('  Replicas:      %d, each with its own key (A13); invariant monitor every 5 s, divergence grace 30 s', REPLICA_COUNT);
@@ -976,7 +1045,9 @@ async function main(): Promise<void> {
     console.log('  [%s] Shutting down gracefully...', signal);
     // Stop entity nodes
     for (const e of entityChildren) {
-      try { e.child.kill('SIGTERM'); } catch {}
+      try {
+        e.child.kill('SIGTERM');
+      } catch {}
     }
     if (entityChildren.length > 0) {
       console.log('  [shutdown] %d entity node(s) stopped', entityChildren.length);

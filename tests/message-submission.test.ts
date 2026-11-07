@@ -29,12 +29,7 @@
  */
 
 import { Field, Poseidon, MerkleTree } from 'o1js';
-import {
-  computeMessageLeafHash,
-  type StoredMessage,
-  type MessagePayload,
-  type MessageStoreEntry,
-} from '../src/l2/message-store-types.js';
+import { computeMessageLeafHash, type StoredMessage, type MessagePayload, type MessageStoreEntry } from '../src/l2/message-store-types.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { L2Node, type L2NodeOptions } from '../src/l2/l2-node.js';
 import type { GossipMessage, MessageStoredPayload } from '../src/l2/l2-peer-types.js';
@@ -58,12 +53,7 @@ const emptyTree = new MerkleTree(WALLET_TREE_HEIGHT);
 const EMPTY_ROOT = emptyTree.getRoot();
 
 /** Helper to create a test StoredMessage */
-function makeMessage(
-  sender: string,
-  recipient: string,
-  threadId: string,
-  type = '1',
-): StoredMessage {
+function makeMessage(sender: string, recipient: string, threadId: string, type = '1'): StoredMessage {
   return {
     messageCommitment: Poseidon.hash([Field(BigInt(sender)), Field(BigInt(recipient))]).toString(),
     senderWalletId: sender,
@@ -315,9 +305,7 @@ describe('L2Node gossip — message:stored', () => {
 
     // Verify the replica has the message
     expect(replica.getSequencer().getMessageCount()).toBe(1n);
-    expect(replica.getSequencer().getMessageStoreRoot()).toBe(
-      sequencer.getSequencer().getMessageStoreRoot(),
-    );
+    expect(replica.getSequencer().getMessageStoreRoot()).toBe(sequencer.getSequencer().getMessageStoreRoot());
   });
 
   test('sequencer ignores message:stored gossip from self', async () => {

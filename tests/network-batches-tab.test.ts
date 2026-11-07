@@ -84,7 +84,10 @@ function liftWithCallees(name: string, given: string[]): string[] {
     const src = lift(queue.shift()!);
     pieces.push(src);
     for (const m of src.matchAll(/(?<![\w$.])([A-Za-z_][\w$]*)\(/g)) {
-      if (!seen.has(m[1]) && declared(m[1])) { seen.add(m[1]); queue.push(m[1]); }
+      if (!seen.has(m[1]) && declared(m[1])) {
+        seen.add(m[1]);
+        queue.push(m[1]);
+      }
     }
   }
   return pieces;
@@ -110,11 +113,15 @@ function sequencer(batches: L2Batch[], receipts: L2Receipt[], { token = true }: 
     if (method === 'l2_getAllBatches') return batches.slice(offset, offset + limit);
     if (method === 'l2_getAllReceipts') {
       // D1: an enumeration answers the plan or the operator only (readPrincipal refuses anyone else with -32003)
-      if (authorization !== 'Bearer ' + OPERATOR) throw Object.assign(new Error('Unauthorized: l2_getAllReceipts answers the plan or the operator'), { code: -32003 });
+      if (authorization !== 'Bearer ' + OPERATOR)
+        throw Object.assign(new Error('Unauthorized: l2_getAllReceipts answers the plan or the operator'), { code: -32003 });
       return receipts.slice(offset, offset + limit);
     }
     if (method === 'l2_getStateDigest') {
-      return { latestSequenceNumber: BigInt(receipts.length), latestBatchNumber: batches.length ? batches[batches.length - 1].batchNumber : null };
+      return {
+        latestSequenceNumber: BigInt(receipts.length),
+        latestBatchNumber: batches.length ? batches[batches.length - 1].batchNumber : null,
+      };
     }
     if (method === 'l2_getBatch') {
       const n = params.batchNumber;
@@ -137,8 +144,12 @@ function sequencer(batches: L2Batch[], receipts: L2Receipt[], { token = true }: 
     wire.push(body);
     return { text: async () => body };
   };
-  const RPC = new Function('location', 'fetch', 'EventSource', `${RPC_JS}\nreturn RPC;`)({ origin: 'http://127.0.0.1:3030' }, fetch, undefined);
-  if (token) RPC.setAdminToken(OPERATOR);                       // as the Admin tab sets it
+  const RPC = new Function('location', 'fetch', 'EventSource', `${RPC_JS}\nreturn RPC;`)(
+    { origin: 'http://127.0.0.1:3030' },
+    fetch,
+    undefined,
+  );
+  if (token) RPC.setAdminToken(OPERATOR); // as the Admin tab sets it
   return { RPC, wire };
 }
 
@@ -147,22 +158,46 @@ async function batchesTab(batches: L2Batch[], receipts: L2Receipt[], opts: { tok
   const { RPC, wire } = sequencer(batches, receipts, opts);
   const els: Record<string, { innerHTML: string }> = {};
   const toasts: string[] = [];
-  const load = run(liftWithCallees('loadBatches', ['$', 'toast']), {
-    RPC, $: (id: string) => (els[id] = els[id] ?? { innerHTML: '' }), toast: (m: string) => { toasts.push(m); },
-  }, 'loadBatches');
+  const load = run(
+    liftWithCallees('loadBatches', ['$', 'toast']),
+    {
+      RPC,
+      $: (id: string) => (els[id] = els[id] ?? { innerHTML: '' }),
+      toast: (m: string) => {
+        toasts.push(m);
+      },
+    },
+    'loadBatches',
+  );
   await load();
   expect(toasts).toEqual([]);
-  return { batchTable: String(els['batch-table'].innerHTML), receiptTable: String(els['receipt-table'].innerHTML), stats: String(els['batch-stats'].innerHTML), wire };
+  return {
+    batchTable: String(els['batch-table'].innerHTML),
+    receiptTable: String(els['receipt-table'].innerHTML),
+    stats: String(els['batch-stats'].innerHTML),
+    wire,
+  };
 }
 
 /** The batch window, opened as a row of the Batches table opens it: with the batch number as a number. */
-async function batchWindow(batches: L2Batch[], receipts: L2Receipt[], batchNumber: number, opts: { token?: boolean } = {}): Promise<string> {
+async function batchWindow(
+  batches: L2Batch[],
+  receipts: L2Receipt[],
+  batchNumber: number,
+  opts: { token?: boolean } = {},
+): Promise<string> {
   const { RPC } = sequencer(batches, receipts, opts);
-  const batchCache = await RPC.getBatches(5);                    // as loadBatchCache keeps it
+  const batchCache = await RPC.getBatches(5); // as loadBatchCache keeps it
   const els: Record<string, any> = {};
-  const show = run(liftWithCallees('showBatchDetail', ['$']), {
-    RPC, batchCache, $: (id: string) => (els[id] = els[id] ?? { id, style: {}, innerHTML: '', textContent: '' }),
-  }, 'showBatchDetail');
+  const show = run(
+    liftWithCallees('showBatchDetail', ['$']),
+    {
+      RPC,
+      batchCache,
+      $: (id: string) => (els[id] = els[id] ?? { id, style: {}, innerHTML: '', textContent: '' }),
+    },
+    'showBatchDetail',
+  );
   await show(batchNumber);
   return String(els['bm-body'].innerHTML);
 }
@@ -196,34 +231,138 @@ const AUDIT = [
   '7718293746501928374650192837465019283746501928374650192837465019283746501977',
   '26601928374650192837465019283746501928374650192837465019283746501928374650130',
 ];
-const CLAIMS = ['22704163598314276251864937095512836140278953642019876543210987654321012345678', '5530912876543210987654321098765432109876543210987654321098765432109876543219'];
+const CLAIMS = [
+  '22704163598314276251864937095512836140278953642019876543210987654321012345678',
+  '5530912876543210987654321098765432109876543210987654321098765432109876543219',
+];
 const MESSAGES = '18827465019283746501928374650192837465019283746501928374650192837465019283700';
 const PROVIDERS = '9902837465019283746501928374650192837465019283746501928374650192837465019281';
-const PROOF = JSON.stringify({ publicInput: [], publicOutput: [R[0], R[2], L[0], L[2], '2', '2'], maxProofsVerified: 2, proof: 'KChzdGF0ZW1lbnQgKHByb29mLXN5c3RlbSkp' });
+const PROOF = JSON.stringify({
+  publicInput: [],
+  publicOutput: [R[0], R[2], L[0], L[2], '2', '2'],
+  maxProofsVerified: 2,
+  proof: 'KChzdGF0ZW1lbnQgKHByb29mLXN5c3RlbSkp',
+});
 const T0 = Date.UTC(2026, 9, 19, 14, 2, 11);
 
 const receipts: L2Receipt[] = [
-  { receiptId: 'l2-00000000', walletId: INSURER, sequenceNumber: 0n, oldRegistryRoot: R[0], newRegistryRoot: R[1], oldLifecycleRoot: L[0], newLifecycleRoot: L[1],
-    isRegistration: true, l2BlockNumber: 0n, acceptedAt: T0, l1Status: 'settled', l1BatchNumber: 0n, auditEventHash: AUDIT[0] },
-  { receiptId: 'l2-00000001', walletId: PHARMACY, sequenceNumber: 1n, oldRegistryRoot: R[1], newRegistryRoot: R[2], oldLifecycleRoot: L[1], newLifecycleRoot: L[2],
-    isRegistration: true, l2BlockNumber: 0n, acceptedAt: T0 + 4_000, l1Status: 'settled', l1BatchNumber: 0n, auditEventHash: AUDIT[1] },
-  { receiptId: 'l2-00000002', walletId: AVERY, sequenceNumber: 2n, oldRegistryRoot: R[2], newRegistryRoot: R[3], oldLifecycleRoot: L[2], newLifecycleRoot: L[3],
-    isRegistration: true, l2BlockNumber: 1n, acceptedAt: T0 + 95_000, l1Status: 'settled', l1BatchNumber: 1n, auditEventHash: AUDIT[2] },
+  {
+    receiptId: 'l2-00000000',
+    walletId: INSURER,
+    sequenceNumber: 0n,
+    oldRegistryRoot: R[0],
+    newRegistryRoot: R[1],
+    oldLifecycleRoot: L[0],
+    newLifecycleRoot: L[1],
+    isRegistration: true,
+    l2BlockNumber: 0n,
+    acceptedAt: T0,
+    l1Status: 'settled',
+    l1BatchNumber: 0n,
+    auditEventHash: AUDIT[0],
+  },
+  {
+    receiptId: 'l2-00000001',
+    walletId: PHARMACY,
+    sequenceNumber: 1n,
+    oldRegistryRoot: R[1],
+    newRegistryRoot: R[2],
+    oldLifecycleRoot: L[1],
+    newLifecycleRoot: L[2],
+    isRegistration: true,
+    l2BlockNumber: 0n,
+    acceptedAt: T0 + 4_000,
+    l1Status: 'settled',
+    l1BatchNumber: 0n,
+    auditEventHash: AUDIT[1],
+  },
+  {
+    receiptId: 'l2-00000002',
+    walletId: AVERY,
+    sequenceNumber: 2n,
+    oldRegistryRoot: R[2],
+    newRegistryRoot: R[3],
+    oldLifecycleRoot: L[2],
+    newLifecycleRoot: L[3],
+    isRegistration: true,
+    l2BlockNumber: 1n,
+    acceptedAt: T0 + 95_000,
+    l1Status: 'settled',
+    l1BatchNumber: 1n,
+    auditEventHash: AUDIT[2],
+  },
   // Avery's wallet update for the claim
-  { receiptId: 'l2-00000003', walletId: AVERY, sequenceNumber: 3n, oldRegistryRoot: R[3], newRegistryRoot: R[4], oldLifecycleRoot: L[3], newLifecycleRoot: L[4],
-    isRegistration: false, l2BlockNumber: 1n, acceptedAt: T0 + 96_000, l1Status: 'settled', l1BatchNumber: 1n, auditEventHash: AUDIT[3], claimLeafIndex: 0n },
+  {
+    receiptId: 'l2-00000003',
+    walletId: AVERY,
+    sequenceNumber: 3n,
+    oldRegistryRoot: R[3],
+    newRegistryRoot: R[4],
+    oldLifecycleRoot: L[3],
+    newLifecycleRoot: L[4],
+    isRegistration: false,
+    l2BlockNumber: 1n,
+    acceptedAt: T0 + 96_000,
+    l1Status: 'settled',
+    l1BatchNumber: 1n,
+    auditEventHash: AUDIT[3],
+    claimLeafIndex: 0n,
+  },
   // accepted and not batched yet: no block, no batch
-  { receiptId: 'l2-00000004', walletId: AVERY, sequenceNumber: 4n, oldRegistryRoot: R[4], newRegistryRoot: R[5], oldLifecycleRoot: L[4], newLifecycleRoot: L[5],
-    isRegistration: false, acceptedAt: T0 + 140_000, l1Status: 'pending', auditEventHash: AUDIT[4] },
+  {
+    receiptId: 'l2-00000004',
+    walletId: AVERY,
+    sequenceNumber: 4n,
+    oldRegistryRoot: R[4],
+    newRegistryRoot: R[5],
+    oldLifecycleRoot: L[4],
+    newLifecycleRoot: L[5],
+    isRegistration: false,
+    acceptedAt: T0 + 140_000,
+    l1Status: 'pending',
+    auditEventHash: AUDIT[4],
+  },
 ];
 // L2-only: settled when built; no chain proof runs, so no globalStateRoot or blockHeight
 const batches: L2Batch[] = [
-  { batchNumber: 0n, blockNumbers: [0n], registrationCount: 2, transitionCount: 2, oldRegistryRoot: R[0], newRegistryRoot: R[2], oldLifecycleRoot: L[0], newLifecycleRoot: L[2],
-    batchProofJson: PROOF, createdAt: T0 + 30_000, l1Status: 'settled', l1TxHash: 'l2-final-0', claimAccumulatorRoot: CLAIMS[0], messageStoreRoot: MESSAGES,
-    providerRegistryRoot: PROVIDERS, workerId: 0, proveTimeMs: 41_250 },
-  { batchNumber: 1n, blockNumbers: [1n], registrationCount: 1, transitionCount: 2, oldRegistryRoot: R[2], newRegistryRoot: R[4], oldLifecycleRoot: L[2], newLifecycleRoot: L[4],
-    batchProofJson: PROOF, createdAt: T0 + 120_000, l1Status: 'settled', l1TxHash: 'l2-final-1', claimAccumulatorRoot: CLAIMS[1], messageStoreRoot: MESSAGES,
-    providerRegistryRoot: PROVIDERS, workerId: 1, proveTimeMs: 38_900 },
+  {
+    batchNumber: 0n,
+    blockNumbers: [0n],
+    registrationCount: 2,
+    transitionCount: 2,
+    oldRegistryRoot: R[0],
+    newRegistryRoot: R[2],
+    oldLifecycleRoot: L[0],
+    newLifecycleRoot: L[2],
+    batchProofJson: PROOF,
+    createdAt: T0 + 30_000,
+    l1Status: 'settled',
+    l1TxHash: 'l2-final-0',
+    claimAccumulatorRoot: CLAIMS[0],
+    messageStoreRoot: MESSAGES,
+    providerRegistryRoot: PROVIDERS,
+    workerId: 0,
+    proveTimeMs: 41_250,
+  },
+  {
+    batchNumber: 1n,
+    blockNumbers: [1n],
+    registrationCount: 1,
+    transitionCount: 2,
+    oldRegistryRoot: R[2],
+    newRegistryRoot: R[4],
+    oldLifecycleRoot: L[2],
+    newLifecycleRoot: L[4],
+    batchProofJson: PROOF,
+    createdAt: T0 + 120_000,
+    l1Status: 'settled',
+    l1TxHash: 'l2-final-1',
+    claimAccumulatorRoot: CLAIMS[1],
+    messageStoreRoot: MESSAGES,
+    providerRegistryRoot: PROVIDERS,
+    workerId: 1,
+    proveTimeMs: 38_900,
+  },
 ];
 
 /** app.js's shortHash */
@@ -233,79 +372,98 @@ const hash = (h: string) => `<span class="hash">${short(h)}</span>`;
 const time = (t: number) => new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const SETTLED = '<span class="badge badge-ready">settled</span>';
 /** The body rows of a table, each as its cells' inner HTML. */
-const rows = (html: string): string[][] => html.split('<tr').slice(1).filter((r) => r.includes('<td'))
-  .map((r) => [...r.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((m) => m[1]));
+const rows = (html: string): string[][] =>
+  html
+    .split('<tr')
+    .slice(1)
+    .filter((r) => r.includes('<td'))
+    .map((r) => [...r.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((m) => m[1]));
 const text = (html: string) => html.replace(/<[^>]*>/g, '');
 
 describe('the Batches & Receipts tab reads the batches and receipts the sequencer sends', () => {
-  test('Recent Receipts: each receipt\'s ID, status, wallet, batch number and time, newest first', async () => {
+  test("Recent Receipts: each receipt's ID, status, wallet, batch number and time, newest first", async () => {
     const tab = await batchesTab(batches, receipts);
     expect(tab.wire.join(NL)).toContain('"receiptId":"l2-00000003","walletId":"' + AVERY + '","sequenceNumber":"__bigint__:3"');
     expect(rows(tab.receiptTable)).toEqual([
-      ['l2-00000004', '<span class="badge badge-pending">pending</span>', hash(AVERY), '--', time(T0 + 140_000)],   // before: last
-      ['l2-00000003', SETTLED, hash(AVERY), '#1', time(T0 + 96_000)],                          // before: ['--', ..., '--', ...]
+      ['l2-00000004', '<span class="badge badge-pending">pending</span>', hash(AVERY), '--', time(T0 + 140_000)], // before: last
+      ['l2-00000003', SETTLED, hash(AVERY), '#1', time(T0 + 96_000)], // before: ['--', ..., '--', ...]
       ['l2-00000002', SETTLED, hash(AVERY), '#1', time(T0 + 95_000)],
       ['l2-00000001', SETTLED, hash(PHARMACY), '#0', time(T0 + 4_000)],
       ['l2-00000000', SETTLED, hash(INSURER), '#0', time(T0)],
     ]);
   });
 
-  test('Batches: each batch\'s number, status, proof count, the registry root it settles to, and time', async () => {
+  test("Batches: each batch's number, status, proof count, the registry root it settles to, and time", async () => {
     const tab = await batchesTab(batches, receipts);
-    expect(tab.batchTable).toContain('<th>Registry Root</th>');                                 // before: Root
+    expect(tab.batchTable).toContain('<th>Registry Root</th>'); // before: Root
     const got = rows(tab.batchTable);
-    expect(got.map((cells) => text(cells[0]).replace(/^#/, ''))).toEqual(['1', '0']);                       // newest first
+    expect(got.map((cells) => text(cells[0]).replace(/^#/, ''))).toEqual(['1', '0']); // newest first
     expect(got.map((cells) => cells.slice(1))).toEqual([
       [SETTLED, '2', hash(R[4]), time(T0 + 120_000)],
-      [SETTLED, '2', hash(R[2]), time(T0 + 30_000)],                                          // before: the root was "--"
+      [SETTLED, '2', hash(R[2]), time(T0 + 30_000)], // before: the root was "--"
     ]);
     expect(tab.batchTable).not.toContain('<span class="hash">--</span>');
   });
 
   test('a batch with no proofs shows 0, and a status the sequencer may send has its own badge', async () => {
-    const empty: L2Batch = { ...batches[0], batchNumber: 2n, blockNumbers: [], registrationCount: 0, transitionCount: 0, batchProofJson: '', l1TxHash: 'empty-2' };
+    const empty: L2Batch = {
+      ...batches[0],
+      batchNumber: 2n,
+      blockNumbers: [],
+      registrationCount: 0,
+      transitionCount: 0,
+      batchProofJson: '',
+      l1TxHash: 'empty-2',
+    };
     const inFlight: L2Batch = { ...batches[1], batchNumber: 3n, l1Status: 'batched' };
     const failed: L2Batch = { ...batches[1], batchNumber: 4n, l1Status: 'failed', failureReason: 'proving failed' };
     const got = rows((await batchesTab([empty, inFlight, failed], [])).batchTable);
     expect(got.map((cells) => cells.slice(1, 3))).toEqual([
       ['<span class="badge badge-error">failed</span>', '2'],
       ['<span class="badge badge-info">batched</span>', '2'],
-      [SETTLED, '0'],                                                                          // before: "--"
+      [SETTLED, '0'], // before: "--"
     ]);
   });
 });
 
 describe('the receipt lists answer the operator, and say so when refused', () => {
   test('more than thirty receipts: the thirty newest, newest first, as one page holds every receipt the sequencer keeps', async () => {
-    const many: L2Receipt[] = Array.from({ length: 40 }, (_, n) => ({ ...receipts[4], receiptId: `l2-${String(n).padStart(8, '0')}`, sequenceNumber: BigInt(n), acceptedAt: T0 + n * 1000 }));
+    const many: L2Receipt[] = Array.from({ length: 40 }, (_, n) => ({
+      ...receipts[4],
+      receiptId: `l2-${String(n).padStart(8, '0')}`,
+      sequenceNumber: BigInt(n),
+      acceptedAt: T0 + n * 1000,
+    }));
     const got = rows((await batchesTab(batches, many)).receiptTable).map((cells) => cells[0]);
     expect(got.length).toBe(30);
-    expect(got.slice(0, 2)).toEqual(['l2-00000039', 'l2-00000038']);                             // before: l2-00000000 first
+    expect(got.slice(0, 2)).toEqual(['l2-00000039', 'l2-00000038']); // before: l2-00000000 first
     expect(got[29]).toBe('l2-00000010');
   });
 
   test('without the operator\'s token the lists say why they are empty, not "No receipts"', async () => {
     const tab = await batchesTab(batches, receipts, { token: false });
-    expect(text(tab.receiptTable)).toBe('Receipts answer the plan or the operator: set the operator token on the Admin tab');   // before: No receipts
+    expect(text(tab.receiptTable)).toBe('Receipts answer the plan or the operator: set the operator token on the Admin tab'); // before: No receipts
     expect(tab.stats).toContain('<span class="stat-label">Receipts</span><span class="stat-value">--</span>');
-    expect(rows(tab.batchTable).length).toBe(2);                                                   // the batches still answer
+    expect(rows(tab.batchTable).length).toBe(2); // the batches still answer
     const body = await batchWindow(batches, receipts, 1, { token: false });
-    expect(body).toContain('Receipts answer the plan or the operator');                           // before: No receipts found for this batch
+    expect(body).toContain('Receipts answer the plan or the operator'); // before: No receipts found for this batch
     expect(body).not.toContain('No receipts found for this batch');
   });
 });
 
-describe('the batch window lists a batch\'s receipts by their own fields', () => {
-  test('the receipts whose l1BatchNumber is the batch\'s number, each with its ID, status, wallet, sequence number, roots and claim leaf', async () => {
+describe("the batch window lists a batch's receipts by their own fields", () => {
+  test("the receipts whose l1BatchNumber is the batch's number, each with its ID, status, wallet, sequence number, roots and claim leaf", async () => {
     const body = await batchWindow(batches, receipts, 1);
     expect([...body.matchAll(/<span class="bm-receipt-id">(.*?)<\/span>/g)].map((m) => m[1])).toEqual(['l2-00000002', 'l2-00000003']);
     expect(body).toContain('Transactions (2)');
     expect(body).toContain('<span class="bm-badge bm-receipt-badge settled">settled</span>');
-    expect(body).toContain(`<span>Wallet: <b class="bm-hash">${short(AVERY)}</b></span><span>Seq: <b>3</b></span><span>Type: <b>Transition</b></span>`);
+    expect(body).toContain(
+      `<span>Wallet: <b class="bm-hash">${short(AVERY)}</b></span><span>Seq: <b>3</b></span><span>Type: <b>Transition</b></span>`,
+    );
     expect(body).toContain(`<b class="bm-hash">${short(R[3])}</b><span class="bm-arrow">→</span><b class="bm-hash">${short(R[4])}</b>`);
     expect(body).toContain(`<span>Audit Hash: <b class="bm-hash">${short(AUDIT[3])}</b></span>`);
     expect(body).toContain('<span>Claim Leaf: <b>0</b></span>');
-    expect(await batchWindow(batches, receipts, 0)).toContain('Transactions (2)');           // batch 0: the two registrations
+    expect(await batchWindow(batches, receipts, 0)).toContain('Transactions (2)'); // batch 0: the two registrations
   });
 });
 
@@ -315,62 +473,102 @@ describe('every value from the network is escaped', () => {
   const MARKUP = '<img src=x onerror=steal()>';
   const STATUS = 'settled" onmouseover="steal()';
   const hostileReceipt = {
-    ...receipts[3], receiptId: MARKUP, l1Status: STATUS, walletId: MARKUP + '7'.repeat(50), sequenceNumber: MARKUP,
-    oldRegistryRoot: MARKUP + '1'.repeat(50), newRegistryRoot: MARKUP + '2'.repeat(50), auditEventHash: MARKUP + '3'.repeat(50), claimLeafIndex: MARKUP,
+    ...receipts[3],
+    receiptId: MARKUP,
+    l1Status: STATUS,
+    walletId: MARKUP + '7'.repeat(50),
+    sequenceNumber: MARKUP,
+    oldRegistryRoot: MARKUP + '1'.repeat(50),
+    newRegistryRoot: MARKUP + '2'.repeat(50),
+    auditEventHash: MARKUP + '3'.repeat(50),
+    claimLeafIndex: MARKUP,
   } as unknown as L2Receipt;
-  const hostileBatch = { ...batches[1], l1Status: STATUS, transitionCount: MARKUP, newRegistryRoot: MARKUP + '4'.repeat(50) } as unknown as L2Batch;
+  const hostileBatch = {
+    ...batches[1],
+    l1Status: STATUS,
+    transitionCount: MARKUP,
+    newRegistryRoot: MARKUP + '4'.repeat(50),
+  } as unknown as L2Batch;
   const handlers = (html: string) => (html.match(/<[^>]*>/g) ?? []).filter((tag) => /\bon(error|load|mouseover)=/.test(tag));
   // a status badge as drawn: its class, and its text as the browser reads it, whatever entities the page chose
-  const decode = (t: string) => t.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  const badge = (html: string) => { const m = /^<span class="([^"]*)">([^<]*)<\/span>$/.exec(html); return m && { cls: m[1], text: decode(m[2]) }; };
+  const decode = (t: string) =>
+    t
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  const badge = (html: string) => {
+    const m = /^<span class="([^"]*)">([^<]*)<\/span>$/.exec(html);
+    return m && { cls: m[1], text: decode(m[2]) };
+  };
 
   test('in both tables', async () => {
-    const tab = await batchesTab([batches[0], hostileBatch], [receipts[0], hostileReceipt, { ...receipts[4], l1BatchNumber: '1' + MARKUP } as unknown as L2Receipt]);
+    const tab = await batchesTab(
+      [batches[0], hostileBatch],
+      [receipts[0], hostileReceipt, { ...receipts[4], l1BatchNumber: '1' + MARKUP } as unknown as L2Receipt],
+    );
     for (const html of [tab.batchTable, tab.receiptTable]) {
-      expect(html).not.toContain('<img');                                                      // before: the proof count and the wallet
+      expect(html).not.toContain('<img'); // before: the proof count and the wallet
       expect(handlers(html)).toEqual([]);
     }
     const [id, status] = rows(tab.receiptTable)[1];
     expect(id).toBe('&lt;img src=x onerror=steal()&gt;');
-    expect(badge(status)).toEqual({ cls: 'badge badge-pending', text: STATUS });              // a fixed class; the status only as text
+    expect(badge(status)).toEqual({ cls: 'badge badge-pending', text: STATUS }); // a fixed class; the status only as text
     expect(rows(tab.receiptTable)[2][3]).toBe('#1&lt;img src=x onerror=steal()&gt;');
     const [, batchStatus, proofs, root] = rows(tab.batchTable)[0];
     expect(badge(batchStatus)).toEqual({ cls: 'badge badge-pending', text: STATUS });
     expect([proofs, root]).toEqual(['&lt;img src=x onerror=steal()&gt;', '<span class="hash">&lt;img src…444444</span>']);
   });
 
-  test('in the batch window\'s receipt list, and the status names no class it was not given', async () => {
+  test("in the batch window's receipt list, and the status names no class it was not given", async () => {
     const body = await batchWindow(batches, [receipts[2], hostileReceipt], 1);
     const list = body.slice(body.indexOf('Transactions ('));
-    expect(list).not.toContain('<img');                                                        // before: the sequence number, claim leaf and hashes
-    expect(handlers(list)).toEqual([]);                                                        // before: class="bm-badge bm-receipt-badge settled" onmouseover="steal()"
+    expect(list).not.toContain('<img'); // before: the sequence number, claim leaf and hashes
+    expect(handlers(list)).toEqual([]); // before: class="bm-badge bm-receipt-badge settled" onmouseover="steal()"
     const head = /<span class="bm-receipt-id">&lt;img src=x onerror=steal\(\)&gt;<\/span>(<span class="[^"]*">[^<]*<\/span>)/.exec(list);
     expect(head && badge(head[1])).toEqual({ cls: 'bm-badge bm-receipt-badge ', text: STATUS });
     expect(list).toContain('<span>Seq: <b>&lt;img src=x onerror=steal()&gt;</b></span>');
     expect(list).toContain('<span>Claim Leaf: <b>&lt;img src=x onerror=steal()&gt;</b></span>');
-    expect(list).toContain('<span class="bm-badge bm-receipt-badge settled">settled</span>');  // Avery's registration, untouched
+    expect(list).toContain('<span class="bm-badge bm-receipt-badge settled">settled</span>'); // Avery's registration, untouched
   });
 
-  test('in the batch window\'s own fields, and the status names a class only from the sequencer\'s four', async () => {
-    const hostile = { ...batches[1], l1Status: STATUS, registrationCount: MARKUP, workerId: MARKUP, blockHeight: MARKUP, globalStateRoot: MARKUP,
-      claimAccumulatorRoot: MARKUP + '5'.repeat(50), oldRegistryRoot: MARKUP + '6'.repeat(50) } as unknown as L2Batch;
+  test("in the batch window's own fields, and the status names a class only from the sequencer's four", async () => {
+    const hostile = {
+      ...batches[1],
+      l1Status: STATUS,
+      registrationCount: MARKUP,
+      workerId: MARKUP,
+      blockHeight: MARKUP,
+      globalStateRoot: MARKUP,
+      claimAccumulatorRoot: MARKUP + '5'.repeat(50),
+      oldRegistryRoot: MARKUP + '6'.repeat(50),
+    } as unknown as L2Batch;
     const body = await batchWindow([batches[0], hostile], receipts, 1);
     const overview = body.slice(0, body.indexOf('Transactions ('));
-    expect(overview).not.toContain('<img');                                                     // before: every one of those fields
+    expect(overview).not.toContain('<img'); // before: every one of those fields
     expect(handlers(overview)).toEqual([]);
     const status = /<span class="bm-label">Status<\/span><span class="bm-value">(<span class="[^"]*">[^<]*<\/span>)/.exec(overview);
     expect(status && badge(status[1])).toEqual({ cls: 'bm-badge ', text: STATUS });
   });
 
-  test('in the Overview\'s batch pipeline', () => {
+  test("in the Overview's batch pipeline", () => {
     const list = { innerHTML: '' };
-    run([lift('statusClass'), lift('escHtml'), lift('renderBatchPanel')], {
-      $: () => list, fmtTime: () => '12:00:00',
-      batchCache: [{ batchNumber: '1', l1Status: STATUS, transitionCount: MARKUP }, { batchNumber: '0', l1Status: 'settled', transitionCount: 2 }],
-    }, 'renderBatchPanel')();
+    run(
+      [lift('statusClass'), lift('escHtml'), lift('renderBatchPanel')],
+      {
+        $: () => list,
+        fmtTime: () => '12:00:00',
+        batchCache: [
+          { batchNumber: '1', l1Status: STATUS, transitionCount: MARKUP },
+          { batchNumber: '0', l1Status: 'settled', transitionCount: 2 },
+        ],
+      },
+      'renderBatchPanel',
+    )();
     expect(list.innerHTML).not.toContain('<img');
-    expect(handlers(list.innerHTML)).toEqual([]);                                                // before: class="cc-batch-status settled" onmouseover=...
-    expect(list.innerHTML).toContain('<div class="cc-batch-item " data-batch="1">');           // no class from the network
+    expect(handlers(list.innerHTML)).toEqual([]); // before: class="cc-batch-status settled" onmouseover=...
+    expect(list.innerHTML).toContain('<div class="cc-batch-item " data-batch="1">'); // no class from the network
     expect(list.innerHTML).toContain('<div class="cc-batch-item settled" data-batch="0">');
   });
 });
@@ -387,13 +585,15 @@ describe('the fields are the ones the server declares', () => {
   test('the answers above carry only fields of L2Receipt and L2Batch, and the page reads no receipt field L2Receipt lacks', () => {
     const receiptFields = declared('L2Receipt');
     const batchFields = declared('L2Batch');
-    expect(receiptFields).toEqual(expect.arrayContaining(['receiptId', 'l1Status', 'walletId', 'l1BatchNumber', 'acceptedAt', 'sequenceNumber']));
+    expect(receiptFields).toEqual(
+      expect.arrayContaining(['receiptId', 'l1Status', 'walletId', 'l1BatchNumber', 'acceptedAt', 'sequenceNumber']),
+    );
     expect(batchFields).toEqual(expect.arrayContaining(['batchNumber', 'l1Status', 'transitionCount', 'newRegistryRoot', 'createdAt']));
-    expect(batchFields.filter((f) => f === 'stateRoot' || f === 'settlementRoot')).toEqual([]);   // what the Root column read
+    expect(batchFields.filter((f) => f === 'stateRoot' || f === 'settlementRoot')).toEqual([]); // what the Root column read
     for (const r of receipts) expect(Object.keys(r).filter((k) => !receiptFields.includes(k))).toEqual([]);
     for (const b of batches) expect(Object.keys(b).filter((k) => !batchFields.includes(k))).toEqual([]);
     // every r.<field> in the Recent Receipts rows and the batch window's receipt list
     const reads = new Set([...(lift('loadBatches') + lift('showBatchDetail')).matchAll(/\br\.(\w+)/g)].map((m) => m[1]));
-    expect([...reads].filter((f) => !receiptFields.includes(f))).toEqual([]);                  // before: id, status, batchIndex, timestamp, seqNum
+    expect([...reads].filter((f) => !receiptFields.includes(f))).toEqual([]); // before: id, status, batchIndex, timestamp, seqNum
   });
 });

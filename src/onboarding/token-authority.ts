@@ -16,10 +16,7 @@
 
 import { Field } from 'o1js';
 import { createHmac, timingSafeEqual } from 'crypto';
-import {
-  GroupEnrollmentToken,
-  buildGroupEnrollmentToken,
-} from './group-enrollment-token.js';
+import { GroupEnrollmentToken, buildGroupEnrollmentToken } from './group-enrollment-token.js';
 import type { GroupEnrollmentTokenLocalData } from './group-enrollment-token.js';
 import { generateEnrollmentCode } from './enrollment-code.js';
 import { hashString } from '../zkp/hash-utils.js';
@@ -100,7 +97,16 @@ export interface TokenRecord {
 /** What became of an invite (inviteStatusOf): a record's status, or locked by wrong PINs (A-109 notices). */
 export type InviteStatus = TokenRecord['status'] | 'locked';
 
-const TOKEN_FIELDS = ['tokenIdHash', 'groupIdHash', 'planIdHash', 'employeeIdHash', 'familyIdHash', 'validUntil', 'issuerHash', 'nonce'] as const;
+const TOKEN_FIELDS = [
+  'tokenIdHash',
+  'groupIdHash',
+  'planIdHash',
+  'employeeIdHash',
+  'familyIdHash',
+  'validUntil',
+  'issuerHash',
+  'nonce',
+] as const;
 
 /**
  * An invite as the employer node's sealed store keeps it (A-136): the record without the wallet that used it (I6; only
@@ -188,7 +194,10 @@ export class TokenAuthority {
 
   /** What changed since the last call (A-136), for the employer node to write to its store in one entry. */
   takeChanges(): { invites: StoredInvite[]; nonceCounter: number | null } {
-    const invites = [...this.changed].map((h) => this.tokens.get(h)).filter((r): r is TokenRecord => !!r).map(storedInviteOf);
+    const invites = [...this.changed]
+      .map((h) => this.tokens.get(h))
+      .filter((r): r is TokenRecord => !!r)
+      .map(storedInviteOf);
     const nonceCounter = this.nonceChanged ? this.nonceCounter : null;
     this.changed.clear();
     this.nonceChanged = false;
@@ -257,7 +266,7 @@ export class TokenAuthority {
       groupId,
       planId,
       employeeId: employeeIdHash, // Pre-hashed — no plaintext
-      familyId: familyIdHash,     // Pre-hashed — no plaintext
+      familyId: familyIdHash, // Pre-hashed — no plaintext
       validUntil,
       issuer: this.issuer,
       nonce,
@@ -294,10 +303,7 @@ export class TokenAuthority {
    * @param tokenId — the token ID to validate
    * @param currentDate — current date as CCYYMMDD string
    */
-  validateToken(
-    tokenId: string,
-    currentDate: string,
-  ): TokenValidationResult {
+  validateToken(tokenId: string, currentDate: string): TokenValidationResult {
     const record = this.tokens.get(TokenAuthority.fingerprintOf(tokenId));
     if (!record) {
       return { valid: false, reason: 'Token not found' };
@@ -407,11 +413,7 @@ export class TokenAuthority {
    * @param currentDate — current date as CCYYMMDD
    * @param tokenPinHash — Poseidon(tokenId + PIN) computed by the member's device
    */
-  validateTokenWithPin(
-    tokenId: string,
-    currentDate: string,
-    tokenPinHash?: string,
-  ): TokenValidationResult {
+  validateTokenWithPin(tokenId: string, currentDate: string, tokenPinHash?: string): TokenValidationResult {
     const baseResult = this.validateToken(tokenId, currentDate);
     if (!baseResult.valid) return baseResult;
 

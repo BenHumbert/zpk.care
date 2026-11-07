@@ -59,27 +59,15 @@ import {
 } from '../src/messaging/aor-data.js';
 import type { AorLocalData } from '../src/messaging/aor-data.js';
 import { AorService } from '../src/messaging/aor-service.js';
-import {
-  buildRepEnrollmentToken,
-} from '../src/onboarding/rep-enrollment-token.js';
-import {
-  MessageRegistry,
-  DelegationRegistry,
-  KeyRegistry,
-  computeMessagingRoot,
-} from '../src/messaging/message-registry.js';
+import { buildRepEnrollmentToken } from '../src/onboarding/rep-enrollment-token.js';
+import { MessageRegistry, DelegationRegistry, KeyRegistry, computeMessagingRoot } from '../src/messaging/message-registry.js';
 import { MessageData } from '../src/messaging/message-data.js';
 import { MessagingService } from '../src/messaging/messaging-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  secureRepresentativeDerivation,
-} from '../src/security/secure-context.js';
+import { secureRepresentativeDerivation } from '../src/security/secure-context.js';
 import { isScrubbed } from '../src/security/secure-scrub.js';
 import { hashString, dateToField, codeToField } from '../src/zkp/hash-utils.js';
-import {
-  serializeDelegationCredential,
-  deserializeDelegationCredential,
-} from '../src/credentials/portable-credential.js';
+import { serializeDelegationCredential, deserializeDelegationCredential } from '../src/credentials/portable-credential.js';
 
 // ─── Test Data ───────────────────────────────────────────────
 
@@ -111,7 +99,7 @@ function makeAorSection1(): Partial<AorLocalData> {
 
 function makeFullAor(): AorLocalData {
   return {
-    ...makeAorSection1() as AorLocalData,
+    ...(makeAorSection1() as AorLocalData),
     repFullName: 'Jane B. Smith, Esq.',
     repProfessionalStatus: 'Attorney',
     repPhone: '555-0200',
@@ -152,18 +140,8 @@ describe('Representative Wallet Derivation', () => {
 
   test('domain tag 3 prevents collision with member domain tag 0', () => {
     // Even if qualifier and id hash are the same, domain tag differs
-    const repId = Poseidon.hash([
-      DOMAIN_TAG_REPRESENTATIVE,
-      codeToField(1),
-      hashString('TEST-ID'),
-      hashString(ENROLLMENT_KEY),
-    ]);
-    const memberId = Poseidon.hash([
-      DOMAIN_TAG_MEMBER,
-      codeToField(1),
-      hashString('TEST-ID'),
-      hashString(ENROLLMENT_KEY),
-    ]);
+    const repId = Poseidon.hash([DOMAIN_TAG_REPRESENTATIVE, codeToField(1), hashString('TEST-ID'), hashString(ENROLLMENT_KEY)]);
+    const memberId = Poseidon.hash([DOMAIN_TAG_MEMBER, codeToField(1), hashString('TEST-ID'), hashString(ENROLLMENT_KEY)]);
     expect(repId.toString()).not.toBe(memberId.toString());
   });
 
@@ -180,9 +158,7 @@ describe('Representative Wallet Derivation', () => {
   });
 
   test('rejects weak enrollment key', () => {
-    expect(() => deriveRepresentativeWalletId(REP_LOCAL, 'short')).toThrow(
-      'at least 16 characters',
-    );
+    expect(() => deriveRepresentativeWalletId(REP_LOCAL, 'short')).toThrow('at least 16 characters');
   });
 });
 
@@ -202,8 +178,8 @@ describe('AOR Document Validation', () => {
     const result = validateAorDocument(aor);
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThanOrEqual(2);
-    expect(result.errors.some(e => e.includes('Party full name'))).toBe(true);
-    expect(result.errors.some(e => e.includes('Party phone'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Party full name'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Party phone'))).toBe(true);
   });
 
   test('rejects missing Section 2 fields', () => {
@@ -212,8 +188,8 @@ describe('AOR Document Validation', () => {
     aor.repSignature = '';
     const result = validateAorDocument(aor);
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('Representative name'))).toBe(true);
-    expect(result.errors.some(e => e.includes('Representative signature'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Representative name'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Representative signature'))).toBe(true);
   });
 
   test('requires fee waiver signature when fees are waived', () => {
@@ -222,7 +198,7 @@ describe('AOR Document Validation', () => {
     aor.feeWaiverSignature = undefined;
     const result = validateAorDocument(aor);
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('Fee waiver signature'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Fee waiver signature'))).toBe(true);
   });
 
   test('requires liability waiver signature when applicable', () => {
@@ -231,7 +207,7 @@ describe('AOR Document Validation', () => {
     aor.liabilityWaiverSignature = undefined;
     const result = validateAorDocument(aor);
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.includes('Liability waiver'))).toBe(true);
+    expect(result.errors.some((e) => e.includes('Liability waiver'))).toBe(true);
   });
 
   test('accepts liability waiver when not applicable', () => {
@@ -257,44 +233,22 @@ describe('AOR Commitment', () => {
     const aor1 = makeFullAor();
     const aor2 = makeFullAor();
     aor2.repFullName = 'Different Name';
-    expect(buildAorCommitment(aor1).toString()).not.toBe(
-      buildAorCommitment(aor2).toString(),
-    );
+    expect(buildAorCommitment(aor1).toString()).not.toBe(buildAorCommitment(aor2).toString());
   });
 
   test('confirmation hash binds member to specific rep', () => {
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const hash = buildAorConfirmationHash(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      aorCommitment,
-      SCOPE_ALL,
-    );
+    const hash = buildAorConfirmationHash(MEMBER_WALLET_ID, REP_WALLET_ID, aorCommitment, SCOPE_ALL);
     // Different rep produces different hash
     const otherRepWallet = Field(11111111111111n);
-    const hash2 = buildAorConfirmationHash(
-      MEMBER_WALLET_ID,
-      otherRepWallet,
-      aorCommitment,
-      SCOPE_ALL,
-    );
+    const hash2 = buildAorConfirmationHash(MEMBER_WALLET_ID, otherRepWallet, aorCommitment, SCOPE_ALL);
     expect(hash.toString()).not.toBe(hash2.toString());
   });
 
   test('confirmation hash includes scope', () => {
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const hashAll = buildAorConfirmationHash(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      aorCommitment,
-      SCOPE_ALL,
-    );
-    const hashRead = buildAorConfirmationHash(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      aorCommitment,
-      SCOPE_READ,
-    );
+    const hashAll = buildAorConfirmationHash(MEMBER_WALLET_ID, REP_WALLET_ID, aorCommitment, SCOPE_ALL);
+    const hashRead = buildAorConfirmationHash(MEMBER_WALLET_ID, REP_WALLET_ID, aorCommitment, SCOPE_READ);
     expect(hashAll.toString()).not.toBe(hashRead.toString());
   });
 });
@@ -305,12 +259,7 @@ describe('AorService — Initiation', () => {
   test('prepareInitiation validates Section 1 and returns commitment', () => {
     const registry = new MessageRegistry();
     const aor = makeFullAor();
-    const result = AorService.prepareInitiation(
-      aor,
-      MEMBER_WALLET_ID,
-      registry,
-      Date.now(),
-    );
+    const result = AorService.prepareInitiation(aor, MEMBER_WALLET_ID, registry, Date.now());
     expect(result.validation.valid).toBe(true);
     expect(result.rateLimited).toBe(false);
     expect(result.aorCommitment.toString().length).toBeGreaterThan(0);
@@ -320,44 +269,38 @@ describe('AorService — Initiation', () => {
     const registry = new MessageRegistry();
     const now = Date.now();
     // Add a recent AOR_INITIATE message
-    registry.addMessage(new MessageData({
-      senderWalletId: MEMBER_WALLET_ID,
-      recipientWalletId: Field(0),
-      contentHash: Field(0),
-      messageType: MSG_TYPE_AOR_INITIATE,
-      timestamp: Field(BigInt(now - 1000)), // 1 second ago
-      threadId: Field(0),
-      nonce: Field(1),
-    }));
-
-    const result = AorService.prepareInitiation(
-      makeFullAor(),
-      MEMBER_WALLET_ID,
-      registry,
-      now,
+    registry.addMessage(
+      new MessageData({
+        senderWalletId: MEMBER_WALLET_ID,
+        recipientWalletId: Field(0),
+        contentHash: Field(0),
+        messageType: MSG_TYPE_AOR_INITIATE,
+        timestamp: Field(BigInt(now - 1000)), // 1 second ago
+        threadId: Field(0),
+        nonce: Field(1),
+      }),
     );
+
+    const result = AorService.prepareInitiation(makeFullAor(), MEMBER_WALLET_ID, registry, now);
     expect(result.rateLimited).toBe(true);
   });
 
   test('allows initiation when AOR_INITIATE is older than 24h', () => {
     const registry = new MessageRegistry();
     const now = Date.now();
-    registry.addMessage(new MessageData({
-      senderWalletId: MEMBER_WALLET_ID,
-      recipientWalletId: Field(0),
-      contentHash: Field(0),
-      messageType: MSG_TYPE_AOR_INITIATE,
-      timestamp: Field(BigInt(now - AOR_RATE_LIMIT_MS - 1000)),
-      threadId: Field(0),
-      nonce: Field(1),
-    }));
-
-    const result = AorService.prepareInitiation(
-      makeFullAor(),
-      MEMBER_WALLET_ID,
-      registry,
-      now,
+    registry.addMessage(
+      new MessageData({
+        senderWalletId: MEMBER_WALLET_ID,
+        recipientWalletId: Field(0),
+        contentHash: Field(0),
+        messageType: MSG_TYPE_AOR_INITIATE,
+        timestamp: Field(BigInt(now - AOR_RATE_LIMIT_MS - 1000)),
+        threadId: Field(0),
+        nonce: Field(1),
+      }),
     );
+
+    const result = AorService.prepareInitiation(makeFullAor(), MEMBER_WALLET_ID, registry, now);
     expect(result.rateLimited).toBe(false);
   });
 
@@ -365,22 +308,19 @@ describe('AorService — Initiation', () => {
     const registry = new MessageRegistry();
     const now = Date.now();
     const otherMember = Field(99999n);
-    registry.addMessage(new MessageData({
-      senderWalletId: otherMember,
-      recipientWalletId: Field(0),
-      contentHash: Field(0),
-      messageType: MSG_TYPE_AOR_INITIATE,
-      timestamp: Field(BigInt(now - 1000)),
-      threadId: Field(0),
-      nonce: Field(1),
-    }));
-
-    const result = AorService.prepareInitiation(
-      makeFullAor(),
-      MEMBER_WALLET_ID,
-      registry,
-      now,
+    registry.addMessage(
+      new MessageData({
+        senderWalletId: otherMember,
+        recipientWalletId: Field(0),
+        contentHash: Field(0),
+        messageType: MSG_TYPE_AOR_INITIATE,
+        timestamp: Field(BigInt(now - 1000)),
+        threadId: Field(0),
+        nonce: Field(1),
+      }),
     );
+
+    const result = AorService.prepareInitiation(makeFullAor(), MEMBER_WALLET_ID, registry, now);
     expect(result.rateLimited).toBe(false);
   });
 });
@@ -390,32 +330,18 @@ describe('AorService — Initiation', () => {
 describe('AorService — Delegation', () => {
   test('buildDelegation creates correct DelegationData', () => {
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const result = AorService.buildDelegation(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      SCOPE_ALL,
-      '20260115',
-      aorCommitment,
-    );
+    const result = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
 
     expect(result.delegationData.delegatorWalletId.toString()).toBe(MEMBER_WALLET_ID.toString());
     expect(result.delegationData.delegateWalletId.toString()).toBe(REP_WALLET_ID.toString());
     expect(result.delegationData.scopeFlags.toString()).toBe(SCOPE_ALL.toString());
-    expect(result.delegationData.relationshipCode.toString()).toBe(
-      REL_APPOINTED_REPRESENTATIVE.toString(),
-    );
+    expect(result.delegationData.relationshipCode.toString()).toBe(REL_APPOINTED_REPRESENTATIVE.toString());
     expect(result.delegationData.delegationHash.toString()).toBe(aorCommitment.toString());
   });
 
   test('default validity is 365 days', () => {
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const result = AorService.buildDelegation(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      SCOPE_ALL,
-      '20260115',
-      aorCommitment,
-    );
+    const result = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     // 20260115 + 365 days = 20270115
     expect(result.expirationDate).toBe('20270115');
   });
@@ -436,13 +362,7 @@ describe('AorService — Delegation', () => {
 
   test('delegation commitment is non-zero', () => {
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      SCOPE_ALL,
-      '20260115',
-      aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     expect(delegationData.commitment().toString()).not.toBe('0');
   });
 });
@@ -704,10 +624,7 @@ describe('secureRepresentativeDerivation', () => {
     const key = generateEnrollmentKey();
 
     // Direct derivation first (for comparison)
-    const directId = deriveRepresentativeWalletId(
-      { ...localData },
-      key,
-    );
+    const directId = deriveRepresentativeWalletId({ ...localData }, key);
 
     // Secure derivation
     const result = secureRepresentativeDerivation(localData, key);
@@ -725,12 +642,7 @@ describe('AorService — Full Workflow', () => {
 
     // Step 1: Member initiates
     const aor = makeFullAor();
-    const initResult = AorService.prepareInitiation(
-      aor,
-      MEMBER_WALLET_ID,
-      registry,
-      now,
-    );
+    const initResult = AorService.prepareInitiation(aor, MEMBER_WALLET_ID, registry, now);
     expect(initResult.validation.valid).toBe(true);
     expect(initResult.rateLimited).toBe(false);
 
@@ -740,28 +652,13 @@ describe('AorService — Full Workflow', () => {
 
     // Step 3: Member confirms
     const aorCommitment = buildAorCommitment(aor);
-    const confirmHash = AorService.buildConfirmationHash(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      aorCommitment,
-      SCOPE_ALL,
-    );
+    const confirmHash = AorService.buildConfirmationHash(MEMBER_WALLET_ID, REP_WALLET_ID, aorCommitment, SCOPE_ALL);
     expect(confirmHash.toString().length).toBeGreaterThan(0);
 
     // Step 4: Insurer builds delegation
-    const delResult = AorService.buildDelegation(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      SCOPE_ALL,
-      '20260115',
-      aorCommitment,
-    );
-    expect(delResult.delegationData.delegatorWalletId.toString()).toBe(
-      MEMBER_WALLET_ID.toString(),
-    );
-    expect(delResult.delegationData.delegateWalletId.toString()).toBe(
-      REP_WALLET_ID.toString(),
-    );
+    const delResult = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
+    expect(delResult.delegationData.delegatorWalletId.toString()).toBe(MEMBER_WALLET_ID.toString());
+    expect(delResult.delegationData.delegateWalletId.toString()).toBe(REP_WALLET_ID.toString());
     expect(delResult.expirationDate).toBe('20270115');
 
     // Step 5: Verify pickup not yet eligible (cool-down)
@@ -838,9 +735,7 @@ describe('DelegationRegistry — Revocation', () => {
     const found = registry.findByWallets(MEMBER_WALLET_ID, REP_WALLET_ID);
     expect(found).toBeDefined();
     expect(found!.index).toBe(index);
-    expect(found!.delegation.relationshipCode.toString()).toBe(
-      REL_APPOINTED_REPRESENTATIVE.toString(),
-    );
+    expect(found!.delegation.relationshipCode.toString()).toBe(REL_APPOINTED_REPRESENTATIVE.toString());
   });
 
   test('findByWallets returns undefined for unknown pair', () => {
@@ -870,13 +765,7 @@ describe('AorService — Revocation', () => {
   } {
     const delegationRegistry = new DelegationRegistry();
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      SCOPE_ALL,
-      '20260115',
-      aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     const { index } = delegationRegistry.addDelegation(delegationData);
     return { delegationRegistry, delegationIndex: index };
   }
@@ -945,13 +834,7 @@ describe('AorService — Revocation', () => {
   test('revocation fails for non-existent delegation', () => {
     const delegationRegistry = new DelegationRegistry();
 
-    const result = AorService.revokeAor(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      MEMBER_WALLET_ID,
-      ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    const result = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain('No active delegation');
@@ -971,13 +854,7 @@ describe('AorService — Revocation', () => {
     });
     delegationRegistry.addDelegation(spouseDelegation);
 
-    const result = AorService.revokeAor(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      MEMBER_WALLET_ID,
-      ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    const result = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
 
     expect(result.valid).toBe(false);
     expect(result.reason).toContain('not an AOR');
@@ -987,23 +864,11 @@ describe('AorService — Revocation', () => {
     const { delegationRegistry } = buildRegistryWithAor();
 
     // First revocation succeeds
-    const result1 = AorService.revokeAor(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      MEMBER_WALLET_ID,
-      ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    const result1 = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
     expect(result1.valid).toBe(true);
 
     // Second revocation fails (delegation no longer found)
-    const result2 = AorService.revokeAor(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      MEMBER_WALLET_ID,
-      ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    const result2 = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
     expect(result2.valid).toBe(false);
     expect(result2.reason).toContain('No active delegation');
   });
@@ -1015,13 +880,7 @@ describe('AorService — Revocation', () => {
     expect(AorService.isDelegationActive(delegationIndex, delegationRegistry)).toBe(true);
 
     // Revoke
-    AorService.revokeAor(
-      MEMBER_WALLET_ID,
-      REP_WALLET_ID,
-      MEMBER_WALLET_ID,
-      ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
 
     // Inactive after revocation
     expect(AorService.isDelegationActive(delegationIndex, delegationRegistry)).toBe(false);
@@ -1042,20 +901,14 @@ describe('AorService — Full Workflow with Revocation', () => {
     expect(initResult.validation.valid).toBe(true);
 
     const aorCommitment = buildAorCommitment(aor);
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     const { index: delIndex } = delegationRegistry.addDelegation(delegationData);
 
     // Delegation is active
     expect(AorService.isDelegationActive(delIndex, delegationRegistry)).toBe(true);
 
     // Step 5: Member revokes
-    const revokeResult = AorService.revokeAor(
-      MEMBER_WALLET_ID, REP_WALLET_ID,
-      MEMBER_WALLET_ID, ADMIN_WALLET_ID,
-      delegationRegistry,
-    );
+    const revokeResult = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
     expect(revokeResult.valid).toBe(true);
     expect(revokeResult.newDelegationRoot).toBeDefined();
 
@@ -1079,9 +932,7 @@ describe('MessagingService — sendRevocationNotification', () => {
 
     // Add an AOR delegation
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     const { index } = delReg.addDelegation(delegationData);
     const delegationCommitment = delegationData.commitment();
 
@@ -1102,11 +953,7 @@ describe('MessagingService — sendRevocationNotification', () => {
     );
 
     // Returns valid messagingRoot (reflects zeroed delegation + new message)
-    const expectedRoot = computeMessagingRoot(
-      msgReg.getRoot(),
-      delReg.getRoot(),
-      keyReg.getRoot(),
-    );
+    const expectedRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
     expect(result.newMessagingRoot.toString()).toBe(expectedRoot.toString());
   });
 
@@ -1114,9 +961,7 @@ describe('MessagingService — sendRevocationNotification', () => {
     const { service, delReg, index, delegationCommitment } = buildServiceWithAor();
     delReg.revokeDelegation(index);
 
-    const result = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment,
-    );
+    const result = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment);
 
     expect(result.messageData.messageType.toString()).toBe(MSG_TYPE_AOR_REVOKE.toString());
   });
@@ -1125,9 +970,7 @@ describe('MessagingService — sendRevocationNotification', () => {
     const { service, delReg, index, delegationCommitment } = buildServiceWithAor();
     delReg.revokeDelegation(index);
 
-    const result = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment,
-    );
+    const result = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment);
 
     expect(result.messageData.contentHash.toString()).toBe(delegationCommitment.toString());
   });
@@ -1136,9 +979,7 @@ describe('MessagingService — sendRevocationNotification', () => {
     const { service, delReg, index, delegationCommitment } = buildServiceWithAor();
     delReg.revokeDelegation(index);
 
-    const result = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment,
-    );
+    const result = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment);
 
     expect(result.messageData.threadId.toString()).toBe(REP_WALLET_ID.toString());
   });
@@ -1162,21 +1003,15 @@ describe('MessagingService — sendRevocationNotification', () => {
     const { service, delReg, index, delegationCommitment } = buildServiceWithAor();
     delReg.revokeDelegation(index);
 
-    const result1 = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment,
-    );
+    const result1 = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment);
     expect(result1.messageData.nonce.toString()).toBe('1');
 
     // Add and revoke another AOR to send a second notification
-    const { delegationData: del2 } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, Field(77777n), SCOPE_READ, '20260201', Field(42n),
-    );
+    const { delegationData: del2 } = AorService.buildDelegation(MEMBER_WALLET_ID, Field(77777n), SCOPE_READ, '20260201', Field(42n));
     const { index: idx2 } = delReg.addDelegation(del2);
     delReg.revokeDelegation(idx2);
 
-    const result2 = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, Field(77777n), del2.commitment(),
-    );
+    const result2 = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, Field(77777n), del2.commitment());
     expect(result2.messageData.nonce.toString()).toBe('2');
   });
 
@@ -1184,15 +1019,11 @@ describe('MessagingService — sendRevocationNotification', () => {
     const { service, msgReg, delReg, keyReg, index, delegationCommitment } = buildServiceWithAor();
 
     // Capture root before revocation
-    const rootBefore = computeMessagingRoot(
-      msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-    );
+    const rootBefore = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
     // Revoke + notify
     delReg.revokeDelegation(index);
-    const result = service.sendRevocationNotification(
-      MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment,
-    );
+    const result = service.sendRevocationNotification(MEMBER_WALLET_ID, MEMBER_WALLET_ID, REP_WALLET_ID, delegationCommitment);
 
     // Root must differ (both delegation tree AND message tree changed)
     expect(result.newMessagingRoot.toString()).not.toBe(rootBefore.toString());
@@ -1209,20 +1040,14 @@ describe('Revocation — Multi-Delegation Isolation', () => {
 
     // Create two AOR delegations for the same member
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData: delA } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, repA, SCOPE_ALL, '20260115', aorCommitment,
-    );
-    const { delegationData: delB } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, repB, SCOPE_READ, '20260115', aorCommitment,
-    );
+    const { delegationData: delA } = AorService.buildDelegation(MEMBER_WALLET_ID, repA, SCOPE_ALL, '20260115', aorCommitment);
+    const { delegationData: delB } = AorService.buildDelegation(MEMBER_WALLET_ID, repB, SCOPE_READ, '20260115', aorCommitment);
 
     const { index: idxA } = delegationRegistry.addDelegation(delA);
     const { index: idxB } = delegationRegistry.addDelegation(delB);
 
     // Revoke repA
-    const result = AorService.revokeAor(
-      MEMBER_WALLET_ID, repA, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry,
-    );
+    const result = AorService.revokeAor(MEMBER_WALLET_ID, repA, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
     expect(result.valid).toBe(true);
 
     // repA is gone
@@ -1242,20 +1067,14 @@ describe('Revocation — Multi-Delegation Isolation', () => {
     const rep = Field(88888n);
 
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData: del1 } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, rep, SCOPE_ALL, '20260115', aorCommitment,
-    );
-    const { delegationData: del2 } = AorService.buildDelegation(
-      otherMember, rep, SCOPE_ALL, '20260115', aorCommitment,
-    );
+    const { delegationData: del1 } = AorService.buildDelegation(MEMBER_WALLET_ID, rep, SCOPE_ALL, '20260115', aorCommitment);
+    const { delegationData: del2 } = AorService.buildDelegation(otherMember, rep, SCOPE_ALL, '20260115', aorCommitment);
 
     const { index: idx1 } = delegationRegistry.addDelegation(del1);
     const { index: idx2 } = delegationRegistry.addDelegation(del2);
 
     // Revoke MEMBER_WALLET_ID → rep
-    AorService.revokeAor(
-      MEMBER_WALLET_ID, rep, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry,
-    );
+    AorService.revokeAor(MEMBER_WALLET_ID, rep, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delegationRegistry);
 
     // MEMBER_WALLET_ID's delegation is gone
     expect(AorService.isDelegationActive(idx1, delegationRegistry)).toBe(false);
@@ -1276,26 +1095,18 @@ describe('Revocation — Stale Root Detection', () => {
 
     // Set up a delegation
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     delReg.addDelegation(delegationData);
 
     // Capture root at "proof generation time" (before revocation)
-    const rootAtProofTime = computeMessagingRoot(
-      msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-    );
+    const rootAtProofTime = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
     // Revoke the delegation
-    const revokeResult = AorService.revokeAor(
-      MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delReg,
-    );
+    const revokeResult = AorService.revokeAor(MEMBER_WALLET_ID, REP_WALLET_ID, MEMBER_WALLET_ID, ADMIN_WALLET_ID, delReg);
     expect(revokeResult.valid).toBe(true);
 
     // Compute root AFTER revocation (what's now on-chain)
-    const rootAfterRevocation = computeMessagingRoot(
-      msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-    );
+    const rootAfterRevocation = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
     // The roots differ — a proof with the old root is stale
     expect(rootAtProofTime.toString()).not.toBe(rootAfterRevocation.toString());
@@ -1307,17 +1118,11 @@ describe('Revocation — Stale Root Detection', () => {
     const keyReg = new KeyRegistry();
 
     const aorCommitment = buildAorCommitment(makeFullAor());
-    const { delegationData } = AorService.buildDelegation(
-      MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment,
-    );
+    const { delegationData } = AorService.buildDelegation(MEMBER_WALLET_ID, REP_WALLET_ID, SCOPE_ALL, '20260115', aorCommitment);
     delReg.addDelegation(delegationData);
 
-    const root1 = computeMessagingRoot(
-      msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-    );
-    const root2 = computeMessagingRoot(
-      msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-    );
+    const root1 = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
+    const root2 = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
     // Same root when nothing changed — proof stays fresh
     expect(root1.toString()).toBe(root2.toString());

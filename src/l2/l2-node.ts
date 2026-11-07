@@ -43,14 +43,8 @@ import { RequestRefused } from './request-refused.js';
 import type { AdminStateConfig, ReplicatedClaimLeftOut } from './l2-sequencer-service.js';
 import type { L2Receipt, L2Batch, ClaimSubmissionMetadata } from './l2-types.js';
 import type { ClaimAccumulatorEntry } from './claim-accumulator-types.js';
-import {
-  L2CheckpointStore,
-  CHECKPOINT_VERSION,
-} from './l2-checkpoint.js';
-import type {
-  L2Checkpoint,
-  L2CheckpointTrigger,
-} from './l2-checkpoint.js';
+import { L2CheckpointStore, CHECKPOINT_VERSION } from './l2-checkpoint.js';
+import type { L2Checkpoint, L2CheckpointTrigger } from './l2-checkpoint.js';
 import { L2PeerNetwork, generateMessageId } from './l2-peer-network.js';
 import type { PartitionConfig } from './l2-partition.js';
 import { PartitionRouter } from './l2-partition.js';
@@ -225,7 +219,7 @@ export const PROVING_LOCK_WATCHDOG_MS = 5 * 60 * 1000;
 export function attestationSeedError(secret: string): string | null {
   return /^[0-9a-fA-F]{64}$/.test(secret)
     ? null
-    : 'ZKTRIDENT_GOSSIP_SECRET must be 32 bytes written as 64 hex characters (openssl rand -hex 32): it also seeds the sequencer\'s NFC attestation key';
+    : "ZKTRIDENT_GOSSIP_SECRET must be 32 bytes written as 64 hex characters (openssl rand -hex 32): it also seeds the sequencer's NFC attestation key";
 }
 
 /**
@@ -249,14 +243,18 @@ export async function runHoldingProvingLock<T>(release: () => void, fn: () => Pr
   let overran = false;
   const watchdog = setTimeout(() => {
     overran = true;
-    console.warn(`${holder}: an operation has held the proving lock for ${heldFor()} s and is still running; every other locked operation waits until it settles`);
+    console.warn(
+      `${holder}: an operation has held the proving lock for ${heldFor()} s and is still running; every other locked operation waits until it settles`,
+    );
   }, PROVING_LOCK_WATCHDOG_MS);
   try {
     return await fn();
   } finally {
     clearTimeout(watchdog);
     if (overran) {
-      console.warn(`${holder}: the operation that held the proving lock past ${PROVING_LOCK_WATCHDOG_MS / 1000} s let go of it after ${heldFor()} s`);
+      console.warn(
+        `${holder}: the operation that held the proving lock past ${PROVING_LOCK_WATCHDOG_MS / 1000} s let go of it after ${heldFor()} s`,
+      );
     }
     release();
   }
@@ -305,10 +303,20 @@ export class L2Node {
   knownWallets: Set<string> | null = null;
 
   /** Admin registry state provider for checkpoint persistence */
-  private adminRegistryProvider: (() => { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] }) | null = null;
+  private adminRegistryProvider:
+    | (() => {
+        keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+        blacklist: string[];
+      })
+    | null = null;
 
   /** Set the admin registry state provider (called by start-leviathan.ts to wire RPC server registry into checkpoints) */
-  setAdminRegistryProvider(fn: () => { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] }): void {
+  setAdminRegistryProvider(
+    fn: () => {
+      keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+      blacklist: string[];
+    },
+  ): void {
     this.adminRegistryProvider = fn;
   }
 
@@ -403,13 +411,14 @@ export class L2Node {
     const seedError = seed === undefined ? null : attestationSeedError(seed);
     if (seedError) throw new Error(seedError);
     const { SequencerAttestationAuthority } = await import('../credentials/nfc-attestation.js');
-    this.attestationAuthority = seed
-      ? new SequencerAttestationAuthority(Buffer.from(seed, 'hex'))
-      : new SequencerAttestationAuthority();
+    this.attestationAuthority = seed ? new SequencerAttestationAuthority(Buffer.from(seed, 'hex')) : new SequencerAttestationAuthority();
   }
 
   /** Request a signed NFC attestation for a registered wallet. */
-  requestAttestation(walletId: string, expirySeconds?: number): import('../credentials/nfc-attestation.js').NfcCredentialAttestation | null {
+  requestAttestation(
+    walletId: string,
+    expirySeconds?: number,
+  ): import('../credentials/nfc-attestation.js').NfcCredentialAttestation | null {
     if (!this.attestationAuthority) return null;
 
     // Get current chain state for the attestation fields
@@ -458,7 +467,12 @@ export class L2Node {
    */
   private broadcastStateRoots(info: { reason: string; registryRoot: string; lifecycleRoot: string; walletCount: string }): void {
     if (this.role !== 'sequencer' || !this.peerNetwork) return;
-    const payload: StateRootsPayload = { reason: info.reason, registryRoot: info.registryRoot, lifecycleRoot: info.lifecycleRoot, walletCount: info.walletCount };
+    const payload: StateRootsPayload = {
+      reason: info.reason,
+      registryRoot: info.registryRoot,
+      lifecycleRoot: info.lifecycleRoot,
+      walletCount: info.walletCount,
+    };
     const message: GossipMessage = {
       messageId: generateMessageId('state:roots', this.nodeId, Date.now(), `${info.reason}#${++this.stateRootsSeq}`),
       type: 'state:roots',
@@ -483,7 +497,10 @@ export class L2Node {
     // The trees stay at the recovery point, so a leader that has moved past it leaves this replica refusing
     // proofs until it takes the leader's state again, rather than relaxing its checks (option A, step 1).
     this.sequencer.applyReplicatedRoots(
-      state.currentRegistryRoot, state.currentLifecycleRoot, state.currentWalletCount, `${peerId}'s current roots when it synced`,
+      state.currentRegistryRoot,
+      state.currentLifecycleRoot,
+      state.currentWalletCount,
+      `${peerId}'s current roots when it synced`,
     );
     const receipts = (state as { receipts?: unknown }).receipts;
     if (Array.isArray(receipts)) this.totalProofsAccepted = Math.max(this.totalProofsAccepted, receipts.length);
@@ -625,15 +642,16 @@ export class L2Node {
         if (!auditEvent) {
           // only a failed batch's rollback, landing while the proof was stored, takes it away; a replica
           // given no event could not apply the receipt
-          console.warn(`[peer] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`);
+          console.warn(
+            `[peer] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`,
+          );
           return receipt;
         }
         // The receipt's own claim leaf, or none when the receipt made no claim (option A, step 1). Every device
         // update comes with metadata (its new credential root), so keying on metadata sent the member's latest
         // claim again with each primary-care, prior-authorization or rollover update, and replicas appended it.
-        const claimEntry = receipt.claimLeafIndex !== undefined
-          ? this.sequencer.getClaimAccumulator().getEntry(receipt.claimLeafIndex)
-          : undefined;
+        const claimEntry =
+          receipt.claimLeafIndex !== undefined ? this.sequencer.getClaimAccumulator().getEntry(receipt.claimLeafIndex) : undefined;
 
         const payload: ProofAcceptedPayload = {
           receipt,
@@ -645,9 +663,7 @@ export class L2Node {
         };
 
         const gossipMsg: GossipMessage = {
-          messageId: generateMessageId(
-            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
-          ),
+          messageId: generateMessageId('proof:accepted', this.nodeId, Date.now(), receipt.receiptId),
           type: 'proof:accepted',
           senderId: this.nodeId,
           timestamp: Date.now(),
@@ -729,11 +745,7 @@ export class L2Node {
     messagingRootBefore: string,
     messagingRootAfter: string,
   ): { chainHash: string; sequenceNumber: bigint } {
-    const result = this.sequencer.emitMessagingAuditEvent(
-      senderWalletId,
-      messagingRootBefore,
-      messagingRootAfter,
-    );
+    const result = this.sequencer.emitMessagingAuditEvent(senderWalletId, messagingRootBefore, messagingRootAfter);
 
     this.emit({
       type: 'audit:event',
@@ -772,10 +784,7 @@ export class L2Node {
       };
 
       const gossipMsg: GossipMessage = {
-        messageId: generateMessageId(
-          'message:stored', this.nodeId, Date.now(),
-          entry.leafIndex.toString(),
-        ),
+        messageId: generateMessageId('message:stored', this.nodeId, Date.now(), entry.leafIndex.toString()),
         type: 'message:stored',
         senderId: this.nodeId,
         timestamp: Date.now(),
@@ -958,11 +967,13 @@ export class L2Node {
   }
 
   /** Get a claim with its Merkle inclusion proof */
-  getClaimWithProof(leafIndex: bigint): {
-    entry: ClaimAccumulatorEntry;
-    witnessJson: string;
-    root: string;
-  } | undefined {
+  getClaimWithProof(leafIndex: bigint):
+    | {
+        entry: ClaimAccumulatorEntry;
+        witnessJson: string;
+        root: string;
+      }
+    | undefined {
     return this.sequencer.getClaimWithProof(leafIndex);
   }
 
@@ -1055,7 +1066,9 @@ export class L2Node {
           try {
             await this.syncStateFrom(peer.peerId);
           } catch (err) {
-            console.warn(`[peer] ${this.nodeId}: could not take ${peer.peerId}'s state on connect: ${err instanceof Error ? err.message : String(err)}`);
+            console.warn(
+              `[peer] ${this.nodeId}: could not take ${peer.peerId}'s state on connect: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       } catch {
@@ -1151,12 +1164,7 @@ export class L2Node {
           }
         }
 
-        this.sequencer.applyReplicatedBatch(
-          payload.batch,
-          payload.block,
-          payload.updatedReceipts,
-          payload.updatedAuditEvents,
-        );
+        this.sequencer.applyReplicatedBatch(payload.batch, payload.block, payload.updatedReceipts, payload.updatedAuditEvents);
         this.totalBatchesBuilt++;
         this.emit({
           type: 'batch:built',
@@ -1197,10 +1205,7 @@ export class L2Node {
       case 'batch:failed': {
         if (this.role !== 'replica') return;
         const payload = msg.payload as BatchFailedPayload;
-        this.sequencer.applyReplicatedBatchFailure(
-          payload.batchNumber,
-          payload.reason,
-        );
+        this.sequencer.applyReplicatedBatchFailure(payload.batchNumber, payload.reason);
         this.totalBatchesFailed++;
         this.emit({
           type: 'batch:failed',
@@ -1217,11 +1222,7 @@ export class L2Node {
       case 'message:stored': {
         if (this.role !== 'replica') return;
         const payload = msg.payload as MessageStoredPayload;
-        this.sequencer.applyReplicatedMessage(
-          payload.leafIndex,
-          payload.message,
-          payload.payload,
-        );
+        this.sequencer.applyReplicatedMessage(payload.leafIndex, payload.message, payload.payload);
         break;
       }
 
@@ -1274,16 +1275,12 @@ export class L2Node {
    *   const node = await L2Node.fromPeerSync('http://sequencer:3030', store);
    *   node.start(); // Begins receiving gossip
    */
-  static async fromPeerSync(
-    peerUrl: string,
-    store: ILocalStore,
-    options?: Partial<L2NodeOptions>,
-  ): Promise<L2Node> {
+  static async fromPeerSync(peerUrl: string, store: ILocalStore, options?: Partial<L2NodeOptions>): Promise<L2Node> {
     // Temporarily create a network to fetch state
     // Pass adminToken so the IBD snapshot request is authenticated
     const tempNetwork = new L2PeerNetwork({
       nodeId: 'ibd-temp',
-      role: (options?.role ?? 'replica'),
+      role: options?.role ?? 'replica',
       ...(options?.adminToken ? { adminToken: options.adminToken } : {}),
       ...(options?.nodeKey ? { nodeKey: options.nodeKey } : {}),
       ...(options?.gossipSecret ? { gossipSecret: options.gossipSecret } : {}),
@@ -1424,13 +1421,9 @@ export class L2Node {
         const blockNumber = batch.blockNumbers?.[0] ?? batch.batchNumber;
         const block = this.sequencer.getBlock(blockNumber);
         if (block) {
-          const updatedReceipts = this.sequencer.getAllReceipts().filter(
-            (r) => r.l1BatchNumber === batch.batchNumber,
-          );
+          const updatedReceipts = this.sequencer.getAllReceipts().filter((r) => r.l1BatchNumber === batch.batchNumber);
           const auditLog = this.sequencer.getAuditLog();
-          const updatedAuditEvents = auditLog.events.filter(
-            (e) => e.l1BatchNumber === batch.batchNumber,
-          );
+          const updatedAuditEvents = auditLog.events.filter((e) => e.l1BatchNumber === batch.batchNumber);
 
           const payload: BatchBuiltPayload = {
             batch,
@@ -1440,10 +1433,7 @@ export class L2Node {
           };
 
           const gossipMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'batch:built', this.nodeId, Date.now(),
-              batch.batchNumber.toString(),
-            ),
+            messageId: generateMessageId('batch:built', this.nodeId, Date.now(), batch.batchNumber.toString()),
             type: 'batch:built',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -1481,10 +1471,7 @@ export class L2Node {
             lastSettledWalletCount: this.sequencer.getLastSettledWalletCount().toString(),
           };
           const settledMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'batch:settled', this.nodeId, Date.now(),
-              batch.batchNumber.toString(),
-            ),
+            messageId: generateMessageId('batch:settled', this.nodeId, Date.now(), batch.batchNumber.toString()),
             type: 'batch:settled',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -1564,10 +1551,7 @@ export class L2Node {
             reason,
           };
           const failMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'batch:failed', this.nodeId, Date.now(),
-              batch.batchNumber.toString(),
-            ),
+            messageId: generateMessageId('batch:failed', this.nodeId, Date.now(), batch.batchNumber.toString()),
             type: 'batch:failed',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -1611,10 +1595,7 @@ export class L2Node {
         lastSettledWalletCount: this.sequencer.getLastSettledWalletCount().toString(),
       };
       const settledMsg: GossipMessage = {
-        messageId: generateMessageId(
-          'batch:settled', this.nodeId, Date.now(),
-          batch.batchNumber.toString(),
-        ),
+        messageId: generateMessageId('batch:settled', this.nodeId, Date.now(), batch.batchNumber.toString()),
         type: 'batch:settled',
         senderId: this.nodeId,
         timestamp: Date.now(),
@@ -1694,10 +1675,7 @@ export class L2Node {
    *
    * Old checkpoints are pruned to maxCheckpoints.
    */
-  setCheckpointStore(
-    store: L2CheckpointStore,
-    options?: { autoCheckpoint?: boolean; maxCheckpoints?: number },
-  ): void {
+  setCheckpointStore(store: L2CheckpointStore, options?: { autoCheckpoint?: boolean; maxCheckpoints?: number }): void {
     this.checkpointStore = store;
     if (options?.autoCheckpoint !== undefined) {
       this.autoCheckpoint = options.autoCheckpoint;
@@ -1802,7 +1780,10 @@ export class L2Node {
   }
 
   /** Checkpoint admin registry state — held temporarily until RPC server restores it */
-  _checkpointAdminRegistryState: { keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>; blacklist: string[] } | null = null;
+  _checkpointAdminRegistryState: {
+    keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }>;
+    blacklist: string[];
+  } | null = null;
 
   /**
    * Create a new L2Node from a checkpoint (crash recovery).
@@ -1817,11 +1798,7 @@ export class L2Node {
    *   node.setCheckpointStore(checkpointStore);
    *   node.start();
    */
-  static fromCheckpoint(
-    checkpoint: L2Checkpoint,
-    store: ILocalStore,
-    options?: Partial<L2NodeOptions>,
-  ): L2Node {
+  static fromCheckpoint(checkpoint: L2Checkpoint, store: ILocalStore, options?: Partial<L2NodeOptions>): L2Node {
     const state = checkpoint.sequencerState;
     // Propagate l2Only from checkpoint state if not explicitly set in options
     const mergedOptions: Partial<L2NodeOptions> = { ...options };

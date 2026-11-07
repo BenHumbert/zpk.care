@@ -119,7 +119,8 @@ export function rebuildCredential(payload: CredentialParts): {
   for (const entry of payload.forestLeaves) {
     if (!DOMAINS.includes(entry.domain as ForestDomain)) throw new Error(`wallet update: unknown forest domain ${entry.domain}`);
     const index = BigInt(entry.index);
-    if (index < 0n || index >= BigInt(FOREST_LEAVES_PER_DOMAIN)) throw new Error(`wallet update: leaf index ${entry.index} is outside the tree`);
+    if (index < 0n || index >= BigInt(FOREST_LEAVES_PER_DOMAIN))
+      throw new Error(`wallet update: leaf index ${entry.index} is outside the tree`);
     forest.setLeaf(entry.domain as ForestDomain, index, Field(BigInt(entry.leaf)));
   }
   const forestRoot = forest.getForestRoot();

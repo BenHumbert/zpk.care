@@ -63,10 +63,7 @@ import type { L2ChainEvent, L2EventHandler, L2NodeOptions } from './l2-node.js';
 import { DEFAULT_L2_NODE_OPTIONS, runHoldingProvingLock } from './l2-node.js';
 import type { L2CheckpointTrigger, L2SequencerState } from './l2-checkpoint.js';
 import type { LeviathanCheckpoint } from './l2-checkpoint.js';
-import {
-  DEFAULT_HEARTBEAT_INTERVAL_MS,
-  DEFAULT_HEARTBEAT_TIMEOUT_MS,
-} from './l2-leviathan-types.js';
+import { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS } from './l2-leviathan-types.js';
 import type {
   LeviathanConfig,
   PartitionLeaderEntry,
@@ -245,19 +242,14 @@ export class L2Leviathan {
    *
    * @param seed — optional seed for deterministic keypair (e.g., Buffer.from(nodeId))
    */
-  enableQuorum(config?: {
-    quorumThreshold?: number;
-    quorumTimeoutMs?: number;
-    seed?: Buffer;
-  }): void {
+  enableQuorum(config?: { quorumThreshold?: number; quorumTimeoutMs?: number; seed?: Buffer }): void {
     const seed = config?.seed ?? Buffer.from(this.nodeId);
     this.quorumKeyAuthority = new QuorumKeyAuthority(seed);
 
     // Register self in peer public keys
     this.peerPublicKeys.set(this.nodeId, this.quorumKeyAuthority.publicKeyHex);
 
-    const quorumThreshold = config?.quorumThreshold ??
-      Math.floor(this.config.partitionCount / 2) + 1;
+    const quorumThreshold = config?.quorumThreshold ?? Math.floor(this.config.partitionCount / 2) + 1;
 
     const quorumConfig: QuorumConfig = {
       quorumThreshold,
@@ -337,13 +329,15 @@ export class L2Leviathan {
     const waitPromises: Promise<void>[] = [];
     for (const [partIdx, inProgress] of this.batchInProgress) {
       if (inProgress) {
-        waitPromises.push(new Promise<void>((resolve) => {
-          const check = () => {
-            if (!this.batchInProgress.get(partIdx)) resolve();
-            else setTimeout(check, 50);
-          };
-          check();
-        }));
+        waitPromises.push(
+          new Promise<void>((resolve) => {
+            const check = () => {
+              if (!this.batchInProgress.get(partIdx)) resolve();
+              else setTimeout(check, 50);
+            };
+            check();
+          }),
+        );
       }
     }
     if (waitPromises.length > 0) {
@@ -387,10 +381,7 @@ export class L2Leviathan {
     const leader = this.leaderMap.get(partition);
     if (!leader || !leader.isLocalLeader) {
       const currentLeader = leader?.currentLeader ?? 'unknown';
-      throw new Error(
-        `Not leader for partition ${partition} (walletId routes here). ` +
-        `Current leader: ${currentLeader}`,
-      );
+      throw new Error(`Not leader for partition ${partition} (walletId routes here). ` + `Current leader: ${currentLeader}`);
     }
 
     const seq = this.partitionSequencers.get(partition)!;
@@ -417,30 +408,30 @@ export class L2Leviathan {
       // receipt's when a second submission landed while this one was stored, and the member's latest claim with
       // every proof that came with metadata, which every device update does, so replicas appended it again.
       const auditEvent = seq.getAuditEventForReceipt(receipt.receiptId);
-      const claimEntry = receipt.claimLeafIndex !== undefined
-        ? seq.getClaimAccumulator().getEntry(receipt.claimLeafIndex)
-        : undefined;
+      const claimEntry = receipt.claimLeafIndex !== undefined ? seq.getClaimAccumulator().getEntry(receipt.claimLeafIndex) : undefined;
 
-      const payload: ProofAcceptedPayload | null = auditEvent ? {
-        receipt,
-        auditEvent,
-        claimEntry,
-        currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
-        currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
-        currentWalletCount: seq.getCurrentWalletCount().toString(),
-        partitionIndex: partition,
-      } : null;
+      const payload: ProofAcceptedPayload | null = auditEvent
+        ? {
+            receipt,
+            auditEvent,
+            claimEntry,
+            currentRegistryRoot: seq.getCurrentRegistryRoot().toString(),
+            currentLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+            currentWalletCount: seq.getCurrentWalletCount().toString(),
+            partitionIndex: partition,
+          }
+        : null;
       if (!payload && this.peerNetwork) {
         // only a failed batch's rollback, landing while the proof was stored, takes the event away; a replica
         // given no event could not apply the receipt
-        console.warn(`[Leviathan] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`);
+        console.warn(
+          `[Leviathan] ${this.nodeId}: ${receipt.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`,
+        );
       }
 
       // Quorum write: propose and wait for N/2+1 votes before returning
       if (this.quorumService && this.peerNetwork) {
-        const walEntryHash = generateMessageId(
-          'quorum:propose', this.nodeId, Date.now(), receipt.receiptId,
-        );
+        const walEntryHash = generateMessageId('quorum:propose', this.nodeId, Date.now(), receipt.receiptId);
 
         const stateDigest: StateDigest = {
           latestSequenceNumber: receipt.sequenceNumber,
@@ -464,9 +455,7 @@ export class L2Leviathan {
 
         // Broadcast proposal to peers
         const proposalGossip: GossipMessage = {
-          messageId: generateMessageId(
-            'quorum:propose', this.nodeId, Date.now(), receipt.receiptId,
-          ),
+          messageId: generateMessageId('quorum:propose', this.nodeId, Date.now(), receipt.receiptId),
           type: 'quorum:propose',
           senderId: this.nodeId,
           timestamp: Date.now(),
@@ -504,9 +493,7 @@ export class L2Leviathan {
         // Also broadcast proof:accepted for non-leviathan replicas (backward compat)
         if (payload) {
           const gossipMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
-            ),
+            messageId: generateMessageId('proof:accepted', this.nodeId, Date.now(), receipt.receiptId),
             type: 'proof:accepted',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -517,9 +504,7 @@ export class L2Leviathan {
       } else if (this.peerNetwork && payload) {
         // No quorum — fire-and-forget gossip (backward compatible)
         const gossipMsg: GossipMessage = {
-          messageId: generateMessageId(
-            'proof:accepted', this.nodeId, Date.now(), receipt.receiptId,
-          ),
+          messageId: generateMessageId('proof:accepted', this.nodeId, Date.now(), receipt.receiptId),
           type: 'proof:accepted',
           senderId: this.nodeId,
           timestamp: Date.now(),
@@ -690,9 +675,7 @@ export class L2Leviathan {
     return {
       events: allEvents,
       genesisHash: this.getSequencer(0).getAuditLog().genesisHash,
-      latestChainHash: allEvents.length > 0
-        ? allEvents[allEvents.length - 1].chainHash
-        : this.getSequencer(0).getAuditLog().genesisHash,
+      latestChainHash: allEvents.length > 0 ? allEvents[allEvents.length - 1].chainHash : this.getSequencer(0).getAuditLog().genesisHash,
       eventCount: BigInt(allEvents.length),
     };
   }
@@ -702,7 +685,10 @@ export class L2Leviathan {
     const t = { claimCount: 0, reversalCount: 0, patientPayCents: 0n, planPayCents: 0n };
     for (const seq of this.partitionSequencers.values()) {
       const p = seq.getClaimAccumulator().getTotals();
-      t.claimCount += p.claimCount; t.reversalCount += p.reversalCount; t.patientPayCents += p.patientPayCents; t.planPayCents += p.planPayCents;
+      t.claimCount += p.claimCount;
+      t.reversalCount += p.reversalCount;
+      t.patientPayCents += p.patientPayCents;
+      t.planPayCents += p.planPayCents;
     }
     return t;
   }
@@ -742,11 +728,13 @@ export class L2Leviathan {
   }
 
   /** Get a claim with its Merkle inclusion proof — searches all partitions */
-  getClaimWithProof(leafIndex: bigint): {
-    entry: ClaimAccumulatorEntry;
-    witnessJson: string;
-    root: string;
-  } | undefined {
+  getClaimWithProof(leafIndex: bigint):
+    | {
+        entry: ClaimAccumulatorEntry;
+        witnessJson: string;
+        root: string;
+      }
+    | undefined {
     for (const [, seq] of this.partitionSequencers) {
       const result = seq.getClaimWithProof(leafIndex);
       if (result) return result;
@@ -800,10 +788,7 @@ export class L2Leviathan {
       };
 
       const gossipMsg: GossipMessage = {
-        messageId: generateMessageId(
-          'message:stored', this.nodeId, Date.now(),
-          entry.leafIndex.toString(),
-        ),
+        messageId: generateMessageId('message:stored', this.nodeId, Date.now(), entry.leafIndex.toString()),
         type: 'message:stored',
         senderId: this.nodeId,
         timestamp: Date.now(),
@@ -926,7 +911,7 @@ export class L2Leviathan {
       totalProofs += proofs;
       totalBatches += batches;
       totalSettled += settled;
-      totalFailed += (this.partitionFailed.get(i) ?? 0);
+      totalFailed += this.partitionFailed.get(i) ?? 0;
       totalPending += seq.getPendingCount();
     }
 
@@ -1057,13 +1042,9 @@ export class L2Leviathan {
         const blockNumber = batch.blockNumbers?.[0] ?? batch.batchNumber;
         const block = seq.getBlock(blockNumber);
         if (block) {
-          const updatedReceipts = seq.getAllReceipts().filter(
-            (r) => r.l1BatchNumber === batch.batchNumber,
-          );
+          const updatedReceipts = seq.getAllReceipts().filter((r) => r.l1BatchNumber === batch.batchNumber);
           const auditLog = seq.getAuditLog();
-          const updatedAuditEvents = auditLog.events.filter(
-            (e) => e.l1BatchNumber === batch.batchNumber,
-          );
+          const updatedAuditEvents = auditLog.events.filter((e) => e.l1BatchNumber === batch.batchNumber);
 
           const payload: BatchBuiltPayload = {
             batch,
@@ -1074,10 +1055,7 @@ export class L2Leviathan {
           };
 
           const gossipMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'batch:built', this.nodeId, Date.now(),
-              batch.batchNumber.toString(),
-            ),
+            messageId: generateMessageId('batch:built', this.nodeId, Date.now(), batch.batchNumber.toString()),
             type: 'batch:built',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -1113,10 +1091,7 @@ export class L2Leviathan {
             partitionIndex,
           };
           const settledMsg: GossipMessage = {
-            messageId: generateMessageId(
-              'batch:settled', this.nodeId, Date.now(),
-              batch.batchNumber.toString(),
-            ),
+            messageId: generateMessageId('batch:settled', this.nodeId, Date.now(), batch.batchNumber.toString()),
             type: 'batch:settled',
             senderId: this.nodeId,
             timestamp: Date.now(),
@@ -1272,12 +1247,7 @@ export class L2Leviathan {
         if (!seq) return;
         if (this.isLeaderFor(partition)) return;
 
-        seq.applyReplicatedBatch(
-          payload.batch,
-          payload.block,
-          payload.updatedReceipts,
-          payload.updatedAuditEvents,
-        );
+        seq.applyReplicatedBatch(payload.batch, payload.block, payload.updatedReceipts, payload.updatedAuditEvents);
         break;
       }
 
@@ -1313,10 +1283,7 @@ export class L2Leviathan {
         if (!seq) return;
         if (this.isLeaderFor(partition)) return;
 
-        seq.applyReplicatedBatchFailure(
-          payload.batchNumber,
-          payload.reason,
-        );
+        seq.applyReplicatedBatchFailure(payload.batchNumber, payload.reason);
         break;
       }
 
@@ -1385,9 +1352,7 @@ export class L2Leviathan {
         // Create and send signed vote back to the proposer
         const vote = this.quorumService.createVote(proposal, proposal.walEntryHash);
         const voteGossip: GossipMessage = {
-          messageId: generateMessageId(
-            'quorum:vote', this.nodeId, Date.now(), proposal.proposalId,
-          ),
+          messageId: generateMessageId('quorum:vote', this.nodeId, Date.now(), proposal.proposalId),
           type: 'quorum:vote',
           senderId: this.nodeId,
           timestamp: Date.now(),
@@ -1448,9 +1413,7 @@ export class L2Leviathan {
     };
 
     const msg: GossipMessage = {
-      messageId: generateMessageId(
-        'leader:heartbeat', this.nodeId, Date.now(), 'hb',
-      ),
+      messageId: generateMessageId('leader:heartbeat', this.nodeId, Date.now(), 'hb'),
       type: 'leader:heartbeat',
       senderId: this.nodeId,
       timestamp: Date.now(),
@@ -1476,7 +1439,7 @@ export class L2Leviathan {
       if (entry.currentLeader === payload.nodeId || entry.currentLeader === 'unknown') {
         entry.currentLeader = payload.nodeId;
         entry.lastHeartbeatAt = Date.now();
-        entry.isLocalLeader = (payload.nodeId === this.nodeId);
+        entry.isLocalLeader = payload.nodeId === this.nodeId;
       }
     }
   }
@@ -1516,8 +1479,7 @@ export class L2Leviathan {
         // (i.e., they're handling some other partition and are alive)
         let candidateAlive = false;
         for (const [, otherEntry] of this.leaderMap) {
-          if (otherEntry.currentLeader === candidateId &&
-              now - otherEntry.lastHeartbeatAt <= this.config.heartbeatTimeoutMs) {
+          if (otherEntry.currentLeader === candidateId && now - otherEntry.lastHeartbeatAt <= this.config.heartbeatTimeoutMs) {
             candidateAlive = true;
             break;
           }
@@ -1532,7 +1494,11 @@ export class L2Leviathan {
   }
 
   /** Promote this node to leader for a partition */
-  promoteToLeader(partitionIndex: number, previousLeaderId?: string, reason: 'heartbeat_timeout' | 'manual' | 'rejoin' = 'heartbeat_timeout'): void {
+  promoteToLeader(
+    partitionIndex: number,
+    previousLeaderId?: string,
+    reason: 'heartbeat_timeout' | 'manual' | 'rejoin' = 'heartbeat_timeout',
+  ): void {
     const entry = this.leaderMap.get(partitionIndex);
     if (!entry) return;
 
@@ -1570,10 +1536,7 @@ export class L2Leviathan {
       };
 
       const msg: GossipMessage = {
-        messageId: generateMessageId(
-          'leader:promotion', this.nodeId, Date.now(),
-          `p${partitionIndex}`,
-        ),
+        messageId: generateMessageId('leader:promotion', this.nodeId, Date.now(), `p${partitionIndex}`),
         type: 'leader:promotion',
         senderId: this.nodeId,
         timestamp: Date.now(),
@@ -1633,14 +1596,23 @@ export class L2Leviathan {
     // Accept the promotion
     entry.currentLeader = payload.newLeaderId;
     entry.lastHeartbeatAt = Date.now();
-    entry.isLocalLeader = (payload.newLeaderId === this.nodeId);
+    entry.isLocalLeader = payload.newLeaderId === this.nodeId;
   }
 
   // ─── Checkpoint ─────────────────────────────────────────
 
   exportCheckpoint(trigger: L2CheckpointTrigger): LeviathanCheckpoint {
     const partitionStates: Record<number, L2SequencerState> = {};
-    const partitionNodeStats: Record<number, { totalProofsAccepted: number; totalBatchesBuilt: number; totalBatchesSettled: number; totalBatchesFailed: number; nextSettlementId: number }> = {};
+    const partitionNodeStats: Record<
+      number,
+      {
+        totalProofsAccepted: number;
+        totalBatchesBuilt: number;
+        totalBatchesSettled: number;
+        totalBatchesFailed: number;
+        nextSettlementId: number;
+      }
+    > = {};
 
     for (const [idx, seq] of this.partitionSequencers) {
       partitionStates[idx] = seq.exportState();
@@ -1700,17 +1672,13 @@ export class L2Leviathan {
       const entry = this.leaderMap.get(idx);
       if (entry) {
         entry.currentLeader = leaderId;
-        entry.isLocalLeader = (leaderId === this.nodeId);
+        entry.isLocalLeader = leaderId === this.nodeId;
         entry.lastHeartbeatAt = Date.now();
       }
     }
   }
 
-  static fromCheckpoint(
-    checkpoint: LeviathanCheckpoint,
-    store: ILocalStore,
-    options?: Partial<L2NodeOptions>,
-  ): L2Leviathan {
+  static fromCheckpoint(checkpoint: LeviathanCheckpoint, store: ILocalStore, options?: Partial<L2NodeOptions>): L2Leviathan {
     const cfg = checkpoint.leviathanConfig;
     const failoverChain = new Map<number, string[]>();
     for (const [idxStr, chain] of Object.entries(cfg.failoverChain)) {

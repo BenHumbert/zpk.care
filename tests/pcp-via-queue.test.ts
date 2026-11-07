@@ -51,17 +51,39 @@ const W = { alice: '1001', bob: '1002', drP: '2001' };
 function standInService() {
   const calls: unknown[] = [];
   const svc = {
-    async assignPcpForDevice(opts: { walletId: string; pcpWalletId: string; effectiveDate: string; specialty: string; consentScopeFlags: number }) {
+    async assignPcpForDevice(opts: {
+      walletId: string;
+      pcpWalletId: string;
+      effectiveDate: string;
+      specialty: string;
+      consentScopeFlags: number;
+    }) {
       calls.push(opts);
       if (opts.pcpWalletId === '9999') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
-      return { walletId: opts.walletId, pcpWalletId: opts.pcpWalletId, effectiveDate: opts.effectiveDate, commitment: '55', walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' } };
+      return {
+        walletId: opts.walletId,
+        pcpWalletId: opts.pcpWalletId,
+        effectiveDate: opts.effectiveDate,
+        commitment: '55',
+        walletUpdate: { status: 'pending', updateId: 'wu-pcp', newInventoryRoot: '66' },
+      };
     },
-    getState() { return { compiled: true, enrolledMembers: [] }; },
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
     // the chain node whose proving lock the route takes: nothing here proves, so the call runs at once
-    getL2Node() { return { withProvingLock: <T>(fn: () => Promise<T>): Promise<T> => fn() }; },
+    getL2Node() {
+      return { withProvingLock: <T>(fn: () => Promise<T>): Promise<T> => fn() };
+    },
     __calls: calls,
   };
-  return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`); return undefined; } });
+  return new Proxy(svc, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`);
+      return undefined;
+    },
+  });
 }
 
 let server: L2RpcServer;
@@ -73,34 +95,61 @@ async function post(body: unknown, headers: Record<string, string> = {}) {
   const text = JSON.stringify(body);
   const r = await fetch(url + P, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: text });
   let json: any = null;
-  try { json = await r.json(); } catch { json = null; }
+  try {
+    json = await r.json();
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
-const asWallet = (ek: string, walletId: string, body: unknown) => signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: P, body: JSON.stringify(body) });
+const asWallet = (ek: string, walletId: string, body: unknown) =>
+  signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: P, body: JSON.stringify(body) });
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pcp-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pcp-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
   service = standInService();
   registerInteractiveRoutes(server, service as any);
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
-  for (const [who, wallet] of [['alice', W.alice], ['bob', W.bob]] as const) {
-    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params: { walletId: wallet, displayName: who, type: 'member', signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex } });
-    const headers = signRequest({ signerId: memberNode.nodeId, privateKey: privateKeyFromSeedHex(memberNode.seedHex), method: 'POST', path: '/rpc', body });
+  for (const [who, wallet] of [
+    ['alice', W.alice],
+    ['bob', W.bob],
+  ] as const) {
+    const body = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_registerEntity',
+      params: { walletId: wallet, displayName: who, type: 'member', signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex },
+    });
+    const headers = signRequest({
+      signerId: memberNode.nodeId,
+      privateKey: privateKeyFromSeedHex(memberNode.seedHex),
+      method: 'POST',
+      path: '/rpc',
+      body,
+    });
     const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
-    const j = await r.json() as any;
+    const j = (await r.json()) as any;
     if (j.error) throw new Error(`fixture registration failed: ${j.error.message}`);
   }
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
 describe('POST /interactive/pcp-assignment', () => {
   const good = { walletId: W.alice, pcpWalletId: W.drP, effectiveDate: '20261018', specialty: 'Internal Medicine', consentScopeFlags: 7 };
 
-  test('takes only the named wallet\'s signature', async () => {
+  test("takes only the named wallet's signature", async () => {
     expect((await post(good)).status).toBe(401);
     expect((await post(good, { Authorization: `Bearer ${OPERATOR}` })).status).toBe(401);
     expect((await post(good, asWallet(EK.bob, W.bob, good))).status).toBe(401);
@@ -109,7 +158,7 @@ describe('POST /interactive/pcp-assignment', () => {
     expect(service.__calls).toHaveLength(0);
   });
 
-  test('validates its body, passes the engine\'s refusal through, and hands the service what the device sent', async () => {
+  test("validates its body, passes the engine's refusal through, and hands the service what the device sent", async () => {
     const missing = { walletId: W.alice, pcpWalletId: W.drP };
     const r400 = await post(missing, asWallet(EK.alice, W.alice, missing));
     expect(r400.status).toBe(400);
@@ -129,7 +178,7 @@ describe('POST /interactive/pcp-assignment', () => {
   });
 });
 
-describe('the member node\'s proof route', () => {
+describe("the member node's proof route", () => {
   test('asks the engine and proves what it queued, instead of rebuilding a credential from an empty forest', () => {
     const routes = fs.readFileSync('src/nodes/routes/member-routes.ts', 'utf8');
     const start = routes.indexOf("path: '/proof/pcp-assignment'");

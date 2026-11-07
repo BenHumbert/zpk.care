@@ -60,7 +60,7 @@ async function init() {
       updateHealthDot(true);
       renderOverview();
     },
-    10000
+    10000,
   );
 }
 
@@ -114,9 +114,17 @@ function renderOverview() {
   const metrics = [
     { label: 'Total Wallets', value: enrolled.length, color: 'var(--color-insurer)' },
     { label: 'Total Receipts', value: totalReceipts, color: 'var(--color-accent-blue)' },
-    { label: 'Total Batches', value: `${totalBatchesBuilt} (${totalBatchesSettled}S / ${totalBatchesFailed}F)`, color: 'var(--color-accent-green)' },
+    {
+      label: 'Total Batches',
+      value: `${totalBatchesBuilt} (${totalBatchesSettled}S / ${totalBatchesFailed}F)`,
+      color: 'var(--color-accent-green)',
+    },
     { label: 'Audit Events', value: auditChainLength, color: 'var(--color-accent-yellow)' },
-    { label: 'Chain Proof', value: chainProofEnabled ? 'Enabled' : 'Disabled', color: chainProofEnabled ? 'var(--color-accent-green)' : 'var(--text-secondary)' },
+    {
+      label: 'Chain Proof',
+      value: chainProofEnabled ? 'Enabled' : 'Disabled',
+      color: chainProofEnabled ? 'var(--color-accent-green)' : 'var(--text-secondary)',
+    },
   ];
 
   const financialMetrics = [
@@ -146,12 +154,7 @@ function renderExplorer() {
   if (!el) return;
 
   const tabs = ['By Member', 'By Prescriber', 'By Pharmacy', 'By Drug'];
-  const searchPlaceholders = [
-    'Member wallet ID...',
-    'Prescriber wallet ID...',
-    'Pharmacy wallet ID...',
-    'NDC hash...',
-  ];
+  const searchPlaceholders = ['Member wallet ID...', 'Prescriber wallet ID...', 'Pharmacy wallet ID...', 'NDC hash...'];
   const paramNames = ['walletId', 'walletId', 'walletId', 'ndcHash'];
   const endpoints = [
     '/node/claims-by-member?walletId=',
@@ -160,11 +163,13 @@ function renderExplorer() {
     '/node/claims-by-ndc?ndcHash=',
   ];
 
-  const tabButtons = tabs.map((label, i) =>
-    `<button class="tab-btn${i === 0 ? ' active' : ''}" data-tab-index="${i}">${label}</button>`
-  ).join('');
+  const tabButtons = tabs
+    .map((label, i) => `<button class="tab-btn${i === 0 ? ' active' : ''}" data-tab-index="${i}">${label}</button>`)
+    .join('');
 
-  const tabPanels = tabs.map((label, i) => `
+  const tabPanels = tabs
+    .map(
+      (label, i) => `
     <div class="explorer-tab-panel${i === 0 ? '' : ' hidden'}" data-panel-index="${i}">
       ${renderSearchBox(`explorer-search-${i}`, `explorer-btn-${i}`, searchPlaceholders[i], 'Search')}
       <div id="explorer-results-${i}">
@@ -173,7 +178,9 @@ function renderExplorer() {
         </div>
       </div>
     </div>
-  `).join('');
+  `,
+    )
+    .join('');
 
   const content = `
     <div class="tab-switcher">${tabButtons}</div>
@@ -183,12 +190,12 @@ function renderExplorer() {
   el.innerHTML = renderSectionCard('Claims Explorer', COLOR, content);
 
   // Wire up tab switching
-  el.querySelectorAll('.tab-btn').forEach(btn => {
+  el.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.tabIndex, 10);
-      el.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      el.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      el.querySelectorAll('.explorer-tab-panel').forEach(p => p.classList.add('hidden'));
+      el.querySelectorAll('.explorer-tab-panel').forEach((p) => p.classList.add('hidden'));
       el.querySelector(`[data-panel-index="${idx}"]`).classList.remove('hidden');
     });
   });
@@ -221,7 +228,8 @@ function renderExplorer() {
 function renderExplorerResults(container, data) {
   const claims = data.claims || data.views || data.results || [];
   if (!Array.isArray(claims) || claims.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No claims found for this query.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No claims found for this query.</div>';
     return;
   }
 
@@ -230,11 +238,19 @@ function renderExplorerResults(container, data) {
     { key: 'dateOfService', label: 'Date', format: (v) => formatDate(v) },
     { key: 'ndcHash', label: 'NDC Hash', format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>` },
     { key: 'memberWalletId', label: 'Member', format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>` },
-    { key: 'prescriberWalletId', label: 'Prescriber', format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>` },
+    {
+      key: 'prescriberWalletId',
+      label: 'Prescriber',
+      format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>`,
+    },
     { key: 'pharmacyWalletId', label: 'Pharmacy', format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>` },
     { key: 'patientPayCents', label: 'Patient Pay', align: 'right', format: (v) => formatCents(v) },
     { key: 'planPayCents', label: 'Plan Pay', align: 'right', format: (v) => formatCents(v) },
-    { key: 'operationType', label: 'Type', format: (v) => v === 'reversal' ? renderBadge('Reversal', 'reversal') : renderBadge('Fill', 'fill') },
+    {
+      key: 'operationType',
+      label: 'Type',
+      format: (v) => (v === 'reversal' ? renderBadge('Reversal', 'reversal') : renderBadge('Fill', 'fill')),
+    },
   ];
 
   container.innerHTML = `
@@ -268,7 +284,7 @@ function renderReports() {
     'Cross-Tab',
   ];
 
-  const options = reportTypes.map(r => `<option value="${r}">${r}</option>`).join('');
+  const options = reportTypes.map((r) => `<option value="${r}">${r}</option>`).join('');
 
   const content = `
     <div class="filter-row" style="align-items: flex-end;">
@@ -361,8 +377,8 @@ function generateClaimsRegister(container, prescriptions, fulfillments) {
   }
 
   // Merge prescriptions with fulfillment data
-  const rows = prescriptions.map(rx => {
-    const fill = fulfillments.find(f => f.prescriptionId === rx.id);
+  const rows = prescriptions.map((rx) => {
+    const fill = fulfillments.find((f) => f.prescriptionId === rx.id);
     return {
       id: rx.id,
       memberWallet: truncHash(rx.memberWalletId, 6),
@@ -397,8 +413,12 @@ function generateClaimsRegister(container, prescriptions, fulfillments) {
 }
 
 function generateFinancialSummary(container, fulfillments, audit) {
-  let totalPatient = 0, totalPlan = 0, totalCost = 0;
-  let reversalCount = 0, reversedPatient = 0, reversedPlan = 0;
+  let totalPatient = 0,
+    totalPlan = 0,
+    totalCost = 0;
+  let reversalCount = 0,
+    reversedPatient = 0,
+    reversedPlan = 0;
 
   for (const f of fulfillments) {
     if (f.reversed) {
@@ -455,7 +475,8 @@ function generateFinancialSummary(container, fulfillments, audit) {
 
 function generateGroupedReport(container, fulfillments, groupKey, groupLabel) {
   if (fulfillments.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
     return;
   }
 
@@ -491,7 +512,8 @@ function generateGroupedReport(container, fulfillments, groupKey, groupLabel) {
 function generatePriorAuthReport(container) {
   const pas = state?.priorAuths || [];
   if (pas.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No prior authorization data available.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No prior authorization data available.</div>';
     return;
   }
 
@@ -500,11 +522,15 @@ function generatePriorAuthReport(container) {
     { key: 'memberWalletId', label: 'Member', format: (v) => `<span class="mono" style="font-size: 11px;">${truncHash(v, 6)}</span>` },
     { key: 'medicationName', label: 'Medication' },
     { key: 'medicationTier', label: 'Tier', format: (v) => renderBadge(`T${v}`, `tier-${v}`) },
-    { key: 'status', label: 'Status', format: (v) => {
-      if (v === 'APPROVED') return renderBadge('Approved', 'fill');
-      if (v === 'DENIED') return renderBadge('Denied', 'reversal');
-      return renderBadge('Pending', 'pending');
-    }},
+    {
+      key: 'status',
+      label: 'Status',
+      format: (v) => {
+        if (v === 'APPROVED') return renderBadge('Approved', 'fill');
+        if (v === 'DENIED') return renderBadge('Denied', 'reversal');
+        return renderBadge('Pending', 'pending');
+      },
+    },
     { key: 'prescriberName', label: 'Prescriber' },
   ];
 
@@ -517,7 +543,7 @@ function generatePriorAuthReport(container) {
 }
 
 function generateReversalReport(container, fulfillments) {
-  const reversals = fulfillments.filter(f => f.reversed);
+  const reversals = fulfillments.filter((f) => f.reversed);
   if (reversals.length === 0) {
     container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No reversals recorded.</div>';
     return;
@@ -540,7 +566,8 @@ function generateReversalReport(container, fulfillments) {
 
 function generateTierAnalysis(container, fulfillments) {
   if (fulfillments.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
     return;
   }
 
@@ -556,10 +583,12 @@ function generateTierAnalysis(container, fulfillments) {
   }
 
   const tierLabels = { 1: 'Generic', 2: 'Preferred', 3: 'Non-Preferred', 4: 'Specialty' };
-  const rows = [...tiers.values()].sort((a, b) => a.tier - b.tier).map(t => ({
-    ...t,
-    tierLabel: `Tier ${t.tier} (${tierLabels[t.tier] || 'Other'})`,
-  }));
+  const rows = [...tiers.values()]
+    .sort((a, b) => a.tier - b.tier)
+    .map((t) => ({
+      ...t,
+      tierLabel: `Tier ${t.tier} (${tierLabels[t.tier] || 'Other'})`,
+    }));
 
   const columns = [
     { key: 'tierLabel', label: 'Tier', format: (v, row) => renderBadge(v, `tier-${row.tier}`) },
@@ -576,7 +605,8 @@ function generateTierAnalysis(container, fulfillments) {
 
 function generateTimeSeriesReport(container, fulfillments) {
   if (fulfillments.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
     return;
   }
 
@@ -607,7 +637,8 @@ function generateTimeSeriesReport(container, fulfillments) {
 
 function generateCrossTabReport(container, fulfillments) {
   if (fulfillments.length === 0) {
-    container.innerHTML = '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
+    container.innerHTML =
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No fulfillment data available.</div>';
     return;
   }
 
@@ -701,7 +732,11 @@ function renderAuditSuite() {
 
 async function runAuditCheck(type) {
   const resultDiv = document.getElementById(`audit-${type}-result`);
-  const card = document.getElementById(type === 'full' ? 'audit-full' : `audit-${type === 'chain' ? 'chain-integrity' : type === 'financial' ? 'financial-balance' : 'duplicate-detection'}`);
+  const card = document.getElementById(
+    type === 'full'
+      ? 'audit-full'
+      : `audit-${type === 'chain' ? 'chain-integrity' : type === 'financial' ? 'financial-balance' : 'duplicate-detection'}`,
+  );
   resultDiv.innerHTML = '<span style="color: var(--text-secondary); font-size: 12px;">Running...</span>';
 
   try {
@@ -720,15 +755,15 @@ async function runAuditCheck(type) {
       const chainIntact = eventCount >= 0; // Simplified: if we got data back, the chain is reachable
       if (type === 'chain') {
         passed = chainIntact;
-        detail = chainIntact
-          ? `Chain intact. ${eventCount} event(s) in Poseidon hash chain.`
-          : 'Chain integrity could not be verified.';
+        detail = chainIntact ? `Chain intact. ${eventCount} event(s) in Poseidon hash chain.` : 'Chain integrity could not be verified.';
       }
     }
 
     if (type === 'financial' || type === 'full') {
-      let totalPatient = 0, totalPlan = 0;
-      let reversedPatient = 0, reversedPlan = 0;
+      let totalPatient = 0,
+        totalPlan = 0;
+      let reversedPatient = 0,
+        reversedPlan = 0;
       for (const f of fulfillments) {
         if (f.reversed) {
           reversedPatient += f.patientPayCents || 0;
@@ -754,7 +789,7 @@ async function runAuditCheck(type) {
     }
 
     if (type === 'duplicates' || type === 'full') {
-      const rxIds = prescriptions.map(rx => rx.id);
+      const rxIds = prescriptions.map((rx) => rx.id);
       const dupes = rxIds.filter((id, i) => rxIds.indexOf(id) !== i);
       const noDuplicates = dupes.length === 0;
 
@@ -772,7 +807,8 @@ async function runAuditCheck(type) {
       const eventCount = events.length || auditData?.eventCount || auditData?.auditLog?.eventCount || 0;
       const chainOk = eventCount >= 0;
 
-      let netPatient = 0, netPlan = 0;
+      let netPatient = 0,
+        netPlan = 0;
       for (const f of fulfillments) {
         if (f.reversed) {
           netPatient -= f.patientPayCents || 0;
@@ -784,7 +820,7 @@ async function runAuditCheck(type) {
       }
       const financialOk = netPatient >= 0 && netPlan >= 0;
 
-      const rxIds = prescriptions.map(rx => rx.id);
+      const rxIds = prescriptions.map((rx) => rx.id);
       const dupeCount = rxIds.filter((id, i) => rxIds.indexOf(id) !== i).length;
       const dupeOk = dupeCount === 0;
 
@@ -834,7 +870,12 @@ function renderAdmin() {
     <div id="admin-result" style="margin-bottom: 16px;"></div>
     <div style="font-size: 12px; color: var(--text-secondary);">
       ${renderDataGrid([
-        { label: 'Sequencer', value: running ? '<span style="color: var(--color-accent-green);">Running</span>' : '<span style="color: var(--color-accent-red);">Stopped</span>' },
+        {
+          label: 'Sequencer',
+          value: running
+            ? '<span style="color: var(--color-accent-green);">Running</span>'
+            : '<span style="color: var(--color-accent-red);">Stopped</span>',
+        },
         { label: 'Pending Proofs', value: l2Status.pendingProofs || 0 },
         { label: 'Total Accepted', value: l2Status.totalProofsAccepted || 0 },
         { label: 'Batches Built', value: l2Status.totalBatchesBuilt || 0 },
@@ -899,12 +940,16 @@ async function renderChainProof() {
         { label: 'Global State Root', value: truncHash(proofData.globalStateRoot, 8) },
         { label: 'Block Height', value: proofData.blockHeight || 0 },
       ])}
-      ${proofData.chainProofJson ? `
+      ${
+        proofData.chainProofJson
+          ? `
         <div style="margin-top: 12px;">
           <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Chain Proof JSON</div>
           <pre style="background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px; font-size: 11px; color: var(--text-primary); overflow-x: auto; max-height: 200px; cursor: pointer; user-select: all;">${escapeHtml(typeof proofData.chainProofJson === 'string' ? proofData.chainProofJson.slice(0, 2000) : JSON.stringify(proofData.chainProofJson, null, 2).slice(0, 2000))}${(typeof proofData.chainProofJson === 'string' ? proofData.chainProofJson : JSON.stringify(proofData.chainProofJson)).length > 2000 ? '\n... (truncated)' : ''}</pre>
         </div>
-      ` : ''}
+      `
+          : ''
+      }
     `;
   } else {
     content = `
@@ -937,16 +982,26 @@ async function renderReceipts() {
   }
 
   if (receipts.length === 0) {
-    el.innerHTML = renderSectionCard('All Receipts (0)', COLOR,
-      '<div style="color: var(--text-secondary); padding: 16px; text-align: center; font-size: 13px;">No receipts yet. Operations generate StateTransitionProofs.</div>'
+    el.innerHTML = renderSectionCard(
+      'All Receipts (0)',
+      COLOR,
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center; font-size: 13px;">No receipts yet. Operations generate StateTransitionProofs.</div>',
     );
     return;
   }
 
   const sorted = [...receipts].reverse();
   const columns = [
-    { key: 'receiptId', label: 'Receipt ID', format: (v) => `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 6)}</span>` },
-    { key: 'walletId', label: 'Wallet', format: (v) => `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 6)}</span>` },
+    {
+      key: 'receiptId',
+      label: 'Receipt ID',
+      format: (v) => `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 6)}</span>`,
+    },
+    {
+      key: 'walletId',
+      label: 'Wallet',
+      format: (v) => `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 6)}</span>`,
+    },
     { key: 'acceptedAt', label: 'Timestamp', format: (v) => formatTimestamp(v) },
     { key: 'l1Status', label: 'Status', format: (v) => statusBadge(v) },
     { key: 'sequenceNumber', label: 'Seq #', align: 'right' },
@@ -979,8 +1034,10 @@ async function renderBatches() {
   }
 
   if (batches.length === 0) {
-    el.innerHTML = renderSectionCard('All Batches (0)', COLOR,
-      '<div style="color: var(--text-secondary); padding: 16px; text-align: center; font-size: 13px;">No batches yet. Use Force Batch or wait for auto-batch.</div>'
+    el.innerHTML = renderSectionCard(
+      'All Batches (0)',
+      COLOR,
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center; font-size: 13px;">No batches yet. Use Force Batch or wait for auto-batch.</div>',
     );
     return;
   }
@@ -989,17 +1046,25 @@ async function renderBatches() {
   const columns = [
     { key: 'batchNumber', label: 'Batch #', format: (v) => `<span style="font-weight: 600;">#${v}</span>` },
     { key: 'registrationCount', label: 'Registrations', align: 'right' },
-    { key: 'transitionCount', label: 'Transitions', align: 'right', format: (v, row) => {
-      const isEmpty = row.transitionCount === 0 && row.registrationCount === 0;
-      return isEmpty ? '<span style="color: var(--text-secondary);">0 (empty)</span>' : v;
-    }},
+    {
+      key: 'transitionCount',
+      label: 'Transitions',
+      align: 'right',
+      format: (v, row) => {
+        const isEmpty = row.transitionCount === 0 && row.registrationCount === 0;
+        return isEmpty ? '<span style="color: var(--text-secondary);">0 (empty)</span>' : v;
+      },
+    },
     { key: 'l1Status', label: 'Status', format: (v) => statusBadge(v) },
     { key: 'createdAt', label: 'Created At', format: (v) => formatTimestamp(v) },
-    { key: 'l1TxHash', label: 'L1 Tx Hash', format: (v) => v ? `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 8)}</span>` : '--' },
+    {
+      key: 'l1TxHash',
+      label: 'L1 Tx Hash',
+      format: (v) => (v ? `<span class="mono" style="font-size: 10px;" title="${v}">${truncHash(v, 8)}</span>` : '--'),
+    },
   ];
 
-  const emptyRowStyle = (row) =>
-    row.transitionCount === 0 && row.registrationCount === 0 ? 'opacity: 0.5;' : '';
+  const emptyRowStyle = (row) => (row.transitionCount === 0 && row.registrationCount === 0 ? 'opacity: 0.5;' : '');
 
   const content = `
     <div style="max-height: 400px; overflow-y: auto;">
@@ -1035,10 +1100,12 @@ async function renderAuditChain() {
     const displayEvents = events.slice(-50).reverse(); // Show latest 50
     eventsHtml = `
       <div style="max-height: 300px; overflow-y: auto; margin-top: 12px;">
-        ${displayEvents.map((evt, i) => `
+        ${displayEvents
+          .map(
+            (evt, i) => `
           <div style="display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle); align-items: center;">
             <span style="font-size: 11px; color: var(--text-secondary); min-width: 40px; text-align: right;">
-              #${evt.sequenceNumber ?? (events.length - i)}
+              #${evt.sequenceNumber ?? events.length - i}
             </span>
             <span class="mono" style="font-size: 10px; color: var(--color-insurer); min-width: 120px;">
               ${truncHash(evt.chainHash || evt.eventCommitment, 6)}
@@ -1048,7 +1115,9 @@ async function renderAuditChain() {
               <span class="mono" style="font-size: 10px; margin-left: 8px;">${truncHash(evt.walletId, 6)}</span>
             </span>
           </div>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </div>
     `;
   }
@@ -1056,11 +1125,17 @@ async function renderAuditChain() {
   const content = `
     ${renderDataGrid([
       { label: 'Event Count', value: `<span style="color: var(--color-insurer); font-weight: 600;">${eventCount}</span>` },
-      { label: 'Latest Chain Hash', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${latestChainHash || '(genesis)'}</span>` },
+      {
+        label: 'Latest Chain Hash',
+        value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${latestChainHash || '(genesis)'}</span>`,
+      },
       { label: 'Genesis Hash', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${genesisHash || '--'}</span>` },
-      { label: 'Chain Integrity', value: eventCount > 0
-        ? '<span style="color: var(--color-accent-green); font-weight: 600;">Verified (tamper-evident)</span>'
-        : '<span style="color: var(--text-secondary);">No events</span>'
+      {
+        label: 'Chain Integrity',
+        value:
+          eventCount > 0
+            ? '<span style="color: var(--color-accent-green); font-weight: 600;">Verified (tamper-evident)</span>'
+            : '<span style="color: var(--text-secondary);">No events</span>',
       },
     ])}
     ${eventsHtml}
@@ -1084,13 +1159,31 @@ function renderNodeInfo() {
     { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
     { label: 'Node Type', value: 'Insurer / PBM' },
     { label: 'Protocol', value: 'Adjuda-GATOR L2' },
-    { label: 'Registry Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.walletRegistryRoot || l2Status.currentRegistryRoot || '--'}</span>` },
-    { label: 'Lifecycle Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.lifecycleRoot || l2Status.currentLifecycleRoot || '--'}</span>` },
+    {
+      label: 'Registry Root',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.walletRegistryRoot || l2Status.currentRegistryRoot || '--'}</span>`,
+    },
+    {
+      label: 'Lifecycle Root',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.lifecycleRoot || l2Status.currentLifecycleRoot || '--'}</span>`,
+    },
     { label: 'Wallet Count', value: chainState.walletCount || l2Status.currentWalletCount || 0 },
-    { label: 'Benefit Plan Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.benefitPlanRoot || '--'}</span>` },
-    { label: 'Credential Registry Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.nftRegistryRoot || '--'}</span>` },
-    { label: 'Eligibility VK Hash', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.eligibilityVkHash || '--'}</span>` },
-    { label: 'Messaging Root', value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.messagingRoot || '--'}</span>` },
+    {
+      label: 'Benefit Plan Root',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.benefitPlanRoot || '--'}</span>`,
+    },
+    {
+      label: 'Credential Registry Root',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.nftRegistryRoot || '--'}</span>`,
+    },
+    {
+      label: 'Eligibility VK Hash',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.eligibilityVkHash || '--'}</span>`,
+    },
+    {
+      label: 'Messaging Root',
+      value: `<span class="mono" style="font-size: 10px; word-break: break-all;">${chainState.messagingRoot || '--'}</span>`,
+    },
   ]);
 
   el.innerHTML = renderSectionCard('Node Info', COLOR, content);

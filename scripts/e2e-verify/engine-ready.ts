@@ -55,12 +55,17 @@ export async function waitForEngineReady(
 ): Promise<EngineReadyWait> {
   const started = Date.now();
   const timeoutMs = opts.timeoutMs ?? ENGINE_READY_TIMEOUT_MS;
-  await poll(http, `${seqUrl}/health`, (j) => j?.ok === true, opts.healthTimeoutMs ?? Math.min(timeoutMs, 120_000), Math.min(opts.everyMs ?? 2_000, 2_000));
+  await poll(
+    http,
+    `${seqUrl}/health`,
+    (j) => j?.ok === true,
+    opts.healthTimeoutMs ?? Math.min(timeoutMs, 120_000),
+    Math.min(opts.everyMs ?? 2_000, 2_000),
+  );
   const left = Math.max(0, timeoutMs - (Date.now() - started));
   const answer = await poll(http, `${seqUrl}/interactive/ready`, (j) => j?.ready === true, left, opts.everyMs ?? 5_000);
   const j = answer.json;
-  const readiness: EngineReadiness | null = j && typeof j === 'object' && typeof j.ready === 'boolean'
-    ? { ready: j.ready, compiled: j.compiled === true, prover: j.prover }
-    : null;
+  const readiness: EngineReadiness | null =
+    j && typeof j === 'object' && typeof j.ready === 'boolean' ? { ready: j.ready, compiled: j.compiled === true, prover: j.prover } : null;
   return { ready: readiness?.ready === true, readiness, ms: Date.now() - started };
 }

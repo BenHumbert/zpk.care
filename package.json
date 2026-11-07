@@ -12,6 +12,9 @@
     "tokens": "tsx scripts/local/tokens.ts",
     "texts": "tsx scripts/local/texts.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json && tsc -p tsconfig.tests.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run format:check",
     "test": "tsx scripts/dev/run-tests.ts",
     "test:all": "tsx scripts/dev/run-tests.ts --all",
     "start:leviathan": "npx tsx src/nodes/start-leviathan.ts",
@@ -50,6 +53,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^25.2.1",
     "jest": "^30.2.0",
+    "prettier": "3.9.10",
     "ts-jest": "^29.4.6",
     "typescript": "^5.9.3"
   }

@@ -64,7 +64,13 @@ async function main(): Promise<void> {
 
   const t1 = Date.now();
   const { proof } = await StateTransitionProgram.proveRegistration(
-    pre[0], pre[1], pre[2], pre[3], pre[4], pre[5], pre[6],
+    pre[0],
+    pre[1],
+    pre[2],
+    pre[3],
+    pre[4],
+    pre[5],
+    pre[6],
     WalletRegistryWitness.fromJSON(JSON.parse(w.registryWitnessJson)),
     LifecycleWitness.fromJSON(JSON.parse(w.lifecycleWitnessJson)),
     Field(w.currentRegistryRoot),

@@ -63,7 +63,10 @@ async function waitUntilReady(explorerPort: number, stopped: () => boolean): Pro
     if (Date.now() - lastNote > 60_000) {
       lastNote = Date.now();
       const minutes = Math.round((Date.now() - started) / 60_000);
-      if (minutes > 0) console.log(`\n  [start] still starting after ${minutes} min: the first boot compiles every circuit, which takes several minutes\n`);
+      if (minutes > 0)
+        console.log(
+          `\n  [start] still starting after ${minutes} min: the first boot compiles every circuit, which takes several minutes\n`,
+        );
     }
     await new Promise((r) => setTimeout(r, READY_POLL_MS));
   }
@@ -79,11 +82,11 @@ async function main(): Promise<void> {
   }
   if (args.includes('--fresh')) {
     for (const dir of STATE_DIRS) rmSync(path.join(ROOT, dir), { recursive: true, force: true });
-    console.log('  [start] cleared the network\'s state and the local HR Tool workspace');
+    console.log("  [start] cleared the network's state and the local HR Tool workspace");
   }
   const env: NodeJS.ProcessEnv = { ...fileEnv, ...process.env };
   if (args.includes('--full-catalog')) delete env.ZKTRIDENT_FORMULARY_LIMIT;
-  delete env.ZKTRIDENT_UNSECURE;   // the local profile is a secured boot
+  delete env.ZKTRIDENT_UNSECURE; // the local profile is a secured boot
   for (const { name } of SECRETS) {
     if (process.env[name] !== undefined && fileEnv[name] !== undefined && process.env[name] !== fileEnv[name]) {
       console.log(`  [start] ${name} from this shell is used, not the one in .zpk/local.env (\`npm run tokens\` shows the file's)`);

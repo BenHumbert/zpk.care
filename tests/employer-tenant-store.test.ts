@@ -39,13 +39,20 @@ const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString(
 const pinHashOf = (code: string, pin: string) => Poseidon.hash([hashString(code), hashString(pin)]).toString();
 
 const attestation = {
-  employerId: EMPLOYER, publicKeyHex: 'ab'.repeat(32), authorizedPlanIds: [PLAN], insurerPublicKeyHex: 'cd'.repeat(32),
+  employerId: EMPLOYER,
+  publicKeyHex: 'ab'.repeat(32),
+  authorizedPlanIds: [PLAN],
+  insurerPublicKeyHex: 'cd'.repeat(32),
 } as unknown as EmployerAttestation;
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tenant-store-')); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tenant-store-'));
+});
 // a tenant process may still be letting go of its files on Windows
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); });
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+});
 
 function openNode(key: Buffer, pepper: Buffer): { node: EmployerNode; store: SealedRecordStore<EmployerStoredRecord> } {
   const store = SealedRecordStore.open<EmployerStoredRecord>({ dir: path.join(dir, 'records'), name: 'employer', key });
@@ -131,7 +138,9 @@ describe('the employer node with a sealed store', () => {
 
   test('a store needs its PIN key', () => {
     const store = SealedRecordStore.open<EmployerStoredRecord>({ dir: path.join(dir, 'records'), name: 'employer', key });
-    expect(() => new EmployerNode({ role: 'employer', sequencerUrl: 'http://127.0.0.1:9', employerId: EMPLOYER, store })).toThrow(/PIN key/);
+    expect(() => new EmployerNode({ role: 'employer', sequencerUrl: 'http://127.0.0.1:9', employerId: EMPLOYER, store })).toThrow(
+      /PIN key/,
+    );
     store.close();
   });
 
@@ -147,8 +156,14 @@ describe('an admin token checked against its hash', () => {
   test('the right bearer is accepted and any other refused', async () => {
     const token = `${EMPLOYER.toLowerCase()}-admin-${randomBytes(16).toString('hex')}`;
     const server = new NautilusAppServer({
-      role: 'employer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:9', stateDir: dir,
-      enableSSE: false, maxSseConnections: 0, allowedOrigins: [],
+      role: 'employer',
+      port: 0,
+      host: '127.0.0.1',
+      sequencerUrl: 'http://127.0.0.1:9',
+      stateDir: dir,
+      enableSSE: false,
+      maxSseConnections: 0,
+      allowedOrigins: [],
       adminTokenSha256: createHash('sha256').update(token).digest('hex'),
     } as unknown as NautilusAppConfig);
     server.registerRoutes(buildEmployerRoutes(server));
@@ -176,17 +191,25 @@ describe('the plan brings its tenants back after its own restart', () => {
     // a stand-in sequencer: the employer's attestation, and a tenant registry that takes whatever it is sent
     sequencer = http.createServer((req, res) => {
       let raw = '';
-      req.on('data', (d) => { raw += d; });
+      req.on('data', (d) => {
+        raw += d;
+      });
       req.on('end', () => {
         const call = JSON.parse(raw || '{}') as { id?: number; method?: string };
         const result = (() => {
           switch (call.method) {
-            case 'l2_getEmployerNode': return null;
-            case 'l2_getEmployerAttestation': return { employerId: EMPLOYER, publicKeyHex: employerPubKeyHex };
-            case 'l2_verifyEmployer': return { valid: true, attestation: { ...attestation, publicKeyHex: employerPubKeyHex } };
-            case 'l2_registerEmployerNode': return { registered: true };
-            case 'l2_deregisterEmployerNode': return { deregistered: true };
-            default: return null;
+            case 'l2_getEmployerNode':
+              return null;
+            case 'l2_getEmployerAttestation':
+              return { employerId: EMPLOYER, publicKeyHex: employerPubKeyHex };
+            case 'l2_verifyEmployer':
+              return { valid: true, attestation: { ...attestation, publicKeyHex: employerPubKeyHex } };
+            case 'l2_registerEmployerNode':
+              return { registered: true };
+            case 'l2_deregisterEmployerNode':
+              return { deregistered: true };
+            default:
+              return null;
           }
         })();
         res.setHeader('Content-Type', 'application/json');
@@ -205,11 +228,17 @@ describe('the plan brings its tenants back after its own restart', () => {
     const helper = path.join(__dirname, 'helpers', 'tenant-respawn.ts');
     const out = await new Promise<string>((resolve) => {
       const child = spawn(process.execPath, ['--import', 'tsx', helper, sequencerUrl, dir, EMPLOYER, employerPubKeyHex, PLAN], {
-        cwd: path.resolve(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+        cwd: path.resolve(__dirname, '..'),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       });
       let text = '';
-      child.stdout.on('data', (d: Buffer) => { text += d.toString(); });
-      child.stderr.on('data', (d: Buffer) => { text += d.toString(); });
+      child.stdout.on('data', (d: Buffer) => {
+        text += d.toString();
+      });
+      child.stderr.on('data', (d: Buffer) => {
+        text += d.toString();
+      });
       child.on('close', () => resolve(text));
     });
     const line = out.split(/\r?\n/).find((l) => l.startsWith('@@tenant-respawn '));

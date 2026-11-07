@@ -96,10 +96,7 @@ export function deserializeCredential(json: string): PortableCredential {
  * @param verificationKey — the CredentialProgram verification key (stored on verifier device)
  * @returns true if the proof is valid
  */
-export async function verifyCredentialOffline(
-  credential: PortableCredential,
-  verificationKey: string,
-): Promise<boolean> {
+export async function verifyCredentialOffline(credential: PortableCredential, verificationKey: string): Promise<boolean> {
   try {
     // Check expiration
     if (credential.expiresAt > 0 && Date.now() > credential.expiresAt) {
@@ -214,8 +211,6 @@ export function serializeDelegationCredential(
 /**
  * Deserialize a PortableDelegationCredential from JSON string.
  */
-export function deserializeDelegationCredential(
-  json: string,
-): PortableDelegationCredential {
+export function deserializeDelegationCredential(json: string): PortableDelegationCredential {
   return JSON.parse(json) as PortableDelegationCredential;
 }

@@ -58,7 +58,9 @@ const STRICT = args.includes('--strict');
 /** Where the explorer serves, which ZKTRIDENT_EXPLORER_PORT may have moved off 8000 (A-133). */
 const EXPLORER_PORT = resolveExplorerPort(process.env);
 const PORTS = (process.env.E2E_PORTS ?? `3030,3031,3032,4001,4002,4003,4004,4040,${EXPLORER_PORT}`)
-  .split(',').map((s) => Number(s.trim())).filter(Boolean);
+  .split(',')
+  .map((s) => Number(s.trim()))
+  .filter(Boolean);
 /**
  * How long to wait for one answer. Generous on purpose: the sequencer compiles ten
  * ZkPrograms on its main thread after boot, so its event loop stalls for seconds at a
@@ -86,7 +88,12 @@ function lanIp(): string | null {
 }
 
 type Outcome = 'pass' | 'fail' | 'skip';
-interface Result { port: number; check: string; outcome: Outcome; detail: string }
+interface Result {
+  port: number;
+  check: string;
+  outcome: Outcome;
+  detail: string;
+}
 
 const results: Result[] = [];
 function record(port: number, check: string, outcome: Outcome, detail: string): void {
@@ -149,8 +156,12 @@ async function main(): Promise<void> {
       if ('error' in remote) {
         record(port, 'loopback only', 'pass', 'the LAN address refused the connection');
       } else {
-        record(port, 'loopback only', 'fail',
-          'answered on ' + lan + ':' + port + ' with ' + remote.status + ' — reachable from the network');
+        record(
+          port,
+          'loopback only',
+          'fail',
+          'answered on ' + lan + ':' + port + ' with ' + remote.status + ' — reachable from the network',
+        );
       }
     }
 
@@ -164,11 +175,14 @@ async function main(): Promise<void> {
       if ('error' in good) {
         record(port, 'prover closed to browsers', 'pass', good.error.slice(0, 60));
       } else if (good.acao === null) {
-        record(port, 'prover closed to browsers', 'pass',
-          'no allow-origin header — a page cannot read a response from the prover');
+        record(port, 'prover closed to browsers', 'pass', 'no allow-origin header — a page cannot read a response from the prover');
       } else {
-        record(port, 'prover closed to browsers', 'fail',
-          'granted ' + good.acao + ' — a page could delegate proving and send a preimage off the device');
+        record(
+          port,
+          'prover closed to browsers',
+          'fail',
+          'granted ' + good.acao + ' — a page could delegate proving and send a preimage off the device',
+        );
       }
     } else if ('error' in good) {
       record(port, 'dashboard origin granted', 'fail', good.error.slice(0, 60));
@@ -177,26 +191,25 @@ async function main(): Promise<void> {
     } else if (good.acao === '*') {
       record(port, 'dashboard origin granted', 'fail', 'wildcard — grants every origin');
     } else {
-      record(port, 'dashboard origin granted', 'fail',
-        'header was ' + (good.acao === null ? 'absent' : good.acao) +
-        ' — a dashboard on this origin cannot read the response');
+      record(
+        port,
+        'dashboard origin granted',
+        'fail',
+        'header was ' + (good.acao === null ? 'absent' : good.acao) + ' — a dashboard on this origin cannot read the response',
+      );
     }
 
     // ── 3. a foreign origin is refused ──────────────────────────────
     // On the prover this is the same assertion as check 2, so it is not repeated.
-    const bad = port === PROVER_PORT
-      ? null
-      : await probe(base + '/health', { headers: { Origin: FOREIGN_ORIGIN } });
+    const bad = port === PROVER_PORT ? null : await probe(base + '/health', { headers: { Origin: FOREIGN_ORIGIN } });
     if (bad === null) {
       // covered by 'prover closed to browsers'
-    } else
-    if ('error' in bad) {
+    } else if ('error' in bad) {
       record(port, 'foreign origin refused', 'fail', bad.error.slice(0, 60));
     } else if (bad.acao === null) {
       record(port, 'foreign origin refused', 'pass', 'no allow-origin header');
     } else if (bad.acao === 'null') {
-      record(port, 'foreign origin refused', 'fail',
-        "the literal 'null' — grants file:// pages and sandboxed iframes");
+      record(port, 'foreign origin refused', 'fail', "the literal 'null' — grants file:// pages and sandboxed iframes");
     } else {
       record(port, 'foreign origin refused', 'fail', 'granted ' + bad.acao);
     }
@@ -206,11 +219,12 @@ async function main(): Promise<void> {
     // is not one, so it is left out here.
     const hasProxy = (port >= 4001 && port <= 4004) || port === EXPLORER_PORT;
     if (hasProxy) {
-      const rpc = (method: string): Promise<Probe> => probe(base + '/rpc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: [] }),
-      });
+      const rpc = (method: string): Promise<Probe> =>
+        probe(base + '/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: [] }),
+        });
 
       // (a) a method this role's page actually calls must still get through
       const allowed = await rpc('l2_getStatus');
@@ -224,8 +238,7 @@ async function main(): Promise<void> {
       } else if (allowed.status === 404) {
         record(port, 'proxy serves its page', 'skip', 'proxy disabled on this node');
       } else {
-        record(port, 'proxy serves its page', 'fail',
-          'l2_getStatus answered ' + allowed.status + ' — this role’s dashboard is broken');
+        record(port, 'proxy serves its page', 'fail', 'l2_getStatus answered ' + allowed.status + ' — this role’s dashboard is broken');
       }
 
       // (b) a method it does not call must be refused by the node, not relayed
@@ -233,11 +246,9 @@ async function main(): Promise<void> {
       if ('error' in denied) {
         record(port, 'proxy refuses the rest', 'pass', denied.error.slice(0, 60));
       } else if (denied.status === 403 || denied.status === 404 || (denied.status === 401 && port === 4001)) {
-        record(port, 'proxy refuses the rest', 'pass',
-          'l2_deletePlan refused with ' + denied.status);
+        record(port, 'proxy refuses the rest', 'pass', 'l2_deletePlan refused with ' + denied.status);
       } else {
-        record(port, 'proxy refuses the rest', 'fail',
-          'l2_deletePlan was relayed to the sequencer and answered ' + denied.status);
+        record(port, 'proxy refuses the rest', 'fail', 'l2_deletePlan was relayed to the sequencer and answered ' + denied.status);
       }
     }
   }

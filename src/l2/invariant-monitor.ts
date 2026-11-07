@@ -56,7 +56,14 @@ export interface InvariantReport {
   /** No alarm is raised. */
   ok: boolean;
   checkedAt: number;
-  leader: { nodeId: string; registryRoot: string; lifecycleRoot: string; proofsAccepted: number; batchesBuilt: number; pendingProofs: number };
+  leader: {
+    nodeId: string;
+    registryRoot: string;
+    lifecycleRoot: string;
+    proofsAccepted: number;
+    batchesBuilt: number;
+    pendingProofs: number;
+  };
   replicas: ReplicaState[];
   batch: { stalled: boolean; pendingProofs: number; pendingForMs: number; stallAfterMs: number };
   alarms: string[];
@@ -137,8 +144,10 @@ export class InvariantMonitor {
         this.divergentSince.set(r.nodeId, since);
         divergentForMs = now - since;
         if (divergentForMs > this.divergenceGraceMs) {
-          keyed.set(`diverged:${r.nodeId}`,
-            `${r.nodeId} has diverged from the leader for ${seconds(divergentForMs)} (registry root ${short(r.registryRoot)} vs ${short(leader.registryRoot)}; ${r.proofsAccepted} of ${leader.proofsAccepted} proofs applied)`);
+          keyed.set(
+            `diverged:${r.nodeId}`,
+            `${r.nodeId} has diverged from the leader for ${seconds(divergentForMs)} (registry root ${short(r.registryRoot)} vs ${short(leader.registryRoot)}; ${r.proofsAccepted} of ${leader.proofsAccepted} proofs applied)`,
+          );
         }
       }
       return { nodeId: r.nodeId, inSync, behindBy: Math.max(0, leader.proofsAccepted - r.proofsAccepted), divergentForMs };
@@ -158,7 +167,10 @@ export class InvariantMonitor {
     const pendingForMs = this.pendingSince === null ? 0 : now - this.pendingSince;
     const stalled = this.pendingSince !== null && pendingForMs > stallAfterMs;
     if (stalled) {
-      keyed.set('batch-stalled', `batch stalled: ${leader.pendingProofs} proof(s) pending for ${seconds(pendingForMs)} with no batch built (threshold ${seconds(stallAfterMs)})`);
+      keyed.set(
+        'batch-stalled',
+        `batch stalled: ${leader.pendingProofs} proof(s) pending for ${seconds(pendingForMs)} with no batch built (threshold ${seconds(stallAfterMs)})`,
+      );
     }
 
     // Transitions, once each
@@ -167,14 +179,24 @@ export class InvariantMonitor {
       if (!this.raised.has(key)) this.log(`[invariant] ALARM ${text}`);
     }
     for (const key of this.raised) {
-      if (!keyed.has(key)) this.log(`[invariant] cleared: ${key.startsWith('diverged:') ? `${key.slice('diverged:'.length)} is back in step with the leader` : 'a batch was built'}`);
+      if (!keyed.has(key))
+        this.log(
+          `[invariant] cleared: ${key.startsWith('diverged:') ? `${key.slice('diverged:'.length)} is back in step with the leader` : 'a batch was built'}`,
+        );
     }
     this.raised = new Set(keyed.keys());
 
     this.last = {
       ok: alarms.length === 0,
       checkedAt: now,
-      leader: { nodeId: leader.nodeId, registryRoot: leader.registryRoot, lifecycleRoot: leader.lifecycleRoot, proofsAccepted: leader.proofsAccepted, batchesBuilt: leader.batchesBuilt, pendingProofs: leader.pendingProofs },
+      leader: {
+        nodeId: leader.nodeId,
+        registryRoot: leader.registryRoot,
+        lifecycleRoot: leader.lifecycleRoot,
+        proofsAccepted: leader.proofsAccepted,
+        batchesBuilt: leader.batchesBuilt,
+        pendingProofs: leader.pendingProofs,
+      },
       replicas,
       batch: { stalled, pendingProofs: leader.pendingProofs, pendingForMs, stallAfterMs },
       alarms,

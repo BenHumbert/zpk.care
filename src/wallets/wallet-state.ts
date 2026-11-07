@@ -56,11 +56,7 @@ export class WalletState extends Struct({
 }) {
   /** Compute the commitment stored as a Merkle leaf */
   commitment(): Field {
-    return Poseidon.hash([
-      this.walletId,
-      this.credentialInventoryRoot,
-      this.nonce,
-    ]);
+    return Poseidon.hash([this.walletId, this.credentialInventoryRoot, this.nonce]);
   }
 
   /** Create a new wallet with an empty credential inventory for a given identity */

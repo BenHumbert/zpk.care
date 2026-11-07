@@ -58,15 +58,29 @@ function run(pieces: string[], scope: Record<string, unknown>, ret: string): any
   return new Function(...names, `'use strict';\n${pieces.join(NL)}\nreturn ${ret};`)(...names.map((n) => scope[n]));
 }
 
-const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escHtml = (s: unknown): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 /** A page element stub with what the lifted code touches. */
 function element(id: string, value = ''): Record<string, any> {
   return {
-    id, value, innerHTML: '', textContent: '', checked: false, disabled: false, style: {},
-    scrollTop: 0, scrollHeight: 0, clientHeight: 0,
+    id,
+    value,
+    innerHTML: '',
+    textContent: '',
+    checked: false,
+    disabled: false,
+    style: {},
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
     classList: { add() {}, remove() {}, toggle() {} },
-    addEventListener() {}, querySelectorAll: () => [],
+    addEventListener() {},
+    querySelectorAll: () => [],
   };
 }
 
@@ -77,10 +91,23 @@ describe('F9: the create-plan form keeps a typed 0', () => {
     const sent: Array<Record<string, unknown>> = [];
     const els: Record<string, any> = {};
     const $ = (id: string) => (els[id] = els[id] ?? element(id, values[id] ?? ''));
-    const createPlan = run(liftAll(INSURER, ['feeFromInput', 'centsFromInput', 'createPlan']), {
-      $, API: { createPlan: async (b: Record<string, unknown>) => { sent.push(b); return b; } },
-      toast: () => undefined, showResult: () => undefined, fetchPlans: async () => undefined, renderPlanList: () => undefined,
-    }, 'createPlan');
+    const createPlan = run(
+      liftAll(INSURER, ['feeFromInput', 'centsFromInput', 'createPlan']),
+      {
+        $,
+        API: {
+          createPlan: async (b: Record<string, unknown>) => {
+            sent.push(b);
+            return b;
+          },
+        },
+        toast: () => undefined,
+        showResult: () => undefined,
+        fetchPlans: async () => undefined,
+        renderPlanList: () => undefined,
+      },
+      'createPlan',
+    );
     await createPlan();
     expect(sent).toHaveLength(1);
     return sent[0];
@@ -129,7 +156,15 @@ describe('F9: the create-plan form keeps a typed 0', () => {
 
 const PUBLISHED_TERMS = { copayAmountCents: 1500, formularyRoot: '1234567890', networkRoot: '0', publishedAt: 1_760_000_000_000 };
 const PLANS = [
-  { planId: 'PLAN-LIVE', name: 'Live', published: true, publishedTerms: PUBLISHED_TERMS, copayAmountCents: 1500, oopMaxCents: 0, annualBenefitMaxCents: 0 },
+  {
+    planId: 'PLAN-LIVE',
+    name: 'Live',
+    published: true,
+    publishedTerms: PUBLISHED_TERMS,
+    copayAmountCents: 1500,
+    oopMaxCents: 0,
+    annualBenefitMaxCents: 0,
+  },
   { planId: 'PLAN-EDITING', name: 'Editing', published: false, publishedTerms: PUBLISHED_TERMS, copayAmountCents: 500 },
   // published before the terms were kept: the overlay version as its formularyRoot, no published terms
   { planId: 'PLAN-LEGACY', name: 'Legacy', published: true, formularyRoot: '1', copayAmountCents: 1000 },
@@ -138,15 +173,36 @@ const PLANS = [
 
 function planTable(plans: unknown[], publishPlan?: (id: string) => Promise<unknown>) {
   const container = element('plan-list-container');
-  const buttons = (plans as Array<{ planId: string }>).map((p) => ({ dataset: { planId: p.planId }, disabled: false, textContent: 'Publish' } as Record<string, any>));
+  const buttons = (plans as Array<{ planId: string }>).map(
+    (p) => ({ dataset: { planId: p.planId }, disabled: false, textContent: 'Publish' }) as Record<string, any>,
+  );
   container.querySelectorAll = (sel: string) => (sel === '.plan-publish-btn' ? buttons : []);
   const toasts: Array<[string, string]> = [];
-  const render = run(liftAll(INSURER, ['fmtCents', 'fmtLimit', 'coverageLabel', 'planPublishedTerms', 'planPublishState', 'planStatusBadge', 'publishOutcome', 'renderPlanList']), {
-    $: (id: string) => (id === 'plan-list-container' ? container : element(id)),
-    esc: escHtml, planData: plans, API: { publishPlan: publishPlan ?? (async () => ({})) },
-    toast: (m: string, t: string) => { toasts.push([m, t]); }, fetchPlans: async () => undefined,
-    confirm: () => false, openPlanDetail: () => undefined,
-  }, 'renderPlanList');
+  const render = run(
+    liftAll(INSURER, [
+      'fmtCents',
+      'fmtLimit',
+      'coverageLabel',
+      'planPublishedTerms',
+      'planPublishState',
+      'planStatusBadge',
+      'publishOutcome',
+      'renderPlanList',
+    ]),
+    {
+      $: (id: string) => (id === 'plan-list-container' ? container : element(id)),
+      esc: escHtml,
+      planData: plans,
+      API: { publishPlan: publishPlan ?? (async () => ({})) },
+      toast: (m: string, t: string) => {
+        toasts.push([m, t]);
+      },
+      fetchPlans: async () => undefined,
+      confirm: () => false,
+      openPlanDetail: () => undefined,
+    },
+    'renderPlanList',
+  );
   render();
   return { html: String(container.innerHTML), buttons, toasts };
 }
@@ -180,12 +236,24 @@ describe('F11: a plan counts as published only if it has published terms', () =>
   test('the detail panel shows the same state and says how to publish the plan again', async () => {
     const els: Record<string, any> = {};
     const $ = (id: string) => (els[id] = els[id] ?? element(id));
-    const open = run(liftAll(INSURER, ['planPublishedTerms', 'planPublishState', 'planStatusBadge', 'planDetailStatus', 'openPlanDetail']), {
-      $, planData: PLANS, toast: () => undefined, editingPlanId: null, selectedFormularyNdcs: null, selectedNetworkWalletIds: null,
-      allFormularyEntries: [], allNetworkProviders: [],
-      API: { getFormulary: async () => ({ entries: [] }), getProviderRegistry: async () => ({ providers: [] }) },
-      renderFormularySelection: () => undefined, renderNetworkSelection: () => undefined, initPlanDetailEvents: () => undefined,
-    }, 'openPlanDetail');
+    const open = run(
+      liftAll(INSURER, ['planPublishedTerms', 'planPublishState', 'planStatusBadge', 'planDetailStatus', 'openPlanDetail']),
+      {
+        $,
+        planData: PLANS,
+        toast: () => undefined,
+        editingPlanId: null,
+        selectedFormularyNdcs: null,
+        selectedNetworkWalletIds: null,
+        allFormularyEntries: [],
+        allNetworkProviders: [],
+        API: { getFormulary: async () => ({ entries: [] }), getProviderRegistry: async () => ({ providers: [] }) },
+        renderFormularySelection: () => undefined,
+        renderNetworkSelection: () => undefined,
+        initPlanDetailEvents: () => undefined,
+      },
+      'openPlanDetail',
+    );
     await open('PLAN-LEGACY');
     expect(String(els['plan-detail-status']?.innerHTML ?? '')).toContain('Republish needed');
     expect(String(els['plan-detail-status']?.innerHTML ?? '')).toContain('Save &amp; Publish');
@@ -197,7 +265,8 @@ describe('F11: a plan counts as published only if it has published terms', () =>
 
 describe('F5: a publish overtaken by a newer draft says so', () => {
   test('the Publish button reports the route\'s message, not "Plan published"', async () => {
-    const message = 'Published the plan as it was when publishing began. A newer draft was saved meanwhile and is not published; publish again to publish it.';
+    const message =
+      'Published the plan as it was when publishing began. A newer draft was saved meanwhile and is not published; publish again to publish it.';
     const { buttons, toasts } = planTable([PLANS[3]], async () => ({ published: false, draftPending: true, message }));
     await buttons[0].onclick();
     expect(toasts).toEqual([[message, 'info']]);
@@ -212,8 +281,9 @@ describe('F5: a publish overtaken by a newer draft says so', () => {
 
 // ─── F12: the agreement screens ─────────────────────────────────────────────
 
-describe('F12: the insurer sees when an employer\'s signed terms no longer match', () => {
-  const actions = (a: Record<string, unknown>): string => run(liftAll(INSURER, ['renderAppActions']), { esc: escHtml }, 'renderAppActions')(a);
+describe("F12: the insurer sees when an employer's signed terms no longer match", () => {
+  const actions = (a: Record<string, unknown>): string =>
+    run(liftAll(INSURER, ['renderAppActions']), { esc: escHtml }, 'renderAppActions')(a);
 
   test('a signed or active employer whose terms changed is flagged; one whose terms match is not', () => {
     expect(actions({ applicationId: 'EMPAPP-1', status: 'active', termsChanged: true })).toContain('Terms changed since signed');
@@ -227,23 +297,49 @@ describe('F12: the insurer sees when an employer\'s signed terms no longer match
     const legacy = actions({ applicationId: 'EMPAPP-5', status: 'active', termsChanged: false, signedBeforeFullTerms: true });
     expect(legacy).toContain('Signed before full terms');
     expect(legacy).not.toContain('Terms changed');
-    expect(actions({ applicationId: 'EMPAPP-6', status: 'active', termsChanged: false, signedBeforeFullTerms: false })).not.toContain('Signed before');
+    expect(actions({ applicationId: 'EMPAPP-6', status: 'active', termsChanged: false, signedBeforeFullTerms: false })).not.toContain(
+      'Signed before',
+    );
   });
 });
 
 describe('F12: the marketplace agreement describes what members are billed', () => {
   const PLAN_TERMS = {
-    planId: 'PLAN-A', planName: 'Plan A', copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, dispensingFeeCents: 10000, dispensingFeeSource: 'plan', formularyRoot: '98765432109876543210',
-    coverageType: 1, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 2500000, networkRoot: '55555555555555555555',
+    planId: 'PLAN-A',
+    planName: 'Plan A',
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    dispensingFeeCents: 10000,
+    dispensingFeeSource: 'plan',
+    formularyRoot: '98765432109876543210',
+    coverageType: 1,
+    familyDeductibleAmountCents: 100000,
+    familyOopMaxCents: 1600000,
+    familyAnnualBenefitMaxCents: 2500000,
+    networkRoot: '55555555555555555555',
   };
   const agreement = (signedAttestation: unknown) => ({
     terms: {
-      agreementId: 'AGR-EMPAPP-1', applicationId: 'EMPAPP-1', employerId: 'FERNHILL', companyName: 'Fernhill Test Works LLC',
-      selectedPlans: [PLAN_TERMS], unavailablePlanIds: ['PLAN-DRAFT'], effectiveDate: '20270101', enrollmentCap: 10,
-      insurerName: 'zkpCare Network', termsVersion: '2026.1', generatedAt: 1,
+      agreementId: 'AGR-EMPAPP-1',
+      applicationId: 'EMPAPP-1',
+      employerId: 'FERNHILL',
+      companyName: 'Fernhill Test Works LLC',
+      selectedPlans: [PLAN_TERMS],
+      unavailablePlanIds: ['PLAN-DRAFT'],
+      effectiveDate: '20270101',
+      enrollmentCap: 10,
+      insurerName: 'zkpCare Network',
+      termsVersion: '2026.1',
+      generatedAt: 1,
     },
-    commitment: '111', documentHash: 'abc', ts: 1, attestationSeq: 1, canonicalMessage: 'zkpcare-employer-v2|...', signedAttestation,
+    commitment: '111',
+    documentHash: 'abc',
+    ts: 1,
+    attestationSeq: 1,
+    canonicalMessage: 'zkpcare-employer-v2|...',
+    signedAttestation,
   });
 
   /** The Agreement screen for an application in `status`, the agreement route answering `data`. */
@@ -251,14 +347,42 @@ describe('F12: the marketplace agreement describes what members are billed', () 
     const els: Record<string, any> = {};
     const document = { getElementById: (id: string) => (els[id] = els[id] ?? element(id)) };
     let agreementData: unknown = null;
-    const pieces = liftAll(MARKETPLACE, ['fmtCents', 'fmtLimit', 'fmtFee', 'nextAttestationReason', 'termsChangedNotice', 'agreementPlansSection', 'renderAgreement', 'renderSign']);
-    const renderSign = run(pieces, {
-      document, app: { innerHTML: '' }, applicationId: 'EMPAPP-1', applicationStatus: '', agreementData, keypair,
-      stepBar: () => '', loading: () => '', activationCodeCard: () => '', wireActivationCodeCard: () => undefined,
-      api: async (_m: string, p: string) => (p.includes('/status/') ? { status, companyName: 'Fernhill' } : data),
-      persistState: () => undefined, esc: escHtml, toast: () => undefined, errMsg: String, navigate: () => undefined,
-      doSign: async () => undefined, regenerateKeypair: async () => keypair, claimSecret: '', prompt: () => null,
-    }, 'renderSign');
+    const pieces = liftAll(MARKETPLACE, [
+      'fmtCents',
+      'fmtLimit',
+      'fmtFee',
+      'nextAttestationReason',
+      'termsChangedNotice',
+      'agreementPlansSection',
+      'renderAgreement',
+      'renderSign',
+    ]);
+    const renderSign = run(
+      pieces,
+      {
+        document,
+        app: { innerHTML: '' },
+        applicationId: 'EMPAPP-1',
+        applicationStatus: '',
+        agreementData,
+        keypair,
+        stepBar: () => '',
+        loading: () => '',
+        activationCodeCard: () => '',
+        wireActivationCodeCard: () => undefined,
+        api: async (_m: string, p: string) => (p.includes('/status/') ? { status, companyName: 'Fernhill' } : data),
+        persistState: () => undefined,
+        esc: escHtml,
+        toast: () => undefined,
+        errMsg: String,
+        navigate: () => undefined,
+        doSign: async () => undefined,
+        regenerateKeypair: async () => keypair,
+        claimSecret: '',
+        prompt: () => null,
+      },
+      'renderSign',
+    );
     await renderSign();
     return String(els['sign-content']?.innerHTML ?? '');
   }
@@ -269,9 +393,9 @@ describe('F12: the marketplace agreement describes what members are billed', () 
     expect(html).toContain('Sign New Terms');
     expect(html).toContain('Dispensing Fee');
     expect(html).toContain('$100.00');
-    expect(html).toContain('98765432109876543210');                    // the published formulary root
-    expect(html).toContain('PLAN-DRAFT');                              // a selected plan that is not published
-    expect(html).toContain('No limit');                                // annual max 0
+    expect(html).toContain('98765432109876543210'); // the published formulary root
+    expect(html).toContain('PLAN-DRAFT'); // a selected plan that is not published
+    expect(html).toContain('No limit'); // annual max 0
     expect(html).not.toContain('Agreement already signed');
   });
 
@@ -290,15 +414,18 @@ describe('F12: the marketplace agreement describes what members are billed', () 
   test('the agreement states the family limits and the network roots, and that a plan published later needs a new signature', async () => {
     const html = await agreementScreen('approved', agreement(null));
     expect(html).toContain('Family OOP Max');
-    expect(html).toContain('$16,000.00');                             // the family OOP max
-    expect(html).toContain('$25,000.00');                             // the family annual max
-    expect(html).toContain('55555555555555555555');                    // the published network root
+    expect(html).toContain('$16,000.00'); // the family OOP max
+    expect(html).toContain('$25,000.00'); // the family annual max
+    expect(html).toContain('55555555555555555555'); // the published network root
     expect(html).toContain('A plan published later is covered only once you sign an agreement that includes it');
     expect(html).not.toContain('until the insurer publishes them');
   });
 
   test('an active employer that signed before full terms is offered the full terms, without being told its terms changed', async () => {
-    const html = await agreementScreen('active', agreement({ attestationSeq: 0, signedAt: 1, termsChanged: false, signedBeforeFullTerms: true, plansToAdd: [] }));
+    const html = await agreementScreen(
+      'active',
+      agreement({ attestationSeq: 0, signedAt: 1, termsChanged: false, signedBeforeFullTerms: true, plansToAdd: [] }),
+    );
     expect(html).toContain('Signed before full terms');
     expect(html).toContain('Sign New Terms');
     expect(html).not.toContain('Terms changed since signed');
@@ -306,7 +433,10 @@ describe('F12: the marketplace agreement describes what members are billed', () 
   });
 
   test('an active employer with a selected plan published after it signed is offered it to add, as its next attestation', async () => {
-    const html = await agreementScreen('active', agreement({ attestationSeq: 0, signedAt: 1, termsChanged: false, signedBeforeFullTerms: false, plansToAdd: ['PLAN-A'] }));
+    const html = await agreementScreen(
+      'active',
+      agreement({ attestationSeq: 0, signedAt: 1, termsChanged: false, signedBeforeFullTerms: false, plansToAdd: ['PLAN-A'] }),
+    );
     expect(html).toContain('Plans to add');
     expect(html).toContain('PLAN-A is published now');
     expect(html).toContain('Sign New Terms');

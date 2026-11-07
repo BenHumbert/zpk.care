@@ -126,11 +126,7 @@ export class FormularyUpdateService {
     });
 
     // Replace eligibility data in ACCESS_CONTROL tree (leaf 0)
-    forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      0n,
-      newEligibilityData.commitment(),
-    );
+    forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, newEligibilityData.commitment());
 
     return {
       newEligibilityData,
@@ -151,8 +147,8 @@ export class FormularyUpdateService {
     removed: FormularyEntryLocalData[];
     changed: FormularyEntryLocalData[];
   } {
-    const oldMap = new Map(oldEntries.map(e => [e.ndc, e]));
-    const newMap = new Map(newEntries.map(e => [e.ndc, e]));
+    const oldMap = new Map(oldEntries.map((e) => [e.ndc, e]));
+    const newMap = new Map(newEntries.map((e) => [e.ndc, e]));
 
     const added: FormularyEntryLocalData[] = [];
     const removed: FormularyEntryLocalData[] = [];

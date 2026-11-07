@@ -101,7 +101,6 @@ if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
   config.dashboardDir = dashboardDir;
 }
 
-
 const pin = env.ZKTRIDENT_PIN;
 
 // ─── Main ────────────────────────────────────────────────────
@@ -144,7 +143,7 @@ async function main(): Promise<void> {
         clientOptions: server.sequencerClientOptions(),
       });
       server.setEntityNode(node);
-      server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');
+      server.setOnboardingPhase((data.onboarding.phase as any) ?? 'ready');
     }
   } else if (!stateExists && pin) {
     // First run — create initial state

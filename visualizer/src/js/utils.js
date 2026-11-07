@@ -70,12 +70,12 @@ export const LANE_COLORS = {
 
 /** Lane icons */
 export const LANE_ICONS = {
-  enrollment: '\u{1F4CB}',   // clipboard
-  eligibility: '\u{2705}',  // check mark
+  enrollment: '\u{1F4CB}', // clipboard
+  eligibility: '\u{2705}', // check mark
   prescription: '\u{1F48A}', // pill
   fulfillment: '\u{1F4B0}', // money bag
-  messaging: '\u{1F4E8}',   // envelope
-  batch: '\u{1F4E6}',       // package
+  messaging: '\u{1F4E8}', // envelope
+  batch: '\u{1F4E6}', // package
 };
 
 /** Human-readable event type descriptions */

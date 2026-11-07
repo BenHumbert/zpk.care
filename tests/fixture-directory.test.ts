@@ -38,7 +38,21 @@ describe('the fixture directory', () => {
     expect(d.prescribers.length).toBeGreaterThan(0);
     expect(d.pharmacies.length).toBeGreaterThan(0);
     const m = d.members[0];
-    for (const k of ['index', 'firstName', 'lastName', 'cardholderId', 'dateOfBirth', 'relationship', 'employeeId', 'familyId', 'address', 'city', 'state', 'zip', 'genderCode']) {
+    for (const k of [
+      'index',
+      'firstName',
+      'lastName',
+      'cardholderId',
+      'dateOfBirth',
+      'relationship',
+      'employeeId',
+      'familyId',
+      'address',
+      'city',
+      'state',
+      'zip',
+      'genderCode',
+    ]) {
       expect(m).toHaveProperty(k);
     }
     expect(d.prescribers[0].name).toMatch(/^Dr\. /);
@@ -55,7 +69,7 @@ describe('the fixture directory', () => {
     expect(dump).not.toContain('members: MEMBERS.map(');
     expect(dump).not.toContain('prescribers: PRESCRIBERS.map(');
     expect(dump).not.toContain('pharmacies: PHARMACIES.map(');
-    expect(dump).toContain('medications: MEDICATIONS.map(');   // live formulary state stays with the engine
+    expect(dump).toContain('medications: MEDICATIONS.map('); // live formulary state stays with the engine
   });
 
   test('the console loads state through one client, with the operator token, and takes people from /fixtures.json', () => {
@@ -85,33 +99,58 @@ describe('the explorer serves it as a static file', () => {
     const port = await new Promise<number>((resolve, reject) => {
       const s = net.createServer();
       s.on('error', reject);
-      s.listen(0, '127.0.0.1', () => { const a = s.address(); const p = typeof a === 'object' && a ? a.port : 0; s.close(() => resolve(p)); });
+      s.listen(0, '127.0.0.1', () => {
+        const a = s.address();
+        const p = typeof a === 'object' && a ? a.port : 0;
+        s.close(() => resolve(p));
+      });
     });
     url = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'nodes', 'start-explorer.ts')], {
       cwd: REPO,
-      env: { ...process.env, ZKTRIDENT_EXPLORER_PORT: String(port), ZKTRIDENT_SEQUENCER_URL: 'http://127.0.0.1:1', ZKTRIDENT_FORMULARY_LIMIT: '100', ZKTRIDENT_OPEN_BROWSERS: '0' },
+      env: {
+        ...process.env,
+        ZKTRIDENT_EXPLORER_PORT: String(port),
+        ZKTRIDENT_SEQUENCER_URL: 'http://127.0.0.1:1',
+        ZKTRIDENT_FORMULARY_LIMIT: '100',
+        ZKTRIDENT_OPEN_BROWSERS: '0',
+      },
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     });
     let stderr = '';
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
     const deadline = Date.now() + 60_000;
     for (;;) {
-      try { const r = await fetch(`${url}/health`); if (r.status > 0) break; } catch { /* not yet */ }
+      try {
+        const r = await fetch(`${url}/health`);
+        if (r.status > 0) break;
+      } catch {
+        /* not yet */
+      }
       if (Date.now() > deadline) throw new Error('explorer did not start: ' + stderr);
       await new Promise((r) => setTimeout(r, 300));
     }
   }, 90_000);
 
-  afterAll(() => { if (child && !child.killed) { try { child.kill(); } catch { /* best effort */ } } });
+  afterAll(() => {
+    if (child && !child.killed) {
+      try {
+        child.kill();
+      } catch {
+        /* best effort */
+      }
+    }
+  });
 
   test('GET /fixtures.json returns the directory, cacheable, as JSON', async () => {
     const r = await fetch(`${url}/fixtures.json`);
     expect(r.status).toBe(200);
     expect(r.headers.get('content-type')).toMatch(/application\/json/);
     expect(r.headers.get('cache-control')).toMatch(/max-age/);
-    const body = await r.json() as { members: unknown[]; prescribers: unknown[]; pharmacies: unknown[] };
+    const body = (await r.json()) as { members: unknown[]; prescribers: unknown[]; pharmacies: unknown[] };
     expect(body.members.length).toBeGreaterThan(0);
     expect(body.prescribers.length).toBeGreaterThan(0);
     expect(body.pharmacies.length).toBeGreaterThan(0);

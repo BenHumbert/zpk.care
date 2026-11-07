@@ -61,7 +61,8 @@ import {
 type StoredApplication = EmployerApplication & { source?: string };
 
 const applicationStore: Map<string, StoredApplication> = new Map();
-const agreementCache: Map<string, { terms: AgreementTerms; commitment: string; documentHash: string; ts: number; attestationSeq: number }> = new Map();
+const agreementCache: Map<string, { terms: AgreementTerms; commitment: string; documentHash: string; ts: number; attestationSeq: number }> =
+  new Map();
 const docxCache: Map<string, Buffer> = new Map();
 
 // Phase C: async tenant spawn jobs. Activate returns 202 immediately with a
@@ -89,7 +90,11 @@ async function restoredJob(app: EmployerApplication): Promise<ActivationJob | un
   const job: ActivationJob = {
     status: 'complete',
     startedAt: registration?.activatedAt ?? live.startedAt,
-    result: { employerNodeUrl: live.employerNodeUrl, hrToolSetup: hrToolSetupFor(live.employerNodeUrl), adminToken: registration?.pendingAdminToken ?? '' },
+    result: {
+      employerNodeUrl: live.employerNodeUrl,
+      hrToolSetup: hrToolSetupFor(live.employerNodeUrl),
+      adminToken: registration?.pendingAdminToken ?? '',
+    },
   };
   activationJobs.set(app.applicationId, job);
   return job;
@@ -233,7 +238,11 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
    * of the file is what has been decided. A client with many sources (a swarm) still gets 3 open from each, which is the
    * general rate limit's to answer (A-80).
    */
-  const OPEN_STATUSES: ReadonlySet<EmployerApplicationStatus> = new Set<EmployerApplicationStatus>(['submitted', 'under_review', 'needs_documents']);
+  const OPEN_STATUSES: ReadonlySet<EmployerApplicationStatus> = new Set<EmployerApplicationStatus>([
+    'submitted',
+    'under_review',
+    'needs_documents',
+  ]);
   const MAX_OPEN_APPLICATIONS = 1_000;
   const MAX_OPEN_PER_SOURCE = 3;
   const APPLICATIONS_PER_SOURCE_PER_HOUR = 6;
@@ -257,11 +266,16 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         const plans: BenefitPlanConfig[] = Array.isArray(json.result) ? json.result : [];
         // Plan-bound formularies: an employer is offered a plan only once it has published terms, and is shown those
         // terms (what members are billed), not a draft the insurer is still editing.
-        server.sendResponse(res, 200, true, plans.filter((p) => publishedTermsOf(p)).map((p) => planAsPublished(p)));
+        server.sendResponse(
+          res,
+          200,
+          true,
+          plans.filter((p) => publishedTermsOf(p)).map((p) => planAsPublished(p)),
+        );
       } catch {
         server.sendResponse(res, 502, false, undefined, 'Cannot fetch plans');
       }
@@ -279,7 +293,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlan', params: { planId: params.planId } }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         // As the list: a plan with no published terms is not offered, and a published one is shown as published.
         if (!json.result || !publishedTermsOf(json.result)) return server.sendResponse(res, 404, false, undefined, 'Plan not found');
         server.sendResponse(res, 200, true, planAsPublished(json.result as BenefitPlanConfig));
@@ -315,7 +329,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEmployerAttestation', params: { employerId } }),
       });
-      const json = await resp.json() as any;
+      const json = (await resp.json()) as any;
       if (json.result && json.result.employerId === employerId) {
         return { available: false, reason: `"${employerId}" is already registered on the sequencer` };
       }
@@ -365,9 +379,18 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // limits). The server keys each request as it arrives as well (callerKey); this route does not rely on that.
       const source = server.callerKey(req);
       const b = body as any;
-      if (!b?.companyName || !b?.contactName || !b?.contactEmail || !b?.employerId ||
-          !b?.selectedPlanIds || !Array.isArray(b.selectedPlanIds) || b.selectedPlanIds.length === 0 ||
-          !b?.effectiveDate || !b?.enrollmentCap || !b?.publicKeyHex) {
+      if (
+        !b?.companyName ||
+        !b?.contactName ||
+        !b?.contactEmail ||
+        !b?.employerId ||
+        !b?.selectedPlanIds ||
+        !Array.isArray(b.selectedPlanIds) ||
+        b.selectedPlanIds.length === 0 ||
+        !b?.effectiveDate ||
+        !b?.enrollmentCap ||
+        !b?.publicKeyHex
+      ) {
         return server.sendResponse(res, 400, false, undefined, 'Missing required fields');
       }
 
@@ -377,8 +400,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
 
       // Format guard for employerId (matches the check-employer-id endpoint)
       if (!/^[A-Za-z0-9_-]{2,64}$/.test(b.employerId)) {
-        return server.sendResponse(res, 400, false, undefined,
-          'employerId must be 2-64 characters, letters/numbers/hyphens/underscores only');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'employerId must be 2-64 characters, letters/numbers/hyphens/underscores only',
+        );
       }
 
       // Phase B: authoritative collision check (local + sequencer).
@@ -401,15 +429,33 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       }
       if (openFromSource >= MAX_OPEN_PER_SOURCE) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 429, false, undefined, 'Too many open employer applications from this address. Apply again once the insurer decides one.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many open employer applications from this address. Apply again once the insurer decides one.',
+        );
       }
       if (applicationsPerSource.count(source) >= APPLICATIONS_PER_SOURCE_PER_HOUR) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 429, false, undefined, 'Too many employer applications from this address in the last hour. Try again in an hour.');
+        return server.sendResponse(
+          res,
+          429,
+          false,
+          undefined,
+          'Too many employer applications from this address in the last hour. Try again in an hour.',
+        );
       }
       if (open >= MAX_OPEN_APPLICATIONS) {
         res.setHeader('Retry-After', String(APPLY_RETRY_AFTER_SECONDS));
-        return server.sendResponse(res, 503, false, undefined, 'The insurer holds as many open employer applications as it keeps: apply again once some are decided');
+        return server.sendResponse(
+          res,
+          503,
+          false,
+          undefined,
+          'The insurer holds as many open employer applications as it keeps: apply again once some are decided',
+        );
       }
       applicationsPerSource.allow(source);
 
@@ -514,7 +560,11 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
         await new Promise<void>((resolve, reject) => {
           req.on('data', (chunk: Buffer) => {
             totalSize += chunk.length;
-            if (totalSize > MAX_DOC_SIZE) { req.destroy(); reject(new Error('File too large (max 5MB)')); return; }
+            if (totalSize > MAX_DOC_SIZE) {
+              req.destroy();
+              reject(new Error('File too large (max 5MB)'));
+              return;
+            }
             chunks.push(chunk);
           });
           req.on('error', reject);
@@ -597,7 +647,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getPlans', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         plans = json.result || [];
       } catch {
         return server.sendResponse(res, 502, false, undefined, 'Cannot fetch plans');
@@ -616,7 +666,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getEmployerAttestation', params: { employerId: app.employerId } }),
         });
-        const attJson = await attResp.json() as any;
+        const attJson = (await attResp.json()) as any;
         if (attJson.result && typeof attJson.result.attestationSeq === 'number') {
           existing = attJson.result as EmployerAttestation;
           attestationSeq = attJson.result.attestationSeq + 1;
@@ -637,7 +687,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // An attestation already registered: say whether the terms it committed to are still what members are billed, whether
       // it was signed before agreements covered every published term, and which selected plans it does not authorize
       // that are published now. In each case the employer can sign these terms as the next attestation (attestationSeq).
-      let signed: { attestationSeq: number; signedAt: number; termsChanged: boolean; signedBeforeFullTerms: boolean; plansToAdd: string[] } | null = null;
+      let signed: {
+        attestationSeq: number;
+        signedAt: number;
+        termsChanged: boolean;
+        signedBeforeFullTerms: boolean;
+        plansToAdd: string[];
+      } | null = null;
       if (existing) {
         const status = attestationTermsStatus(existing, plans);
         const authorized = new Set(existing.authorizedPlanIds ?? []);
@@ -692,13 +748,15 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       }
       const isRenewal = app.status === 'signed' || app.status === 'active';
 
-      const b = body as {
-        employerSignature?: string;
-        ts?: number;
-        signerName?: string;
-        signerTitle?: string;
-        reviewedAt?: number;
-      } | undefined;
+      const b = body as
+        | {
+            employerSignature?: string;
+            ts?: number;
+            signerName?: string;
+            signerTitle?: string;
+            reviewedAt?: number;
+          }
+        | undefined;
       if (!b?.employerSignature || typeof b.employerSignature !== 'string') {
         return server.sendResponse(res, 400, false, undefined, 'Missing employerSignature');
       }
@@ -715,8 +773,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       }
       // An agreement covering no published plan states no terms anyone is billed under, so there is nothing to sign.
       if (cached.terms.selectedPlans.length === 0) {
-        return server.sendResponse(res, 409, false, undefined,
-          'None of the plans in this application is published, so the agreement covers no plan. The insurer must publish them first.');
+        return server.sendResponse(
+          res,
+          409,
+          false,
+          undefined,
+          'None of the plans in this application is published, so the agreement covers no plan. The insurer must publish them first.',
+        );
       }
 
       // Use the ts and attestationSeq from the agreement cache exclusively.
@@ -760,12 +823,10 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       const message = buildAttestationMessage(attestationBase);
       const signingSecret = server.getConfig().insurerSigningSeed;
       if (!signingSecret) {
-        return server.sendResponse(res, 500, false, undefined,
-          'Insurer signing is not configured: set ZKTRIDENT_INSURER_SIGNING_SEED.');
+        return server.sendResponse(res, 500, false, undefined, 'Insurer signing is not configured: set ZKTRIDENT_INSURER_SIGNING_SEED.');
       }
       if (signingSecret === server.getConfig().adminToken) {
-        return server.sendResponse(res, 500, false, undefined,
-          'Insurer signing seed must not be the admin token. See A-14.');
+        return server.sendResponse(res, 500, false, undefined, 'Insurer signing seed must not be the admin token. See A-14.');
       }
 
       let insurerSig: { signature: string; publicKeyHex: string };
@@ -793,20 +854,26 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
           method: 'POST',
           headers,
           body: JSON.stringify({
-            jsonrpc: '2.0', id: 1,
+            jsonrpc: '2.0',
+            id: 1,
             method: 'l2_registerEmployer',
             params: { attestation },
           }),
         });
-        const regJson = await regResp.json() as any;
+        const regJson = (await regResp.json()) as any;
         if (regJson.error) {
           const errMsg = regJson.error.message || regJson.error;
           // Phase D: translate concurrent-seq race into a user-actionable message
           if (typeof errMsg === 'string' && errMsg.includes('Expected attestationSeq')) {
             // Clear the stale cache so the frontend's next refetch gets the real seq
             agreementCache.delete(params.applicationId);
-            return server.sendResponse(res, 409, false, undefined,
-              'The attestation sequence advanced while you were signing. Please refresh and sign again.');
+            return server.sendResponse(
+              res,
+              409,
+              false,
+              undefined,
+              'The attestation sequence advanced while you were signing. Please refresh and sign again.',
+            );
           }
           return server.sendResponse(res, 502, false, undefined, 'Sequencer rejected attestation: ' + errMsg);
         }
@@ -827,9 +894,14 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       // Generate DOCX (best effort — signing succeeds regardless)
       try {
         const docx = await generateAgreementDocx(
-          cached.terms, cached.commitment, cached.documentHash,
-          b.employerSignature, insurerSig.signature, insurerSig.publicKeyHex,
-          b.signerName, b.signerTitle,
+          cached.terms,
+          cached.commitment,
+          cached.documentHash,
+          b.employerSignature,
+          insurerSig.signature,
+          insurerSig.publicKeyHex,
+          b.signerName,
+          b.signerTitle,
         );
         docxCache.set(params.applicationId, docx);
       } catch (e: any) {
@@ -892,8 +964,13 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
       const insurerUrl = `http://localhost:${(server.getConfig() as any).port || 4004}`;
       // A9: the tenant is registered on the sequencer with the insurer node's own key, under the insurer role.
       if (!server.getConfig().nodeKey) {
-        return server.sendResponse(res, 500, false, undefined,
-          'The insurer node has no sequencer credential (ZKTRIDENT_NODE_KEY_SEED) — it cannot register tenants on the sequencer');
+        return server.sendResponse(
+          res,
+          500,
+          false,
+          undefined,
+          'The insurer node has no sequencer credential (ZKTRIDENT_NODE_KEY_SEED) — it cannot register tenants on the sequencer',
+        );
       }
 
       /*
@@ -905,7 +982,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
        * request away. It now reports completion and nothing more; the token comes from
        * activate-credentials with the activation secret.
        */
-      const existingJob = activationJobs.get(params.applicationId) ?? await restoredJob(app);
+      const existingJob = activationJobs.get(params.applicationId) ?? (await restoredJob(app));
       if (existingJob && existingJob.status === 'complete' && existingJob.result) {
         return server.sendResponse(res, 200, true, {
           jobKey: params.applicationId,
@@ -979,7 +1056,7 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
     handler: async (_req, res, params) => {
       const app = applicationStore.get(params.jobKey);
       if (!app) return server.sendResponse(res, 404, false, undefined, 'Application not found');
-      const job = activationJobs.get(params.jobKey) ?? await restoredJob(app);
+      const job = activationJobs.get(params.jobKey) ?? (await restoredJob(app));
       if (!job) return server.sendResponse(res, 404, false, undefined, 'No activation job for this application');
 
       const sequencerUrl = server.getConfig().sequencerUrl;
@@ -1024,7 +1101,6 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
     },
   });
 
-
   /*
    * Collect the employer node's administrator credentials. Replaces the open handout that
    * `activate-status` used to perform (A8, finding A-4).
@@ -1049,19 +1125,28 @@ export function buildMarketplaceRoutes(server: NautilusAppServer): RouteRegistra
 
       // Same answer for an unknown application and a wrong secret.
       if (!app || !b?.claimSecret || !claimSecretMatches(app, b.claimSecret)) {
-        return server.sendResponse(res, 401, false, undefined,
-          'Invalid activation code.');
+        return server.sendResponse(res, 401, false, undefined, 'Invalid activation code.');
       }
 
-      const job = activationJobs.get(params.applicationId) ?? await restoredJob(app);
+      const job = activationJobs.get(params.applicationId) ?? (await restoredJob(app));
       if (!job || job.status !== 'complete' || !job.result) {
-        return server.sendResponse(res, 409, false, undefined,
-          'This tenant is not provisioned yet. Poll activate-status until it reports complete.');
+        return server.sendResponse(
+          res,
+          409,
+          false,
+          undefined,
+          'This tenant is not provisioned yet. Poll activate-status until it reports complete.',
+        );
       }
 
       if (app.credentialsCollectedAt) {
-        return server.sendResponse(res, 410, false, undefined,
-          'These credentials were already collected. Use the rekey flow to obtain new ones.');
+        return server.sendResponse(
+          res,
+          410,
+          false,
+          undefined,
+          'These credentials were already collected. Use the rekey flow to obtain new ones.',
+        );
       }
 
       app.credentialsCollectedAt = Date.now();
@@ -1098,7 +1183,9 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
    * (attestationTermsStatus). Two sequencer reads, the plans and the attestations; null for an employer with no
    * attestation, or when the sequencer cannot be read.
    */
-  async function termsStatusByEmployer(apps: EmployerApplication[]): Promise<Map<string, { termsChanged: boolean; signedBeforeFullTerms: boolean } | null>> {
+  async function termsStatusByEmployer(
+    apps: EmployerApplication[],
+  ): Promise<Map<string, { termsChanged: boolean; signedBeforeFullTerms: boolean } | null>> {
     const out = new Map<string, { termsChanged: boolean; signedBeforeFullTerms: boolean } | null>();
     const signed = apps.filter((a) => a.status === 'signed' || a.status === 'active');
     if (signed.length === 0) return out;
@@ -1114,14 +1201,17 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
         return ((await resp.json()) as { result?: unknown }).result;
       };
       const [plans, attestations] = await Promise.all([read('l2_getPlans'), read('l2_getEmployerAttestations')]);
-      const planList = Array.isArray(plans) ? plans as BenefitPlanConfig[] : [];
+      const planList = Array.isArray(plans) ? (plans as BenefitPlanConfig[]) : [];
       const byEmployer = new Map<string, EmployerAttestation>();
-      for (const att of Array.isArray(attestations) ? attestations as EmployerAttestation[] : []) {
+      for (const att of Array.isArray(attestations) ? (attestations as EmployerAttestation[]) : []) {
         if (att && typeof att.employerId === 'string') byEmployer.set(att.employerId, att);
       }
       for (const app of signed) {
         const att = byEmployer.get(app.employerId);
-        if (!att) { out.set(app.applicationId, null); continue; }
+        if (!att) {
+          out.set(app.applicationId, null);
+          continue;
+        }
         const status = attestationTermsStatus(att, planList);
         out.set(app.applicationId, { termsChanged: status.termsChanged, signedBeforeFullTerms: status.signedBeforeFullTerms });
       }
@@ -1138,7 +1228,7 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
     handler: async (_req, res) => {
       const termsStatus = await termsStatusByEmployer(Array.from(applicationStore.values()));
       // Strip sensitive fields from admin view (keep cp575DocumentId + resubmissionCount for review workflow)
-      const apps = Array.from(applicationStore.values()).map(app => ({
+      const apps = Array.from(applicationStore.values()).map((app) => ({
         applicationId: app.applicationId,
         employerId: app.employerId,
         companyName: app.companyName,
@@ -1176,7 +1266,13 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
       }
       // Require CP 575 document before approval
       if (!app.cp575DocumentId) {
-        return server.sendResponse(res, 409, false, undefined, 'Cannot approve: CP 575 document not yet uploaded. Use "Request Documents" first.');
+        return server.sendResponse(
+          res,
+          409,
+          false,
+          undefined,
+          'Cannot approve: CP 575 document not yet uploaded. Use "Request Documents" first.',
+        );
       }
       app.status = 'approved';
       app.approvedAt = Date.now();
@@ -1288,7 +1384,8 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
       // Step 1: Revoke old attestation on sequencer
       try {
         await server.signedFetch(`${seqUrl}/rpc`, {
-          method: 'POST', headers: hdrs,
+          method: 'POST',
+          headers: hdrs,
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_revokeEmployerAttestation', params: { employerId: app.employerId } }),
         });
       } catch {
@@ -1305,7 +1402,9 @@ export function buildEmployerAdminRoutes(server: NautilusAppServer): RouteRegist
 
       console.log('[marketplace] Post-sign rekey: %s (%s)', app.employerId, app.companyName);
       server.sendResponse(res, 200, true, {
-        applicationId: app.applicationId, rekeyed: true, status: 'approved',
+        applicationId: app.applicationId,
+        rekeyed: true,
+        status: 'approved',
         message: 'Old attestation revoked. Fetch new agreement and re-sign.',
       });
     },

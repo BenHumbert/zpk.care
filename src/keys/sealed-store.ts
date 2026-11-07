@@ -60,10 +60,26 @@ export interface SealedStoreOptions {
   onWarning?: (message: string) => void;
 }
 
-interface Sealed { iv: string; ciphertext: string; tag: string }
-interface SnapshotFile extends Sealed { v: 1; store: string; generation: number; seq: number }
-interface JournalHeader { v: 1; store: string; generation: number; baseSeq: number }
-interface JournalEntry extends Sealed { seq: number }
+interface Sealed {
+  iv: string;
+  ciphertext: string;
+  tag: string;
+}
+interface SnapshotFile extends Sealed {
+  v: 1;
+  store: string;
+  generation: number;
+  seq: number;
+}
+interface JournalHeader {
+  v: 1;
+  store: string;
+  generation: number;
+  baseSeq: number;
+}
+interface JournalEntry extends Sealed {
+  seq: number;
+}
 type Op<V> = { op: 'put'; k: string; v: V } | { op: 'del'; k: string } | { op: 'putMany'; e: Array<[string, V]> };
 
 function isCount(n: unknown): n is number {
@@ -91,7 +107,8 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     if (typeof opts.name !== 'string' || !NAME.test(opts.name)) {
       throw new SealedStoreError('SealedRecordStore: a store name is 1 to 64 lower-case letters, digits, dots, dashes or underscores');
     }
-    if (!(opts.key instanceof Uint8Array) || opts.key.length !== 32) throw new SealedStoreError(`${opts.name}: the store key must be 32 bytes`);
+    if (!(opts.key instanceof Uint8Array) || opts.key.length !== 32)
+      throw new SealedStoreError(`${opts.name}: the store key must be 32 bytes`);
     this.name = opts.name;
     this.key = Buffer.from(opts.key);
     this.dir = opts.dir;
@@ -108,13 +125,27 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     return store;
   }
 
-  get size(): number { return this.records.size; }
-  get(key: string): V | undefined { return this.records.get(key); }
-  has(key: string): boolean { return this.records.has(key); }
-  keys(): IterableIterator<string> { return this.records.keys(); }
-  values(): IterableIterator<V> { return this.records.values(); }
-  entries(): IterableIterator<[string, V]> { return this.records.entries(); }
-  [Symbol.iterator](): IterableIterator<[string, V]> { return this.records.entries(); }
+  get size(): number {
+    return this.records.size;
+  }
+  get(key: string): V | undefined {
+    return this.records.get(key);
+  }
+  has(key: string): boolean {
+    return this.records.has(key);
+  }
+  keys(): IterableIterator<string> {
+    return this.records.keys();
+  }
+  values(): IterableIterator<V> {
+    return this.records.values();
+  }
+  entries(): IterableIterator<[string, V]> {
+    return this.records.entries();
+  }
+  [Symbol.iterator](): IterableIterator<[string, V]> {
+    return this.records.entries();
+  }
 
   /** Where the store is: the sequence number grows by one with every write and never goes back. */
   position(): { generation: number; seq: number } {
@@ -254,7 +285,13 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     } catch {
       throw new SealedStoreError(`${this.name}: the snapshot is not readable`);
     }
-    if (snapshot?.v !== 1 || snapshot.store !== this.name || !isCount(snapshot.generation) || snapshot.generation < 1 || !isCount(snapshot.seq)) {
+    if (
+      snapshot?.v !== 1 ||
+      snapshot.store !== this.name ||
+      !isCount(snapshot.generation) ||
+      snapshot.generation < 1 ||
+      !isCount(snapshot.seq)
+    ) {
       throw new SealedStoreError(`${this.name}: the snapshot is not this store's`);
     }
     const plain = this.decrypt('snapshot', snapshot.generation, snapshot.seq, snapshot, 'the snapshot');
@@ -348,7 +385,8 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
 
   private ensureOpen(): void {
     if (this.closed) throw new SealedStoreError(`${this.name}: the store is closed`);
-    if (this.broken) throw new SealedStoreError(`${this.name}: the journal could not be restarted after a compaction; open the store again`);
+    if (this.broken)
+      throw new SealedStoreError(`${this.name}: the journal could not be restarted after a compaction; open the store again`);
   }
 
   private writeAtomic(file: string, content: string): void {
@@ -363,19 +401,30 @@ export class SealedRecordStore<V = unknown> implements Iterable<[string, V]> {
     try {
       fs.renameSync(tmp, file);
     } catch (err) {
-      try { fs.rmSync(tmp, { force: true }); } catch { /* left for the next write to replace */ }
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        /* left for the next write to replace */
+      }
       throw err;
     }
     if (process.platform !== 'win32') {
       // the rename is durable once the directory is
       try {
         const dirFd = fs.openSync(this.dir, 'r');
-        try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
-      } catch { /* a filesystem that cannot sync a directory */ }
+        try {
+          fs.fsyncSync(dirFd);
+        } finally {
+          fs.closeSync(dirFd);
+        }
+      } catch {
+        /* a filesystem that cannot sync a directory */
+      }
     }
   }
 }
 
 function checkKey(key: string): void {
-  if (typeof key !== 'string' || key.length === 0 || key.length > 512) throw new SealedStoreError('SealedRecordStore: a record key is 1 to 512 characters');
+  if (typeof key !== 'string' || key.length === 0 || key.length > 512)
+    throw new SealedStoreError('SealedRecordStore: a record key is 1 to 512 characters');
 }

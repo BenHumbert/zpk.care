@@ -48,15 +48,30 @@ const prescriberNode = generateNodeKey('prescriber-node');
 const insurerNode = generateNodeKey('insurer-node');
 
 // Wallets and the enrollment keys their signing keys derive from
-const EK = { alice: 'ek-alice-' + 'a'.repeat(32), bob: 'ek-bob-' + 'b'.repeat(32), carol: 'ek-carol-' + 'c'.repeat(32), dave: 'ek-dave-fixture-' + 'x'.repeat(32), erin: 'ek-erin-' + 'e'.repeat(32), drP: 'ek-doctor-' + 'd'.repeat(32) };
+const EK = {
+  alice: 'ek-alice-' + 'a'.repeat(32),
+  bob: 'ek-bob-' + 'b'.repeat(32),
+  carol: 'ek-carol-' + 'c'.repeat(32),
+  dave: 'ek-dave-fixture-' + 'x'.repeat(32),
+  erin: 'ek-erin-' + 'e'.repeat(32),
+  drP: 'ek-doctor-' + 'd'.repeat(32),
+};
 const W = { alice: '1001', bob: '1002', carol: '1003', dave: '1004', erin: '1005', drP: '2001', drQ: '2002', drR: '2003' };
 
-interface RpcReply { status: number; error?: { code: number; message: string }; result?: any }
+interface RpcReply {
+  status: number;
+  error?: { code: number; message: string };
+  result?: any;
+}
 async function rpcWith(headers: Record<string, string>, body: string): Promise<RpcReply> {
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
   const text = await r.text();
   let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { parsed = null; }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
   return { status: r.status, error: parsed?.error, result: parsed?.result };
 }
 const envelope = (method: string, params: Record<string, unknown> = {}) => JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
@@ -66,18 +81,30 @@ const byWallet = (enrollmentKey: string, walletId: string, body: string) =>
   signRequest({ ...walletSigner(enrollmentKey, walletId), method: 'POST', path: '/rpc', body });
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
 
-const message = (sender: string, recipient: string) => envelope('l2_storeMessage', {
-  message: { messageCommitment: '77', senderWalletId: sender, recipientWalletId: recipient, messageType: 'text', threadIdHash: '5' },
-  payload: { ciphertext: 'aa', iv: 'bb', tag: 'cc' },
-});
+const message = (sender: string, recipient: string) =>
+  envelope('l2_storeMessage', {
+    message: { messageCommitment: '77', senderWalletId: sender, recipientWalletId: recipient, messageType: 'text', threadIdHash: '5' },
+    payload: { ciphertext: 'aa', iv: 'bb', tag: 'cc' },
+  });
 
 async function registerMember(enrollmentKey: string, walletId: string, displayName = 'Member') {
-  const body = envelope('l2_registerEntity', { walletId, displayName, type: 'member', signingPublicKeyHex: deriveWalletSigningKey(enrollmentKey).publicKeyHex });
+  const body = envelope('l2_registerEntity', {
+    walletId,
+    displayName,
+    type: 'member',
+    signingPublicKeyHex: deriveWalletSigningKey(enrollmentKey).publicKeyHex,
+  });
   return rpcWith(byNode(memberNode, body), body);
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-under-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-under-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
@@ -92,7 +119,13 @@ beforeAll(async () => {
     provision(Field(BigInt(W.bob)), LIFECYCLE_ELIGIBLE);
     provision(Field(BigInt(W.erin)), LIFECYCLE_REVOKED);
   });
-  for (const [who, wallet] of [['alice', W.alice], ['bob', W.bob], ['carol', W.carol], ['dave', W.dave], ['erin', W.erin]] as const) {
+  for (const [who, wallet] of [
+    ['alice', W.alice],
+    ['bob', W.bob],
+    ['carol', W.carol],
+    ['dave', W.dave],
+    ['erin', W.erin],
+  ] as const) {
     const r = await registerMember(EK[who], wallet, who);
     if (r.error) throw new Error(`fixture registration for ${who} failed: ${r.error.message}`);
   }
@@ -106,7 +139,12 @@ describe('registration is owned by its signing key', () => {
   test('a re-registration with the same key is accepted; a different key is refused; the operator may change it', async () => {
     const same = await registerMember(EK.carol, W.carol, 'Carol again');
     expect(same.error).toBeUndefined();
-    const takeover = envelope('l2_registerEntity', { walletId: W.carol, displayName: 'Mallory', type: 'member', signingPublicKeyHex: deriveWalletSigningKey('ek-mallory').publicKeyHex });
+    const takeover = envelope('l2_registerEntity', {
+      walletId: W.carol,
+      displayName: 'Mallory',
+      type: 'member',
+      signingPublicKeyHex: deriveWalletSigningKey('ek-mallory').publicKeyHex,
+    });
     const refused = await rpcWith(byNode(memberNode, takeover), takeover);
     expect(refused.error?.message).toMatch(/owned by its registered signing key/);
     const noKey = envelope('l2_registerEntity', { walletId: W.carol, displayName: 'Nameless', type: 'member' });
@@ -116,7 +154,13 @@ describe('registration is owned by its signing key', () => {
     // Carol's old key no longer speaks for the wallet; the rotated one does
     const body = message(W.carol, W.alice);
     expect((await rpcWith(byWallet(EK.carol, W.carol, body), body)).error?.code).toBe(RPC_UNAUTHORIZED);
-    const withNew = signRequest({ signerId: W.carol, privateKey: deriveWalletSigningKey('ek-mallory').privateKey, method: 'POST', path: '/rpc', body });
+    const withNew = signRequest({
+      signerId: W.carol,
+      privateKey: deriveWalletSigningKey('ek-mallory').privateKey,
+      method: 'POST',
+      path: '/rpc',
+      body,
+    });
     expect((await rpcWith(withNew, body)).error).toBeUndefined();
   });
 
@@ -128,7 +172,13 @@ describe('registration is owned by its signing key', () => {
   });
 
   test('a provider node registering itself is not credentialed by it; the operator registering a provider is (A-32)', async () => {
-    const self = envelope('l2_registerEntity', { walletId: W.drP, displayName: 'Dr P', type: 'prescriber', npi: '1245319599', signingPublicKeyHex: deriveWalletSigningKey(EK.drP).publicKeyHex });
+    const self = envelope('l2_registerEntity', {
+      walletId: W.drP,
+      displayName: 'Dr P',
+      type: 'prescriber',
+      npi: '1245319599',
+      signingPublicKeyHex: deriveWalletSigningKey(EK.drP).publicKeyHex,
+    });
     const r = await rpcWith(byNode(prescriberNode, self), self);
     expect(r.error).toBeUndefined();
     expect((await rpcWith(bearer, envelope('l2_getProvider', { walletId: W.drP }))).result).toBeNull();
@@ -140,7 +190,12 @@ describe('registration is owned by its signing key', () => {
   });
 
   test('the insurer re-credentialing a provider keeps the keys the provider registered', async () => {
-    const cred = envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'Dr P, credentialed', providerType: 'prescriber', npi: '1245319599' });
+    const cred = envelope('l2_credentialProvider', {
+      walletId: W.drP,
+      displayName: 'Dr P, credentialed',
+      providerType: 'prescriber',
+      npi: '1245319599',
+    });
     expect((await rpcWith(byNode(insurerNode, cred), cred)).error).toBeUndefined();
     // Dr P can still speak for the wallet: the key survived the re-credentialing
     const body = message(W.drP, W.alice);
@@ -149,7 +204,7 @@ describe('registration is owned by its signing key', () => {
 });
 
 describe('l2_storeMessage speaks for its sender', () => {
-  test('is refused unsigned, with a bearer, with a node key, with another wallet\'s key, and on replay', async () => {
+  test("is refused unsigned, with a bearer, with a node key, with another wallet's key, and on replay", async () => {
     const body = message(W.alice, W.bob);
     const unsigned = await rpcWith({}, body);
     expect(unsigned.error?.code).toBe(RPC_UNAUTHORIZED);
@@ -187,7 +242,7 @@ describe('l2_storeMessage speaks for its sender', () => {
 });
 
 describe('l2_registerPcpAssignment speaks for the member', () => {
-  test('only the member\'s signature links the member to a prescriber', async () => {
+  test("only the member's signature links the member to a prescriber", async () => {
     const body = envelope('l2_registerPcpAssignment', { memberWalletId: W.alice, prescriberWalletId: W.drP, effectiveDate: '2026-10-18' });
     expect((await rpcWith({}, body)).error?.code).toBe(RPC_UNAUTHORIZED);
     expect((await rpcWith(bearer, body)).error?.code).toBe(RPC_UNAUTHORIZED);
@@ -200,7 +255,7 @@ describe('l2_registerPcpAssignment speaks for the member', () => {
 });
 
 describe('l2_requestAttestation speaks for the wallet and states the ledger', () => {
-  test('is refused unsigned, with a bearer and with another wallet\'s key', async () => {
+  test("is refused unsigned, with a bearer and with another wallet's key", async () => {
     const body = envelope('l2_requestAttestation', { walletId: W.alice });
     expect((await rpcWith({}, body)).error?.code).toBe(RPC_UNAUTHORIZED);
     expect((await rpcWith(bearer, body)).error?.code).toBe(RPC_UNAUTHORIZED);

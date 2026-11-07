@@ -41,8 +41,21 @@ import type { BenefitPlanConfig } from '../src/l2/l2-types.js';
 
 jest.setTimeout(120_000);
 
-const drug = (n: number, tierLevel: number, copayAmount: number, requiresPriorAuth: boolean, stepTherapyRequired: boolean, maxQuantityPerFill: number): FormularyEntryLocalData => ({
-  ndc: `0000000000${n}`, tierLevel, copayAmount, requiresPriorAuth, maxQuantityPerFill, maxDaySupply: maxQuantityPerFill, stepTherapyRequired,
+const drug = (
+  n: number,
+  tierLevel: number,
+  copayAmount: number,
+  requiresPriorAuth: boolean,
+  stepTherapyRequired: boolean,
+  maxQuantityPerFill: number,
+): FormularyEntryLocalData => ({
+  ndc: `0000000000${n}`,
+  tierLevel,
+  copayAmount,
+  requiresPriorAuth,
+  maxQuantityPerFill,
+  maxDaySupply: maxQuantityPerFill,
+  stepTherapyRequired,
 });
 
 /** Six drugs, tiers 1 to 4 at the data's tier copays, with mixed prior-auth and step-therapy flags. */
@@ -77,7 +90,10 @@ describe('buildPlanFormulary', () => {
   test('a listed formulary is those drugs in catalog order, dashes ignored, duplicates once; unknown NDCs are reported', () => {
     const withDashes = `${catalog[4].ndc.slice(0, 5)}-${catalog[4].ndc.slice(5, 9)}-${catalog[4].ndc.slice(9)}`;
     expect(normalizeNdc(withDashes)).toBe(catalog[4].ndc);
-    const f = buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [withDashes, catalog[1].ndc, catalog[1].ndc, '99999999999'] }, catalog);
+    const f = buildPlanFormulary(
+      { copayAmountCents: 1500, formularyNdcs: [withDashes, catalog[1].ndc, catalog[1].ndc, '99999999999'] },
+      catalog,
+    );
     expect(f.registry.count).toBe(2);
     expect(f.registry.getEntry(0n)!.ndcHash.toString()).toBe(hashString(catalog[1].ndc).toString());
     expect(f.registry.getEntry(1n)!.ndcHash.toString()).toBe(hashString(catalog[4].ndc).toString());
@@ -86,17 +102,28 @@ describe('buildPlanFormulary', () => {
   });
 
   test('the root depends only on the copay and the NDC set', () => {
-    const a = catalog[0].ndc, b = catalog[2].ndc, c = catalog[3].ndc;
-    const root = (copayAmountCents: number, formularyNdcs: string[]) => buildPlanFormulary({ copayAmountCents, formularyNdcs }, catalog).root.toString();
+    const a = catalog[0].ndc,
+      b = catalog[2].ndc,
+      c = catalog[3].ndc;
+    const root = (copayAmountCents: number, formularyNdcs: string[]) =>
+      buildPlanFormulary({ copayAmountCents, formularyNdcs }, catalog).root.toString();
     expect(root(1500, [a, b])).toBe(root(1500, [b, a]));
     expect(root(1500, [a, b])).not.toBe(root(1600, [a, b]));
     expect(root(1500, [a, b])).not.toBe(root(1500, [a, c]));
     // the catalog's tier copays (the console's PLAN-GOLD-2026 template) build a different tree from the plan's copay
-    const template = new PlanTemplate({ planId: 'T', copayAmountCents: 3000, coverageType: 1, deductibleAmountCents: 0, oopMaxCents: 0, annualBenefitMaxCents: 0, formularyEntries: catalog });
+    const template = new PlanTemplate({
+      planId: 'T',
+      copayAmountCents: 3000,
+      coverageType: 1,
+      deductibleAmountCents: 0,
+      oopMaxCents: 0,
+      annualBenefitMaxCents: 0,
+      formularyEntries: catalog,
+    });
     expect(root(1500, [])).not.toBe(template.formularyRoot.toString());
   });
 
-  test('each covered drug\'s witness reaches the root from its entry', () => {
+  test("each covered drug's witness reaches the root from its entry", () => {
     const f = buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [] }, catalog);
     for (let i = 0n; i < BigInt(f.registry.count); i++) {
       expect(f.registry.getEntryWitness(i).calculateRoot(f.registry.getEntry(i)!.commitment()).toString()).toBe(f.root.toString());
@@ -111,8 +138,12 @@ describe('buildPlanFormulary', () => {
 
   test('a plan formulary too large to build on a request is refused before anything is hashed', () => {
     expect(MAX_PLAN_FORMULARY_ON_REQUEST).toBeGreaterThanOrEqual(100); // the demo catalog fits
-    expect(() => buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [] }, catalog, { maxEntries: 5 })).toThrow(/6 drugs.*not built on a request.*every drug in the catalog/);
-    expect(() => buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [catalog[0].ndc, catalog[1].ndc] }, catalog, { maxEntries: 2 })).not.toThrow();
+    expect(() => buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [] }, catalog, { maxEntries: 5 })).toThrow(
+      /6 drugs.*not built on a request.*every drug in the catalog/,
+    );
+    expect(() =>
+      buildPlanFormulary({ copayAmountCents: 1500, formularyNdcs: [catalog[0].ndc, catalog[1].ndc] }, catalog, { maxEntries: 2 }),
+    ).not.toThrow();
   });
 });
 
@@ -135,7 +166,15 @@ describe('FormularyRegistry.fromEntries', () => {
   });
 
   test('refuses more than the tree holds before hashing anything', () => {
-    const entry = new FormularyEntry({ ndcHash: Field(1), tierLevel: Field(1), copayAmountCents: Field(0), requiresPriorAuth: Field(0), maxQuantityPerFill: Field(0), maxDaySupply: Field(0), stepTherapyRequired: Field(0) });
+    const entry = new FormularyEntry({
+      ndcHash: Field(1),
+      tierLevel: Field(1),
+      copayAmountCents: Field(0),
+      requiresPriorAuth: Field(0),
+      maxQuantityPerFill: Field(0),
+      maxDaySupply: Field(0),
+      stepTherapyRequired: Field(0),
+    });
     expect(() => FormularyRegistry.fromEntries(new Array(32_769).fill(entry))).toThrow(/Formulary full/);
   });
 });
@@ -157,24 +196,64 @@ describe('planNetworkRoot', () => {
 
 describe('published terms', () => {
   const plan = (over: Partial<BenefitPlanConfig> = {}): BenefitPlanConfig => ({
-    planId: 'PLAN-T', name: 'T', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0,
-    formularyNdcs: ['00000000001'], networkProviderWalletIds: ['11'], published: false, createdAt: 0, updatedAt: 0, ...over,
+    planId: 'PLAN-T',
+    name: 'T',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 100000,
+    familyOopMaxCents: 1600000,
+    familyAnnualBenefitMaxCents: 0,
+    formularyNdcs: ['00000000001'],
+    networkProviderWalletIds: ['11'],
+    published: false,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over,
   });
 
   test('publishing keeps the binding fields and the roots; the published view lays them over a later draft', () => {
     const terms = publishedTermsFrom(plan(), '123', '0', 7);
     expect(terms).toEqual({
-      copayAmountCents: 1500, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
-      familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: null,
-      formularyNdcs: ['00000000001'], networkProviderWalletIds: ['11'], formularyRoot: '123', networkRoot: '0', publishedAt: 7,
+      copayAmountCents: 1500,
+      coverageType: 1,
+      deductibleAmountCents: 50000,
+      oopMaxCents: 780000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 100000,
+      familyOopMaxCents: 1600000,
+      familyAnnualBenefitMaxCents: 0,
+      dispensingFeeCents: null,
+      formularyNdcs: ['00000000001'],
+      networkProviderWalletIds: ['11'],
+      formularyRoot: '123',
+      networkRoot: '0',
+      publishedAt: 7,
     });
     expect(publishedTermsFrom(plan({ dispensingFeeCents: 1250 }), '123', '0', 7).dispensingFeeCents).toBe(1250);
     // a draft the insurer is editing: new copay, drug list, limits, network and fee, unpublished
-    const draft = plan({ copayAmountCents: 2500, formularyNdcs: [], deductibleAmountCents: 1, networkProviderWalletIds: [], dispensingFeeCents: 2500, published: false, publishedTerms: terms });
+    const draft = plan({
+      copayAmountCents: 2500,
+      formularyNdcs: [],
+      deductibleAmountCents: 1,
+      networkProviderWalletIds: [],
+      dispensingFeeCents: 2500,
+      published: false,
+      publishedTerms: terms,
+    });
     const view = planAsPublished(draft);
-    expect(view).toMatchObject({ copayAmountCents: 1500, formularyNdcs: ['00000000001'], deductibleAmountCents: 50000, networkProviderWalletIds: ['11'], formularyRoot: '123', networkRoot: '0', published: true });
-    expect(view.dispensingFeeCents).toBeNull();   // published with no fee: the network default, whatever the draft says
+    expect(view).toMatchObject({
+      copayAmountCents: 1500,
+      formularyNdcs: ['00000000001'],
+      deductibleAmountCents: 50000,
+      networkProviderWalletIds: ['11'],
+      formularyRoot: '123',
+      networkRoot: '0',
+      published: true,
+    });
+    expect(view.dispensingFeeCents).toBeNull(); // published with no fee: the network default, whatever the draft says
     expect(view.name).toBe('T');
   });
 
@@ -200,7 +279,11 @@ describe('published terms', () => {
     expect(planStoreError(plan({ publishedTerms: terms }))).toBeNull();
     expect(planStoreError(plan({ publishedTerms: { ...terms, formularyRoot: 'abc' } }))).toMatch(/publishedTerms.formularyRoot/);
     expect(planStoreError(plan({ publishedTerms: { ...terms, copayAmountCents: -5 } }))).toMatch(/publishedTerms.copayAmountCents/);
-    expect(planStoreError(plan({ publishedTerms: { ...terms, oopMaxCents: undefined as unknown as number } }))).toMatch(/publishedTerms.oopMaxCents/);
-    expect(planStoreError(plan({ publishedTerms: { ...terms, formularyNdcs: [7] as unknown as string[] } }))).toMatch(/publishedTerms.formularyNdcs/);
+    expect(planStoreError(plan({ publishedTerms: { ...terms, oopMaxCents: undefined as unknown as number } }))).toMatch(
+      /publishedTerms.oopMaxCents/,
+    );
+    expect(planStoreError(plan({ publishedTerms: { ...terms, formularyNdcs: [7] as unknown as string[] } }))).toMatch(
+      /publishedTerms.formularyNdcs/,
+    );
   });
 });

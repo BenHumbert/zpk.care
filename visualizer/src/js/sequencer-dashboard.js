@@ -177,9 +177,7 @@ function renderStatus(status) {
   }
 
   const uptime = formatUptime(status.uptimeMs);
-  const nextBatch = status.nextBatchInMs > 0
-    ? `${Math.ceil(status.nextBatchInMs / 1000)}s`
-    : 'Now';
+  const nextBatch = status.nextBatchInMs > 0 ? `${Math.ceil(status.nextBatchInMs / 1000)}s` : 'Now';
 
   document.getElementById('section-status').innerHTML = `
     <div class="section-card">
@@ -299,18 +297,20 @@ function renderReceipts(receipts) {
   }
 
   const sorted = [...receipts].reverse();
-  const rows = sorted.map(r => `
+  const rows = sorted
+    .map(
+      (r) => `
     <tr>
       <td class="mono" style="font-size:11px;" title="${r.receiptId}">${r.receiptId.slice(0, 12)}...</td>
       <td class="mono" style="font-size:11px;" title="${r.walletId}">${truncHash(r.walletId, 6)}</td>
-      <td>${r.isRegistration
-        ? '<span class="seq-type-badge reg">REG</span>'
-        : '<span class="seq-type-badge upd">UPD</span>'}</td>
+      <td>${r.isRegistration ? '<span class="seq-type-badge reg">REG</span>' : '<span class="seq-type-badge upd">UPD</span>'}</td>
       <td>${r.sequenceNumber}</td>
       <td><span class="seq-status-badge ${r.l1Status}">${r.l1Status}</span></td>
       <td style="font-size:11px; color:var(--text-secondary);">${formatTime(r.acceptedAt)}</td>
     </tr>
-  `).join('');
+  `,
+    )
+    .join('');
 
   container.innerHTML = `
     <div class="section-card">
@@ -349,9 +349,10 @@ function renderBatches(batches) {
   }
 
   const sorted = [...batches].reverse();
-  const rows = sorted.map(b => {
-    const isEmpty = b.transitionCount === 0 && b.registrationCount === 0;
-    return `
+  const rows = sorted
+    .map((b) => {
+      const isEmpty = b.transitionCount === 0 && b.registrationCount === 0;
+      return `
     <tr${isEmpty ? ' style="opacity: 0.5;"' : ''}>
       <td style="font-weight:600;">#${b.batchNumber}</td>
       <td>${b.registrationCount}</td>
@@ -360,7 +361,9 @@ function renderBatches(batches) {
       <td class="mono" style="font-size:11px;" title="${b.l1TxHash || ''}">${b.l1TxHash ? b.l1TxHash.slice(0, 16) + '...' : '—'}</td>
       <td style="font-size:11px; color:var(--text-secondary);">${formatTime(b.createdAt)}</td>
     </tr>
-  `;}).join('');
+  `;
+    })
+    .join('');
 
   container.innerHTML = `
     <div class="section-card">
@@ -441,9 +444,9 @@ function formatTime(timestamp) {
 
 function init() {
   // Wire filter buttons
-  document.querySelectorAll('.console-filter').forEach(btn => {
+  document.querySelectorAll('.console-filter').forEach((btn) => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.console-filter').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.console-filter').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       applyFilter(btn.dataset.filter);
     });

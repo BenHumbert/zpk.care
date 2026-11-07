@@ -34,15 +34,21 @@ const API = (() => {
 
   function setAdminToken(token) {
     adminToken = token || '';
-    try { localStorage.setItem('zkt_employer_admin_token', adminToken); } catch {}
-    if (lastOnEvent) connectSSE(lastOnEvent);   // the event stream opens with the token (A-79)
+    try {
+      localStorage.setItem('zkt_employer_admin_token', adminToken);
+    } catch {}
+    if (lastOnEvent) connectSSE(lastOnEvent); // the event stream opens with the token (A-79)
   }
 
   function getAdminToken() {
     return adminToken;
   }
   // Restore admin token from localStorage, fall back to bootstrap default
-  try { adminToken = localStorage.getItem('zkt_employer_admin_token') || ''; } catch { adminToken = ''; }
+  try {
+    adminToken = localStorage.getItem('zkt_employer_admin_token') || '';
+  } catch {
+    adminToken = '';
+  }
 
   // Strip __bigint__:NNN prefixes from serialized BigInt values
   function stripBigints(obj) {
@@ -69,7 +75,11 @@ const API = (() => {
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   function headers(admin = false) {
@@ -98,7 +108,11 @@ const API = (() => {
       data = text;
     }
     if (!res.ok) {
-      const msg = (data && data.error != null ? errMsg(data.error) : '') || (data && typeof data.message === 'string' ? data.message : '') || (typeof text === 'string' ? text : '') || ('HTTP ' + res.status);
+      const msg =
+        (data && data.error != null ? errMsg(data.error) : '') ||
+        (data && typeof data.message === 'string' ? data.message : '') ||
+        (typeof text === 'string' ? text : '') ||
+        'HTTP ' + res.status;
       const err = new Error(msg);
       err.status = res.status;
       throw err;
@@ -170,11 +184,17 @@ const API = (() => {
   }
 
   // ---- Available Plans (from insurer) ----
-  function getAvailablePlans() { return request('GET', '/plans/available'); }
+  function getAvailablePlans() {
+    return request('GET', '/plans/available');
+  }
 
   // ---- Attestation (Phase 3.3) ----
-  function getAttestation() { return request('GET', '/attestation'); }
-  function refreshAttestation() { return request('POST', '/attestation/refresh', {}, true); }
+  function getAttestation() {
+    return request('GET', '/attestation');
+  }
+  function refreshAttestation() {
+    return request('POST', '/attestation/refresh', {}, true);
+  }
 
   // ---- Messaging ----
   function sendMessage(recipientWalletId, subject, body) {
@@ -206,11 +226,11 @@ const API = (() => {
     const attempt = sseAttempt;
     request('POST', '/events/ticket', {}, true)
       .then((data) => {
-        if (attempt !== sseAttempt) return;   // disconnected, or connected again, while the ticket was on its way
+        if (attempt !== sseAttempt) return; // disconnected, or connected again, while the ticket was on its way
         sseConnection = new EventSource(baseUrl + '/events?ticket=' + encodeURIComponent(data.ticket));
         sseConnection.onopen = () => {
           sseReconnectDelay = 1000;
-          sseListeners.forEach(fn => fn('connected'));
+          sseListeners.forEach((fn) => fn('connected'));
         };
         sseConnection.onmessage = (ev) => {
           try {
@@ -221,7 +241,7 @@ const API = (() => {
           }
         };
         sseConnection.onerror = () => {
-          sseListeners.forEach(fn => fn('disconnected'));
+          sseListeners.forEach((fn) => fn('disconnected'));
           sseConnection.close();
           sseConnection = null;
           reconnectSSE();
@@ -229,7 +249,7 @@ const API = (() => {
       })
       .catch(() => {
         if (attempt !== sseAttempt) return;
-        sseListeners.forEach(fn => fn('disconnected'));
+        sseListeners.forEach((fn) => fn('disconnected'));
         reconnectSSE();
       });
   }
@@ -241,7 +261,10 @@ const API = (() => {
 
   function disconnectSSE() {
     sseAttempt++;
-    if (sseReconnectTimer) { clearTimeout(sseReconnectTimer); sseReconnectTimer = null; }
+    if (sseReconnectTimer) {
+      clearTimeout(sseReconnectTimer);
+      sseReconnectTimer = null;
+    }
     if (sseConnection) {
       sseConnection.close();
       sseConnection = null;

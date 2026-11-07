@@ -15,12 +15,7 @@
  */
 
 import { Field, Poseidon, MerkleTree } from 'o1js';
-import {
-  MessageData,
-  buildMessageData,
-  MSG_TYPE_PRESCRIPTION,
-  MSG_TYPE_PA_RESPONSE,
-} from '../src/messaging/message-data.js';
+import { MessageData, buildMessageData, MSG_TYPE_PRESCRIPTION, MSG_TYPE_PA_RESPONSE } from '../src/messaging/message-data.js';
 import type { MessageLocalData } from '../src/messaging/message-data.js';
 import {
   DelegationData,
@@ -54,9 +49,7 @@ import {
   DELEGATION_TREE_HEIGHT,
   KEY_TREE_HEIGHT,
 } from '../src/messaging/message-registry.js';
-import {
-  MessagingProgram,
-} from '../src/messaging/messaging-program.js';
+import { MessagingProgram } from '../src/messaging/messaging-program.js';
 import { MessagingService } from '../src/messaging/messaging-service.js';
 import { MessagingVerificationService } from '../src/messaging/messaging-verification-service.js';
 import { hashString } from '../src/zkp/hash-utils.js';
@@ -79,23 +72,25 @@ const sampleMessageLocal: MessageLocalData = {
 const sampleDelegationLocal: DelegationLocalData = {
   delegatorWalletId: '111222333444555666',
   delegateWalletId: '777888999000111222',
-  scopeFlags: 7,  // ALL
+  scopeFlags: 7, // ALL
   effectiveDate: '20260101',
   expirationDate: '20261231',
-  relationshipCode: 1,  // PARENT
+  relationshipCode: 1, // PARENT
   legalDocumentRef: 'LEGAL-DOC-2026-001',
 };
 
 /** Helper: create test MessageData */
-function createTestMessage(overrides?: Partial<{
-  senderWalletId: Field;
-  recipientWalletId: Field;
-  contentHash: Field;
-  messageType: Field;
-  timestamp: Field;
-  threadId: Field;
-  nonce: Field;
-}>): MessageData {
+function createTestMessage(
+  overrides?: Partial<{
+    senderWalletId: Field;
+    recipientWalletId: Field;
+    contentHash: Field;
+    messageType: Field;
+    timestamp: Field;
+    threadId: Field;
+    nonce: Field;
+  }>,
+): MessageData {
   return new MessageData({
     senderWalletId: overrides?.senderWalletId ?? Field(111222333444555666n),
     recipientWalletId: overrides?.recipientWalletId ?? Field(999888777666555444n),
@@ -108,15 +103,17 @@ function createTestMessage(overrides?: Partial<{
 }
 
 /** Helper: create test DelegationData */
-function createTestDelegation(overrides?: Partial<{
-  delegatorWalletId: Field;
-  delegateWalletId: Field;
-  scopeFlags: Field;
-  effectiveDate: Field;
-  expirationDate: Field;
-  relationshipCode: Field;
-  delegationHash: Field;
-}>): DelegationData {
+function createTestDelegation(
+  overrides?: Partial<{
+    delegatorWalletId: Field;
+    delegateWalletId: Field;
+    scopeFlags: Field;
+    effectiveDate: Field;
+    expirationDate: Field;
+    relationshipCode: Field;
+    delegationHash: Field;
+  }>,
+): DelegationData {
   return new DelegationData({
     delegatorWalletId: overrides?.delegatorWalletId ?? Field(111222333444555666n),
     delegateWalletId: overrides?.delegateWalletId ?? Field(777888999000111222n),
@@ -270,12 +267,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
 
       const plaintext = 'Patient requires 90-day supply of Lisinopril 10mg';
       const encrypted = encryptMessage(plaintext, sharedSecretSender);
-      const decrypted = decryptMessage(
-        encrypted.ciphertext,
-        encrypted.iv,
-        encrypted.tag,
-        sharedSecretRecipient,
-      );
+      const decrypted = decryptMessage(encrypted.ciphertext, encrypted.iv, encrypted.tag, sharedSecretRecipient);
 
       expect(decrypted).toBe(plaintext);
     });
@@ -365,16 +357,8 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       // computeMessagingRoot combines all three
       const msgReg = new MessageRegistry();
       const delReg = new DelegationRegistry();
-      const root = computeMessagingRoot(
-        msgReg.getRoot(),
-        delReg.getRoot(),
-        keyReg.getRoot(),
-      );
-      const expected = Poseidon.hash([
-        msgReg.getRoot(),
-        delReg.getRoot(),
-        keyReg.getRoot(),
-      ]);
+      const root = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
+      const expected = Poseidon.hash([msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot()]);
       expect(root.toString()).toBe(expected.toString());
     });
   });
@@ -397,13 +381,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const { index } = msgReg.addMessage(msg);
         const witness = msgReg.getWitness(index);
 
-        const result = await MessagingProgram.proveSendMessage(
-          msg,
-          witness,
-          msgReg.getRoot(),
-          delReg.getRoot(),
-          keyReg.getRoot(),
-        );
+        const result = await MessagingProgram.proveSendMessage(msg, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
         const output = result.proof.publicOutput;
         expect(output.commitment.toString()).toBe(msg.commitment().toString());
@@ -420,13 +398,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const { index } = msgReg.addMessage(msg);
         const witness = msgReg.getWitness(index);
 
-        const result = await MessagingProgram.proveSendMessage(
-          msg,
-          witness,
-          msgReg.getRoot(),
-          delReg.getRoot(),
-          keyReg.getRoot(),
-        );
+        const result = await MessagingProgram.proveSendMessage(msg, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
         const ok = await MessagingProgram.verify(result.proof);
         expect(ok).toBe(true);
@@ -442,13 +414,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const witness = msgReg.getWitness(index);
 
         await expect(
-          MessagingProgram.proveSendMessage(
-            msg,
-            witness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-          ),
+          MessagingProgram.proveSendMessage(msg, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot()),
         ).rejects.toThrow();
       }, 30_000);
 
@@ -462,13 +428,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const witness = msgReg.getWitness(index);
 
         await expect(
-          MessagingProgram.proveSendMessage(
-            msg,
-            witness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-          ),
+          MessagingProgram.proveSendMessage(msg, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot()),
         ).rejects.toThrow();
       }, 30_000);
 
@@ -484,13 +444,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const wrongWitness = msgReg.getWitness(1n);
 
         await expect(
-          MessagingProgram.proveSendMessage(
-            msg1,
-            wrongWitness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-          ),
+          MessagingProgram.proveSendMessage(msg1, wrongWitness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot()),
         ).rejects.toThrow();
       }, 30_000);
     });
@@ -504,7 +458,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const del = createTestDelegation();
         const { index } = delReg.addDelegation(del);
         const witness = delReg.getWitness(index);
-        const currentDate = Field(20260615n);  // mid-year
+        const currentDate = Field(20260615n); // mid-year
 
         const result = await MessagingProgram.proveDelegate(
           del,
@@ -528,17 +482,10 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const del = createTestDelegation({ expirationDate: Field(20260101n) });
         const { index } = delReg.addDelegation(del);
         const witness = delReg.getWitness(index);
-        const currentDate = Field(20260615n);  // after expiration
+        const currentDate = Field(20260615n); // after expiration
 
         await expect(
-          MessagingProgram.proveDelegate(
-            del,
-            witness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-            currentDate,
-          ),
+          MessagingProgram.proveDelegate(del, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(), currentDate),
         ).rejects.toThrow();
       }, 30_000);
 
@@ -550,17 +497,10 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const del = createTestDelegation({ effectiveDate: Field(20270101n) });
         const { index } = delReg.addDelegation(del);
         const witness = delReg.getWitness(index);
-        const currentDate = Field(20260615n);  // before effective
+        const currentDate = Field(20260615n); // before effective
 
         await expect(
-          MessagingProgram.proveDelegate(
-            del,
-            witness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-            currentDate,
-          ),
+          MessagingProgram.proveDelegate(del, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(), currentDate),
         ).rejects.toThrow();
       }, 30_000);
 
@@ -575,14 +515,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         const currentDate = Field(20260615n);
 
         await expect(
-          MessagingProgram.proveDelegate(
-            del,
-            witness,
-            msgReg.getRoot(),
-            delReg.getRoot(),
-            keyReg.getRoot(),
-            currentDate,
-          ),
+          MessagingProgram.proveDelegate(del, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(), currentDate),
         ).rejects.toThrow();
       }, 30_000);
     });
@@ -651,8 +584,8 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
 
     test('createMigrationDelegation creates REL_MIGRATION with SCOPE_ALL', async () => {
       const result = await service.createMigrationDelegation(
-        Field(111n),  // old wallet
-        Field(333n),  // new wallet
+        Field(111n), // old wallet
+        Field(333n), // new wallet
         Field(20260201n),
       );
 
@@ -681,13 +614,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const { index } = msgReg.addMessage(msg);
       const witness = msgReg.getWitness(index);
 
-      const result = await MessagingProgram.proveSendMessage(
-        msg,
-        witness,
-        msgReg.getRoot(),
-        delReg.getRoot(),
-        keyReg.getRoot(),
-      );
+      const result = await MessagingProgram.proveSendMessage(msg, witness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       const verification = await verifier.verifyMessage(result.proof);
       expect(verification.isValid).toBe(true);
@@ -704,13 +631,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const msg = createTestMessage();
       const { index: msgIdx } = msgReg.addMessage(msg);
       const msgWitness = msgReg.getWitness(msgIdx);
-      const msgResult = await MessagingProgram.proveSendMessage(
-        msg,
-        msgWitness,
-        msgReg.getRoot(),
-        delReg.getRoot(),
-        keyReg.getRoot(),
-      );
+      const msgResult = await MessagingProgram.proveSendMessage(msg, msgWitness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       // Create delegation proof (using same registry state as msg)
       const del = createTestDelegation();
@@ -725,10 +646,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
         Field(20260615n),
       );
 
-      const check = await verifier.fullMessagingCheck(
-        msgResult.proof,
-        delResult.proof,
-      );
+      const check = await verifier.fullMessagingCheck(msgResult.proof, delResult.proof);
 
       expect(check.messageValid).toBe(true);
       expect(check.delegationValid).toBe(true);
@@ -746,15 +664,16 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const witness = delReg.getWitness(index);
 
       const result = await MessagingProgram.proveDelegate(
-        del, witness,
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+        del,
+        witness,
+        msgReg.getRoot(),
+        delReg.getRoot(),
+        keyReg.getRoot(),
         Field(20260615n),
       );
 
       // Current root matches the proof's root
-      const currentRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-      );
+      const currentRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       const verification = await verifier.verifyDelegation(result.proof, currentRoot);
       expect(verification.isValid).toBe(true);
@@ -771,18 +690,21 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const witness = delReg.getWitness(index);
 
       const result = await MessagingProgram.proveDelegate(
-        del, witness,
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+        del,
+        witness,
+        msgReg.getRoot(),
+        delReg.getRoot(),
+        keyReg.getRoot(),
         Field(20260615n),
       );
 
       // Simulate revocation — add a new delegation to change the root
-      delReg.addDelegation(createTestDelegation({
-        delegateWalletId: Field(999999n),
-      }));
-      const staleRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+      delReg.addDelegation(
+        createTestDelegation({
+          delegateWalletId: Field(999999n),
+        }),
       );
+      const staleRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       const verification = await verifier.verifyDelegation(result.proof, staleRoot);
       expect(verification.isValid).toBe(false);
@@ -802,15 +724,16 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const witness = delReg.getWitness(index);
 
       const result = await MessagingProgram.proveDelegate(
-        del, witness,
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+        del,
+        witness,
+        msgReg.getRoot(),
+        delReg.getRoot(),
+        keyReg.getRoot(),
         Field(20260615n),
       );
 
       // Fresh check — root matches
-      const currentRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-      );
+      const currentRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
       const freshCheck = verifier.checkDelegationFreshness(result.proof, currentRoot);
       expect(freshCheck.isFresh).toBe(true);
       expect(freshCheck.proofRoot).toBe(freshCheck.currentRoot);
@@ -831,40 +754,36 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const msg = createTestMessage();
       const { index: msgIdx } = msgReg.addMessage(msg);
       const msgWitness = msgReg.getWitness(msgIdx);
-      const msgResult = await MessagingProgram.proveSendMessage(
-        msg, msgWitness,
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-      );
+      const msgResult = await MessagingProgram.proveSendMessage(msg, msgWitness, msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       // Create delegation proof
       const del = createTestDelegation();
       const { index: delIdx } = delReg.addDelegation(del);
       const delWitness = delReg.getWitness(delIdx);
       const delResult = await MessagingProgram.proveDelegate(
-        del, delWitness,
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+        del,
+        delWitness,
+        msgReg.getRoot(),
+        delReg.getRoot(),
+        keyReg.getRoot(),
         Field(20260615n),
       );
 
       // Simulate state change (revocation, new delegation, etc.)
-      delReg.addDelegation(createTestDelegation({
-        delegateWalletId: Field(999999n),
-      }));
-      const changedRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
+      delReg.addDelegation(
+        createTestDelegation({
+          delegateWalletId: Field(999999n),
+        }),
       );
+      const changedRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
-      const check = await verifier.fullMessagingCheck(
-        msgResult.proof,
-        delResult.proof,
-        changedRoot,
-      );
+      const check = await verifier.fullMessagingCheck(msgResult.proof, delResult.proof, changedRoot);
 
       expect(check.messageValid).toBe(true);
       expect(check.delegationValid).toBe(false);
       expect(check.delegationRootFresh).toBe(false);
       expect(check.overallValid).toBe(false);
-      expect(check.details.some(d => d.includes('stale'))).toBe(true);
+      expect(check.details.some((d) => d.includes('stale'))).toBe(true);
     }, 240_000);
   });
 
@@ -911,11 +830,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const msgReg = new MessageRegistry();
       const delReg = new DelegationRegistry();
       const keyReg = new KeyRegistry();
-      const messagingRoot = computeMessagingRoot(
-        msgReg.getRoot(),
-        delReg.getRoot(),
-        keyReg.getRoot(),
-      );
+      const messagingRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       const msgTx = await Mina.transaction(admin, async () => {
         await contract.initMessaging(messagingRoot);
@@ -934,9 +849,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       // Admin submits a message
       const msg = createTestMessage();
       msgReg.addMessage(msg);
-      const newMsgRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-      );
+      const newMsgRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
       const oldMsgRoot = contract.messagingRoot.get();
       const submitTx = await Mina.transaction(admin, async () => {
         await contract.submitMessage(oldMsgRoot, newMsgRoot, msg.commitment());
@@ -971,9 +884,7 @@ describe('Layer 7 — Messaging & Delegation Infrastructure', () => {
       const revokeMsg = createTestMessage({ messageType: Field(16) }); // MSG_TYPE_AOR_REVOKE=16
       msgReg.addMessage(revokeMsg);
 
-      const newRoot = computeMessagingRoot(
-        msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot(),
-      );
+      const newRoot = computeMessagingRoot(msgReg.getRoot(), delReg.getRoot(), keyReg.getRoot());
 
       const oldRevRoot = contract.messagingRoot.get();
       const revokeTx = await Mina.transaction(admin, async () => {

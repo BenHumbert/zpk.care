@@ -66,16 +66,13 @@ function resolveDefaultWorkerPath(): string {
 
   // In ESM context (production), use a URL-based approach
   // The caller should set workerScriptPath explicitly or this throws.
-  throw new Error(
-    'ProvingPool: cannot resolve default worker path. ' +
-    'Call setWorkerScriptPath() before start().',
-  );
+  throw new Error('ProvingPool: cannot resolve default worker path. ' + 'Call setWorkerScriptPath() before start().');
 }
 
 // ─── Constants ────────────────────────────────────────────
 
 const DEFAULT_COMPILE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (workers compile in parallel, CPU-bound)
-const DEFAULT_PROVE_TIMEOUT_MS = 5 * 60 * 1000;     // 5 minutes
+const DEFAULT_PROVE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_MAX_WORKER_RESTARTS = 3;
 const DEFAULT_SHUTDOWN_GRACE_MS = 5_000;
 
@@ -177,7 +174,7 @@ export class ProvingPool {
 
   /** Unsubscribe from pool lifecycle events. */
   off(handler: PoolEventHandler): void {
-    this.eventHandlers = this.eventHandlers.filter(h => h !== handler);
+    this.eventHandlers = this.eventHandlers.filter((h) => h !== handler);
   }
 
   /** Subscribe to worker stderr output (piped from child processes). */
@@ -187,7 +184,11 @@ export class ProvingPool {
 
   private emitPoolEvent(event: PoolEvent): void {
     for (const handler of this.eventHandlers) {
-      try { handler(event); } catch { /* swallow listener errors */ }
+      try {
+        handler(event);
+      } catch {
+        /* swallow listener errors */
+      }
     }
   }
 
@@ -237,9 +238,7 @@ export class ProvingPool {
       }
 
       // Await all workers in this batch concurrently
-      const results = await Promise.allSettled(
-        batch.map((handle) => this.waitForReady(handle)),
-      );
+      const results = await Promise.allSettled(batch.map((handle) => this.waitForReady(handle)));
 
       for (let i = 0; i < results.length; i++) {
         const result = results[i];
@@ -387,10 +386,7 @@ export class ProvingPool {
       queueDepth: this.jobQueue.length,
       totalJobsCompleted: this.totalJobsCompleted,
       totalJobsFailed: this.totalJobsFailed,
-      avgProveTimeMs:
-        this.totalJobsCompleted > 0
-          ? Math.round(this.totalProveTimeMs / this.totalJobsCompleted)
-          : 0,
+      avgProveTimeMs: this.totalJobsCompleted > 0 ? Math.round(this.totalProveTimeMs / this.totalJobsCompleted) : 0,
       totalRecycles: this.totalRecycles,
       lastRecycleMs: this.lastRecycleMs,
     };
@@ -503,9 +499,7 @@ export class ProvingPool {
           workerId: handle.id,
           data: { timeoutMs: this.compileTimeoutMs },
         });
-        reject(new Error(
-          `ProvingPool: worker ${handle.id} compilation timed out after ${this.compileTimeoutMs}ms`,
-        ));
+        reject(new Error(`ProvingPool: worker ${handle.id} compilation timed out after ${this.compileTimeoutMs}ms`));
       }, this.compileTimeoutMs);
 
       const onMessage = (msg: WorkerMessage) => {
@@ -540,12 +534,7 @@ export class ProvingPool {
 
   private getIdleWorker(): WorkerHandle | null {
     for (const [, handle] of this.workers) {
-      if (
-        !handle.busy &&
-        handle.status === 'idle' &&
-        handle.process.exitCode === null &&
-        handle.process.signalCode === null
-      ) {
+      if (!handle.busy && handle.status === 'idle' && handle.process.exitCode === null && handle.process.signalCode === null) {
         return handle;
       }
     }
@@ -669,9 +658,7 @@ export class ProvingPool {
         if (job.timer) clearTimeout(job.timer);
         this.pendingJobs.delete(handle.currentJobId);
         this.totalJobsFailed++;
-        job.reject(new Error(
-          `ProvingPool: worker ${handle.id} crashed (code=${code}, signal=${signal})`,
-        ));
+        job.reject(new Error(`ProvingPool: worker ${handle.id} crashed (code=${code}, signal=${signal})`));
       }
     }
 
@@ -729,7 +716,11 @@ export class ProvingPool {
     if (handle.process.connected) {
       this.sendToWorker(handle, { type: 'shutdown' });
       setTimeout(() => {
-        try { handle.process.kill('SIGTERM'); } catch { /* already dead */ }
+        try {
+          handle.process.kill('SIGTERM');
+        } catch {
+          /* already dead */
+        }
       }, this.shutdownGraceMs);
     }
 
@@ -758,7 +749,11 @@ export class ProvingPool {
    */
   private replacementFailed(handle: WorkerHandle): void {
     if (!this.workers.delete(handle.id)) return; // it crashed while compiling, and its exit dealt with its place
-    try { handle.process.kill(); } catch { /* already gone */ }
+    try {
+      handle.process.kill();
+    } catch {
+      /* already gone */
+    }
     this.refuseQueueIfNoWorkerLeft();
   }
 
@@ -768,7 +763,9 @@ export class ProvingPool {
    */
   private refuseQueueIfNoWorkerLeft(): void {
     if (!this.running || this.canTakeWork()) return;
-    console.error(`[ProvingPool] No proving worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Batches are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`);
+    console.error(
+      `[ProvingPool] No proving worker is left: each crashed past its restart limit or failed to compile again, and none is starting. Batches are refused; restart the node to start new workers. Refused ${this.jobQueue.length} queued job(s).`,
+    );
     const queued = this.jobQueue;
     this.jobQueue = [];
     for (const job of queued) {

@@ -46,7 +46,13 @@ describe('across processes: the case the live run cannot distinguish', () => {
     expect(child.exitCode).toBeNull();
     parent.kill();
     const outcome = await Promise.race([exited, new Promise<string>((r) => setTimeout(() => r('still running after 15 s'), 15_000))]);
-    if (outcome !== 0) { try { child.kill(); } catch { /* best effort */ } }
+    if (outcome !== 0) {
+      try {
+        child.kill();
+      } catch {
+        /* best effort */
+      }
+    }
     expect(outcome).toBe(0);
   }, 40_000);
 });
@@ -63,15 +69,26 @@ describe('isProcessAlive', () => {
 describe('watchParent', () => {
   test('fires once when the parent disappears, then stops looking', () => {
     const ticks: Array<() => void> = [];
-    const fakeSetInterval = ((fn: () => void) => { ticks.push(fn); return { unref() { /* noop */ } }; }) as unknown as typeof setInterval;
+    const fakeSetInterval = ((fn: () => void) => {
+      ticks.push(fn);
+      return {
+        unref() {
+          /* noop */
+        },
+      };
+    }) as unknown as typeof setInterval;
     const cleared: unknown[] = [];
-    const fakeClearInterval = ((t: unknown) => { cleared.push(t); }) as unknown as typeof clearInterval;
+    const fakeClearInterval = ((t: unknown) => {
+      cleared.push(t);
+    }) as unknown as typeof clearInterval;
     let alive = true;
     let gone = 0;
     watchParent({
       parentPid: 4242,
       intervalMs: 10,
-      onGone: () => { gone++; },
+      onGone: () => {
+        gone++;
+      },
       isAlive: () => alive,
       setInterval: fakeSetInterval,
       clearInterval: fakeClearInterval,
@@ -83,7 +100,7 @@ describe('watchParent', () => {
     ticks[0]();
     expect(gone).toBe(1);
     expect(cleared).toHaveLength(1);
-    ticks[0]();                 // a late tick after the timer was cleared does nothing more
+    ticks[0](); // a late tick after the timer was cleared does nothing more
     expect(gone).toBe(1);
   });
 
@@ -91,10 +108,18 @@ describe('watchParent', () => {
     const cleared: unknown[] = [];
     const stop = watchParent({
       parentPid: 1,
-      onGone: () => { throw new Error('must not fire'); },
+      onGone: () => {
+        throw new Error('must not fire');
+      },
       isAlive: () => true,
-      setInterval: ((_fn: () => void) => ({ unref() { /* noop */ } })) as unknown as typeof setInterval,
-      clearInterval: ((t: unknown) => { cleared.push(t); }) as unknown as typeof clearInterval,
+      setInterval: ((_fn: () => void) => ({
+        unref() {
+          /* noop */
+        },
+      })) as unknown as typeof setInterval,
+      clearInterval: ((t: unknown) => {
+        cleared.push(t);
+      }) as unknown as typeof clearInterval,
     });
     stop();
     expect(cleared).toHaveLength(1);

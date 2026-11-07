@@ -62,17 +62,43 @@ async function rpc(method: string, params: Record<string, unknown>, headers: Rec
 const byNode = (key: any, method: string, path: string, body: string) =>
   signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method, path, body });
 /** POST /interactive/hold-member, as `who` asks it. */
-async function hold(walletId: string, held: boolean, who: 'plan' | 'operator' | 'prescriber' | 'nobody' = 'plan'): Promise<{ status: number; json: any }> {
+async function hold(
+  walletId: string,
+  held: boolean,
+  who: 'plan' | 'operator' | 'prescriber' | 'nobody' = 'plan',
+): Promise<{ status: number; json: any }> {
   const body = JSON.stringify({ walletId, held, reason: 'An employee reported that someone else used their invite' });
-  const headers = who === 'operator' ? bearer : who === 'plan' ? byNode(insurerNode, 'POST', '/interactive/hold-member', body)
-    : who === 'prescriber' ? byNode(prescriberNode, 'POST', '/interactive/hold-member', body) : {};
-  const r = await fetch(`${url}/interactive/hold-member`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+  const headers =
+    who === 'operator'
+      ? bearer
+      : who === 'plan'
+        ? byNode(insurerNode, 'POST', '/interactive/hold-member', body)
+        : who === 'prescriber'
+          ? byNode(prescriberNode, 'POST', '/interactive/hold-member', body)
+          : {};
+  const r = await fetch(`${url}/interactive/hold-member`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body,
+  });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = text; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
   return { status: r.status, json };
 }
-const prescribe = () => svc.createPrescription({ prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: W1, ndcHash: ndcHashOf(ABACAVIR), quantity: 30, refills: 0 });
+const prescribe = () =>
+  svc.createPrescription({
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: W1,
+    ndcHash: ndcHashOf(ABACAVIR),
+    quantity: 30,
+    refills: 0,
+  });
 
 beforeAll(async () => {
   process.env.ZKTRIDENT_FORMULARY_LIMIT = '100';
@@ -94,11 +120,21 @@ beforeAll(async () => {
   PRESCRIBERS = data.PRESCRIBERS;
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-member-hold' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-member-hold' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   seq = node.getSequencer();
   seq.getFormularyService().loadFromNadac(formularyRaw);
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
   svc.dispatchProof = async () => ({ proofJson: null, publicOutput: null, proveTimeMs: 0 });
@@ -113,24 +149,57 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 
   const r = await rpc('l2_registerEntity', {
-    walletId: prescriberWallet(0), displayName: 'Prescriber 0', type: 'prescriber', npi: String(PRESCRIBERS[0].localData.prescriberId),
+    walletId: prescriberWallet(0),
+    displayName: 'Prescriber 0',
+    type: 'prescriber',
+    npi: String(PRESCRIBERS[0].localData.prescriberId),
     signingPublicKeyHex: deriveWalletSigningKey(PRESCRIBERS[0].enrollmentKey).publicKeyHex,
   });
   expect(r.error).toBeUndefined();
   const base: any = {
-    planId: 'PLAN-HOLD', name: 'Hold plan', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1300,
-    formularyNdcs: [ABACAVIR], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-HOLD',
+    name: 'Hold plan',
+    coverageType: 1,
+    copayAmountCents: 1000,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1300,
+    formularyNdcs: [ABACAVIR],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, data.getAllFormularyEntries()).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W1)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W1, groupIdHash: ndcHashOf('GRP-HOLD'), planIdHash: ndcHashOf(base.planId), planId: base.planId, employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W1)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W1,
+    groupIdHash: ndcHashOf('GRP-HOLD'),
+    planIdHash: ndcHashOf(base.planId),
+    planId: base.planId,
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W1, ownershipProofJson: '{}', displayName: 'Hold member' });
-  await svc.assignPcpForDevice({ walletId: W1, pcpWalletId: prescriberWallet(0), effectiveDate: '20261103', specialty: 'Family Medicine', consentScopeFlags: 7 });
+  await svc.assignPcpForDevice({
+    walletId: W1,
+    pcpWalletId: prescriberWallet(0),
+    effectiveDate: '20261103',
+    specialty: 'Family Medicine',
+    consentScopeFlags: 7,
+  });
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
 describe('the plan holds a member while a report about its enrollment is reviewed', () => {
   let written: string;
@@ -143,15 +212,17 @@ describe('the plan holds a member while a report about its enrollment is reviewe
 
   test('held: no quote, no prescription, no fill', async () => {
     const r = await hold(W1, true);
-    expect(r.status).toBe(200);                                           // before: no such route
+    expect(r.status).toBe(200); // before: no such route
     expect(r.json).toMatchObject({ walletId: W1, held: true });
     expect(svc.quoteMemberCost(W1, ndcHashOf(ABACAVIR), 30)).toMatchObject({ covered: false, reason: expect.stringMatching(/held/) });
     await expect(prescribe()).rejects.toThrow(/held while a report about its enrollment is reviewed/);
     svc.markFilled({ prescriptionId: written });
-    await expect(svc.dispensePrescription({ prescriptionId: written, quantityDispensed: 30 })).rejects.toThrow(/held while a report about its enrollment is reviewed/);
+    await expect(svc.dispensePrescription({ prescriptionId: written, quantityDispensed: 30 })).rejects.toThrow(
+      /held while a report about its enrollment is reviewed/,
+    );
   });
 
-  test('the hold survives a restart of the engine\'s state', () => {
+  test("the hold survives a restart of the engine's state", () => {
     const state = svc.exportState();
     const saved = (state.enrolledMembers as any[]).find((m) => m.walletId === W1);
     expect(saved.held).toMatchObject({ reason: expect.stringMatching(/reported/) });

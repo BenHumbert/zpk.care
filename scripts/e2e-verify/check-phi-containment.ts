@@ -51,10 +51,13 @@ import { resolveExplorerPort } from '../../src/security/network-policy.js';
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..');
 const args = process.argv.slice(2);
 const STRICT = args.includes('--strict');
-const [runDir, networkLog] = args.filter(a => !a.startsWith('--'));
+const [runDir, networkLog] = args.filter((a) => !a.startsWith('--'));
 const SEQ = process.env.E2E_SEQ ?? 'http://localhost:3030';
 const REPLICA = process.env.E2E_REPLICA ?? 'http://localhost:3031';
-const MEMBER_PORTS = (process.env.E2E_MEMBER_PORTS ?? '4001,4011,4012,4013').split(',').map(s => s.trim()).filter(Boolean);
+const MEMBER_PORTS = (process.env.E2E_MEMBER_PORTS ?? '4001,4011,4012,4013')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const EXPLORER = `http://localhost:${resolveExplorerPort(process.env)}`;
 const SSE_MS = Number(process.env.E2E_SSE_MS ?? 6000);
 const DEVICES = path.join(path.dirname(runDir), 'devices');
@@ -98,8 +101,10 @@ async function post(url: string, body: unknown): Promise<string> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
-    return `[POST ${url} -> ${r.status}]
-` + (await r.text());
+    return (
+      `[POST ${url} -> ${r.status}]
+` + (await r.text())
+    );
   } catch (e: any) {
     return `[POST ${url} -> unreachable: ${e?.message ?? e}]
 `;
@@ -145,15 +150,15 @@ async function sseSample(url: string, ms: number): Promise<string> {
 
 /** The per-wallet readers that take a wallet ID and need no credentials. */
 const WALLET_READERS: Array<[string, (w: string) => Record<string, unknown>]> = [
-  ['l2_getClaimsByMember', w => ({ memberWalletId: w })],
-  ['l2_getReceiptsByWallet', w => ({ walletId: w })],
-  ['l2_getMessagesByWallet', w => ({ walletId: w })],
-  ['l2_reconstructAccumulator', w => ({ walletId: w })],
-  ['l2_getPcpAssignments', w => ({ memberWalletId: w })],
-  ['l2_getEntity', w => ({ walletId: w })],
-  ['l2_getEncryptionKey', w => ({ walletId: w })],
-  ['l2_getWalletState', w => ({ walletId: w })],
-  ['l2_getAttestation', w => ({ walletId: w })],
+  ['l2_getClaimsByMember', (w) => ({ memberWalletId: w })],
+  ['l2_getReceiptsByWallet', (w) => ({ walletId: w })],
+  ['l2_getMessagesByWallet', (w) => ({ walletId: w })],
+  ['l2_reconstructAccumulator', (w) => ({ walletId: w })],
+  ['l2_getPcpAssignments', (w) => ({ memberWalletId: w })],
+  ['l2_getEntity', (w) => ({ walletId: w })],
+  ['l2_getEncryptionKey', (w) => ({ walletId: w })],
+  ['l2_getWalletState', (w) => ({ walletId: w })],
+  ['l2_getAttestation', (w) => ({ walletId: w })],
 ];
 
 async function main() {
@@ -167,11 +172,18 @@ async function main() {
   const devices: Record<string, { dir: string; walletId: string; employeeId: string }> = {};
   for (const key of ['A1', 'A2', 'B1', 'B2']) {
     const tracePath = path.join(runDir, `member-${key}`, 'trace.json');
-    if (!fs.existsSync(tracePath)) { console.log(`!! ${key}: no trace at ${tracePath}, skipping`); continue; }
+    if (!fs.existsSync(tracePath)) {
+      console.log(`!! ${key}: no trace at ${tracePath}, skipping`);
+      continue;
+    }
     const tr = JSON.parse(fs.readFileSync(tracePath, 'utf8'));
     const ex = tr.steps.flatMap((s: any) => s.exchanges).find((x: any) => /derive-wallet/.test(x.url));
-    if (!ex) { console.log(`!! ${key}: no derive-wallet exchange in trace, skipping`); continue; }
-    const b = ex.body, walletId = (ex.response?.data ?? ex.response).walletId;
+    if (!ex) {
+      console.log(`!! ${key}: no derive-wallet exchange in trace, skipping`);
+      continue;
+    }
+    const b = ex.body,
+      walletId = (ex.response?.data ?? ex.response).walletId;
     const port = Number(new URL(ex.url).port);
     // The member's cardholder ID *is* their employer-issued employee ID in these runs.
     devices[key] = {
@@ -191,7 +203,10 @@ async function main() {
     );
   }
   const keys = Object.keys(devices);
-  if (!keys.length) { console.error('no member traces found in ' + runDir); process.exit(2); }
+  if (!keys.length) {
+    console.error('no member traces found in ' + runDir);
+    process.exit(2);
+  }
 
   // 2. The device's own state, decrypted with its PIN. Adds the enrollment key and its hash.
   const deviceText: Record<string, string> = {};
@@ -200,10 +215,11 @@ async function main() {
     try {
       await ls.unlock(PINS[key]);
       const st = await ls.load();
-      if (st?.walletId !== d.walletId) console.log(`!! ${key}: device holds ${st?.walletId?.slice(0, 12)}…, run used ${d.walletId.slice(0, 12)}…`);
+      if (st?.walletId !== d.walletId)
+        console.log(`!! ${key}: device holds ${st?.walletId?.slice(0, 12)}…, run used ${d.walletId.slice(0, 12)}…`);
       const ekHash = st?.preimageFields?.[4];
       if (ekHash) needles.push({ member: key, field: 'enrollment key', kind: 'hash', value: ekHash });
-      const rawKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey(k => k) : '';
+      const rawKey = ls.hasEnrollmentKey() ? ls.useEnrollmentKey((k) => k) : '';
       if (rawKey) needles.push({ member: key, field: 'enrollment key', kind: 'secret', value: rawKey });
       deviceText[key] = JSON.stringify(st) + (rawKey ? ' ' + rawKey : '');
     } catch (e: any) {
@@ -219,14 +235,21 @@ async function main() {
   try {
     const listed = JSON.parse((await rpc(SEQ, 'l2_listEmployerNodes', {})).split('\n').slice(1).join('\n'));
     tenants = (listed?.result ?? []).filter((t: any) => t?.employerNodeUrl);
-  } catch { /* leave empty */ }
+  } catch {
+    /* leave empty */
+  }
 
   // 4. Everything outside the device, grouped by what an attacker would have to reach.
   const places: Array<{ name: string; text: () => Promise<string> }> = [];
-  const filesIn = (name: string, dir: string) => places.push({
-    name,
-    text: async () => walk(dir).filter(f => !f.endsWith('.enc') && !f.endsWith('.pdf')).map(f => fs.readFileSync(f, 'utf8')).join('\n'),
-  });
+  const filesIn = (name: string, dir: string) =>
+    places.push({
+      name,
+      text: async () =>
+        walk(dir)
+          .filter((f) => !f.endsWith('.enc') && !f.endsWith('.pdf'))
+          .map((f) => fs.readFileSync(f, 'utf8'))
+          .join('\n'),
+    });
 
   filesIn('Sequencer disk (l2-data: engine state, checkpoints)', path.join(REPO, 'l2-data'));
   places.push({ name: 'Sequencer live API (GET /interactive/state)', text: async () => get(`${SEQ}/interactive/state`) });
@@ -237,19 +260,24 @@ async function main() {
   places.push({ name: `Sequencer SSE stream (GET /events, ${SSE_MS}ms sample)`, text: async () => sseSample(`${SEQ}/events`, SSE_MS) });
   places.push({
     name: 'Sequencer per-wallet RPCs, no credentials (claims, receipts, messages, accumulator, PCP, entity, key, state, attestation)',
-    text: async () => (await Promise.all(
-      Object.values(devices).flatMap(d => WALLET_READERS.map(([m, mk]) => rpc(SEQ, m, mk(d.walletId)))),
-    )).join('\n'),
+    text: async () =>
+      (await Promise.all(Object.values(devices).flatMap((d) => WALLET_READERS.map(([m, mk]) => rpc(SEQ, m, mk(d.walletId)))))).join('\n'),
   });
   places.push({
     name: 'Replica, no credentials (same per-wallet RPCs)',
-    text: async () => (await Promise.all(
-      Object.values(devices).flatMap(d => WALLET_READERS.map(([m, mk]) => rpc(REPLICA, m, mk(d.walletId)))),
-    )).join('\n'),
+    text: async () =>
+      (await Promise.all(Object.values(devices).flatMap((d) => WALLET_READERS.map(([m, mk]) => rpc(REPLICA, m, mk(d.walletId)))))).join(
+        '\n',
+      ),
   });
   places.push({
     name: 'Member node public endpoints (/health, /onboarding/status)',
-    text: async () => (await Promise.all(MEMBER_PORTS.flatMap(p => [get(`http://localhost:${p}/health`), get(`http://localhost:${p}/onboarding/status`)]))).join('\n'),
+    text: async () =>
+      (
+        await Promise.all(
+          MEMBER_PORTS.flatMap((p) => [get(`http://localhost:${p}/health`), get(`http://localhost:${p}/onboarding/status`)]),
+        )
+      ).join('\n'),
   });
   /*
    * The routes A3 deleted. Probed on purpose, and on every node type, because this scan is the
@@ -275,29 +303,42 @@ async function main() {
   });
   places.push({
     name: 'Member node /rpc proxy, no credentials (sequencer data through the phone)',
-    text: async () => (await Promise.all(
-      Object.values(devices).flatMap(d => WALLET_READERS.map(([m, mk]) => rpc(`http://localhost:${MEMBER_PORTS[0]}`, m, mk(d.walletId)))),
-    )).join('\n'),
+    text: async () =>
+      (
+        await Promise.all(
+          Object.values(devices).flatMap((d) =>
+            WALLET_READERS.map(([m, mk]) => rpc(`http://localhost:${MEMBER_PORTS[0]}`, m, mk(d.walletId))),
+          ),
+        )
+      ).join('\n'),
   });
   places.push({
     name: 'Explorer /rpc proxy, no credentials',
-    text: async () => (await Promise.all(
-      Object.values(devices).map(d => rpc(EXPLORER, 'l2_getClaimsByMember', { memberWalletId: d.walletId })),
-    )).join('\n'),
+    text: async () =>
+      (await Promise.all(Object.values(devices).map((d) => rpc(EXPLORER, 'l2_getClaimsByMember', { memberWalletId: d.walletId })))).join(
+        '\n',
+      ),
   });
   places.push({
     name: 'Employer nodes, no credentials (/health, /roster, /groups, /tokens)',
-    text: async () => (await Promise.all(
-      tenants.flatMap(t => ['/health', '/roster', '/groups', '/tokens'].map(r => get(t.employerNodeUrl + r))),
-    )).join('\n'),
+    text: async () =>
+      (await Promise.all(tenants.flatMap((t) => ['/health', '/roster', '/groups', '/tokens'].map((r) => get(t.employerNodeUrl + r))))).join(
+        '\n',
+      ),
   });
   places.push({
     name: 'HR Tools, no credentials (/api/status, /api/employees, /api/export/tokens)',
-    text: async () => (await Promise.all(
-      tenants.filter(t => t.hrToolUrl).flatMap(t => ['/api/status', '/api/employees', '/api/export/tokens'].map(r => get(t.hrToolUrl! + r))),
-    )).join('\n'),
+    text: async () =>
+      (
+        await Promise.all(
+          tenants
+            .filter((t) => t.hrToolUrl)
+            .flatMap((t) => ['/api/status', '/api/employees', '/api/export/tokens'].map((r) => get(t.hrToolUrl! + r))),
+        )
+      ).join('\n'),
   });
-  if (networkLog) places.push({ name: 'Sequencer + node log (stdout of the network run)', text: async () => fs.readFileSync(networkLog, 'utf8') });
+  if (networkLog)
+    places.push({ name: 'Sequencer + node log (stdout of the network run)', text: async () => fs.readFileSync(networkLog, 'utf8') });
   filesIn('Insurer disk (marketplace + documents)', path.join(REPO, 'nautilus-data'));
   filesIn('Employer HR Tool disk (unencrypted files)', path.join(REPO, 'hr-tool-data'));
 
@@ -307,15 +348,25 @@ async function main() {
   const linkage: Array<{ place: string; member: string; wallet: number; employee: number }> = [];
   for (const pl of places) {
     let text = '';
-    try { text = await pl.text(); } catch (e: any) { console.log(`!! could not read ${pl.name}: ${e.message}`); }
+    try {
+      text = await pl.text();
+    } catch (e: any) {
+      console.log(`!! could not read ${pl.name}: ${e.message}`);
+    }
     for (const n of needles) rows.push({ place: pl.name, member: n.member, field: n.field, kind: n.kind, hits: count(text, n.value) });
     for (const [key, d] of Object.entries(devices)) {
       linkage.push({ place: pl.name, member: key, wallet: count(text, d.walletId), employee: count(text, d.employeeId) });
     }
   }
   for (const [key, text] of Object.entries(deviceText)) {
-    for (const n of needles.filter(x => x.member === key)) {
-      rows.push({ place: `Member ${key}'s own device (decrypted state)`, member: key, field: n.field, kind: n.kind, hits: count(text, n.value) });
+    for (const n of needles.filter((x) => x.member === key)) {
+      rows.push({
+        place: `Member ${key}'s own device (decrypted state)`,
+        member: key,
+        field: n.field,
+        kind: n.kind,
+        hits: count(text, n.value),
+      });
     }
   }
 
@@ -325,37 +376,50 @@ async function main() {
   for (const [place, rs] of byPlace) {
     console.log(`\n${place}`);
     for (const kind of ['plaintext', 'hash', 'secret'] as Kind[]) {
-      const of = rs.filter(r => r.kind === kind);
+      const of = rs.filter((r) => r.kind === kind);
       if (!of.length) continue;
-      const found = of.filter(r => r.hits > 0);
-      const fields = [...new Set(of.map(r => r.field))];
-      const line = fields.map(f => {
-        const ms = found.filter(r => r.field === f);
-        return `${f}: ${ms.length ? ms.map(r => `${r.member}×${r.hits}`).join(' ') : '—'}`;
-      }).join(' | ');
+      const found = of.filter((r) => r.hits > 0);
+      const fields = [...new Set(of.map((r) => r.field))];
+      const line = fields
+        .map((f) => {
+          const ms = found.filter((r) => r.field === f);
+          return `${f}: ${ms.length ? ms.map((r) => `${r.member}×${r.hits}`).join(' ') : '—'}`;
+        })
+        .join(' | ');
       console.log(`  ${kind.padEnd(9)} ${line}`);
     }
   }
 
   // 7. I6: a store that holds a wallet ID *and* the matching employee ID links the two.
   console.log('\n\nWallet-to-employee linkage (I6 — only the member may connect these)');
-  const breaks = linkage.filter(l => l.wallet > 0 && l.employee > 0);
+  const breaks = linkage.filter((l) => l.wallet > 0 && l.employee > 0);
   if (!breaks.length) console.log('  none: no store outside the device holds both a wallet ID and its employee ID');
-  for (const [place, ls] of new Map(breaks.map(b => [b.place, breaks.filter(x => x.place === b.place)]))) {
-    console.log(`  LINKED  ${place}: ${ls.map(l => `${l.member} (wallet×${l.wallet}, employee×${l.employee})`).join(', ')}`);
+  for (const [place, ls] of new Map(breaks.map((b) => [b.place, breaks.filter((x) => x.place === b.place)]))) {
+    console.log(`  LINKED  ${place}: ${ls.map((l) => `${l.member} (wallet×${l.wallet}, employee×${l.employee})`).join(', ')}`);
   }
 
   // 8. Verdict per rule.
-  const off = (kind: Kind) => rows.filter(r => r.kind === kind && r.hits > 0 && !r.place.startsWith('Member '));
+  const off = (kind: Kind) => rows.filter((r) => r.kind === kind && r.hits > 0 && !r.place.startsWith('Member '));
   const verdicts: Array<[string, string, boolean, string]> = [
-    ['I1', 'raw PHI/PII never leaves the device', off('plaintext').length === 0,
-      [...new Set(off('plaintext').map(r => `${r.field} @ ${r.place}`))].join('; ')],
-    ['I2', 'no per-field hashes leave the device', off('hash').length === 0,
-      [...new Set(off('hash').map(r => `${r.field} @ ${r.place}`))].join('; ')],
-    ['I3', 'the enrollment key never leaves the device', off('secret').length === 0,
-      [...new Set(off('secret').map(r => `${r.field} @ ${r.place}`))].join('; ')],
-    ['I6', 'nothing outside the device links wallet to employee', breaks.length === 0,
-      [...new Set(breaks.map(b => b.place))].join('; ')],
+    [
+      'I1',
+      'raw PHI/PII never leaves the device',
+      off('plaintext').length === 0,
+      [...new Set(off('plaintext').map((r) => `${r.field} @ ${r.place}`))].join('; '),
+    ],
+    [
+      'I2',
+      'no per-field hashes leave the device',
+      off('hash').length === 0,
+      [...new Set(off('hash').map((r) => `${r.field} @ ${r.place}`))].join('; '),
+    ],
+    [
+      'I3',
+      'the enrollment key never leaves the device',
+      off('secret').length === 0,
+      [...new Set(off('secret').map((r) => `${r.field} @ ${r.place}`))].join('; '),
+    ],
+    ['I6', 'nothing outside the device links wallet to employee', breaks.length === 0, [...new Set(breaks.map((b) => b.place))].join('; ')],
   ];
   console.log('\n\nVerdict');
   for (const [id, rule, ok, detail] of verdicts) {
@@ -363,8 +427,14 @@ async function main() {
     if (!ok && detail) console.log(`          ${detail}`);
   }
 
-  const broken = verdicts.filter(v => !v[2]).length;
+  const broken = verdicts.filter((v) => !v[2]).length;
   console.log(`\n${verdicts.length - broken}/${verdicts.length} rules hold.`);
   if (broken && STRICT) process.exit(1);
 }
-main().then(() => process.exit(0), e => { console.error(e); process.exit(1); });
+main().then(
+  () => process.exit(0),
+  (e) => {
+    console.error(e);
+    process.exit(1);
+  },
+);

@@ -70,8 +70,13 @@ if (process.send) {
         type: 'result',
         jobId,
         result: {
-          proofJson: null, publicOutput: null, batchProofJson: '{}', batchOutput: {},
-          proveTimeMs: delayMs, workerId: -1, pid: process.pid,
+          proofJson: null,
+          publicOutput: null,
+          batchProofJson: '{}',
+          batchOutput: {},
+          proveTimeMs: delayMs,
+          workerId: -1,
+          pid: process.pid,
         },
       });
       proving = false;
@@ -118,7 +123,9 @@ async function drive({ pool: kind, size = 1, options = {}, scenario, forks = [],
       env: { ...forkOptions.env, PROVER_POOL_STUB_COMPILE: behaviour },
     });
     pids.push(child.pid ?? null);
-    child.once('exit', () => { exitedPids.push(child.pid); });
+    child.once('exit', () => {
+      exitedPids.push(child.pid);
+    });
     return child;
   };
   syncBuiltinESMExports();
@@ -138,9 +145,8 @@ async function drive({ pool: kind, size = 1, options = {}, scenario, forks = [],
   /** Submits one job and settles with its outcome; it never rejects. */
   const submit = (stub) => {
     const submittedAt = Date.now();
-    const request = kind === 'proof'
-      ? { program: 'Stub', method: 'prove', args: [], stub }
-      : { transitionProofJsons: [], latestChainHash: '0', stub };
+    const request =
+      kind === 'proof' ? { program: 'Stub', method: 'prove', args: [], stub } : { transitionProofJsons: [], latestChainHash: '0', stub };
     return pool.prove(request, 'a stub job').then(
       (r) => ({ result: 'proved', pid: r.pid, ms: Date.now() - submittedAt }),
       (e) => ({ result: 'refused', message: e instanceof Error ? e.message : String(e), ms: Date.now() - submittedAt }),
@@ -187,16 +193,19 @@ async function drive({ pool: kind, size = 1, options = {}, scenario, forks = [],
     case 'honest': {
       const outcomes = [];
       for (let wave = 0; wave < 3; wave++) {
-        outcomes.push(...await Promise.all(Array.from({ length: 4 }, () => within(submit({ delayMs: 20 })))));
+        outcomes.push(...(await Promise.all(Array.from({ length: 4 }, () => within(submit({ delayMs: 20 }))))));
       }
       seen = {
         proved: outcomes.filter((o) => o.result === 'proved').length,
         refused: outcomes.filter((o) => o.result === 'refused').length,
         pending: outcomes.filter((o) => o.result === 'pending').length,
       };
-      seen.settled = await waitFor(() => pids.length - exitedPids.length === size
-        && pool.getWorkerStatuses().length === size
-        && pool.getWorkerStatuses().every((w) => w.status === 'idle'));
+      seen.settled = await waitFor(
+        () =>
+          pids.length - exitedPids.length === size &&
+          pool.getWorkerStatuses().length === size &&
+          pool.getWorkerStatuses().every((w) => w.status === 'idle'),
+      );
       break;
     }
     default:

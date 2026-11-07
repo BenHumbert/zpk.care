@@ -24,7 +24,10 @@ export function parseArgs(argv = process.argv.slice(2)) {
 /** "narrator=maya:narrator,hr=kokoro:af_sarah" -> { narrator: 'maya:narrator', hr: 'kokoro:af_sarah' }. */
 export function parseVoices(spec) {
   const out = {};
-  for (const kv of String(spec || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+  for (const kv of String(spec || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     const eq = kv.indexOf('=');
     if (eq <= 0) throw new Error(`--voices: "${kv}" is not role=engine:voice`);
     out[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();

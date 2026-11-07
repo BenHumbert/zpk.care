@@ -76,11 +76,7 @@ export class FulfillmentService {
   private registry: WalletRegistry;
   private formularyRegistry: FormularyRegistry;
 
-  constructor(
-    store: ILocalStore,
-    registry: WalletRegistry,
-    formularyRegistry: FormularyRegistry,
-  ) {
+  constructor(store: ILocalStore, registry: WalletRegistry, formularyRegistry: FormularyRegistry) {
     this.store = store;
     this.registry = registry;
     this.formularyRegistry = formularyRegistry;
@@ -122,26 +118,15 @@ export class FulfillmentService {
     const isFilled = statusVal === BigInt(RX_STATUS_FILLED.toString());
     const isPartiallyFilled = statusVal === BigInt(RX_STATUS_PARTIALLY_FILLED.toString());
     if (!isFilled && !isPartiallyFilled) {
-      throw new Error(
-        `Prescription must be FILLED or PARTIALLY_FILLED, got status ${statusVal}`,
-      );
+      throw new Error(`Prescription must be FILLED or PARTIALLY_FILLED, got status ${statusVal}`);
     }
 
     // 1. Build ALL witnesses BEFORE any mutation
     const forestRoots = ForestRoots.fromForest(forest);
-    const medicationWitness = forest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const statusWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      latestStatusIndex,
-    );
+    const medicationWitness = forest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const statusWitness = forest.getWitness(ForestDomain.TRANSACTION, latestStatusIndex);
     const fulfillmentSlotIndex = latestStatusIndex + 1n;
-    const newSlotWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      fulfillmentSlotIndex,
-    );
+    const newSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, fulfillmentSlotIndex);
 
     // Build formulary witness from registry
     const formularyEntry = this.formularyRegistry.getEntry(formularyEntryIndex);
@@ -172,18 +157,10 @@ export class FulfillmentService {
 
     // 3. Compute settlement commitment (matches what the circuit stored)
     const output = result.proof.publicOutput;
-    const settlementCommitment = Poseidon.hash([
-      fulfillmentData.commitment(),
-      output.patientPayCents,
-      output.planPayCents,
-    ]);
+    const settlementCommitment = Poseidon.hash([fulfillmentData.commitment(), output.patientPayCents, output.planPayCents]);
 
     // 4. Append settlement commitment to TRANSACTION tree
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      fulfillmentSlotIndex,
-      settlementCommitment,
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, fulfillmentSlotIndex, settlementCommitment);
 
     // 5. Create new CredentialData with updated forestRoot
     const newCredentialData = new CredentialData({
@@ -259,19 +236,10 @@ export class FulfillmentService {
   ): Promise<ReversalResult> {
     // 1. Build ALL witnesses BEFORE any mutation
     const forestRoots = ForestRoots.fromForest(forest);
-    const medicationWitness = forest.getWitness(
-      ForestDomain.MEDICATION,
-      rxLeafIndex,
-    );
-    const fulfillmentWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      originalFulfillmentIndex,
-    );
+    const medicationWitness = forest.getWitness(ForestDomain.MEDICATION, rxLeafIndex);
+    const fulfillmentWitness = forest.getWitness(ForestDomain.TRANSACTION, originalFulfillmentIndex);
     const reversalSlotIndex = originalFulfillmentIndex + 1n;
-    const reversalSlotWitness = forest.getWitness(
-      ForestDomain.TRANSACTION,
-      reversalSlotIndex,
-    );
+    const reversalSlotWitness = forest.getWitness(ForestDomain.TRANSACTION, reversalSlotIndex);
 
     // Build formulary witness from registry
     const formularyEntry = this.formularyRegistry.getEntry(formularyEntryIndex);
@@ -301,11 +269,7 @@ export class FulfillmentService {
     );
 
     // 3. Append reversal to TRANSACTION tree
-    forest.setLeaf(
-      ForestDomain.TRANSACTION,
-      reversalSlotIndex,
-      reversalData.commitment(),
-    );
+    forest.setLeaf(ForestDomain.TRANSACTION, reversalSlotIndex, reversalData.commitment());
 
     // 4. Create new CredentialData with updated forestRoot
     const newCredentialData = new CredentialData({
@@ -361,12 +325,8 @@ export class FulfillmentService {
    * If total < copay: patientPay = total, planPay = 0
    * Else: patientPay = copay, planPay = total - copay
    */
-  calculateAmounts(
-    fulfillmentData: FulfillmentData,
-    formularyEntry: FormularyEntry,
-  ): { patientPayCents: Field; planPayCents: Field } {
-    const total = BigInt(fulfillmentData.ingredientCostCents.toString())
-      + BigInt(fulfillmentData.dispensingFeeCents.toString());
+  calculateAmounts(fulfillmentData: FulfillmentData, formularyEntry: FormularyEntry): { patientPayCents: Field; planPayCents: Field } {
+    const total = BigInt(fulfillmentData.ingredientCostCents.toString()) + BigInt(fulfillmentData.dispensingFeeCents.toString());
     const copay = BigInt(formularyEntry.copayAmountCents.toString());
 
     if (total < copay) {

@@ -57,17 +57,46 @@ function liftVar(src: string, name: string): string {
   const end = src.indexOf(NL + '  };' + NL, at);
   return src.slice(at + 1, end + 5);
 }
-const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escHtml = (s: unknown): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
-const CARD_FUNCTIONS = ['parseQuantity', 'memberPaysLabel', 'planPaysLabel', 'coverageLine', 'priorAuthBlock', 'estimateCardHtml', 'updateCostEstimate',
-  'bindPriorAuthControls', 'showPriorAuthStatus', 'requestPriorAuthFromCard', 'refreshPriorAuthStatus'];
+const CARD_FUNCTIONS = [
+  'parseQuantity',
+  'memberPaysLabel',
+  'planPaysLabel',
+  'coverageLine',
+  'priorAuthBlock',
+  'estimateCardHtml',
+  'updateCostEstimate',
+  'bindPriorAuthControls',
+  'showPriorAuthStatus',
+  'requestPriorAuthFromCard',
+  'refreshPriorAuthStatus',
+];
 const CARD_VARS = ['QUANTITY_RULE', 'PHASE_LABELS', 'PA_LABELS', 'estimateContext', 'estimateSeq'];
 
 /** The card's code with a stand-in page: the form's fields, the card element, the API and the toasts. */
 function page(fields: Record<string, string>, api: Record<string, (...a: any[]) => Promise<unknown>>) {
   const els: Record<string, any> = {};
-  const el = (id: string) => (els[id] = els[id] ?? { id, value: fields[id] ?? '', innerHTML: '', dataset: {}, outerHTML: '', listeners: {} as Record<string, () => unknown>,
-    addEventListener(type: string, fn: () => unknown) { this.listeners[type] = fn; }, trim() { return this.value; } });
+  const el = (id: string) =>
+    (els[id] = els[id] ?? {
+      id,
+      value: fields[id] ?? '',
+      innerHTML: '',
+      dataset: {},
+      outerHTML: '',
+      listeners: {} as Record<string, () => unknown>,
+      addEventListener(type: string, fn: () => unknown) {
+        this.listeners[type] = fn;
+      },
+      trim() {
+        return this.value;
+      },
+    });
   for (const id of Object.keys(fields)) el(id);
   el('rx-cost-estimate');
   const document = {
@@ -79,11 +108,22 @@ function page(fields: Record<string, string>, api: Record<string, (...a: any[]) 
   const code = [...CARD_VARS.map((n) => liftVar(APP, n)), ...CARD_FUNCTIONS.map((n) => lift(APP, n))].join(NL);
   const names = ['document', '$', 'esc', 'errMsg', 'toast', 'API', 'selectedPricingUnit', 'showQuantityUnit'];
   const scope = [
-    document, (sel: string) => (sel.startsWith('#') && sel.slice(1) in els ? els[sel.slice(1)] : null), escHtml,
-    (e: any) => (e && e.message) || String(e), (m: string, t: string) => { toasts.push([m, t]); }, api,
-    () => '', (u: string) => { units.push(u); },
+    document,
+    (sel: string) => (sel.startsWith('#') && sel.slice(1) in els ? els[sel.slice(1)] : null),
+    escHtml,
+    (e: any) => (e && e.message) || String(e),
+    (m: string, t: string) => {
+      toasts.push([m, t]);
+    },
+    api,
+    () => '',
+    (u: string) => {
+      units.push(u);
+    },
   ];
-  const fns = new Function(...names, `'use strict';\n${code}\nreturn { ${CARD_FUNCTIONS.join(', ')}, context: () => estimateContext };`)(...scope);
+  const fns = new Function(...names, `'use strict';\n${code}\nreturn { ${CARD_FUNCTIONS.join(', ')}, context: () => estimateContext };`)(
+    ...scope,
+  );
   return { fns, els, toasts, units, card: els['rx-cost-estimate'] };
 }
 
@@ -93,24 +133,69 @@ const PA_HASH = '2222';
 // l2_estimateCost for the walkthrough's member, through the prescriber node: Standard Rx 2026 ($10 copay, $13.00 fee,
 // $500 deductible not yet met), ALLOPURINOL 100 MG x 30 EA at NADAC $0.0394/EA
 const VIDEO_QUOTE = {
-  covered: true, drugName: 'ALLOPURINOL', ndcHash: ALLOPURINOL_HASH, classification: 'G', nadacPerUnit: 0.0394, pricingUnit: 'EA', quantity: 30,
-  tierLevel: 1, ingredientCostCents: 118, dispensingFeeCents: 1300, dispensingFeeSource: 'plan', totalCostCents: 1418,
-  copayAmountCents: 1000, copayBasis: 'plan', phase: 'deductible', memberPayCents: 1418, employerPayCents: 0,
-  priorAuthRequired: false, stepTherapyRequired: false, maxQuantityPerFill: 90,
+  covered: true,
+  drugName: 'ALLOPURINOL',
+  ndcHash: ALLOPURINOL_HASH,
+  classification: 'G',
+  nadacPerUnit: 0.0394,
+  pricingUnit: 'EA',
+  quantity: 30,
+  tierLevel: 1,
+  ingredientCostCents: 118,
+  dispensingFeeCents: 1300,
+  dispensingFeeSource: 'plan',
+  totalCostCents: 1418,
+  copayAmountCents: 1000,
+  copayBasis: 'plan',
+  phase: 'deductible',
+  memberPayCents: 1418,
+  employerPayCents: 0,
+  priorAuthRequired: false,
+  stepTherapyRequired: false,
+  maxQuantityPerFill: 90,
 };
 const PA_QUOTE = {
-  ...VIDEO_QUOTE, drugName: 'ABILIFY MAINTENA ER', ndcHash: PA_HASH, nadacPerUnit: 2386.15, ingredientCostCents: 7158450, totalCostCents: 7159750,
-  tierLevel: 4, memberPayCents: 49000, employerPayCents: 7110750, priorAuthRequired: true, stepTherapyRequired: true, maxQuantityPerFill: 30,
+  ...VIDEO_QUOTE,
+  drugName: 'ABILIFY MAINTENA ER',
+  ndcHash: PA_HASH,
+  nadacPerUnit: 2386.15,
+  ingredientCostCents: 7158450,
+  totalCostCents: 7159750,
+  tierLevel: 4,
+  memberPayCents: 49000,
+  employerPayCents: 7110750,
+  priorAuthRequired: true,
+  stepTherapyRequired: true,
+  maxQuantityPerFill: 30,
   priorAuth: { status: 'none' },
 };
-const LIST_PRICE = { ...VIDEO_QUOTE, copayBasis: 'tier', dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 1118, priorAuthRequired: undefined, stepTherapyRequired: undefined, maxQuantityPerFill: undefined };
-const fields = (ndc: string, patient = WALLET, qty = '30') => ({ 'rx-med-select': ndc, 'rx-ndc-manual': '', 'rx-patient-select': patient, 'rx-quantity': qty });
+const LIST_PRICE = {
+  ...VIDEO_QUOTE,
+  copayBasis: 'tier',
+  dispensingFeeCents: 1000,
+  dispensingFeeSource: 'network-default',
+  totalCostCents: 1118,
+  priorAuthRequired: undefined,
+  stepTherapyRequired: undefined,
+  maxQuantityPerFill: undefined,
+};
+const fields = (ndc: string, patient = WALLET, qty = '30') => ({
+  'rx-med-select': ndc,
+  'rx-ndc-manual': '',
+  'rx-patient-select': patient,
+  'rx-quantity': qty,
+});
 const refusal = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 describe('the estimate card for a patient whose plan covers the drug with no prior authorization, in her deductible', () => {
   test('shows what she pays and what the plan pays, the phase, NADAC x quantity with the unit, the fee and the coverage line', async () => {
     const asked: any[] = [];
-    const p = page(fields(ALLOPURINOL_HASH), { estimateCost: async (q: any) => { asked.push(q); return VIDEO_QUOTE; } });
+    const p = page(fields(ALLOPURINOL_HASH), {
+      estimateCost: async (q: any) => {
+        asked.push(q);
+        return VIDEO_QUOTE;
+      },
+    });
     await p.fns.updateCostEstimate();
     expect(asked).toEqual([{ ndcHash: ALLOPURINOL_HASH, walletId: WALLET, quantity: 30 }]);
     expect(p.card.dataset.state).toBe('member');
@@ -123,25 +208,30 @@ describe('the estimate card for a patient whose plan covers the drug with no pri
     expect(html).toContain('Ingredient (NADAC)');
     expect(html).toMatch(/id="rx-est-ingredient"[^>]*>\$1\.18</);
     expect(html).toContain('$0.03940/EA x 30 EA');
-    expect(html).toContain('Total: $14.18 (ingredient $1.18 + dispensing fee <span id="rx-est-fee" data-cents="1300">$13.00</span>, the plan\'s)');
-    expect(html).toContain('id="rx-est-coverage" class="rx-coverage" data-covered="true" data-prior-auth="not-required" data-step-therapy="not-required"');
-    for (const item of ['Covered on the patient\'s plan', 'No prior authorization', 'No step therapy', 'Limit 90 EA per fill']) expect(html).toContain(item);
-    expect(html).not.toContain('id="rx-pa"');             // no prior-authorization row for a drug that needs none
-    expect(html).not.toContain('Needs the member\'s tap'); // before: the card asked for the tap
+    expect(html).toContain(
+      'Total: $14.18 (ingredient $1.18 + dispensing fee <span id="rx-est-fee" data-cents="1300">$13.00</span>, the plan\'s)',
+    );
+    expect(html).toContain(
+      'id="rx-est-coverage" class="rx-coverage" data-covered="true" data-prior-auth="not-required" data-step-therapy="not-required"',
+    );
+    for (const item of ["Covered on the patient's plan", 'No prior authorization', 'No step therapy', 'Limit 90 EA per fill'])
+      expect(html).toContain(item);
+    expect(html).not.toContain('id="rx-pa"'); // no prior-authorization row for a drug that needs none
+    expect(html).not.toContain("Needs the member's tap"); // before: the card asked for the tap
     expect(p.fns.context()).toEqual({ walletId: WALLET, ndcHash: ALLOPURINOL_HASH, quantity: 30 });
   });
 
-  test('a quantity over the plan\'s limit per fill is flagged on the coverage line', () => {
+  test("a quantity over the plan's limit per fill is flagged on the coverage line", () => {
     const p = page({}, {});
     const html = p.fns.coverageLine({ ...VIDEO_QUOTE }, 120);
     expect(html).toContain('class="rx-coverage-item bad" id="rx-est-limit">Limit 90 EA per fill: 120 EA is over it');
   });
 
-  test('a quote that does not report the plan\'s rules is shown as covered and never as needing no prior authorization', () => {
+  test("a quote that does not report the plan's rules is shown as covered and never as needing no prior authorization", () => {
     const p = page({}, {});
     const html = p.fns.coverageLine({ covered: true, pricingUnit: 'EA' }, 30);
     expect(html).toContain('data-prior-auth="unknown" data-step-therapy="unknown"');
-    expect(html).toContain('Covered on the patient\'s plan');
+    expect(html).toContain("Covered on the patient's plan");
     expect(html).not.toContain('No prior authorization');
     expect(html).not.toContain('No step therapy');
   });
@@ -168,10 +258,16 @@ describe('a drug her plan requires prior authorization for', () => {
 
   test('the button asks this node for the patient and drug the card shows, with the reason typed, and the row turns pending', async () => {
     const sent: any[] = [];
-    const p = page({ ...fields(PA_HASH), 'rx-pa-reason': '  Oral therapy failed  ' }, {
-      estimateCost: async () => PA_QUOTE,
-      requestPriorAuth: async (b: any) => { sent.push(b); return { status: 'pending', requestedAt: 5 }; },
-    });
+    const p = page(
+      { ...fields(PA_HASH), 'rx-pa-reason': '  Oral therapy failed  ' },
+      {
+        estimateCost: async () => PA_QUOTE,
+        requestPriorAuth: async (b: any) => {
+          sent.push(b);
+          return { status: 'pending', requestedAt: 5 };
+        },
+      },
+    );
     await p.fns.updateCostEstimate();
     expect(p.card.dataset.state).toBe('member');
     p.els['rx-pa'] = { outerHTML: '' };
@@ -185,51 +281,77 @@ describe('a drug her plan requires prior authorization for', () => {
   test('a refused request says why and leaves the button usable', async () => {
     const p = page(fields(PA_HASH), {
       estimateCost: async () => PA_QUOTE,
-      requestPriorAuth: async () => { throw refusal(409, 'A prior authorization for ABILIFY MAINTENA ER is already pending for this member'); },
+      requestPriorAuth: async () => {
+        throw refusal(409, 'A prior authorization for ABILIFY MAINTENA ER is already pending for this member');
+      },
     });
     await p.fns.updateCostEstimate();
     p.els['rx-pa-request-btn'] = { disabled: false, textContent: '', addEventListener() {} };
     await p.fns.requestPriorAuthFromCard();
-    expect(p.toasts[0]).toEqual(['Prior authorization not requested: A prior authorization for ABILIFY MAINTENA ER is already pending for this member', 'error']);
+    expect(p.toasts[0]).toEqual([
+      'Prior authorization not requested: A prior authorization for ABILIFY MAINTENA ER is already pending for this member',
+      'error',
+    ]);
     expect(p.els['rx-pa-request-btn']).toMatchObject({ disabled: false, textContent: 'Request prior authorization' });
   });
 });
 
-describe('when the patient\'s price is not given', () => {
+describe("when the patient's price is not given", () => {
   test('a drug not on her plan says so before the script is written', async () => {
-    const p = page(fields('3333'), { estimateCost: async () => ({ covered: false, drugName: 'ABACAVIR-LAMIVUDINE', pricingUnit: 'EA', quantity: 30, phase: 'not-covered', reason: "Not on the formulary of the member's plan" }) });
+    const p = page(fields('3333'), {
+      estimateCost: async () => ({
+        covered: false,
+        drugName: 'ABACAVIR-LAMIVUDINE',
+        pricingUnit: 'EA',
+        quantity: 30,
+        phase: 'not-covered',
+        reason: "Not on the formulary of the member's plan",
+      }),
+    });
     await p.fns.updateCostEstimate();
     expect(p.card.dataset.state).toBe('not-covered');
     expect(p.card.innerHTML).toContain('data-covered="false"');
     expect(p.card.innerHTML).toContain("Not covered on the patient's plan: Not on the formulary of the member's plan");
   });
 
-  test('no admin token: the ingredient with no patient, and the card says the node\'s token is needed', async () => {
+  test("no admin token: the ingredient with no patient, and the card says the node's token is needed", async () => {
     const asked: any[] = [];
     const p = page(fields(ALLOPURINOL_HASH), {
-      estimateCost: async (q: any) => { asked.push(q); if (q.walletId) throw refusal(401, "A patient's own price answers this node's administrator: send this node's admin token"); return LIST_PRICE; },
+      estimateCost: async (q: any) => {
+        asked.push(q);
+        if (q.walletId) throw refusal(401, "A patient's own price answers this node's administrator: send this node's admin token");
+        return LIST_PRICE;
+      },
     });
     await p.fns.updateCostEstimate();
-    expect(asked).toEqual([{ ndcHash: ALLOPURINOL_HASH, walletId: WALLET, quantity: 30 }, { ndcHash: ALLOPURINOL_HASH, quantity: 30 }]);
+    expect(asked).toEqual([
+      { ndcHash: ALLOPURINOL_HASH, walletId: WALLET, quantity: 30 },
+      { ndcHash: ALLOPURINOL_HASH, quantity: 30 },
+    ]);
     expect(p.card.dataset.state).toBe('token-needed');
-    expect(p.card.innerHTML).toContain('Needs this node\'s admin token');
+    expect(p.card.innerHTML).toContain("Needs this node's admin token");
     expect(p.card.innerHTML).not.toContain('rx-est-member-pays');
     expect(p.fns.context()).toBeNull();
   });
 
   test('a prescriber she has not consented to: the ingredient, and the card says her consent is needed', async () => {
     const p = page(fields(ALLOPURINOL_HASH), {
-      estimateCost: async (q: any) => { if (q.walletId) throw refusal(403, 'Forbidden'); return LIST_PRICE; },
+      estimateCost: async (q: any) => {
+        if (q.walletId) throw refusal(403, 'Forbidden');
+        return LIST_PRICE;
+      },
     });
     await p.fns.updateCostEstimate();
     expect(p.card.dataset.state).toBe('consent-needed');
-    expect(p.card.innerHTML).toContain('Needs the patient\'s consent');
+    expect(p.card.innerHTML).toContain("Needs the patient's consent");
     expect(p.card.innerHTML).toContain('$0.03940/EA x 30 EA');
   });
 
   test('an answer to an older selection never replaces a newer one', async () => {
     let releaseFirst: (v: unknown) => void = () => {};
-    const first = new Promise((r) => { releaseFirst = r; });
+    const first = new Promise((r) => {
+      releaseFirst = r;
+    });
     let n = 0;
     const p = page(fields(ALLOPURINOL_HASH), { estimateCost: async () => (n++ === 0 ? first : { ...VIDEO_QUOTE, drugName: 'SECOND' }) });
     const older = p.fns.updateCostEstimate();
@@ -240,17 +362,26 @@ describe('when the patient\'s price is not given', () => {
   });
 });
 
-describe('the page sends this node\'s admin token, held in memory, with the calls that need it', () => {
+describe("the page sends this node's admin token, held in memory, with the calls that need it", () => {
   function rpcWith() {
     const sent: Array<{ url: string; init: any }> = [];
     const storage: Record<string, string> = {};
     const API = new Function('location', 'localStorage', 'fetch', 'EventSource', `${RPC}\nreturn API;`)(
       { origin: 'http://127.0.0.1:4002' },
-      { getItem: (k: string) => (k in storage ? storage[k] : null), setItem: (k: string, v: string) => { storage[k] = v; } },
+      {
+        getItem: (k: string) => (k in storage ? storage[k] : null),
+        setItem: (k: string, v: string) => {
+          storage[k] = v;
+        },
+      },
       async (url: string, init: any) => {
         sent.push({ url, init });
         if (url.includes('/estimate-cost') && !(init.headers || {}).Authorization && JSON.parse(init.body).walletId) {
-          return { ok: false, status: 401, json: async () => ({ ok: false, error: "A patient's own price answers this node's administrator" }) };
+          return {
+            ok: false,
+            status: 401,
+            json: async () => ({ ok: false, error: "A patient's own price answers this node's administrator" }),
+          };
         }
         return { ok: true, status: 200, json: async () => ({ ok: true, data: { covered: true } }) };
       },
@@ -266,12 +397,14 @@ describe('the page sends this node\'s admin token, held in memory, with the call
     await API.requestPriorAuth({ walletId: WALLET, ndcHash: '1', quantity: 30 });
     await API.getPriorAuthStatus(WALLET, '1');
     expect(sent.map((s) => [s.init.method, s.url.replace('http://127.0.0.1:4002', '')])).toEqual([
-      ['POST', '/estimate-cost'], ['POST', '/prior-auth/request'], ['GET', `/prior-auth/status?walletId=${WALLET}&ndcHash=1`],
+      ['POST', '/estimate-cost'],
+      ['POST', '/prior-auth/request'],
+      ['GET', `/prior-auth/status?walletId=${WALLET}&ndcHash=1`],
     ]);
     for (const s of sent) expect(s.init.headers.Authorization).toBe('Bearer node-admin-token');
   });
 
-  test('with no token, a patient\'s quote is refused with its status; a token set is sent and stored nowhere', async () => {
+  test("with no token, a patient's quote is refused with its status; a token set is sent and stored nowhere", async () => {
     const { API, sent, storage } = rpcWith();
     await expect(API.estimateCost({ ndcHash: '1', walletId: WALLET, quantity: 30 })).rejects.toMatchObject({ status: 401 });
     expect(sent[0].init.headers.Authorization).toBeUndefined();
@@ -282,7 +415,7 @@ describe('the page sends this node\'s admin token, held in memory, with the call
     expect(sent[1].init.headers.Authorization).toBe('Bearer typed-token');
   });
 
-  test('the token is typed on the Onboarding tab into a password field, as on the insurer\'s page, and nothing stores it', () => {
+  test("the token is typed on the Onboarding tab into a password field, as on the insurer's page, and nothing stores it", () => {
     expect(HTML).toContain('<input type="password" autocomplete="off" class="form-input" id="admin-token-input"');
     expect(HTML).toContain('<button class="btn btn-sm" id="admin-set-token">Set</button>');
     const onboarding = HTML.indexOf('id="page-onboarding"');

@@ -16,30 +16,15 @@
 
 import { Field, MerkleTree } from 'o1js';
 import { ProofGateProgram } from '../wallets/proof-gate.js';
-import {
-  WalletRegistry,
-  WalletState,
-} from '../wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  lifecycleLeafCommitment,
-} from '../engine/lifecycle.js';
-import {
-  StateTransitionProgram,
-} from '../engine/state-transition.js';
-import {
-  DOMAIN_TAG_MEMBER,
-  DOMAIN_TAG_PRESCRIBER,
-  DOMAIN_TAG_PHARMACY,
-} from '../wallets/wallet-derivation.js';
+import { WalletRegistry, WalletState } from '../wallets/wallet-state.js';
+import { LifecycleWitness, lifecycleLeafCommitment } from '../engine/lifecycle.js';
+import { StateTransitionProgram } from '../engine/state-transition.js';
+import { DOMAIN_TAG_MEMBER, DOMAIN_TAG_PRESCRIBER, DOMAIN_TAG_PHARMACY } from '../wallets/wallet-derivation.js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { CredentialData } from './credential-data.js';
 import { CredentialInventory } from './credential-inventory.js';
 import { CredentialProgram, CredentialOperationOutput } from './credential-program.js';
-import {
-  PortableCredential,
-  serializeCredential,
-} from './portable-credential.js';
+import { PortableCredential, serializeCredential } from './portable-credential.js';
 
 /**
  * Entity type for ProofGateProgram dispatch.
@@ -81,13 +66,7 @@ export class UserWalletService {
   private registry: WalletRegistry;
   private lifecycleTree: MerkleTree;
 
-  constructor(
-    store: ILocalStore,
-    walletId: Field,
-    inventory: CredentialInventory,
-    registry: WalletRegistry,
-    lifecycleTree: MerkleTree,
-  ) {
+  constructor(store: ILocalStore, walletId: Field, inventory: CredentialInventory, registry: WalletRegistry, lifecycleTree: MerkleTree) {
     this.store = store;
     this.walletId = walletId;
     this.inventory = inventory;
@@ -101,26 +80,22 @@ export class UserWalletService {
    * @param preimage — the private Fields (from memberWalletPreimage etc.)
    * @param entityType — which ProofGateProgram method to call
    */
-  private async generateOwnershipProof(
-    preimage: Field[],
-    entityType: EntityType,
-  ) {
+  private async generateOwnershipProof(preimage: Field[], entityType: EntityType) {
     switch (entityType) {
       case 'member':
         return ProofGateProgram.verifyMember(
           this.walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+          preimage[0]!,
+          preimage[1]!,
+          preimage[2]!,
+          preimage[3]!,
+          preimage[4]!,
+          preimage[5]!,
         );
       case 'prescriber':
-        return ProofGateProgram.verifyPrescriber(
-          this.walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!,
-        );
+        return ProofGateProgram.verifyPrescriber(this.walletId, preimage[0]!, preimage[1]!, preimage[2]!);
       case 'pharmacy':
-        return ProofGateProgram.verifyPharmacy(
-          this.walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!,
-        );
+        return ProofGateProgram.verifyPharmacy(this.walletId, preimage[0]!, preimage[1]!, preimage[2]!);
     }
   }
 
@@ -160,12 +135,7 @@ export class UserWalletService {
     const inventoryWitness = this.inventory.getWitness(credentialIndex);
 
     // 4. Prove the mint operation
-    const credentialResult = await CredentialProgram.proveMint(
-      pgResult.proof,
-      credentialData,
-      inventoryWitness,
-      oldInventoryRoot,
-    );
+    const credentialResult = await CredentialProgram.proveMint(pgResult.proof, credentialData, inventoryWitness, oldInventoryRoot);
 
     // 5. Actually update local inventory
     this.inventory.mint(credentialData);
@@ -182,19 +152,16 @@ export class UserWalletService {
     if (currentLeaf.toString() !== lifecycleLeaf.toString()) {
       throw new Error(
         `Lifecycle tree mismatch at index ${walletIndex}: caller's currentLifecycle ` +
-        `does not match tree state. Tree may be out of sync.`,
+          `does not match tree state. Tree may be out of sync.`,
       );
     }
 
     this.lifecycleTree.setLeaf(walletIndex, lifecycleLeaf);
-    const lifecycleWitness = new LifecycleWitness(
-      this.lifecycleTree.getWitness(walletIndex),
-    );
+    const lifecycleWitness = new LifecycleWitness(this.lifecycleTree.getWitness(walletIndex));
 
     // Derive domain tag from entityType for multi-entity support
-    const domainTag = entityType === 'prescriber' ? DOMAIN_TAG_PRESCRIBER
-      : entityType === 'pharmacy' ? DOMAIN_TAG_PHARMACY
-      : DOMAIN_TAG_MEMBER;
+    const domainTag =
+      entityType === 'prescriber' ? DOMAIN_TAG_PRESCRIBER : entityType === 'pharmacy' ? DOMAIN_TAG_PHARMACY : DOMAIN_TAG_MEMBER;
     // Pad preimage to 5 fields (prescriber/pharmacy have 3, member has 5)
     const p0 = preimage[0] ?? Field(0);
     const p1 = preimage[1] ?? Field(0);
@@ -204,7 +171,13 @@ export class UserWalletService {
     const p5 = preimage[5] ?? Field(0);
 
     const stResult = await StateTransitionProgram.proveWalletUpdate(
-      domainTag, p0, p1, p2, p3, p4, p5,
+      domainTag,
+      p0,
+      p1,
+      p2,
+      p3,
+      p4,
+      p5,
       oldInventoryRoot,
       oldNonce,
       newInventoryRoot,
@@ -245,11 +218,7 @@ export class UserWalletService {
    * @param entityType — member/prescriber/pharmacy
    * @param credentialIndex — slot index of the credential to prove
    */
-  async proveCredentialHolding(
-    preimage: Field[],
-    entityType: EntityType,
-    credentialIndex: bigint,
-  ) {
+  async proveCredentialHolding(preimage: Field[], entityType: EntityType, credentialIndex: bigint) {
     const pgResult = await this.generateOwnershipProof(preimage, entityType);
 
     const credential = this.inventory.getCredential(credentialIndex);
@@ -258,12 +227,7 @@ export class UserWalletService {
     const inventoryWitness = this.inventory.getWitness(credentialIndex);
     const inventoryRoot = this.inventory.getRoot();
 
-    const result = await CredentialProgram.proveHolding(
-      pgResult.proof,
-      credential,
-      inventoryWitness,
-      inventoryRoot,
-    );
+    const result = await CredentialProgram.proveHolding(pgResult.proof, credential, inventoryWitness, inventoryRoot);
 
     return result.proof;
   }
@@ -278,12 +242,7 @@ export class UserWalletService {
    * @param credentialIndex — slot index of the credential to prove
    * @param requiredType — CREDENTIAL_TYPE_ELIGIBILITY or CREDENTIAL_TYPE_PRESCRIPTION
    */
-  async proveCredentialByType(
-    preimage: Field[],
-    entityType: EntityType,
-    credentialIndex: bigint,
-    requiredType: Field,
-  ) {
+  async proveCredentialByType(preimage: Field[], entityType: EntityType, credentialIndex: bigint, requiredType: Field) {
     const pgResult = await this.generateOwnershipProof(preimage, entityType);
 
     const credential = this.inventory.getCredential(credentialIndex);
@@ -292,13 +251,7 @@ export class UserWalletService {
     const inventoryWitness = this.inventory.getWitness(credentialIndex);
     const inventoryRoot = this.inventory.getRoot();
 
-    const result = await CredentialProgram.proveHoldingByType(
-      pgResult.proof,
-      credential,
-      inventoryWitness,
-      inventoryRoot,
-      requiredType,
-    );
+    const result = await CredentialProgram.proveHoldingByType(pgResult.proof, credential, inventoryWitness, inventoryRoot, requiredType);
 
     return result.proof;
   }

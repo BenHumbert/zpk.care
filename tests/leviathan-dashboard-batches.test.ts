@@ -52,9 +52,23 @@ function lift(name: string): string {
   const end = APP.indexOf(NL + '  }' + NL, at);
   return APP.slice(at + 1, end + 4);
 }
-const SCREEN_FUNCTIONS = ['shortHash', 'fmtTime', 'statCard', 'escHtml', 'bmRow', 'bmRootRow',
-  'statusClass', 'isRefusal', 'receiptsRefusedNote', 'settlementBadge', 'renderBatchPanel', 'showBatchDetail', 'setupBatchDetail',
-  'loadBatchCache', 'loadBatches'];
+const SCREEN_FUNCTIONS = [
+  'shortHash',
+  'fmtTime',
+  'statCard',
+  'escHtml',
+  'bmRow',
+  'bmRootRow',
+  'statusClass',
+  'isRefusal',
+  'receiptsRefusedNote',
+  'settlementBadge',
+  'renderBatchPanel',
+  'showBatchDetail',
+  'setupBatchDetail',
+  'loadBatchCache',
+  'loadBatches',
+];
 
 const OPERATOR = 'operator-network-screen';
 
@@ -65,19 +79,32 @@ async function sequencer() {
   const { L2Node } = await import('../src/l2/l2-node.js');
   const { L2RpcServer } = await import('../src/l2/l2-rpc-server.js');
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-network-screen' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-network-screen' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   const rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   await rpcServer.start();
   const seq = node.getSequencer();
   return {
     origin: `http://127.0.0.1:${rpcServer.getPort()}`,
-    buildTo: async (n: number) => { while (seq.getAllBatches().length < n) await seq.buildBatch(); },
+    buildTo: async (n: number) => {
+      while (seq.getAllBatches().length < n) await seq.buildBatch();
+    },
     stop: () => rpcServer.stop(),
   };
 }
 type Sequencer = Awaited<ReturnType<typeof sequencer>>;
 
-interface Exchange { method: string; params: any; error?: { code: number; message: string }; result?: any }
+interface Exchange {
+  method: string;
+  params: any;
+  error?: { code: number; message: string };
+  result?: any;
+}
 interface ScreenFunctions {
   loadBatches(): Promise<void>;
   loadBatchCache(): Promise<void>;
@@ -100,19 +127,43 @@ function screen(origin: string) {
     undefined,
   );
   const els: Record<string, any> = {};
-  const $ = (id: string) => (els[id] = els[id] ?? {
-    id, innerHTML: '', textContent: '', style: {}, listeners: [] as Array<(e: unknown) => void>,
-    addEventListener(type: string, fn: (e: unknown) => void) { if (type === 'click') this.listeners.push(fn); },
-  });
+  const $ = (id: string) =>
+    (els[id] = els[id] ?? {
+      id,
+      innerHTML: '',
+      textContent: '',
+      style: {},
+      listeners: [] as Array<(e: unknown) => void>,
+      addEventListener(type: string, fn: (e: unknown) => void) {
+        if (type === 'click') this.listeners.push(fn);
+      },
+    });
   const toasts: string[] = [];
   const window: Record<string, unknown> = {};
-  const fns: ScreenFunctions = new Function('RPC', '$', 'window', 'diagLog', 'toast',
+  const fns: ScreenFunctions = new Function(
+    'RPC',
+    '$',
+    'window',
+    'diagLog',
+    'toast',
     `'use strict';\nvar batchCache = [];\n${SCREEN_FUNCTIONS.map(lift).join(NL)}\nwindow._showBatchDetail = showBatchDetail;\n` +
-    'setupBatchDetail();\nreturn { loadBatches, loadBatchCache, renderBatchPanel, showBatchDetail };',
-  )(RPC, $, window, () => undefined, (m: string) => { toasts.push(m); });
+      'setupBatchDetail();\nreturn { loadBatches, loadBatchCache, renderBatchPanel, showBatchDetail };',
+  )(
+    RPC,
+    $,
+    window,
+    () => undefined,
+    (m: string) => {
+      toasts.push(m);
+    },
+  );
   const html = (id: string): string => String($(id).innerHTML);
   return {
-    ...fns, $, html, exchanges, toasts,
+    ...fns,
+    $,
+    html,
+    exchanges,
+    toasts,
     /** The operator's token, set as the Admin tab sets it: the receipt list answers only the plan or the operator (D1). */
     signIn: () => RPC.setAdminToken(OPERATOR),
     /** The data-batch of each row of the Batches table, top to bottom. */
@@ -139,60 +190,68 @@ const batchNumberRow = (n: number) => `<span class="bm-label">Batch Number</span
 
 describe('with batches #0 to #7', () => {
   let s: Sequencer;
-  beforeAll(async () => { s = await sequencer(); await s.buildTo(8); });
-  afterAll(async () => { await s?.stop(); });
+  beforeAll(async () => {
+    s = await sequencer();
+    await s.buildTo(8);
+  });
+  afterAll(async () => {
+    await s?.stop();
+  });
 
   test('the Batches tab: Latest Batch is the newest batch, and the table lists the newest first', async () => {
     const sc = screen(s.origin);
     await sc.loadBatches();
-    expect(sc.stat('Latest Batch')).toBe('#7');                                  // before: #0
+    expect(sc.stat('Latest Batch')).toBe('#7'); // before: #0
     expect(sc.stat('Batches')).toBe('8');
-    expect(sc.rows()).toEqual([7, 6, 5, 4, 3, 2, 1, 0]);                          // before: #0 first
+    expect(sc.rows()).toEqual([7, 6, 5, 4, 3, 2, 1, 0]); // before: #0 first
     expect(sc.toasts).toEqual([]);
   });
 
   test('a row opens its batch in the window, #5 and later included: l2_getBatch is asked for the number as a string', async () => {
     const sc = screen(s.origin);
     sc.signIn();
-    await sc.loadBatchCache();                                                   // the Overview loads its cache at start
+    await sc.loadBatchCache(); // the Overview loads its cache at start
     await sc.loadBatches();
     expect(sc.rows()).toContain(7);
     await sc.click('batch-table', 7);
     expect(sc.$('bm-title').textContent).toBe('Batch #7');
-    expect(sc.html('bm-body')).toContain(batchNumberRow(7));                     // before: Batch not found
+    expect(sc.html('bm-body')).toContain(batchNumberRow(7)); // before: Batch not found
     const asked = sc.exchanges.filter((x) => x.method === 'l2_getBatch');
-    expect(asked.map((x) => x.params)).toEqual([{ batchNumber: '7' }]);          // before: { batchNumber: 7 }
-    expect(asked[0].error).toBeUndefined();                                      // before: -32602 Missing or invalid batchNumber parameter
+    expect(asked.map((x) => x.params)).toEqual([{ batchNumber: '7' }]); // before: { batchNumber: 7 }
+    expect(asked[0].error).toBeUndefined(); // before: -32602 Missing or invalid batchNumber parameter
     expect(asked[0].result.batchNumber).toBe('__bigint__:7');
     // with the operator's token every call is answered, the receipt list included (it answers the plan or the operator)
-    expect(sc.exchanges.filter((x) => x.error)).toEqual([]);                    // before: l2_getAllReceipts refused, token or not
-    expect(sc.exchanges.filter((x) => x.method === 'l2_getAllReceipts').map((x) => x.params)).toEqual([{ limit: 1000, offset: 0 }, { limit: 1000, offset: 0 }]);
+    expect(sc.exchanges.filter((x) => x.error)).toEqual([]); // before: l2_getAllReceipts refused, token or not
+    expect(sc.exchanges.filter((x) => x.method === 'l2_getAllReceipts').map((x) => x.params)).toEqual([
+      { limit: 1000, offset: 0 },
+      { limit: 1000, offset: 0 },
+    ]);
   });
 
-  test('without the operator\'s token the window says why it lists no receipts', async () => {
+  test("without the operator's token the window says why it lists no receipts", async () => {
     const sc = screen(s.origin);
     await sc.showBatchDetail(3);
     expect(sc.html('bm-body')).toContain(batchNumberRow(3));
     expect(sc.html('bm-body')).toContain('Receipts answer the plan or the operator: set the operator token on the Admin tab');
-    expect(sc.html('bm-body')).not.toContain('No receipts found for this batch');            // before: said there were none
+    expect(sc.html('bm-body')).not.toContain('No receipts found for this batch'); // before: said there were none
   });
 
   test('before the Overview has its cache, every batch opens from the sequencer; one it does not hold is not found', async () => {
     const sc = screen(s.origin);
     for (const n of [0, 3, 5, 7]) {
       await sc.showBatchDetail(n);
-      expect([n, sc.html('bm-body').includes(batchNumberRow(n))]).toEqual([n, true]);   // before: Batch not found, #0 to #4 too
+      expect([n, sc.html('bm-body').includes(batchNumberRow(n))]).toEqual([n, true]); // before: Batch not found, #0 to #4 too
     }
     await sc.showBatchDetail(8);
     expect(sc.html('bm-body')).toBe('<div class="empty-state">Batch not found</div>');
   });
 
-  test('the Overview\'s batch pipeline shows the five newest batches, newest first, and each opens', async () => {
+  test("the Overview's batch pipeline shows the five newest batches, newest first, and each opens", async () => {
     const sc = screen(s.origin);
     await sc.loadBatchCache();
     sc.renderBatchPanel();
     const items = [...sc.html('cc-batch-list').matchAll(/data-batch="([^"]*)"><span class="cc-batch-num">([^<]*)<\/span>/g)];
-    expect(items.map((m) => m[2])).toEqual(['#7', '#6', '#5', '#4', '#3']);      // before: #0 to #4
+    expect(items.map((m) => m[2])).toEqual(['#7', '#6', '#5', '#4', '#3']); // before: #0 to #4
     await sc.click('cc-batch-list', Number(items[0][1]));
     expect(sc.html('bm-body')).toContain(batchNumberRow(7));
   });
@@ -200,15 +259,20 @@ describe('with batches #0 to #7', () => {
 
 describe('past 50 batches', () => {
   let s: Sequencer;
-  beforeAll(async () => { s = await sequencer(); await s.buildTo(60); });
-  afterAll(async () => { await s?.stop(); });
+  beforeAll(async () => {
+    s = await sequencer();
+    await s.buildTo(60);
+  });
+  afterAll(async () => {
+    await s?.stop();
+  });
 
   test('the tab shows the newest: Latest Batch #59, rows #59 to #30, and #59 opens', async () => {
     const sc = screen(s.origin);
     await sc.loadBatches();
-    expect(sc.stat('Latest Batch')).toBe('#59');                                 // before: #0
-    expect(sc.stat('Batches')).toBe('60');                                       // every batch, not the page of 50
-    expect(sc.rows()).toEqual(Array.from({ length: 30 }, (_, i) => 59 - i));      // before: #0 to #29
+    expect(sc.stat('Latest Batch')).toBe('#59'); // before: #0
+    expect(sc.stat('Batches')).toBe('60'); // every batch, not the page of 50
+    expect(sc.rows()).toEqual(Array.from({ length: 30 }, (_, i) => 59 - i)); // before: #0 to #29
     await sc.click('batch-table', sc.rows()[0]);
     expect(sc.html('bm-body')).toContain(batchNumberRow(59));
   });
@@ -216,8 +280,12 @@ describe('past 50 batches', () => {
 
 describe('with no batches', () => {
   let s: Sequencer;
-  beforeAll(async () => { s = await sequencer(); });
-  afterAll(async () => { await s?.stop(); });
+  beforeAll(async () => {
+    s = await sequencer();
+  });
+  afterAll(async () => {
+    await s?.stop();
+  });
 
   test('Latest Batch says --, the table No batches and the pipeline No batches yet', async () => {
     const sc = screen(s.origin);

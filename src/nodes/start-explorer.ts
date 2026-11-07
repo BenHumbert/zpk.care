@@ -42,9 +42,18 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  resolveBindHost, resolveAllowedOrigins, corsOriginHeader, resolveRpcProxyPolicy, resolvePublicHosts,
-  requestHostAllowed, bodyTypeAccepted, MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, NO_FRAMING_HEADERS,
-  resolveExplorerPort, type HostPolicy,
+  resolveBindHost,
+  resolveAllowedOrigins,
+  corsOriginHeader,
+  resolveRpcProxyPolicy,
+  resolvePublicHosts,
+  requestHostAllowed,
+  bodyTypeAccepted,
+  MISDIRECTED_REQUEST,
+  UNSUPPORTED_BODY_TYPE,
+  NO_FRAMING_HEADERS,
+  resolveExplorerPort,
+  type HostPolicy,
 } from '../security/network-policy.js';
 
 const env = process.env;
@@ -131,7 +140,9 @@ async function relayEventStream(req: IncomingMessage, res: ServerResponse, targe
     if (pageGone()) {
       // The page went as the sequencer answered: let go of the stream now. The cancel rejects when the abort has
       // already errored the body.
-      upstream.body?.cancel().catch(() => { /* the abort let go of it first */ });
+      upstream.body?.cancel().catch(() => {
+        /* the abort let go of it first */
+      });
       return;
     }
     if (upstream.status !== 200) {
@@ -164,7 +175,9 @@ async function relayEventStream(req: IncomingMessage, res: ServerResponse, targe
     };
     // A read rejects when the page's leaving aborts the stream, and then there is no one to write to, or when the
     // sequencer drops it, and then the page is told the stream has ended.
-    pump().catch(() => { if (!pageGone()) res.end(); });
+    pump().catch(() => {
+      if (!pageGone()) res.end();
+    });
   } catch (err) {
     // The page went first: the abort, or a failure that came with it, has no one to tell.
     if (pageGone()) return;
@@ -254,7 +267,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       }
       if (!method || !rpcProxy.allowed.has(method)) {
         res.writeHead(403, { ...corsHeaders(req), 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32601, message: 'Method not available through the explorer: ' + (method ?? 'none') } }));
+        res.end(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32601, message: 'Method not available through the explorer: ' + (method ?? 'none') },
+          }),
+        );
         return;
       }
 
@@ -313,7 +332,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         res.end(text);
       }
     } catch (e: any) {
-      if (res.destroyed || res.writableEnded) return;   // A-83, as for /events
+      if (res.destroyed || res.writableEnded) return; // A-83, as for /events
       res.writeHead(502, { ...corsHeaders(req), 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Sequencer unreachable: ' + e.message }));
     }
@@ -383,5 +402,11 @@ server.listen(port, bindHost, () => {
   console.log('');
 });
 
-process.on('SIGINT', () => { server.close(); process.exit(0); });
-process.on('SIGTERM', () => { server.close(); process.exit(0); });
+process.on('SIGINT', () => {
+  server.close();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  server.close();
+  process.exit(0);
+});

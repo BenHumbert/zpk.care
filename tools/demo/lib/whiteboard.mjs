@@ -32,7 +32,7 @@ export const MATHJAX_CONFIG = Object.freeze({
   startup: { typeset: false },
   options: { enableMenu: false },
   tex: { packages: { '[+]': ['html', 'color', 'ams', 'boldsymbol', 'cancel'], '[-]': ['noerrors', 'noundefined'] } },
-  svg: { fontCache: 'none' }
+  svg: { fontCache: 'none' },
 });
 
 /**
@@ -42,7 +42,8 @@ export const MATHJAX_CONFIG = Object.freeze({
  * then faded, before the pen wrote it. Hidden from the first layout, the hide changes nothing and only the reveal
  * fades. Revealed glyphs carry inline values, so ghosts and erased cards keep their ink.
  */
-export const PEN_START_CSS = '.eq svg path { fill-opacity: 0; } .eq svg text, .eq svg line, .eq svg polyline, .eq svg polygon, .eq svg ellipse, .eq svg circle { opacity: 0; }';
+export const PEN_START_CSS =
+  '.eq svg path { fill-opacity: 0; } .eq svg text, .eq svg line, .eq svg polyline, .eq svg polygon, .eq svg ellipse, .eq svg circle { opacity: 0; }';
 
 /**
  * The screen every page of a take is recorded at. Chrome's screencast (what Playwright records) ignores an emulated
@@ -50,26 +51,46 @@ export const PEN_START_CSS = '.eq svg path { fill-opacity: 0; } .eq svg text, .e
  * So each page gets a real 1920x1080 viewport at DSF 1 and html { zoom: 1.5 }: it lays out as on a 1280x720 screen
  * (as the dashboards were designed and the tooling spec intended) and is drawn crisp at 1080p.
  */
-export const SCREEN = Object.freeze({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1, zoom: 1.5, video: { width: 1920, height: 1080 } });
+export const SCREEN = Object.freeze({
+  viewport: { width: 1920, height: 1080 },
+  deviceScaleFactor: 1,
+  zoom: 1.5,
+  video: { width: 1920, height: 1080 },
+});
 
 /** Shared defaults for a director page: what the people's pages use, offline. */
-export async function directorContext(browser, { recordVideoDir, viewport = SCREEN.viewport, deviceScaleFactor = SCREEN.deviceScaleFactor, videoSize = SCREEN.video } = {}) {
+export async function directorContext(
+  browser,
+  { recordVideoDir, viewport = SCREEN.viewport, deviceScaleFactor = SCREEN.deviceScaleFactor, videoSize = SCREEN.video } = {},
+) {
   const context = await browser.newContext({
     viewport,
     deviceScaleFactor,
     locale: 'en-US',
     offline: true,
-    recordVideo: recordVideoDir ? { dir: recordVideoDir, size: videoSize } : undefined
+    recordVideo: recordVideoDir ? { dir: recordVideoDir, size: videoSize } : undefined,
   });
   await context.route('**/*', (route) => route.abort());
   return context;
 }
 
-export async function openWhiteboard({ browser, context, recordVideoDir, viewport = SCREEN.viewport, deviceScaleFactor = SCREEN.deviceScaleFactor,
-  videoSize = SCREEN.video, zoom = SCREEN.zoom, mathjaxFile = MATHJAX_FILE, fontFile = FONT_FILE, log = () => {}, captions = true, rough = true }) {
+export async function openWhiteboard({
+  browser,
+  context,
+  recordVideoDir,
+  viewport = SCREEN.viewport,
+  deviceScaleFactor = SCREEN.deviceScaleFactor,
+  videoSize = SCREEN.video,
+  zoom = SCREEN.zoom,
+  mathjaxFile = MATHJAX_FILE,
+  fontFile = FONT_FILE,
+  log = () => {},
+  captions = true,
+  rough = true,
+}) {
   if (!fs.existsSync(mathjaxFile)) throw new Error(`MathJax is not installed: ${mathjaxFile} (npm install in tools/demo)`);
   const own = !context;
-  const ctx = context || await directorContext(browser, { recordVideoDir, viewport, deviceScaleFactor, videoSize });
+  const ctx = context || (await directorContext(browser, { recordVideoDir, viewport, deviceScaleFactor, videoSize }));
   const page = await ctx.newPage();
   const startedAt = Date.now();
   page.on('pageerror', (e) => log(`whiteboard page error: ${e.message}`));
@@ -78,7 +99,9 @@ export async function openWhiteboard({ browser, context, recordVideoDir, viewpor
   await page.setContent(html, { waitUntil: 'load' });
   await page.addStyleTag({ content: PEN_START_CSS });
   // the board is laid out at 1280x720 CSS pixels; the zoom draws it at the viewport's 1920x1080
-  await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
+  await page.evaluate((z) => {
+    document.documentElement.style.zoom = String(z);
+  }, zoom);
   await page.addScriptTag({ content: `window.MathJax = ${JSON.stringify(MATHJAX_CONFIG)};` });
   await page.addScriptTag({ path: mathjaxFile });
   const ready = await page.evaluate(() => window.wb.ready());
@@ -97,7 +120,15 @@ export async function openWhiteboard({ browser, context, recordVideoDir, viewpor
   };
   /** Queues a stroke on the pen and returns at once; idle() waits for every queued stroke. */
   const start = async (fn, ...args) => {
-    await page.evaluate(([f, a]) => { window.wb[f](...a).catch((e) => console.warn('wb', f, e && e.message)); return true; }, [fn, args]).catch((e) => log(`whiteboard ${fn} failed: ${e.message}`));
+    await page
+      .evaluate(
+        ([f, a]) => {
+          window.wb[f](...a).catch((e) => console.warn('wb', f, e && e.message));
+          return true;
+        },
+        [fn, args],
+      )
+      .catch((e) => log(`whiteboard ${fn} failed: ${e.message}`));
   };
   const idle = async () => {
     const r = await page.evaluate(() => window.wb.idle()).catch((e) => ({ ok: false, lastError: e.message }));
@@ -119,7 +150,10 @@ export async function openWhiteboard({ browser, context, recordVideoDir, viewpor
     /** Typesets every equation ahead of time; throws, naming each one, if any LaTeX is bad. */
     async prepare(list) {
       const r = await call('prepare', list);
-      if (r.errors.length) throw new Error(`whiteboard: ${r.errors.length} equation(s) did not typeset: ${r.errors.map((e) => `${e.id}: ${e.message}`).join('; ')}`);
+      if (r.errors.length)
+        throw new Error(
+          `whiteboard: ${r.errors.length} equation(s) did not typeset: ${r.errors.map((e) => `${e.id}: ${e.message}`).join('; ')}`,
+        );
       return r;
     },
     setTitle: (text, o = {}) => update('setTitle', text, o),
@@ -146,6 +180,6 @@ export async function openWhiteboard({ browser, context, recordVideoDir, viewpor
       await page.close();
       if (own) await ctx.close();
       return { video, startedAt };
-    }
+    },
   };
 }

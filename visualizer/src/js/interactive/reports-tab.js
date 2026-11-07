@@ -125,13 +125,17 @@ export class ReportsTab {
             </div>
           </div>
 
-          ${total > 0 ? `
+          ${
+            total > 0
+              ? `
             <div style="font-size:11px; color:var(--text-secondary); margin-bottom:4px;">Patient vs Plan Split</div>
             <div class="report-split-bar">
               <div class="split-patient" style="width:${patientPct}%">${patientPct > 10 ? `Patient ${patientPct}%` : ''}</div>
               <div class="split-plan" style="width:${planPct}%">${planPct > 10 ? `Plan ${planPct}%` : ''}</div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       </div>
     `;
@@ -142,16 +146,17 @@ export class ReportsTab {
   renderClaimsRegister(report, dir, ndcDir) {
     if (!report || !report.claims.length) return '';
 
-    const rows = report.claims.map((c, i) => {
-      const isRev = c.operationType === 'reversal';
-      const med = ndcDir[c.ndcHash];
-      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(c.ndcHash);
-      const pharmacy = this.resolveName(c.pharmacyWalletId, dir);
-      const prescriber = this.resolveName(c.prescriberWalletId, dir);
-      const member = this.truncHash(c.memberWalletId);
-      const qty = (parseInt(c.quantityDispensed) / 1000);
+    const rows = report.claims
+      .map((c, i) => {
+        const isRev = c.operationType === 'reversal';
+        const med = ndcDir[c.ndcHash];
+        const drugName = med ? escapeHtml(med.brandName) : this.truncHash(c.ndcHash);
+        const pharmacy = this.resolveName(c.pharmacyWalletId, dir);
+        const prescriber = this.resolveName(c.prescriberWalletId, dir);
+        const member = this.truncHash(c.memberWalletId);
+        const qty = parseInt(c.quantityDispensed) / 1000;
 
-      return `
+        return `
         <tr${isRev ? ' style="opacity:0.7"' : ''}>
           <td>${i + 1}</td>
           <td><span class="report-op-badge ${escapeHtml(c.operationType)}">${escapeHtml(c.operationType)}</span></td>
@@ -164,7 +169,8 @@ export class ReportsTab {
           <td>${formatCents(c.planPayCents)}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -190,10 +196,11 @@ export class ReportsTab {
   renderPharmacyActivity(report, dir) {
     if (!report || !report.pharmacies.length) return '';
 
-    const rows = report.pharmacies.map(p => {
-      const name = this.resolveName(p.pharmacyWalletId, dir);
-      const cb = p.costBreakdown;
-      return `
+    const rows = report.pharmacies
+      .map((p) => {
+        const name = this.resolveName(p.pharmacyWalletId, dir);
+        const cb = p.costBreakdown;
+        return `
         <tr>
           <td>${name}</td>
           <td>${p.claimCount}</td>
@@ -205,7 +212,8 @@ export class ReportsTab {
           <td>${formatCents(cb.totalGrossCostCents)}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -231,10 +239,11 @@ export class ReportsTab {
   renderPrescriberActivity(report, dir) {
     if (!report || !report.prescribers.length) return '';
 
-    const rows = report.prescribers.map(p => {
-      const name = this.resolveName(p.prescriberWalletId, dir);
-      const cb = p.costBreakdown;
-      return `
+    const rows = report.prescribers
+      .map((p) => {
+        const name = this.resolveName(p.prescriberWalletId, dir);
+        const cb = p.costBreakdown;
+        return `
         <tr>
           <td>${name}</td>
           <td>${p.prescriptionCount}</td>
@@ -245,7 +254,8 @@ export class ReportsTab {
           <td>${formatCents(cb.totalPlanPayCents)}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -271,10 +281,11 @@ export class ReportsTab {
   renderMemberActivity(report) {
     if (!report || !report.members.length) return '';
 
-    const rows = report.members.map(m => {
-      const cb = m.costBreakdown;
-      const medCount = m.currentMedications ? m.currentMedications.length : 0;
-      return `
+    const rows = report.members
+      .map((m) => {
+        const cb = m.costBreakdown;
+        const medCount = m.currentMedications ? m.currentMedications.length : 0;
+        return `
         <tr>
           <td title="${escapeHtml(m.memberWalletId)}" class="mono" style="font-size:10px;">${this.truncHash(m.memberWalletId)}</td>
           <td>${m.claimCount}</td>
@@ -284,7 +295,8 @@ export class ReportsTab {
           <td>${formatCents(cb.totalPlanPayCents)}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -312,14 +324,15 @@ export class ReportsTab {
   renderMedicationUtilization(report, ndcDir) {
     if (!report || !report.medications.length) return '';
 
-    const rows = report.medications.map(m => {
-      const med = ndcDir[m.ndcHash];
-      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(m.ndcHash);
-      const ndc = med ? escapeHtml(med.ndc) : '-';
-      const tier = med ? `<span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span>` : '-';
-      const qty = (parseInt(m.totalQuantity) / 1000);
+    const rows = report.medications
+      .map((m) => {
+        const med = ndcDir[m.ndcHash];
+        const drugName = med ? escapeHtml(med.brandName) : this.truncHash(m.ndcHash);
+        const ndc = med ? escapeHtml(med.ndc) : '-';
+        const tier = med ? `<span class="tier-badge tier-${med.tier}">Tier ${med.tier}</span>` : '-';
+        const qty = parseInt(m.totalQuantity) / 1000;
 
-      return `
+        return `
         <tr>
           <td>${drugName}</td>
           <td>${ndc}</td>
@@ -332,7 +345,8 @@ export class ReportsTab {
           <td>${m.uniqueMembers}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -358,17 +372,18 @@ export class ReportsTab {
   renderPriorAuthReport(report, dir, ndcDir) {
     if (!report || !report.priorAuths.length) return '';
 
-    const rows = report.priorAuths.map(pa => {
-      const med = ndcDir[pa.ndcHash];
-      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(pa.ndcHash);
-      const prescriber = this.resolveName(pa.prescriberWalletId, dir);
-      const member = this.truncHash(pa.memberWalletId);
-      const approvedQty = parseInt(pa.approvedQuantity) / 1000;
-      const utilizedQty = parseInt(pa.utilizedQuantity) / 1000;
-      const pct = Math.round(pa.utilizationRate * 100);
-      const barWidth = Math.min(pct, 100);
+    const rows = report.priorAuths
+      .map((pa) => {
+        const med = ndcDir[pa.ndcHash];
+        const drugName = med ? escapeHtml(med.brandName) : this.truncHash(pa.ndcHash);
+        const prescriber = this.resolveName(pa.prescriberWalletId, dir);
+        const member = this.truncHash(pa.memberWalletId);
+        const approvedQty = parseInt(pa.approvedQuantity) / 1000;
+        const utilizedQty = parseInt(pa.utilizedQuantity) / 1000;
+        const pct = Math.round(pa.utilizationRate * 100);
+        const barWidth = Math.min(pct, 100);
 
-      return `
+        return `
         <tr>
           <td>${drugName}</td>
           <td title="${escapeHtml(pa.memberWalletId)}">${member}</td>
@@ -382,7 +397,8 @@ export class ReportsTab {
           <td>${pa.hasClaimActivity ? 'Yes' : 'No'}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -408,14 +424,15 @@ export class ReportsTab {
   renderReversalReport(report, dir, ndcDir) {
     if (!report || !report.reversals.length) return '';
 
-    const rows = report.reversals.map(r => {
-      const med = ndcDir[r.ndcHash];
-      const drugName = med ? escapeHtml(med.brandName) : this.truncHash(r.ndcHash);
-      const pharmacy = this.resolveName(r.pharmacyWalletId, dir);
-      const member = this.truncHash(r.memberWalletId);
-      const qty = (parseInt(r.quantityDispensed) / 1000);
+    const rows = report.reversals
+      .map((r) => {
+        const med = ndcDir[r.ndcHash];
+        const drugName = med ? escapeHtml(med.brandName) : this.truncHash(r.ndcHash);
+        const pharmacy = this.resolveName(r.pharmacyWalletId, dir);
+        const member = this.truncHash(r.memberWalletId);
+        const qty = parseInt(r.quantityDispensed) / 1000;
 
-      return `
+        return `
         <tr>
           <td title="${escapeHtml(r.memberWalletId)}">${member}</td>
           <td>${pharmacy}</td>
@@ -425,7 +442,8 @@ export class ReportsTab {
           <td>${formatCents(r.planPayCents)}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">

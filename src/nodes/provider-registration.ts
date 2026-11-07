@@ -81,7 +81,7 @@ export async function registerProviderEntity(server: NautilusAppServer, reg: Pro
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params }),
     });
-    const json = await resp.json() as { error?: { message?: string } };
+    const json = (await resp.json()) as { error?: { message?: string } };
     if (json.error) return { ok: false, error: json.error.message ?? 'registration refused' };
     return { ok: true };
   } catch (err) {

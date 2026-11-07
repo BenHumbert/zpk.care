@@ -22,8 +22,21 @@ import { playerHtml, probeMs } from './lib/post.mjs';
  * pharmacist; board-gate and the two status scenes keep the one thing a viewer must not miss, that the network checks
  * every proof, beside the caveats about what it does not check yet.
  */
-const DEFAULT_SCENES = ['plan', 'enroll', 'board-gate', 'enrolled', 'pcp', 'prescribe', 'fill', 'attest', 'verify-dispense', 'pay',
-  'status-update', 'status-accepted', 'pickup'];
+const DEFAULT_SCENES = [
+  'plan',
+  'enroll',
+  'board-gate',
+  'enrolled',
+  'pcp',
+  'prescribe',
+  'fill',
+  'attest',
+  'verify-dispense',
+  'pay',
+  'status-update',
+  'status-accepted',
+  'pickup',
+];
 const FADE = 0.35;
 // A scene often opens on a line that starts within milliseconds of the cut, so the sound gets only a click guard:
 // a fade as long as the picture's would swallow the first word.
@@ -45,11 +58,15 @@ const film = path.join(takeDir, summary.film || 'walkthrough.mp4');
 if (!fs.existsSync(film)) throw new Error(`short-cut: no film at ${film}`);
 
 if (arg('list', false)) {
-  for (const s of summary.scenes) console.log(`${String(s.act).padEnd(3)}${s.key.padEnd(22)}${((s.end - s.start) / 1000).toFixed(0).padStart(5)} s  ${s.title}`);
+  for (const s of summary.scenes)
+    console.log(`${String(s.act).padEnd(3)}${s.key.padEnd(22)}${((s.end - s.start) / 1000).toFixed(0).padStart(5)} s  ${s.title}`);
   process.exit(0);
 }
 
-const wanted = String(arg('scenes', DEFAULT_SCENES.join(','))).split(',').map((k) => k.trim()).filter(Boolean);
+const wanted = String(arg('scenes', DEFAULT_SCENES.join(',')))
+  .split(',')
+  .map((k) => k.trim())
+  .filter(Boolean);
 const byKey = new Map(summary.scenes.map((s) => [s.key, s]));
 const missing = wanted.filter((k) => !byKey.has(k));
 if (missing.length) throw new Error(`short-cut: the take has no scene ${missing.join(', ')} (see --list)`);
@@ -78,8 +95,35 @@ for (let i = 0; i < chosen.length; i++) {
   if (sec > FADE * 2) vf.push(`fade=t=out:st=${(sec - FADE).toFixed(3)}:d=${FADE}`);
   if (sec > AUDIO_EDGE * 2) af.push(`afade=t=out:st=${(sec - AUDIO_EDGE).toFixed(3)}:d=${AUDIO_EDGE}`);
   af.push(`apad=whole_dur=${sec.toFixed(6)}`, `atrim=end=${sec.toFixed(6)}`);
-  await ffmpeg(['-ss', (s.start / 1000).toFixed(3), '-i', film, '-vf', vf.join(','), '-af', af.join(','), '-frames:v', String(frames),
-    '-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', file]);
+  await ffmpeg([
+    '-ss',
+    (s.start / 1000).toFixed(3),
+    '-i',
+    film,
+    '-vf',
+    vf.join(','),
+    '-af',
+    af.join(','),
+    '-frames:v',
+    String(frames),
+    '-c:v',
+    'libx264',
+    '-preset',
+    'medium',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p',
+    '-r',
+    '30',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '160k',
+    '-ar',
+    '48000',
+    file,
+  ]);
   const ms = (await probeMs(file)) ?? Math.round(sec * 1000);
   scenes.push({ key: s.key, act: s.act, title: s.title, start: at, end: at + ms });
   for (const l of summary.lines || []) {
@@ -90,11 +134,33 @@ for (let i = 0; i < chosen.length; i++) {
 }
 
 const list = path.join(work, 'list.txt');
-fs.writeFileSync(list, scenes.map((_, i) => `file '${path.join(work, `piece-${String(i + 1).padStart(2, '0')}.mp4`).replace(/\\/g, '/')}'`).join('\n') + '\n');
+fs.writeFileSync(
+  list,
+  scenes.map((_, i) => `file '${path.join(work, `piece-${String(i + 1).padStart(2, '0')}.mp4`).replace(/\\/g, '/')}'`).join('\n') + '\n',
+);
 // The picture is copied; the sound is encoded once more as one stream, because copying each piece's AAC leaves
 // timestamps that step backwards at every join (each piece carries its own encoder priming).
-await ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c:v', 'copy', '-af', 'aresample=async=1:first_pts=0', '-c:a', 'aac', '-b:a', '160k', '-ar', '48000',
-  '-movflags', '+faststart', out]);
+await ffmpeg([
+  '-f',
+  'concat',
+  '-safe',
+  '0',
+  '-i',
+  list,
+  '-c:v',
+  'copy',
+  '-af',
+  'aresample=async=1:first_pts=0',
+  '-c:a',
+  'aac',
+  '-b:a',
+  '160k',
+  '-ar',
+  '48000',
+  '-movflags',
+  '+faststart',
+  out,
+]);
 const durationMs = (await probeMs(out)) ?? at;
 
 fs.writeFileSync(path.join(takeDir, `${name}.srt`), srt(lines, 0));

@@ -78,7 +78,8 @@ export function nadacUnitPriceE5(nadacPerUnit: unknown): number {
 /** NADAC x quantity in cents, rounded half up, in exact integer arithmetic (see the module comment). */
 export function nadacIngredientCents(nadacE5: number, quantity: number): number {
   if (!Number.isSafeInteger(nadacE5) || nadacE5 < 0) throw new Error(`The NADAC price must be whole $0.00001 (got ${nadacE5})`);
-  if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0) throw new Error(`The quantity must be positive (got ${quantity})`);
+  if (typeof quantity !== 'number' || !Number.isFinite(quantity) || quantity <= 0)
+    throw new Error(`The quantity must be positive (got ${quantity})`);
   const quantityMilli = BigInt(Math.round(quantity * 1000));
   const cents = (BigInt(nadacE5) * quantityMilli + 500_000n) / 1_000_000n;
   if (cents > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Ingredient cost out of range');
@@ -142,7 +143,8 @@ export const MAX_QUANTITY = 9_999_999.999;
  * remaining-quantity arithmetic uses quantityMilli. A number with a fourth decimal is refused rather than rounded.
  */
 export function quantityError(q: unknown, what = 'quantity'): string | null {
-  if (typeof q !== 'number' || !Number.isFinite(q)) return `${what} must be a number of the drug's pricing unit (EA, ML or GM), got ${show(q)}`;
+  if (typeof q !== 'number' || !Number.isFinite(q))
+    return `${what} must be a number of the drug's pricing unit (EA, ML or GM), got ${show(q)}`;
   if (q <= 0) return `${what} must be greater than 0 (got ${q})`;
   if (q > MAX_QUANTITY) return `${what} must be at most ${MAX_QUANTITY} (got ${q})`;
   if (Number(q.toFixed(3)) !== q) return `${what} has at most three decimals, thousandths of the pricing unit (got ${q})`;
@@ -180,9 +182,11 @@ const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
 
 /** "NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 (plan) = $30.51" */
 export function formatFillPrice(p: FillPrice): string {
-  return `NADAC ${formatNadacUnitPrice(p.nadacUnitPriceE5)}/${p.pricingUnit} x ${p.quantity} = ${dollars(p.ingredientCostCents)}`
-    + ` + dispensing fee ${dollars(p.dispensingFeeCents)} (${p.dispensingFeeSource === 'plan' ? 'plan' : 'network default'})`
-    + ` = ${dollars(p.totalCostCents)}`;
+  return (
+    `NADAC ${formatNadacUnitPrice(p.nadacUnitPriceE5)}/${p.pricingUnit} x ${p.quantity} = ${dollars(p.ingredientCostCents)}` +
+    ` + dispensing fee ${dollars(p.dispensingFeeCents)} (${p.dispensingFeeSource === 'plan' ? 'plan' : 'network default'})` +
+    ` = ${dollars(p.totalCostCents)}`
+  );
 }
 
 /**
@@ -195,8 +199,10 @@ export function statedCostMismatch(
   stated: { ingredientCostCents?: unknown; dispensingFeeCents?: unknown },
 ): string | null {
   const wrong: string[] = [];
-  if (stated.ingredientCostCents != null && stated.ingredientCostCents !== price.ingredientCostCents) wrong.push(`ingredient ${show(stated.ingredientCostCents)}`);
-  if (stated.dispensingFeeCents != null && stated.dispensingFeeCents !== price.dispensingFeeCents) wrong.push(`dispensing fee ${show(stated.dispensingFeeCents)}`);
+  if (stated.ingredientCostCents != null && stated.ingredientCostCents !== price.ingredientCostCents)
+    wrong.push(`ingredient ${show(stated.ingredientCostCents)}`);
+  if (stated.dispensingFeeCents != null && stated.dispensingFeeCents !== price.dispensingFeeCents)
+    wrong.push(`dispensing fee ${show(stated.dispensingFeeCents)}`);
   if (wrong.length === 0) return null;
   return `The pharmacy does not set the price: this fill costs ${formatFillPrice(price)}, and the request stated ${wrong.join(' and ')} (cents). Send no costs, or exactly these.`;
 }

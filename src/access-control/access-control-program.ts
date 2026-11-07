@@ -85,13 +85,13 @@ export const AccessControlProgram = ZkProgram({
         CredentialData,
         EligibilityData,
         ForestRoots,
-        ForestMerkleWitness,        // elig in ACCESS_CONTROL tree
+        ForestMerkleWitness, // elig in ACCESS_CONTROL tree
         FormularyEntry,
-        FormularyMerkleWitness,     // entry in formulary tree
-        Field,                       // ndcHash (medication being requested)
-        Field,                       // requestedQuantity (scaled x1000)
-        Field,                       // requestedDaySupply
-        Field,                       // currentDate (CCYYMMDD) — M3 fix
+        FormularyMerkleWitness, // entry in formulary tree
+        Field, // ndcHash (medication being requested)
+        Field, // requestedQuantity (scaled x1000)
+        Field, // requestedDaySupply
+        Field, // currentDate (CCYYMMDD) — M3 fix
       ],
       async method(
         credentialData: CredentialData,
@@ -106,10 +106,7 @@ export const AccessControlProgram = ZkProgram({
         currentDate: Field,
       ) {
         // 1. Credential type is ELIGIBILITY
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Credential type must be ELIGIBILITY',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Credential type must be ELIGIBILITY');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -121,42 +118,26 @@ export const AccessControlProgram = ZkProgram({
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Eligibility data in ACCESS_CONTROL tree
         const eligCommitment = eligibilityData.commitment();
         const computedACRoot = eligForestWitness.calculateRoot(eligCommitment);
-        computedACRoot.assertEquals(
-          forestRoots.accessControlRoot,
-          'Eligibility data not in ACCESS_CONTROL tree',
-        );
+        computedACRoot.assertEquals(forestRoots.accessControlRoot, 'Eligibility data not in ACCESS_CONTROL tree');
 
         // 5. Formulary entry in formulary tree
         const entryCommitment = formularyEntry.commitment();
         const computedFormRoot = formularyWitness.calculateRoot(entryCommitment);
-        computedFormRoot.assertEquals(
-          eligibilityData.formularyRoot,
-          'Formulary entry not in formulary tree',
-        );
+        computedFormRoot.assertEquals(eligibilityData.formularyRoot, 'Formulary entry not in formulary tree');
 
         // 6. NDC hash matches
-        formularyEntry.ndcHash.assertEquals(
-          ndcHash,
-          'Medication NDC does not match formulary entry',
-        );
+        formularyEntry.ndcHash.assertEquals(ndcHash, 'Medication NDC does not match formulary entry');
 
         // 7. Quantity within limits
-        requestedQuantity
-          .lessThanOrEqual(formularyEntry.maxQuantityPerFill)
-          .assertTrue('Requested quantity exceeds max per fill');
+        requestedQuantity.lessThanOrEqual(formularyEntry.maxQuantityPerFill).assertTrue('Requested quantity exceeds max per fill');
 
         // 8. Day supply within limits
-        requestedDaySupply
-          .lessThanOrEqual(formularyEntry.maxDaySupply)
-          .assertTrue('Requested day supply exceeds max');
+        requestedDaySupply.lessThanOrEqual(formularyEntry.maxDaySupply).assertTrue('Requested day supply exceeds max');
 
         return {
           publicOutput: new AccessControlOutput({
@@ -183,13 +164,13 @@ export const AccessControlProgram = ZkProgram({
         CredentialData,
         EligibilityData,
         ForestRoots,
-        ForestMerkleWitness,       // elig in ACCESS_CONTROL tree
-        ForestMerkleWitness,       // PA in ACCESS_CONTROL tree
+        ForestMerkleWitness, // elig in ACCESS_CONTROL tree
+        ForestMerkleWitness, // PA in ACCESS_CONTROL tree
         PriorAuthData,
         FormularyEntry,
-        FormularyMerkleWitness,    // entry in formulary tree
-        Field,                      // currentDate (CCYYMMDD)
-        Field,                      // requestedQuantity (scaled x1000)
+        FormularyMerkleWitness, // entry in formulary tree
+        Field, // currentDate (CCYYMMDD)
+        Field, // requestedQuantity (scaled x1000)
       ],
       async method(
         credentialData: CredentialData,
@@ -204,10 +185,7 @@ export const AccessControlProgram = ZkProgram({
         requestedQuantity: Field,
       ) {
         // 1. Credential type is ELIGIBILITY
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Credential type must be ELIGIBILITY',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Credential type must be ELIGIBILITY');
 
         // 2. Credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -219,63 +197,37 @@ export const AccessControlProgram = ZkProgram({
 
         // 3. Forest root integrity
         const computedForestRoot = forestRoots.computeForestRoot();
-        computedForestRoot.assertEquals(
-          credentialData.forestRoot,
-          'Forest root mismatch',
-        );
+        computedForestRoot.assertEquals(credentialData.forestRoot, 'Forest root mismatch');
 
         // 4. Eligibility data in ACCESS_CONTROL tree
         const eligCommitment = eligibilityData.commitment();
         eligForestWitness
           .calculateRoot(eligCommitment)
-          .assertEquals(
-            forestRoots.accessControlRoot,
-            'Eligibility data not in ACCESS_CONTROL tree',
-          );
+          .assertEquals(forestRoots.accessControlRoot, 'Eligibility data not in ACCESS_CONTROL tree');
 
         // 5. Formulary entry in formulary tree
         formularyWitness
           .calculateRoot(formularyEntry.commitment())
-          .assertEquals(
-            eligibilityData.formularyRoot,
-            'Formulary entry not in formulary tree',
-          );
+          .assertEquals(eligibilityData.formularyRoot, 'Formulary entry not in formulary tree');
 
         // 6. Formulary entry requires PA
-        formularyEntry.requiresPriorAuth.assertEquals(
-          Field(1),
-          'Formulary entry does not require prior auth',
-        );
+        formularyEntry.requiresPriorAuth.assertEquals(Field(1), 'Formulary entry does not require prior auth');
 
         // 7. PA in ACCESS_CONTROL tree
         const paCommitment = priorAuthData.commitment();
-        paForestWitness
-          .calculateRoot(paCommitment)
-          .assertEquals(
-            forestRoots.accessControlRoot,
-            'Prior auth not in ACCESS_CONTROL tree',
-          );
+        paForestWitness.calculateRoot(paCommitment).assertEquals(forestRoots.accessControlRoot, 'Prior auth not in ACCESS_CONTROL tree');
 
         // 8. PA medication matches formulary entry medication
-        priorAuthData.ndcHash.assertEquals(
-          formularyEntry.ndcHash,
-          'PA medication does not match formulary entry',
-        );
+        priorAuthData.ndcHash.assertEquals(formularyEntry.ndcHash, 'PA medication does not match formulary entry');
 
         // 9. PA not expired: currentDate <= expirationDate
-        currentDate
-          .lessThanOrEqual(priorAuthData.expirationDate)
-          .assertTrue('Prior authorization has expired');
+        currentDate.lessThanOrEqual(priorAuthData.expirationDate).assertTrue('Prior authorization has expired');
 
         // 10. PA approval date <= currentDate
-        priorAuthData.approvalDate
-          .lessThanOrEqual(currentDate)
-          .assertTrue('Prior authorization not yet effective');
+        priorAuthData.approvalDate.lessThanOrEqual(currentDate).assertTrue('Prior authorization not yet effective');
 
         // 11. Approved quantity sufficient
-        requestedQuantity
-          .lessThanOrEqual(priorAuthData.approvedQuantity)
-          .assertTrue('Requested quantity exceeds PA approved quantity');
+        requestedQuantity.lessThanOrEqual(priorAuthData.approvedQuantity).assertTrue('Requested quantity exceeds PA approved quantity');
 
         return {
           publicOutput: new AccessControlOutput({

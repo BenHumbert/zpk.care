@@ -72,16 +72,22 @@ export function expectedAdjudication(
 
   // Annual benefit maximum (0 = no limit).
   if (acc.annualBenefitMaxCents > 0n) {
-    const remainingBenefit = acc.annualBenefitUsedCents >= acc.annualBenefitMaxCents
-      ? 0n : acc.annualBenefitMaxCents - acc.annualBenefitUsedCents;
+    const remainingBenefit =
+      acc.annualBenefitUsedCents >= acc.annualBenefitMaxCents ? 0n : acc.annualBenefitMaxCents - acc.annualBenefitUsedCents;
     const plan = total - patient;
-    if (plan > remainingBenefit) { patient = total - remainingBenefit; phase = 'benefit-capped'; }
+    if (plan > remainingBenefit) {
+      patient = total - remainingBenefit;
+      phase = 'benefit-capped';
+    }
   }
 
   // Out-of-pocket maximum (0 = no limit).
   if (acc.oopMaxCents > 0n) {
     const remainingOop = acc.oopPaidCents >= acc.oopMaxCents ? 0n : acc.oopMaxCents - acc.oopPaidCents;
-    if (patient > remainingOop) { patient = remainingOop; phase = 'oop-capped'; }
+    if (patient > remainingOop) {
+      patient = remainingOop;
+      phase = 'oop-capped';
+    }
   }
 
   return {
@@ -141,7 +147,7 @@ export function findSecrets(text: string, secrets: Record<string, string>) {
   for (const [name, value] of Object.entries(secrets)) {
     if (!value || value.length < 4) continue;
     let i = lower.indexOf(value.toLowerCase());
-    while (i !== -1 && hits.filter(h => h.secret === name).length < 5) {
+    while (i !== -1 && hits.filter((h) => h.secret === name).length < 5) {
       hits.push({ secret: name, index: i, context: text.slice(Math.max(0, i - 60), i + value.length + 60).replace(/\s+/g, ' ') });
       i = lower.indexOf(value.toLowerCase(), i + 1);
     }

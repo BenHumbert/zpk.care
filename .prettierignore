@@ -1,0 +1,25 @@
+# Formatted by Prettier (`npm run format`): TypeScript, JavaScript, CSS and JSON configs. Not formatted here, besides what
+# .gitignore already leaves out:
+
+# prose and pages, whose line breaks and whitespace are their own
+*.md
+*.html
+
+# data and lock files
+package-lock.json
+src/data/*.json
+tests/fixtures/
+scripts/e2e-verify/fixtures/
+docs/research/*.json
+deliverables/
+
+# the legacy visualizer's built flowchart, the published patent filing and the demo's whiteboard assets
+visualizer/dist/
+patent/
+tools/demo/whiteboard/
+
+# the demo tool's own output (ignored by tools/demo/.gitignore, which Prettier does not read)
+tools/demo/demo-out/
+
+# local scratch files at the root (_dashfix.mjs, _monitor.sh and the like), which git does not track
+/_*

@@ -106,10 +106,7 @@ export class FamilyAccumulatorService {
   /**
    * Check if the family deductible has been met.
    */
-  static isFamilyDeductibleMet(
-    totals: FamilyTotals,
-    limits: FamilyLimits,
-  ): boolean {
+  static isFamilyDeductibleMet(totals: FamilyTotals, limits: FamilyLimits): boolean {
     if (limits.familyDeductibleAmountCents <= 0) return false;
     return totals.deductiblePaidCents >= limits.familyDeductibleAmountCents;
   }
@@ -117,10 +114,7 @@ export class FamilyAccumulatorService {
   /**
    * Check if the family out-of-pocket maximum has been met.
    */
-  static isFamilyOopMaxMet(
-    totals: FamilyTotals,
-    limits: FamilyLimits,
-  ): boolean {
+  static isFamilyOopMaxMet(totals: FamilyTotals, limits: FamilyLimits): boolean {
     if (limits.familyOopMaxCents <= 0) return false;
     return totals.oopPaidCents >= limits.familyOopMaxCents;
   }
@@ -128,10 +122,7 @@ export class FamilyAccumulatorService {
   /**
    * Check if the family annual benefit maximum has been exhausted.
    */
-  static isFamilyBenefitExhausted(
-    totals: FamilyTotals,
-    limits: FamilyLimits,
-  ): boolean {
+  static isFamilyBenefitExhausted(totals: FamilyTotals, limits: FamilyLimits): boolean {
     if (limits.familyAnnualBenefitMaxCents <= 0) return false;
     return totals.annualBenefitUsedCents >= limits.familyAnnualBenefitMaxCents;
   }

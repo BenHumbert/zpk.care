@@ -30,47 +30,33 @@
 import { Field, Poseidon } from 'o1js';
 import { hashString } from '../src/zkp/hash-utils.js';
 
-import {
-  FamilyAccumulatorService,
-} from '../src/onboarding/family-accumulator-service.js';
-import type {
-  FamilyLimits,
-  MemberAccumulator,
-} from '../src/onboarding/family-accumulator-service.js';
+import { FamilyAccumulatorService } from '../src/onboarding/family-accumulator-service.js';
+import type { FamilyLimits, MemberAccumulator } from '../src/onboarding/family-accumulator-service.js';
 
-import {
-  MEMBERS,
-  getMembersByFamily,
-  getMembersByEmployee,
-} from '../src/data/index.js';
+import { MEMBERS, getMembersByFamily, getMembersByEmployee } from '../src/data/index.js';
 
-import {
-  buildGroupEnrollmentToken,
-} from '../src/onboarding/group-enrollment-token.js';
+import { buildGroupEnrollmentToken } from '../src/onboarding/group-enrollment-token.js';
 import type { GroupEnrollmentTokenLocalData } from '../src/onboarding/group-enrollment-token.js';
 
-import {
-  buildRosterEntry,
-  OpaqueRoster,
-} from '../src/onboarding/opaque-roster.js';
+import { buildRosterEntry, OpaqueRoster } from '../src/onboarding/opaque-roster.js';
 
 // ─── Test Data ─────────────────────────────────────────────
 
 const FAMILY_LIMITS: FamilyLimits = {
-  familyDeductibleAmountCents: 100000,   // $1,000
-  familyOopMaxCents: 1600000,            // $16,000
-  familyAnnualBenefitMaxCents: 0,        // unlimited
+  familyDeductibleAmountCents: 100000, // $1,000
+  familyOopMaxCents: 1600000, // $16,000
+  familyAnnualBenefitMaxCents: 0, // unlimited
 };
 
 const MEMBER_A: MemberAccumulator = {
-  deductiblePaidCents: 30000,   // $300
-  oopPaidCents: 50000,          // $500
+  deductiblePaidCents: 30000, // $300
+  oopPaidCents: 50000, // $500
   annualBenefitUsedCents: 200000,
 };
 
 const MEMBER_B: MemberAccumulator = {
-  deductiblePaidCents: 20000,   // $200
-  oopPaidCents: 30000,          // $300
+  deductiblePaidCents: 20000, // $200
+  oopPaidCents: 30000, // $300
   annualBenefitUsedCents: 100000,
 };
 
@@ -156,9 +142,7 @@ describe('FamilyAccumulatorService — computeFamilyAdjustedPay', () => {
 
   test('family benefit exhausted → patient pays full cost', () => {
     const limits: FamilyLimits = { familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 500000 };
-    const totals = FamilyAccumulatorService.getFamilyTotals([
-      { deductiblePaidCents: 0, oopPaidCents: 0, annualBenefitUsedCents: 500000 },
-    ]);
+    const totals = FamilyAccumulatorService.getFamilyTotals([{ deductiblePaidCents: 0, oopPaidCents: 0, annualBenefitUsedCents: 500000 }]);
     const result = FamilyAccumulatorService.computeFamilyAdjustedPay(3000, 10000, totals, limits);
     expect(result.patientPayCents).toBe(10000);
     expect(result.planPayCents).toBe(0);
@@ -174,7 +158,7 @@ describe('FamilyAccumulatorService — computeFamilyAdjustedPay', () => {
     const result = FamilyAccumulatorService.computeFamilyAdjustedPay(20000, 30000, totals, FAMILY_LIMITS);
     // Should cap at $100 remaining OOP
     expect(result.patientPayCents).toBe(10000); // $100.00
-    expect(result.planPayCents).toBe(20000);    // $200.00
+    expect(result.planPayCents).toBe(20000); // $200.00
     expect(result.familyPoolingApplied).toBe(true);
     expect(result.reason).toContain('capped');
   });
@@ -207,17 +191,17 @@ describe('Seed Data — familyId', () => {
 
   test('familyId is consistent within families', () => {
     // Carol, Daniel, Emma Williams share FAM-FERN-10003
-    const carol = MEMBERS.find(m => m.localData.firstName === 'Carol')!;
-    const daniel = MEMBERS.find(m => m.localData.firstName === 'Daniel')!;
-    const emma = MEMBERS.find(m => m.localData.firstName === 'Emma')!;
+    const carol = MEMBERS.find((m) => m.localData.firstName === 'Carol')!;
+    const daniel = MEMBERS.find((m) => m.localData.firstName === 'Daniel')!;
+    const emma = MEMBERS.find((m) => m.localData.firstName === 'Emma')!;
     expect(carol.familyId).toBe('FAM-FERN-10003');
     expect(daniel.familyId).toBe('FAM-FERN-10003');
     expect(emma.familyId).toBe('FAM-FERN-10003');
   });
 
   test('single members have unique familyIds', () => {
-    const alice = MEMBERS.find(m => m.localData.firstName === 'Alice')!;
-    const bob = MEMBERS.find(m => m.localData.firstName === 'Bob')!;
+    const alice = MEMBERS.find((m) => m.localData.firstName === 'Alice')!;
+    const bob = MEMBERS.find((m) => m.localData.firstName === 'Bob')!;
     expect(alice.familyId).not.toBe(bob.familyId);
     expect(alice.familyId).toBe('FAM-FERN-10001');
     expect(bob.familyId).toBe('FAM-FERN-10002');
@@ -227,7 +211,7 @@ describe('Seed Data — familyId', () => {
     const family = getMembersByFamily('FAM-FERN-10003');
     expect(family.length).toBe(3);
 
-    const relationships = family.map(m => m.relationship).sort();
+    const relationships = family.map((m) => m.relationship).sort();
     expect(relationships).toEqual(['CHILD', 'SELF', 'SPOUSE']);
   });
 
@@ -250,7 +234,7 @@ describe('Seed Data — familyId', () => {
   test('familyId aligns with employeeId grouping', () => {
     // Members with same employeeId should have same familyId
     const emp10003 = getMembersByEmployee('EMP-10003');
-    const familyIds = new Set(emp10003.map(m => m.familyId));
+    const familyIds = new Set(emp10003.map((m) => m.familyId));
     expect(familyIds.size).toBe(1);
     expect(familyIds.has('FAM-FERN-10003')).toBe(true);
   });
@@ -298,19 +282,34 @@ describe('OpaqueRoster — family indexing', () => {
     const wallet3 = Poseidon.hash([Field(1003)]);
 
     // Two members in same family
-    roster.addEntry(buildRosterEntry(wallet1, {
-      planId: 'PLAN-GOLD', groupId: 'ACME', familyId: 'FAM-001',
-      enrolledDate: '20260101', tokenId: 'T1',
-    }));
-    roster.addEntry(buildRosterEntry(wallet2, {
-      planId: 'PLAN-GOLD', groupId: 'ACME', familyId: 'FAM-001',
-      enrolledDate: '20260102', tokenId: 'T2',
-    }));
+    roster.addEntry(
+      buildRosterEntry(wallet1, {
+        planId: 'PLAN-GOLD',
+        groupId: 'ACME',
+        familyId: 'FAM-001',
+        enrolledDate: '20260101',
+        tokenId: 'T1',
+      }),
+    );
+    roster.addEntry(
+      buildRosterEntry(wallet2, {
+        planId: 'PLAN-GOLD',
+        groupId: 'ACME',
+        familyId: 'FAM-001',
+        enrolledDate: '20260102',
+        tokenId: 'T2',
+      }),
+    );
     // One member in different family
-    roster.addEntry(buildRosterEntry(wallet3, {
-      planId: 'PLAN-GOLD', groupId: 'ACME', familyId: 'FAM-002',
-      enrolledDate: '20260103', tokenId: 'T3',
-    }));
+    roster.addEntry(
+      buildRosterEntry(wallet3, {
+        planId: 'PLAN-GOLD',
+        groupId: 'ACME',
+        familyId: 'FAM-002',
+        enrolledDate: '20260103',
+        tokenId: 'T3',
+      }),
+    );
 
     const fam1 = roster.getEntriesByFamily(hashString('FAM-001'));
     expect(fam1.length).toBe(2);
@@ -327,22 +326,28 @@ describe('OpaqueRoster — family indexing', () => {
     const wallet1 = Poseidon.hash([Field(2001)]);
     const wallet2 = Poseidon.hash([Field(2002)]);
 
-    roster.addEntry(buildRosterEntry(wallet1, {
-      planId: 'PLAN-GOLD', groupId: 'ACME', familyId: 'FAM-SHARED',
-      enrolledDate: '20260101', tokenId: 'T10',
-    }));
-    roster.addEntry(buildRosterEntry(wallet2, {
-      planId: 'PLAN-GOLD', groupId: 'ACME', familyId: 'FAM-SHARED',
-      enrolledDate: '20260102', tokenId: 'T11',
-    }));
+    roster.addEntry(
+      buildRosterEntry(wallet1, {
+        planId: 'PLAN-GOLD',
+        groupId: 'ACME',
+        familyId: 'FAM-SHARED',
+        enrolledDate: '20260101',
+        tokenId: 'T10',
+      }),
+    );
+    roster.addEntry(
+      buildRosterEntry(wallet2, {
+        planId: 'PLAN-GOLD',
+        groupId: 'ACME',
+        familyId: 'FAM-SHARED',
+        enrolledDate: '20260102',
+        tokenId: 'T11',
+      }),
+    );
 
     const entry1 = roster.getEntryByWallet(wallet1)!;
     const entry2 = roster.getEntryByWallet(wallet2)!;
-    expect(entry1.entry.familyIdHash.toString()).toBe(
-      entry2.entry.familyIdHash.toString(),
-    );
-    expect(entry1.entry.familyIdHash.toString()).toBe(
-      hashString('FAM-SHARED').toString(),
-    );
+    expect(entry1.entry.familyIdHash.toString()).toBe(entry2.entry.familyIdHash.toString());
+    expect(entry1.entry.familyIdHash.toString()).toBe(hashString('FAM-SHARED').toString());
   });
 });

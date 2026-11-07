@@ -47,11 +47,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import http from 'http';
-import {
-  NautilusLocalState,
-  PinAttemptThrottled,
-  type NautilusStateData,
-} from '../src/nodes/nautilus-local-state.js';
+import { NautilusLocalState, PinAttemptThrottled, type NautilusStateData } from '../src/nodes/nautilus-local-state.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import { buildMemberRoutes } from '../src/nodes/routes/member-routes.js';
 import type { NautilusAppConfig } from '../src/nodes/nautilus-app-types.js';
@@ -70,7 +66,8 @@ function makeTempDir(prefix: string): string {
 
 function freshState(role: NautilusStateData['role'] = 'member'): NautilusStateData {
   return {
-    version: 1, role,
+    version: 1,
+    role,
     onboarding: { phase: 'awaiting_token' },
     lastSavedAt: new Date().toISOString(),
   };
@@ -88,10 +85,18 @@ async function enrolledDir(): Promise<string> {
 
 afterAll(async () => {
   for (const s of servers) {
-    try { await s.stop(); } catch { /* not started */ }
+    try {
+      await s.stop();
+    } catch {
+      /* not started */
+    }
   }
   for (const dir of tempDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
 });
 
@@ -106,13 +111,17 @@ describe('a wrong PIN leaves the device locked', () => {
   test('and isUnlocked stays false, which is the link that broke the chain', async () => {
     const state = new NautilusLocalState(await enrolledDir());
     expect(state.isUnlocked()).toBe(false);
-    await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await state.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
     expect(state.isUnlocked()).toBe(false);
   });
 
   test('and load still refuses, because no key was retained', async () => {
     const state = new NautilusLocalState(await enrolledDir());
-    await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await state.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
     await expect(state.load()).rejects.toThrow(/locked/i);
   });
 
@@ -186,7 +195,9 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
     const dir = await enrolledDir();
     const state = new NautilusLocalState(dir);
     for (let i = 0; i < 4; i++) {
-      await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+      await state.unlock(WRONG_PIN).catch(() => {
+        /* expected */
+      });
     }
     // Even the CORRECT PIN is refused while throttled. That is the point: the limit cannot be
     // sidestepped by guessing right, and an attacker learns nothing from the response.
@@ -198,7 +209,9 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
     const state = new NautilusLocalState(dir);
     const delays: number[] = [];
     for (let i = 0; i < 6; i++) {
-      await state.unlock(WRONG_PIN).catch(() => { /* expected or throttled */ });
+      await state.unlock(WRONG_PIN).catch(() => {
+        /* expected or throttled */
+      });
       const { retryAfterMs } = await state.pinAttemptStatus();
       delays.push(retryAfterMs);
       // Clear the window so the next real attempt is allowed through.
@@ -215,7 +228,9 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
   test('a successful unlock clears the record', async () => {
     const dir = await enrolledDir();
     const state = new NautilusLocalState(dir);
-    await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await state.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
     expect((await state.pinAttemptStatus()).failures).toBe(1);
     await state.unlock(RIGHT_PIN);
     expect((await state.pinAttemptStatus()).failures).toBe(0);
@@ -224,8 +239,12 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
   test('the counter survives a new process, because it is not inside the encrypted file', async () => {
     const dir = await enrolledDir();
     const first = new NautilusLocalState(dir);
-    await first.unlock(WRONG_PIN).catch(() => { /* expected */ });
-    await first.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await first.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
+    await first.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
 
     // A fresh instance is what a restarted process looks like.
     const second = new NautilusLocalState(dir);
@@ -235,7 +254,9 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
   test('the counter is never written inside the encrypted state', async () => {
     const dir = await enrolledDir();
     const state = new NautilusLocalState(dir);
-    await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await state.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
     // It has to be readable without the PIN, or it could not throttle the first guess.
     expect(fs.existsSync(path.join(dir, 'nautilus-pin-attempts.json'))).toBe(true);
   });
@@ -243,7 +264,9 @@ describe('attempt limiting, so a six-digit PIN is not guessable in a day', () =>
   test('a wipe clears the counter, so a fresh enrollment is not born locked out', async () => {
     const dir = await enrolledDir();
     const state = new NautilusLocalState(dir);
-    await state.unlock(WRONG_PIN).catch(() => { /* expected */ });
+    await state.unlock(WRONG_PIN).catch(() => {
+      /* expected */
+    });
     expect((await state.pinAttemptStatus()).failures).toBe(1);
     await state.destroy();
     expect((await state.pinAttemptStatus()).failures).toBe(0);
@@ -286,41 +309,44 @@ describe('verifyPin checks without unlocking', () => {
 const judgedWrong = (o: PromiseSettledResult<unknown>): boolean =>
   o.status === 'fulfilled' ? o.value === false : /^Incorrect PIN/.test((o.reason as Error).message);
 /** Whether a PIN check was refused by the backoff before the PIN was read. */
-const refusedUnread = (o: PromiseSettledResult<unknown>): boolean =>
-  o.status === 'rejected' && o.reason instanceof PinAttemptThrottled;
+const refusedUnread = (o: PromiseSettledResult<unknown>): boolean => o.status === 'rejected' && o.reason instanceof PinAttemptThrottled;
 
 describe('guesses sent together wait their turn, and each is counted before scrypt runs', () => {
   test('twenty wrong PINs sent to unlock at once: the three free ones and the one that starts the backoff are judged, each counted, and the other sixteen are refused unread', async () => {
     const state = new NautilusLocalState(await enrolledDir());
     const outcomes = await Promise.allSettled(Array.from({ length: 20 }, () => state.unlock(WRONG_PIN)));
     const judged = outcomes.filter(judgedWrong).map((o) => ((o as PromiseRejectedResult).reason as Error).message);
-    expect(judged).toEqual([1, 2, 3, 4].map((n) => `Incorrect PIN. ${n} consecutive failed attempt(s).`));   // before: twenty, each "Incorrect PIN. 1 consecutive failed attempt(s)."
-    expect(outcomes.filter(refusedUnread)).toHaveLength(16);                                                 // before: 0
+    expect(judged).toEqual([1, 2, 3, 4].map((n) => `Incorrect PIN. ${n} consecutive failed attempt(s).`)); // before: twenty, each "Incorrect PIN. 1 consecutive failed attempt(s)."
+    expect(outcomes.filter(refusedUnread)).toHaveLength(16); // before: 0
     const status = await state.pinAttemptStatus();
-    expect(status.failures).toBe(4);                                                                          // before: 1
-    expect(status.retryAfterMs).toBeGreaterThan(0);                                                           // before: 0, one failure is a free one
+    expect(status.failures).toBe(4); // before: 1
+    expect(status.retryAfterMs).toBeGreaterThan(0); // before: 0, one failure is a free one
   });
 
   test('unlock and verifyPin on two handles over one state directory wait in one line: ten of each sent at once are four judged and sixteen refused', async () => {
     const dir = await enrolledDir();
     const unlocking = new NautilusLocalState(dir);
     const verifying = new NautilusLocalState(dir);
-    const outcomes = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => (i % 2 ? verifying.verifyPin(WRONG_PIN) : unlocking.unlock(WRONG_PIN))));
-    expect([outcomes.filter(judgedWrong).length, outcomes.filter(refusedUnread).length]).toEqual([4, 16]);   // before: [20, 0]
-    expect((await verifying.pinAttemptStatus()).failures).toBe(4);                                           // before: 1
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 20 }, (_, i) => (i % 2 ? verifying.verifyPin(WRONG_PIN) : unlocking.unlock(WRONG_PIN))),
+    );
+    expect([outcomes.filter(judgedWrong).length, outcomes.filter(refusedUnread).length]).toEqual([4, 16]); // before: [20, 0]
+    expect((await verifying.pinAttemptStatus()).failures).toBe(4); // before: 1
   });
 
   test('a check cut short once scrypt has started is still counted, and the right PIN still clears the count', async () => {
     const state = new NautilusLocalState(await enrolledDir());
     // A kill or a crash in the middle of scrypt, as a throw from inside it.
-    const scrypt = jest.spyOn(crypto, 'scryptSync').mockImplementation(() => { throw new Error('cut short'); });
+    const scrypt = jest.spyOn(crypto, 'scryptSync').mockImplementation(() => {
+      throw new Error('cut short');
+    });
     try {
       await expect(state.unlock(WRONG_PIN)).rejects.toThrow('cut short');
       await expect(state.verifyPin(WRONG_PIN)).rejects.toThrow('cut short');
     } finally {
       scrypt.mockRestore();
     }
-    expect((await state.pinAttemptStatus()).failures).toBe(2);   // before: 0, a check was counted only once scrypt had answered
+    expect((await state.pinAttemptStatus()).failures).toBe(2); // before: 0, a check was counted only once scrypt had answered
     await state.unlock(RIGHT_PIN);
     expect((await state.pinAttemptStatus()).failures).toBe(0);
   });
@@ -330,24 +356,36 @@ describe('guesses sent together wait their turn, and each is counted before scry
 // The route, end to end: the chain the finding actually described.
 // ───────────────────────────────────────────────────────────────────────────
 
-interface Res { status: number; body: unknown; headers: http.IncomingHttpHeaders }
+interface Res {
+  status: number;
+  body: unknown;
+  headers: http.IncomingHttpHeaders;
+}
 
 function request(port: number, method: string, urlPath: string, body?: unknown): Promise<Res> {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
     const req = http.request(
       {
-        hostname: '127.0.0.1', port, path: urlPath, method, agent: false,
-        headers: payload
-          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
-          : {},
+        hostname: '127.0.0.1',
+        port,
+        path: urlPath,
+        method,
+        agent: false,
+        headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
       },
       (res) => {
         let data = '';
-        res.on('data', (c) => { data += c; });
+        res.on('data', (c) => {
+          data += c;
+        });
         res.on('end', () => {
           let parsed: unknown = data;
-          try { parsed = JSON.parse(data); } catch { /* keep raw */ }
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            /* keep raw */
+          }
           resolve({ status: res.statusCode ?? 0, body: parsed, headers: res.headers });
         });
       },
@@ -365,9 +403,13 @@ describe('POST /onboarding/eject cannot be reached with a junk PIN', () => {
   beforeAll(async () => {
     stateDir = await enrolledDir();
     const config: NautilusAppConfig = {
-      role: 'member', port: 0, host: '127.0.0.1',
+      role: 'member',
+      port: 0,
+      host: '127.0.0.1',
       sequencerUrl: 'http://127.0.0.1:1',
-      stateDir, enableSSE: false, maxSseConnections: 0,
+      stateDir,
+      enableSSE: false,
+      maxSseConnections: 0,
       allowedOrigins: ['http://localhost:4001'],
     };
     const server = new NautilusAppServer(config);
@@ -411,7 +453,11 @@ describe('POST /onboarding/eject cannot be reached with a junk PIN', () => {
 
   test('step 5: the right PIN does erase the device, once the window has passed', async () => {
     // Clear the throttle the previous test created; this is about authorisation, not timing.
-    try { fs.rmSync(path.join(stateDir, 'nautilus-pin-attempts.json'), { force: true }); } catch { /* none */ }
+    try {
+      fs.rmSync(path.join(stateDir, 'nautilus-pin-attempts.json'), { force: true });
+    } catch {
+      /* none */
+    }
 
     const res = await request(port, 'POST', '/onboarding/eject', { pin: RIGHT_PIN });
     expect(res.status).toBe(200);
@@ -426,9 +472,13 @@ describe('wrong PINs sent together to the open unlock and eject routes', () => {
   beforeAll(async () => {
     stateDir = await enrolledDir();
     const config: NautilusAppConfig = {
-      role: 'member', port: 0, host: '127.0.0.1',
+      role: 'member',
+      port: 0,
+      host: '127.0.0.1',
       sequencerUrl: 'http://127.0.0.1:1',
-      stateDir, enableSSE: false, maxSseConnections: 0,
+      stateDir,
+      enableSSE: false,
+      maxSseConnections: 0,
       allowedOrigins: ['http://localhost:4001'],
     };
     const server = new NautilusAppServer(config);
@@ -439,11 +489,12 @@ describe('wrong PINs sent together to the open unlock and eject routes', () => {
   });
 
   test('ten to each at once: four are judged and answered as wrong PINs, sixteen are refused 429 with Retry-After, and nothing is erased', async () => {
-    const answers = await Promise.all(Array.from({ length: 20 }, (_, i) =>
-      request(port, 'POST', i % 2 ? '/onboarding/eject' : '/onboarding/unlock', { pin: WRONG_PIN })));
+    const answers = await Promise.all(
+      Array.from({ length: 20 }, (_, i) => request(port, 'POST', i % 2 ? '/onboarding/eject' : '/onboarding/unlock', { pin: WRONG_PIN })),
+    );
     const wrong = answers.filter((r) => /Incorrect PIN/.test(JSON.stringify(r.body)));
     const limited = answers.filter((r) => r.status === 429);
-    expect([wrong.length, limited.length]).toEqual([4, 16]);   // before: [20, 0], every one judged
+    expect([wrong.length, limited.length]).toEqual([4, 16]); // before: [20, 0], every one judged
     expect(wrong.every((r) => r.status === (/Nothing was erased/.test(JSON.stringify(r.body)) ? 401 : 400))).toBe(true);
     expect(limited.every((r) => Number(r.headers['retry-after']) > 0)).toBe(true);
     expect(fs.existsSync(path.join(stateDir, 'nautilus-state.enc'))).toBe(true);
@@ -467,9 +518,13 @@ describe('an already-unlocked device still checks the PIN', () => {
   beforeAll(async () => {
     stateDir = await enrolledDir();
     const config: NautilusAppConfig = {
-      role: 'member', port: 0, host: '127.0.0.1',
+      role: 'member',
+      port: 0,
+      host: '127.0.0.1',
       sequencerUrl: 'http://127.0.0.1:1',
-      stateDir, enableSSE: false, maxSseConnections: 0,
+      stateDir,
+      enableSSE: false,
+      maxSseConnections: 0,
       allowedOrigins: ['http://localhost:4001'],
     };
     const server = new NautilusAppServer(config);

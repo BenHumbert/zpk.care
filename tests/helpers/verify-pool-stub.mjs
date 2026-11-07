@@ -97,8 +97,17 @@ if (process.send) {
 }
 
 async function drive({
-  scenario, pool: poolOptions, forks = [], verifications = 0, batches = [], beforeHang = 0, afterwards = 1,
-  readyDelayMs = 0, intervalMs = 50, perTick = 1, recycles = 0,
+  scenario,
+  pool: poolOptions,
+  forks = [],
+  verifications = 0,
+  batches = [],
+  beforeHang = 0,
+  afterwards = 1,
+  readyDelayMs = 0,
+  intervalMs = 50,
+  perTick = 1,
+  recycles = 0,
 }) {
   const counts = { forks: 0, exits: 0, spawnFailures: 0, maxLive: 0, maxAlive: 0, minAlive: null, alarms: 0 };
   const children = [];
@@ -123,7 +132,10 @@ async function drive({
     counts.forks++;
     // A process that never started has no pid, and sends no exit.
     if (child.pid === undefined) counts.spawnFailures++;
-    else child.once('exit', () => { counts.exits++; });
+    else
+      child.once('exit', () => {
+        counts.exits++;
+      });
     counts.maxLive = Math.max(counts.maxLive, counts.forks - counts.exits - counts.spawnFailures);
     // Sampled once every listener for the message, the pool's included, has run.
     child.on('message', () => queueMicrotask(sampleAlive));
@@ -141,10 +153,13 @@ async function drive({
   if (readyDelayMs) process.env.VERIFY_POOL_STUB_READY_MS = String(readyDelayMs);
   pool = new VerifyPool({ ...poolOptions, workerScriptPath: fileURLToPath(import.meta.url) });
   const verify = pool.asVerifier();
-  const verdict = (json) => verify({ toJSON: () => json }).then(
-    () => 'verified',
-    (e) => (e instanceof Error ? e.message : String(e)),
-  ).finally(sampleAlive);
+  const verdict = (json) =>
+    verify({ toJSON: () => json })
+      .then(
+        () => 'verified',
+        (e) => (e instanceof Error ? e.message : String(e)),
+      )
+      .finally(sampleAlive);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const start = async () => {
     await pool.start();
@@ -156,7 +171,10 @@ async function drive({
   const settle = async () => {
     const until = Date.now() + 10_000;
     while (counts.exits + counts.spawnFailures + pool.stats().alive !== counts.forks) {
-      if (Date.now() > until) { settled = false; return; }
+      if (Date.now() > until) {
+        settled = false;
+        return;
+      }
       await sleep(10);
     }
   };
@@ -176,7 +194,10 @@ async function drive({
   switch (scenario) {
     case 'start': {
       // Only the start: 'started', or what it was refused with.
-      const outcome = await start().then(() => 'started', (e) => (e instanceof Error ? e.message : String(e)));
+      const outcome = await start().then(
+        () => 'started',
+        (e) => (e instanceof Error ? e.message : String(e)),
+      );
       seen = { start: outcome };
       break;
     }

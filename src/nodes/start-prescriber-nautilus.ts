@@ -57,7 +57,11 @@ import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPrescriberRoutes } from './routes/prescriber-routes.js';
 import { PrescriberNode } from './prescriber-node.js';
 import {
-  resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy, resolvePublicHosts, isLoopbackBind,
+  resolveBindHost,
+  resolveAllowedOrigins,
+  resolveRpcProxyPolicy,
+  resolvePublicHosts,
+  isLoopbackBind,
 } from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────
@@ -157,17 +161,18 @@ async function main(): Promise<void> {
     const { derivePrescriberWalletId } = await import('../wallets/wallet-derivation.js');
 
     const idx = parseInt(seedPrescriberId, 10);
-    const prescriber = !isNaN(idx) && idx >= 0 && idx < PRESCRIBERS.length
-      ? PRESCRIBERS[idx]
-      : PRESCRIBERS.find((p) =>
-          p.lastName.toLowerCase() === seedPrescriberId.toLowerCase() ||
-          `${p.firstName} ${p.lastName}`.toLowerCase() === seedPrescriberId.toLowerCase()
-        );
+    const prescriber =
+      !isNaN(idx) && idx >= 0 && idx < PRESCRIBERS.length
+        ? PRESCRIBERS[idx]
+        : PRESCRIBERS.find(
+            (p) =>
+              p.lastName.toLowerCase() === seedPrescriberId.toLowerCase() ||
+              `${p.firstName} ${p.lastName}`.toLowerCase() === seedPrescriberId.toLowerCase(),
+          );
 
     if (!prescriber) {
       console.error('  [FATAL] Seed prescriber not found: %s', seedPrescriberId);
-      console.error('  Available: %s', PRESCRIBERS.map((p, i) =>
-        `${i}=${p.firstName} ${p.lastName}`).join(', '));
+      console.error('  Available: %s', PRESCRIBERS.map((p, i) => `${i}=${p.firstName} ${p.lastName}`).join(', '));
       process.exit(1);
     }
 
@@ -214,12 +219,15 @@ async function main(): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
         });
-        const json = await resp.json() as { result?: { credentialState?: number } | null };
-        if (json.result && json.result.credentialState === 2) { // ACTIVE
+        const json = (await resp.json()) as { result?: { credentialState?: number } | null };
+        if (json.result && json.result.credentialState === 2) {
+          // ACTIVE
           credentialed = true;
           break;
         }
-      } catch { /* sequencer not ready yet */ }
+      } catch {
+        /* sequencer not ready yet */
+      }
       await new Promise((r) => setTimeout(r, 1000));
     }
 
@@ -233,9 +241,11 @@ async function main(): Promise<void> {
       specialty: prescriber.specialty,
       enrollmentKey: prescriber.enrollmentKey,
     });
-    console.log(registration.ok
-      ? '  [seed] Entity registered on sequencer (encryption + signing keys)'
-      : `  [seed] Entity registration refused: ${registration.error}`);
+    console.log(
+      registration.ok
+        ? '  [seed] Entity registered on sequencer (encryption + signing keys)'
+        : `  [seed] Entity registration refused: ${registration.error}`,
+    );
 
     if (credentialed) {
       console.log('  [seed] Credentialed on sequencer — transitioning to ready');
@@ -247,7 +257,6 @@ async function main(): Promise<void> {
   }
 
   // ── State Recovery (recovery mode) ──
-
   else {
     const stateExists = await localState.exists();
     if (stateExists && pin) {
@@ -264,7 +273,7 @@ async function main(): Promise<void> {
           clientOptions: server.sequencerClientOptions(),
         });
         server.setEntityNode(node);
-        server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');
+        server.setOnboardingPhase((data.onboarding.phase as any) ?? 'ready');
       }
     } else if (!stateExists && pin) {
       await localState.unlock(pin);

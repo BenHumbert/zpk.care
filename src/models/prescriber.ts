@@ -30,10 +30,7 @@ export class PrescriberData extends Struct({
   prescriberIdHash: Field,
 }) {
   commitment(): Field {
-    return Poseidon.hash([
-      this.prescriberIdQualifier,
-      this.prescriberIdHash,
-    ]);
+    return Poseidon.hash([this.prescriberIdQualifier, this.prescriberIdHash]);
   }
 }
 
@@ -41,6 +38,6 @@ export class PrescriberData extends Struct({
  * Raw prescriber data — lives locally, never on-chain.
  */
 export interface PrescriberLocalData {
-  prescriberIdQualifier: number;  // 465-EY
-  prescriberId: string;           // 411-DB (NPI)
+  prescriberIdQualifier: number; // 465-EY
+  prescriberId: string; // 411-DB (NPI)
 }

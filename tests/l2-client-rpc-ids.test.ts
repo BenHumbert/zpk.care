@@ -43,7 +43,9 @@ const seen: Array<{ body: string; headers: http.IncomingHttpHeaders }> = [];
 beforeAll(async () => {
   server = http.createServer((req, res) => {
     let raw = '';
-    req.on('data', (c) => { raw += c; });
+    req.on('data', (c) => {
+      raw += c;
+    });
     req.on('end', () => {
       seen.push({ body: raw, headers: req.headers });
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -54,7 +56,9 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 
-afterAll(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); });
+afterAll(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
 
 test('two identical signed calls built in the same millisecond carry different ids, so the replay cache takes both', async () => {
   const client = new L2Client({ sequencerUrl: url });
@@ -85,8 +89,17 @@ test('two identical signed calls built in the same millisecond carry different i
   const replayCache = new ReplayCache();
   const { publicKeyHex } = deriveWalletSigningKey(EK);
   for (const s of seen) {
-    expect(verifySignedRequest({
-      method: 'POST', path: '/rpc', headers: s.headers, expectedSignerId: WALLET, publicKeyHex, body: s.body, now: NOW, replayCache,
-    })).toMatchObject({ ok: true });
+    expect(
+      verifySignedRequest({
+        method: 'POST',
+        path: '/rpc',
+        headers: s.headers,
+        expectedSignerId: WALLET,
+        publicKeyHex,
+        body: s.body,
+        now: NOW,
+        replayCache,
+      }),
+    ).toMatchObject({ ok: true });
   }
 });

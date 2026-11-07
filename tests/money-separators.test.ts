@@ -51,30 +51,53 @@ function run(pieces: string[], scope: Record<string, unknown>, ret: string): any
   const names = Object.keys(scope);
   return new Function(...names, `'use strict';\n${pieces.join(NL)}\nreturn ${ret};`)(...names.map((n) => scope[n]));
 }
-const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escHtml = (s: unknown): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 const fmtCentsOf = (src: string): ((c: unknown) => string) => run([lift(src, 'fmtCents')], {}, 'fmtCents');
 
 // The two plans of the insurer and the marketplace, with their terms as published
 const STANDARD = {
-  planId: 'PLAN-STD-RX-2026', name: 'Standard Rx 2026', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000,
-  oopMaxCents: 780000, annualBenefitMaxCents: 10000000, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000,
-  dispensingFeeCents: 1300, dispensingFeeSource: 'plan', published: true,
+  planId: 'PLAN-STD-RX-2026',
+  name: 'Standard Rx 2026',
+  coverageType: 1,
+  copayAmountCents: 1000,
+  deductibleAmountCents: 50000,
+  oopMaxCents: 780000,
+  annualBenefitMaxCents: 10000000,
+  familyDeductibleAmountCents: 100000,
+  familyOopMaxCents: 1600000,
+  dispensingFeeCents: 1300,
+  dispensingFeeSource: 'plan',
+  published: true,
 };
 const LOW_DEDUCTIBLE = {
-  ...STANDARD, planId: 'PLAN-LOWDED-RX-2026', name: 'Low Deductible Rx 2026', copayAmountCents: 2500, deductibleAmountCents: 20000,
-  oopMaxCents: 600000, familyDeductibleAmountCents: 40000, familyOopMaxCents: 1200000,
+  ...STANDARD,
+  planId: 'PLAN-LOWDED-RX-2026',
+  name: 'Low Deductible Rx 2026',
+  copayAmountCents: 2500,
+  deductibleAmountCents: 20000,
+  oopMaxCents: 600000,
+  familyDeductibleAmountCents: 40000,
+  familyOopMaxCents: 1200000,
 };
 
 describe('fmtCents writes dollars with thousands separators, as the member app does', () => {
   const member = fmtCentsOf(MEMBER);
-  test.each([['the insurer', INSURER], ['the marketplace', MARKETPLACE]])('on %s', (_page, src) => {
+  test.each([
+    ['the insurer', INSURER],
+    ['the marketplace', MARKETPLACE],
+  ])('on %s', (_page, src) => {
     const fmtCents = fmtCentsOf(src);
-    expect(fmtCents(780000)).toBe('$7,800.00');                       // before: $7800.00
-    expect(fmtCents(10000000)).toBe('$100,000.00');                   // before: $100000.00
+    expect(fmtCents(780000)).toBe('$7,800.00'); // before: $7800.00
+    expect(fmtCents(10000000)).toBe('$100,000.00'); // before: $100000.00
     expect(fmtCents(1418)).toBe('$14.18');
     expect(fmtCents(5)).toBe('$0.05');
     expect(fmtCents(0)).toBe('$0.00');
-    expect(fmtCents('1600000')).toBe('$16,000.00');                   // a digit string, as some answers carry cents
+    expect(fmtCents('1600000')).toBe('$16,000.00'); // a digit string, as some answers carry cents
     for (const c of [0, 5, 1418, 780000, 10000000, 123456789, -1500]) expect([c, fmtCents(c)]).toEqual([c, member(c)]);
   });
 
@@ -84,33 +107,58 @@ describe('fmtCents writes dollars with thousands separators, as the member app d
   });
 });
 
-describe('the insurer\'s Registered Plans table', () => {
-  test('shows a plan\'s limits with separators', () => {
+describe("the insurer's Registered Plans table", () => {
+  test("shows a plan's limits with separators", () => {
     const container: Record<string, any> = { innerHTML: '', querySelectorAll: () => [] };
-    const render = run(['fmtCents', 'fmtLimit', 'coverageLabel', 'planPublishedTerms', 'planPublishState', 'planStatusBadge', 'publishOutcome', 'renderPlanList'].map((n) => lift(INSURER, n)), {
-      $: (id: string) => (id === 'plan-list-container' ? container : null),
-      esc: escHtml, planData: [LOW_DEDUCTIBLE], API: {}, toast: () => undefined, fetchPlans: async () => undefined,
-      confirm: () => false, openPlanDetail: () => undefined,
-    }, 'renderPlanList');
+    const render = run(
+      [
+        'fmtCents',
+        'fmtLimit',
+        'coverageLabel',
+        'planPublishedTerms',
+        'planPublishState',
+        'planStatusBadge',
+        'publishOutcome',
+        'renderPlanList',
+      ].map((n) => lift(INSURER, n)),
+      {
+        $: (id: string) => (id === 'plan-list-container' ? container : null),
+        esc: escHtml,
+        planData: [LOW_DEDUCTIBLE],
+        API: {},
+        toast: () => undefined,
+        fetchPlans: async () => undefined,
+        confirm: () => false,
+        openPlanDetail: () => undefined,
+      },
+      'renderPlanList',
+    );
     render();
     const cells = [...String(container.innerHTML).matchAll(/<td style="font-family:var\(--font-mono\)">([^<]*)<\/td>/g)].map((m) => m[1]);
-    expect(cells.slice(0, 5)).toEqual(['$25.00', '$200.00', '$6,000.00', '$100,000.00', '$13.00']);   // before: $6000.00, $100000.00
+    expect(cells.slice(0, 5)).toEqual(['$25.00', '$200.00', '$6,000.00', '$100,000.00', '$13.00']); // before: $6000.00, $100000.00
   });
 });
 
-describe('the marketplace\'s plan cards', () => {
-  test('show each plan\'s amounts with separators', () => {
+describe("the marketplace's plan cards", () => {
+  test("show each plan's amounts with separators", () => {
     const grid: Record<string, any> = { innerHTML: '', querySelectorAll: () => [] };
-    const render = run(['fmtCents', 'fmtLimit', 'fmtFee', 'renderPlanCards'].map((n) => lift(MARKETPLACE, n)), {
-      document: { getElementById: (id: string) => (id === 'plans-grid' ? grid : null) },
-      esc: escHtml, plans: [LOW_DEDUCTIBLE, STANDARD], selectedPlanIds: [], navigate: () => undefined,
-    }, 'renderPlanCards');
+    const render = run(
+      ['fmtCents', 'fmtLimit', 'fmtFee', 'renderPlanCards'].map((n) => lift(MARKETPLACE, n)),
+      {
+        document: { getElementById: (id: string) => (id === 'plans-grid' ? grid : null) },
+        esc: escHtml,
+        plans: [LOW_DEDUCTIBLE, STANDARD],
+        selectedPlanIds: [],
+        navigate: () => undefined,
+      },
+      'renderPlanCards',
+    );
     render();
     const cards = String(grid.innerHTML).split('<div class="plan-card').slice(1);
     const values = (cardHtml: string) => [...cardHtml.matchAll(/<span class="plan-detail-value">([^<]*)<\/span>/g)].map((m) => m[1]);
     // Deductible, Out-of-Pocket Max, Annual Benefit Max, Family Deductible, Family OOP Max, Dispensing Fee
     expect(values(cards[0])).toEqual(['$200.00', '$6,000.00', '$100,000.00', '$400.00', '$12,000.00', '$13.00']);
-    expect(values(cards[1])).toEqual(['$500.00', '$7,800.00', '$100,000.00', '$1,000.00', '$16,000.00', '$13.00']);   // before: $7800.00, $100000.00, $1000.00, $16000.00
+    expect(values(cards[1])).toEqual(['$500.00', '$7,800.00', '$100,000.00', '$1,000.00', '$16,000.00', '$13.00']); // before: $7800.00, $100000.00, $1000.00, $16000.00
     expect(cards[1]).toContain('<div class="plan-price">$10.00 <span>base copay</span></div>');
   });
 });

@@ -18,12 +18,7 @@ import { Field, Struct, ZkProgram } from 'o1js';
 import { ProofGateProof } from '../wallets/proof-gate.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { ForestMerkleWitness } from '../zkp/merkle-forest.js';
-import {
-  LifecycleWitness,
-  LIFECYCLE_ELIGIBLE,
-  LIFECYCLE_ACTIVE,
-  lifecycleLeafCommitment,
-} from '../engine/lifecycle.js';
+import { LifecycleWitness, LIFECYCLE_ELIGIBLE, LIFECYCLE_ACTIVE, lifecycleLeafCommitment } from '../engine/lifecycle.js';
 import { EligibilityData } from './eligibility-data.js';
 import { ForestRoots } from './forest-roots.js';
 import { BenefitPlanWitness } from './benefit-plan-registry.js';
@@ -85,10 +80,10 @@ export const EligibilityProgram = ZkProgram({
         CredentialData,
         EligibilityData,
         ForestRoots,
-        ForestMerkleWitness,  // witness for eligibility data in ACCESS_CONTROL tree
-        BenefitPlanWitness,   // witness for plan in benefit plan registry
-        Field,                // benefitPlanRoot (on-chain state)
-        Field,                // currentDate (CCYYMMDD as number)
+        ForestMerkleWitness, // witness for eligibility data in ACCESS_CONTROL tree
+        BenefitPlanWitness, // witness for plan in benefit plan registry
+        Field, // benefitPlanRoot (on-chain state)
+        Field, // currentDate (CCYYMMDD as number)
       ],
       async method(
         credentialData: CredentialData,
@@ -100,10 +95,7 @@ export const EligibilityProgram = ZkProgram({
         currentDate: Field,
       ) {
         // 1. Verify credential type is ELIGIBILITY
-        credentialData.credentialType.assertEquals(
-          CREDENTIAL_TYPE_ELIGIBILITY,
-          'Credential type must be ELIGIBILITY',
-        );
+        credentialData.credentialType.assertEquals(CREDENTIAL_TYPE_ELIGIBILITY, 'Credential type must be ELIGIBILITY');
 
         // 2. Verify credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -126,28 +118,18 @@ export const EligibilityProgram = ZkProgram({
         // 4. Verify eligibility data exists in the ACCESS_CONTROL tree
         const eligCommitment = eligibilityData.commitment();
         const computedAccessRoot = forestWitness.calculateRoot(eligCommitment);
-        computedAccessRoot.assertEquals(
-          forestRoots.accessControlRoot,
-          'Eligibility data not found in ACCESS_CONTROL tree',
-        );
+        computedAccessRoot.assertEquals(forestRoots.accessControlRoot, 'Eligibility data not found in ACCESS_CONTROL tree');
 
         // 5. Verify benefit plan exists in the insurer's registry
         const computedPlanRoot = benefitPlanWitness.calculateRoot(eligCommitment);
-        computedPlanRoot.assertEquals(
-          benefitPlanRoot,
-          'Benefit plan not found in registry',
-        );
+        computedPlanRoot.assertEquals(benefitPlanRoot, 'Benefit plan not found in registry');
 
         // 6. Verify date range: effectiveDate <= currentDate
-        eligibilityData.effectiveDate
-          .lessThanOrEqual(currentDate)
-          .assertTrue('Eligibility not yet effective');
+        eligibilityData.effectiveDate.lessThanOrEqual(currentDate).assertTrue('Eligibility not yet effective');
 
         // 7. Verify date range: currentDate <= terminationDate OR terminationDate == 0
         const noEndDate = eligibilityData.terminationDate.equals(Field(0));
-        const beforeTermination = currentDate.lessThanOrEqual(
-          eligibilityData.terminationDate,
-        );
+        const beforeTermination = currentDate.lessThanOrEqual(eligibilityData.terminationDate);
         noEndDate.or(beforeTermination).assertTrue('Eligibility has expired');
 
         return {
@@ -218,10 +200,10 @@ export const InNetworkProgram = ZkProgram({
     proveInNetwork: {
       privateInputs: [
         ProofGateProof,
-        Field,                // lifecycle value
-        LifecycleWitness,     // witness for lifecycle tree
-        Field,                // lifecycleRoot (on-chain state)
-        Field,                // networkRoot (from EligibilityData)
+        Field, // lifecycle value
+        LifecycleWitness, // witness for lifecycle tree
+        Field, // lifecycleRoot (on-chain state)
+        Field, // networkRoot (from EligibilityData)
         NetworkMerkleWitness, // witness for network tree
       ],
       async method(
@@ -239,17 +221,12 @@ export const InNetworkProgram = ZkProgram({
         // 2. Verify lifecycle state matches the tree
         const lifecycleLeaf = lifecycleLeafCommitment(walletId, lifecycle);
         const computedRoot = lifecycleWitness.calculateRoot(lifecycleLeaf);
-        computedRoot.assertEquals(
-          lifecycleRoot,
-          'Lifecycle state mismatch',
-        );
+        computedRoot.assertEquals(lifecycleRoot, 'Lifecycle state mismatch');
 
         // 3. Verify in-network: lifecycle == ELIGIBLE or lifecycle == ACTIVE
         const isEligible = lifecycle.equals(LIFECYCLE_ELIGIBLE);
         const isActive = lifecycle.equals(LIFECYCLE_ACTIVE);
-        isEligible.or(isActive).assertTrue(
-          'Wallet is not in-network (requires ELIGIBLE or ACTIVE)',
-        );
+        isEligible.or(isActive).assertTrue('Wallet is not in-network (requires ELIGIBLE or ACTIVE)');
 
         // 4. Verify provider is in plan's network tree (if network is defined)
         //    networkRoot == 0 means "all providers accepted" (no network restriction)
@@ -257,9 +234,7 @@ export const InNetworkProgram = ZkProgram({
         const computedNetworkRoot = networkWitness.calculateRoot(walletId);
         const networkValid = computedNetworkRoot.equals(networkRoot);
         // Must be valid if network is defined; always passes if no network
-        hasNetwork.implies(networkValid).assertTrue(
-          'Provider not in plan network',
-        );
+        hasNetwork.implies(networkValid).assertTrue('Provider not in plan network');
 
         return {
           publicOutput: new InNetworkOutput({

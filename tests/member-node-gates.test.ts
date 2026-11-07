@@ -62,7 +62,9 @@ const upstreams: http.Server[] = [];
 async function service(answer: (raw: string, headers: http.IncomingHttpHeaders) => { status: number; body: unknown }): Promise<string> {
   const srv = http.createServer((req, res) => {
     let raw = '';
-    req.on('data', (c) => { raw += c; });
+    req.on('data', (c) => {
+      raw += c;
+    });
     req.on('end', () => {
       const a = answer(raw, req.headers);
       res.writeHead(a.status, { 'Content-Type': 'application/json' });
@@ -75,7 +77,9 @@ async function service(answer: (raw: string, headers: http.IncomingHttpHeaders) 
 }
 
 /** A stand-in sequencer: answers every /rpc with `answer(method)` and records the method and who signed it. */
-async function fakeSequencer(answer: (method: string) => unknown): Promise<{ url: string; seen: Array<{ method: string; signer: string }> }> {
+async function fakeSequencer(
+  answer: (method: string) => unknown,
+): Promise<{ url: string; seen: Array<{ method: string; signer: string }> }> {
   const seen: Array<{ method: string; signer: string }> = [];
   const url = await service((raw, headers) => {
     const method = String((JSON.parse(raw || '{}') as { method?: string }).method ?? '');
@@ -89,19 +93,36 @@ async function fakeSequencer(answer: (method: string) => unknown): Promise<{ url
  * A member node whose state is unlocked in-process, as the launcher does with ZKTRIDENT_PIN, and which holds
  * its enrollment key. No device session has been issued: the state the /rpc finding describes.
  */
-async function memberNode(sequencerUrl: string, state: Partial<NautilusStateData> = {}, config: Partial<NautilusAppConfig> = {}): Promise<NautilusAppServer> {
+async function memberNode(
+  sequencerUrl: string,
+  state: Partial<NautilusStateData> = {},
+  config: Partial<NautilusAppConfig> = {},
+): Promise<NautilusAppServer> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'member-gates-'));
   dirs.push(dir);
   const seed = new NautilusLocalState(dir);
   await seed.unlock(PIN);
   await seed.save({
-    version: 1, role: 'member', walletId: WALLET, enrollmentKey: randomBytes(32).toString('base64url'),
-    onboarding: { phase: 'ready' }, lastSavedAt: new Date().toISOString(), ...state,
+    version: 1,
+    role: 'member',
+    walletId: WALLET,
+    enrollmentKey: randomBytes(32).toString('base64url'),
+    onboarding: { phase: 'ready' },
+    lastSavedAt: new Date().toISOString(),
+    ...state,
   });
   seed.lock();
   const server = new NautilusAppServer({
-    role: 'member', port: 0, host: '127.0.0.1', sequencerUrl, stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: ADMIN, ...config,
+    role: 'member',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: ADMIN,
+    ...config,
   });
   servers.push(server);
   server.registerRoutes(buildMemberRoutes(server));
@@ -111,7 +132,13 @@ async function memberNode(sequencerUrl: string, state: Partial<NautilusStateData
   return server;
 }
 
-async function call(server: NautilusAppServer, method: string, urlPath: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+async function call(
+  server: NautilusAppServer,
+  method: string,
+  urlPath: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; json: any }> {
   const r = await fetch(`http://127.0.0.1:${server.getPort()}${urlPath}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -144,10 +171,12 @@ afterAll(async () => {
 describe('(1) /onboarding/compile', () => {
   test('runs past the default request budget, because it declares the proving budget', async () => {
     const node = await memberNode('http://127.0.0.1:1', {}, { requestTimeoutMs: 300 });
-    node.setEntityNode(compilingNode(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      return [{ program: 'StateTransitionProgram', timeMs: 900 }];
-    }));
+    node.setEntityNode(
+      compilingNode(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        return [{ program: 'StateTransitionProgram', timeMs: 900 }];
+      }),
+    );
     node.setOnboardingPhase('enrolled');
     const r = await call(node, 'POST', '/onboarding/compile', {}, bearer);
     expect(r.status).toBe(200); // before: 504 at 300 ms
@@ -158,11 +187,13 @@ describe('(1) /onboarding/compile', () => {
   test('a failed compile hands the device back to enrolled, so Retry can compile again', async () => {
     const node = await memberNode('http://127.0.0.1:1');
     let attempts = 0;
-    node.setEntityNode(compilingNode(async () => {
-      attempts++;
-      if (attempts === 1) throw new Error('out of memory');
-      return [{ program: 'StateTransitionProgram', timeMs: 1 }];
-    }));
+    node.setEntityNode(
+      compilingNode(async () => {
+        attempts++;
+        if (attempts === 1) throw new Error('out of memory');
+        return [{ program: 'StateTransitionProgram', timeMs: 1 }];
+      }),
+    );
     node.setOnboardingPhase('enrolled');
     const failed = await call(node, 'POST', '/onboarding/compile', {}, bearer);
     expect(failed.status).toBe(500);
@@ -188,7 +219,12 @@ describe('(2) GET /plan/limits', () => {
     const node = await memberNode(seq.url, redeemed('PLAN-E2E-SILVER'));
     const r = await call(node, 'GET', '/plan/limits', undefined, await sessionOf(node));
     expect(r.status).toBe(200); // before: 404, no such route
-    expect(r.json.data).toMatchObject({ name: 'Silver', deductibleAmountCents: 25000, oopMaxCents: 300000, annualBenefitMaxCents: 1000000 });
+    expect(r.json.data).toMatchObject({
+      name: 'Silver',
+      deductibleAmountCents: 25000,
+      oopMaxCents: 300000,
+      annualBenefitMaxCents: 1000000,
+    });
     expect(seq.seen.map((s) => s.method)).toEqual(['l2_getPlans']);
   });
 
@@ -196,21 +232,45 @@ describe('(2) GET /plan/limits', () => {
     // Review of the pricing fixes (F2): members are billed under the published terms, but this route read the live
     // record, so an unpublished draft (a $0 deductible here) showed on the member's screens while fills charged $500.
     const terms = {
-      copayAmountCents: 1500, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
-      familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 2000000, dispensingFeeCents: 1250,
-      formularyNdcs: [], networkProviderWalletIds: [], formularyRoot: '12345', networkRoot: '0', publishedAt: 1,
+      copayAmountCents: 1500,
+      coverageType: 1,
+      deductibleAmountCents: 50000,
+      oopMaxCents: 780000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 100000,
+      familyOopMaxCents: 1600000,
+      familyAnnualBenefitMaxCents: 2000000,
+      dispensingFeeCents: 1250,
+      formularyNdcs: [],
+      networkProviderWalletIds: [],
+      formularyRoot: '12345',
+      networkRoot: '0',
+      publishedAt: 1,
     };
     const drafting = {
-      planId: 'PLAN-E2E-DRAFTING', name: 'Drafting', published: false, publishedTerms: terms, deductibleAmountCents: 0, oopMaxCents: 100,
-      annualBenefitMaxCents: 5, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
+      planId: 'PLAN-E2E-DRAFTING',
+      name: 'Drafting',
+      published: false,
+      publishedTerms: terms,
+      deductibleAmountCents: 0,
+      oopMaxCents: 100,
+      annualBenefitMaxCents: 5,
+      familyDeductibleAmountCents: 0,
+      familyOopMaxCents: 0,
+      familyAnnualBenefitMaxCents: 0,
     };
     const seq = await fakeSequencer((m) => (m === 'l2_getPlans' ? [...PLANS, drafting] : null));
     const node = await memberNode(seq.url, redeemed('PLAN-E2E-DRAFTING'));
     const r = await call(node, 'GET', '/plan/limits', undefined, await sessionOf(node));
     expect(r.status).toBe(200);
     expect(r.json.data).toEqual({
-      name: 'Drafting', deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
-      familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 2000000,
+      name: 'Drafting',
+      deductibleAmountCents: 50000,
+      oopMaxCents: 780000,
+      annualBenefitMaxCents: 0,
+      familyDeductibleAmountCents: 100000,
+      familyOopMaxCents: 1600000,
+      familyAnnualBenefitMaxCents: 2000000,
     });
   });
 
@@ -239,13 +299,23 @@ describe('(5) /onboarding/recover, which the Restore screen now calls', () => {
   test('confirms the recovered wallet with its own signature, which the sequencer requires since D1', async () => {
     const enrollmentKey = randomBytes(32).toString('base64url');
     const identitySalt = randomBytes(32).toString('hex');
-    const issued = issueRecoveryCards({ enrollmentKey, recoveryPin: '246813', identitySalt, groupIdHash: '7', planIdHash: '9', domainTag: 0 });
+    const issued = issueRecoveryCards({
+      enrollmentKey,
+      recoveryPin: '246813',
+      identitySalt,
+      groupIdHash: '7',
+      planIdHash: '9',
+      domainTag: 0,
+    });
     const { publicKeyHex } = deriveWalletSigningKey(enrollmentKey);
     // The insurer releases the deposited share for the card.
     const insurerUrl = await service((raw) => {
       const dep = issued.deposits.find((d) => d.cardId === (JSON.parse(raw || '{}') as { cardId?: string }).cardId);
       return dep
-        ? { status: 200, body: { ok: true, data: { share2Hex: dep.share2Hex, identitySalt, groupIdHash: '7', planIdHash: '9', domainTag: 0 } } }
+        ? {
+            status: 200,
+            body: { ok: true, data: { share2Hex: dep.share2Hex, identitySalt, groupIdHash: '7', planIdHash: '9', domainTag: 0 } },
+          }
         : { status: 404, body: { ok: false } };
     });
     // The sequencer answers a member's entry only to that wallet's own signature, as D1 does.
@@ -254,15 +324,32 @@ describe('(5) /onboarding/recover, which the Restore screen now calls', () => {
       const walletId = String((JSON.parse(raw || '{}') as { params?: { walletId?: string } }).params?.walletId ?? '');
       const verdict = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: walletId, publicKeyHex, body: raw });
       asked.push(verdict.ok ? 'signed by the wallet' : verdict.reason);
-      return { status: 200, body: verdict.ok
-        ? { jsonrpc: '2.0', id: 1, result: { walletId, type: 'member' } }
-        : { jsonrpc: '2.0', id: 1, error: { code: -32001, message: 'Unauthorized' } } };
+      return {
+        status: 200,
+        body: verdict.ok
+          ? { jsonrpc: '2.0', id: 1, result: { walletId, type: 'member' } }
+          : { jsonrpc: '2.0', id: 1, error: { code: -32001, message: 'Unauthorized' } },
+      };
     });
-    const node = await memberNode(sequencerUrl, { walletId: undefined, enrollmentKey: undefined, onboarding: { phase: 'awaiting_token' } }, { insurerUrl });
-    const r = await call(node, 'POST', '/onboarding/recover', {
-      card: issued.cards[0], recoveryPin: '246813',
-      cardholderId: 'E2E-1', firstName: 'Avery', lastName: 'Quillfeather', dateOfBirth: '19870412',
-    }, await sessionOf(node));
+    const node = await memberNode(
+      sequencerUrl,
+      { walletId: undefined, enrollmentKey: undefined, onboarding: { phase: 'awaiting_token' } },
+      { insurerUrl },
+    );
+    const r = await call(
+      node,
+      'POST',
+      '/onboarding/recover',
+      {
+        card: issued.cards[0],
+        recoveryPin: '246813',
+        cardholderId: 'E2E-1',
+        firstName: 'Avery',
+        lastName: 'Quillfeather',
+        dateOfBirth: '19870412',
+      },
+      await sessionOf(node),
+    );
     expect(asked).toEqual(['signed by the wallet']); // before: 'the request is not signed', and the route answered 404
     expect(r.status).toBe(200);
     expect(r.json?.data?.phase).toBe('enrolled');

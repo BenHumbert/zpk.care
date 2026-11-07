@@ -59,7 +59,11 @@
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   // ─── API Client ───────────────────────────────────────────
@@ -71,29 +75,55 @@
       const res = await fetch(path, opts);
       const data = await res.json();
       if (!data.ok) {
-        if (res.status === 401) { showLockScreen(); }
+        if (res.status === 401) {
+          showLockScreen();
+        }
         throw new Error(errMsg(data.error) || 'Unknown error');
       }
       return data.data;
     },
     // Phase F3: unlock no longer takes groupId — one passphrase opens the
     // employer-keyed workspace. Groups are listed from the employer node.
-    unlock(passphrase)        { return this.call('POST', '/api/unlock', { passphrase }); },
-    setup(employerNodeUrl, adminToken, passphrase, passphraseConfirm) { return this.call('POST', '/api/setup', { employerNodeUrl, adminToken, passphrase, passphraseConfirm }); },
-    workspaces()              { return this.call('GET', '/api/workspaces'); },
+    unlock(passphrase) {
+      return this.call('POST', '/api/unlock', { passphrase });
+    },
+    setup(employerNodeUrl, adminToken, passphrase, passphraseConfirm) {
+      return this.call('POST', '/api/setup', { employerNodeUrl, adminToken, passphrase, passphraseConfirm });
+    },
+    workspaces() {
+      return this.call('GET', '/api/workspaces');
+    },
     // A-109: no PIN is ever shown again. A lost text means a new invite; a new number alerts the old one.
-    reissueInvite(employeeIdHash, passphrase) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/reissue', { passphrase }); },
-    changeMobile(employeeIdHash, passphrase, mobile) { return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/contact', { passphrase, mobile }); },
-    lock()                    { return this.call('POST', '/api/lock'); },
-    getSession()              { return this.call('GET', '/api/session'); },
+    reissueInvite(employeeIdHash, passphrase) {
+      return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/reissue', { passphrase });
+    },
+    changeMobile(employeeIdHash, passphrase, mobile) {
+      return this.call('POST', '/api/employees/' + encodeURIComponent(employeeIdHash) + '/contact', { passphrase, mobile });
+    },
+    lock() {
+      return this.call('POST', '/api/lock');
+    },
+    getSession() {
+      return this.call('GET', '/api/session');
+    },
     // Phase F3: listGroups now proxies to the employer node and returns
     // groups with stats inlined (used/cap/remainingSlots).
-    listGroups()              { return this.call('GET', '/api/groups'); },
+    listGroups() {
+      return this.call('GET', '/api/groups');
+    },
     // Phase F4: select a group as the active import context.
-    selectGroup(groupId)      { return this.call('POST', '/api/group/select', { groupId }); },
-    deselectGroup()           { return this.call('POST', '/api/group/deselect'); },
-    getStats()                { return this.call('GET', '/api/stats'); },
-    previewCsv(csvContent)    { return this.call('POST', '/api/csv/preview', { csvContent }); },
+    selectGroup(groupId) {
+      return this.call('POST', '/api/group/select', { groupId });
+    },
+    deselectGroup() {
+      return this.call('POST', '/api/group/deselect');
+    },
+    getStats() {
+      return this.call('GET', '/api/stats');
+    },
+    previewCsv(csvContent) {
+      return this.call('POST', '/api/csv/preview', { csvContent });
+    },
     importCsv(csvContent, validUntil, dryRun) {
       return this.call('POST', '/api/import', { csvContent, validUntil, dryRun });
     },
@@ -105,11 +135,21 @@
       if (params.length) q += '?' + params.join('&');
       return this.call('GET', q);
     },
-    getEmployee(id) { return this.call('GET', '/api/employees/' + encodeURIComponent(id)); },
-    reconcile()     { return this.call('POST', '/api/reconcile'); },
-    exportTokens()  { return this.call('GET', '/api/export/tokens'); },
-    employerHealth() { return this.call('GET', '/api/employer/health'); },
-    employerPlans()  { return this.call('GET', '/api/employer/plans'); },
+    getEmployee(id) {
+      return this.call('GET', '/api/employees/' + encodeURIComponent(id));
+    },
+    reconcile() {
+      return this.call('POST', '/api/reconcile');
+    },
+    exportTokens() {
+      return this.call('GET', '/api/export/tokens');
+    },
+    employerHealth() {
+      return this.call('GET', '/api/employer/health');
+    },
+    employerPlans() {
+      return this.call('GET', '/api/employer/plans');
+    },
   };
 
   // ─── Helpers ──────────────────────────────────────────────
@@ -138,24 +178,50 @@
     el.className = 'toast ' + type;
     el.textContent = msg;
     container.appendChild(el);
-    setTimeout(function() { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(function() { el.remove(); }, 300); }, 4000);
+    setTimeout(function () {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.3s';
+      setTimeout(function () {
+        el.remove();
+      }, 300);
+    }, 4000);
   }
 
-  function loading() { return '<div class="loading-row"><span class="spinner"></span> Loading...</div>'; }
+  function loading() {
+    return '<div class="loading-row"><span class="spinner"></span> Loading...</div>';
+  }
   function emptyState(title, detail) {
-    return '<div class="empty-state"><div class="empty-title">' + esc(title) + '</div>' +
-      (detail ? '<div class="empty-detail">' + esc(detail) + '</div>' : '') + '</div>';
+    return (
+      '<div class="empty-state"><div class="empty-title">' +
+      esc(title) +
+      '</div>' +
+      (detail ? '<div class="empty-detail">' + esc(detail) + '</div>' : '') +
+      '</div>'
+    );
   }
 
   function detailRow(label, value) {
-    return '<div class="detail-row"><span class="detail-label">' + esc(label) +
-      '</span><span class="detail-value mono">' + esc(String(value)) + '</span></div>';
+    return (
+      '<div class="detail-row"><span class="detail-label">' +
+      esc(label) +
+      '</span><span class="detail-value mono">' +
+      esc(String(value)) +
+      '</span></div>'
+    );
   }
 
   function statCard(label, value, color, detail) {
-    return '<div class="stat-card"><div class="stat-label">' + esc(label) +
-      '</div><div class="stat-value ' + (color || '') + '">' + esc(String(value)) + '</div>' +
-      (detail ? '<div class="stat-detail">' + esc(detail) + '</div>' : '') + '</div>';
+    return (
+      '<div class="stat-card"><div class="stat-label">' +
+      esc(label) +
+      '</div><div class="stat-value ' +
+      (color || '') +
+      '">' +
+      esc(String(value)) +
+      '</div>' +
+      (detail ? '<div class="stat-detail">' + esc(detail) + '</div>' : '') +
+      '</div>'
+    );
   }
 
   function badgeHtml(status) {
@@ -197,7 +263,10 @@
   }
 
   function stopHealthPolling() {
-    if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+    if (healthTimer) {
+      clearInterval(healthTimer);
+      healthTimer = null;
+    }
   }
 
   // ─── Lock Screen ──────────────────────────────────────────
@@ -216,17 +285,32 @@
   var unlockForm = document.getElementById('unlock-form');
   var setupForm = document.getElementById('setup-form');
   function showSetup(show) {
-    if (show) { setupForm.classList.remove('hidden'); unlockForm.classList.add('hidden'); }
-    else { setupForm.classList.add('hidden'); unlockForm.classList.remove('hidden'); }
-  }
-  document.getElementById('link-to-setup').onclick = function (e) { e.preventDefault(); showSetup(true); };
-  document.getElementById('link-to-unlock').onclick = function (e) { e.preventDefault(); showSetup(false); };
-  API.workspaces().then(function (w) {
-    if (w && w.needsSetup) showSetup(true);
-    if (w && w.defaultEmployerNodeUrl && !document.getElementById('setup-url').value) {
-      document.getElementById('setup-url').value = w.defaultEmployerNodeUrl;
+    if (show) {
+      setupForm.classList.remove('hidden');
+      unlockForm.classList.add('hidden');
+    } else {
+      setupForm.classList.add('hidden');
+      unlockForm.classList.remove('hidden');
     }
-  }).catch(function () { /* the server decides; the unlock form is a safe default */ });
+  }
+  document.getElementById('link-to-setup').onclick = function (e) {
+    e.preventDefault();
+    showSetup(true);
+  };
+  document.getElementById('link-to-unlock').onclick = function (e) {
+    e.preventDefault();
+    showSetup(false);
+  };
+  API.workspaces()
+    .then(function (w) {
+      if (w && w.needsSetup) showSetup(true);
+      if (w && w.defaultEmployerNodeUrl && !document.getElementById('setup-url').value) {
+        document.getElementById('setup-url').value = w.defaultEmployerNodeUrl;
+      }
+    })
+    .catch(function () {
+      /* the server decides; the unlock form is a safe default */
+    });
 
   function enterApp(result, created) {
     unlockOverlay.classList.add('hidden');
@@ -240,11 +324,14 @@
     navigate('groups');
   }
 
-  document.getElementById('btn-unlock').onclick = async function() {
+  document.getElementById('btn-unlock').onclick = async function () {
     var passphrase = document.getElementById('unlock-passphrase').value;
     var errEl = document.getElementById('unlock-error');
     errEl.textContent = '';
-    if (!passphrase) { errEl.textContent = 'Enter passphrase'; return; }
+    if (!passphrase) {
+      errEl.textContent = 'Enter passphrase';
+      return;
+    }
     try {
       var result = await API.unlock(passphrase);
       enterApp(result, false);
@@ -253,17 +340,29 @@
       if (/Set one up first/.test(errEl.textContent)) showSetup(true);
     }
   };
-  document.getElementById('btn-setup').onclick = async function() {
+  document.getElementById('btn-setup').onclick = async function () {
     var errEl = document.getElementById('setup-error');
     errEl.textContent = '';
     var url = document.getElementById('setup-url').value.trim();
     var token = document.getElementById('setup-token').value.trim();
     var pass = document.getElementById('setup-passphrase').value;
     var confirm = document.getElementById('setup-confirm').value;
-    if (!url) { errEl.textContent = 'Enter the employer node URL'; return; }
-    if (!token) { errEl.textContent = 'Enter the admin token'; return; }
-    if (pass.length < 12) { errEl.textContent = 'Passphrase must be at least 12 characters'; return; }
-    if (pass !== confirm) { errEl.textContent = 'Passphrase confirmation does not match'; return; }
+    if (!url) {
+      errEl.textContent = 'Enter the employer node URL';
+      return;
+    }
+    if (!token) {
+      errEl.textContent = 'Enter the admin token';
+      return;
+    }
+    if (pass.length < 12) {
+      errEl.textContent = 'Passphrase must be at least 12 characters';
+      return;
+    }
+    if (pass !== confirm) {
+      errEl.textContent = 'Passphrase confirmation does not match';
+      return;
+    }
     try {
       var created = await API.setup(url, token, pass, confirm);
       document.getElementById('setup-token').value = '';
@@ -274,10 +373,10 @@
       errEl.textContent = e.message || 'Setup failed';
     }
   };
-  document.getElementById('unlock-passphrase').addEventListener('keydown', function(e) {
+  document.getElementById('unlock-passphrase').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') document.getElementById('btn-unlock').click();
   });
-  document.getElementById('setup-confirm').addEventListener('keydown', function(e) {
+  document.getElementById('setup-confirm').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') document.getElementById('btn-setup').click();
   });
 
@@ -296,19 +395,21 @@
     // opens by itself (after unlock, after a group is selected, or when a group-scoped page sends the user to Groups)
     // takes the address bar with it, or the tab for the hash left behind does nothing when clicked.
     if (location.hash.replace('#', '') !== currentPage) history.replaceState(null, '', '#' + currentPage);
-    navLinks.forEach(function(l) { l.classList.toggle('active', l.dataset.tab === currentPage); });
+    navLinks.forEach(function (l) {
+      l.classList.toggle('active', l.dataset.tab === currentPage);
+    });
     window.scrollTo(0, 0);
     renderPage();
   }
 
-  window.addEventListener('hashchange', function() {
+  window.addEventListener('hashchange', function () {
     var hash = location.hash.replace('#', '') || 'dashboard';
     navigate(hash);
   });
 
   // A button that opens another page names it in data-goto rather than in an inline handler, which a policy without
   // 'unsafe-inline' refuses. Every page is drawn into #app, so this one listener serves whichever page is on screen.
-  app.addEventListener('click', function(e) {
+  app.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-goto]');
     if (btn) location.hash = btn.dataset.goto;
   });
@@ -322,38 +423,55 @@
       _rehydrating = true;
       // Check server-side session — we may have lost local activeGroup state
       // but the server still holds it (e.g. page refresh).
-      API.getSession().then(async function(sess) {
-        if (sess && sess.groupSelected && sess.groupId) {
-          // Rehydrate local state from the server session, then fetch the
-          // utilization stats so the banner shows correct counts.
-          activeGroup = {
-            groupId: sess.groupId,
-            planId: sess.planId,
-          };
-          await hydrateActiveGroupStats();
+      API.getSession()
+        .then(async function (sess) {
+          if (sess && sess.groupSelected && sess.groupId) {
+            // Rehydrate local state from the server session, then fetch the
+            // utilization stats so the banner shows correct counts.
+            activeGroup = {
+              groupId: sess.groupId,
+              planId: sess.planId,
+            };
+            await hydrateActiveGroupStats();
+            _rehydrating = false;
+            renderPage();
+          } else {
+            _rehydrating = false;
+            toast('Select a group first', 'info');
+            navigate('groups');
+          }
+        })
+        .catch(function () {
           _rehydrating = false;
-          renderPage();
-        } else {
-          _rehydrating = false;
-          toast('Select a group first', 'info');
           navigate('groups');
-        }
-      }).catch(function() {
-        _rehydrating = false;
-        navigate('groups');
-      });
+        });
       return;
     }
 
     switch (currentPage) {
-      case 'groups': renderGroupSelection(); break;
-      case 'dashboard': renderDashboard(); break;
-      case 'import': renderImport(); break;
-      case 'employees': renderEmployees(); break;
-      case 'tokens': renderTokens(); break;
-      case 'reconcile': renderReconcile(); break;
-      case 'settings': renderSettings(); break;
-      default: renderGroupSelection();
+      case 'groups':
+        renderGroupSelection();
+        break;
+      case 'dashboard':
+        renderDashboard();
+        break;
+      case 'import':
+        renderImport();
+        break;
+      case 'employees':
+        renderEmployees();
+        break;
+      case 'tokens':
+        renderTokens();
+        break;
+      case 'reconcile':
+        renderReconcile();
+        break;
+      case 'settings':
+        renderSettings();
+        break;
+      default:
+        renderGroupSelection();
     }
   }
 
@@ -364,23 +482,36 @@
   async function renderGroupSelection() {
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Select a Group</div>' +
-        '<div class="section-subtitle">Groups are created in the Employer Dashboard. Pick the group you want to import employees into.</div></div></div>' +
-      (activeGroup ? '<div class="info-banner security" style="margin-bottom:12px">Currently working in: <strong>' + esc(activeGroup.groupId) + '</strong> (plan: ' + esc(activeGroup.planId || '--') + ') &nbsp;&nbsp; <button class="btn sm" id="btn-deselect-group">Switch Group</button></div>' : '') +
+      '<div class="section-subtitle">Groups are created in the Employer Dashboard. Pick the group you want to import employees into.</div></div></div>' +
+      (activeGroup
+        ? '<div class="info-banner security" style="margin-bottom:12px">Currently working in: <strong>' +
+          esc(activeGroup.groupId) +
+          '</strong> (plan: ' +
+          esc(activeGroup.planId || '--') +
+          ') &nbsp;&nbsp; <button class="btn sm" id="btn-deselect-group">Switch Group</button></div>'
+        : '') +
       '<div class="info-banner warning" style="margin-bottom:12px">' +
-        'The HR Tool does not create groups. To add a new group, open the <strong>Employer Dashboard</strong> (Groups tab) and create it there, then refresh this screen.' +
+      'The HR Tool does not create groups. To add a new group, open the <strong>Employer Dashboard</strong> (Groups tab) and create it there, then refresh this screen.' +
       '</div>' +
       '<div class="panel"><div class="panel-header"><span class="panel-title">Available Groups</span>' +
-        '<button class="btn sm" id="btn-refresh-groups">Refresh</button></div>' +
-        '<div class="panel-body no-pad" id="group-list">' + loading() + '</div></div>';
+      '<button class="btn sm" id="btn-refresh-groups">Refresh</button></div>' +
+      '<div class="panel-body no-pad" id="group-list">' +
+      loading() +
+      '</div></div>';
 
     var refreshBtn = document.getElementById('btn-refresh-groups');
     if (refreshBtn) refreshBtn.onclick = loadGroupSelectionList;
     var deselectBtn = document.getElementById('btn-deselect-group');
-    if (deselectBtn) deselectBtn.onclick = async function() {
-      try { await API.deselectGroup(); } catch (_) { /* ignore */ }
-      activeGroup = null;
-      renderGroupSelection();
-    };
+    if (deselectBtn)
+      deselectBtn.onclick = async function () {
+        try {
+          await API.deselectGroup();
+        } catch (_) {
+          /* ignore */
+        }
+        activeGroup = null;
+        renderGroupSelection();
+      };
 
     loadGroupSelectionList();
   }
@@ -396,32 +527,57 @@
         el.innerHTML = emptyState('No groups yet', 'Create a group in the Employer Dashboard first — then click Refresh here');
         return;
       }
-      el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      el.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Group ID</th><th>Plan</th><th>Effective Date</th><th>Utilization</th><th>Local State</th><th>Status</th><th>Action</th></tr></thead><tbody>' +
-        groups.map(function(g) {
-          var gid = g.groupId || '--';
-          var status = g.status || 'active';
-          var statusBadge = '<span class="badge ' + (status === 'active' ? 'green' : 'red') + '">' + esc(status) + '</span>';
-          var cap = g.enrollmentCap || 0;
-          var used = (g.enrolledCount || 0) + (g.pendingTokens || 0);
-          var capDisplay = g.isUnlimited || cap === 0 ? (used + ' (unlimited)') : (used + ' / ' + cap);
-          var local = g.hasLocalState
-            ? '<span style="color:var(--green)">Seed ready</span>' + (g.localEntryCount ? ' (' + g.localEntryCount + ' employees)' : '')
-            : '<span style="color:var(--text-muted)">Not initialized</span>';
-          var action = status === 'active'
-            ? '<button class="btn sm primary btn-select-group" data-gid="' + esc(gid) + '">' + (g.hasLocalState ? 'Select' : 'Initialize &amp; Select') + '</button>'
-            : '<button class="btn sm" disabled>Terminated</button>';
-          return '<tr><td class="mono">' + esc(gid) + '</td>' +
-            '<td class="mono">' + esc(g.planId || '--') + '</td>' +
-            '<td>' + esc(g.effectiveDate || '--').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') + '</td>' +
-            '<td style="font-variant-numeric:tabular-nums">' + capDisplay + '</td>' +
-            '<td>' + local + '</td>' +
-            '<td>' + statusBadge + '</td>' +
-            '<td>' + action + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+        groups
+          .map(function (g) {
+            var gid = g.groupId || '--';
+            var status = g.status || 'active';
+            var statusBadge = '<span class="badge ' + (status === 'active' ? 'green' : 'red') + '">' + esc(status) + '</span>';
+            var cap = g.enrollmentCap || 0;
+            var used = (g.enrolledCount || 0) + (g.pendingTokens || 0);
+            var capDisplay = g.isUnlimited || cap === 0 ? used + ' (unlimited)' : used + ' / ' + cap;
+            var local = g.hasLocalState
+              ? '<span style="color:var(--green)">Seed ready</span>' + (g.localEntryCount ? ' (' + g.localEntryCount + ' employees)' : '')
+              : '<span style="color:var(--text-muted)">Not initialized</span>';
+            var action =
+              status === 'active'
+                ? '<button class="btn sm primary btn-select-group" data-gid="' +
+                  esc(gid) +
+                  '">' +
+                  (g.hasLocalState ? 'Select' : 'Initialize &amp; Select') +
+                  '</button>'
+                : '<button class="btn sm" disabled>Terminated</button>';
+            return (
+              '<tr><td class="mono">' +
+              esc(gid) +
+              '</td>' +
+              '<td class="mono">' +
+              esc(g.planId || '--') +
+              '</td>' +
+              '<td>' +
+              esc(g.effectiveDate || '--').replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') +
+              '</td>' +
+              '<td style="font-variant-numeric:tabular-nums">' +
+              capDisplay +
+              '</td>' +
+              '<td>' +
+              local +
+              '</td>' +
+              '<td>' +
+              statusBadge +
+              '</td>' +
+              '<td>' +
+              action +
+              '</td></tr>'
+            );
+          })
+          .join('') +
+        '</tbody></table></div>';
 
-      el.querySelectorAll('.btn-select-group').forEach(function(btn) {
-        btn.onclick = async function() {
+      el.querySelectorAll('.btn-select-group').forEach(function (btn) {
+        btn.onclick = async function () {
           var gid = btn.dataset.gid;
           btn.disabled = true;
           btn.textContent = 'Selecting...';
@@ -451,7 +607,10 @@
         };
       });
     } catch (e) {
-      el.innerHTML = '<div class="error-banner">Could not load groups: ' + esc(e.message) + '<br><span style="font-size:12px">The employer node may be offline, or the workspace may need to be re-unlocked.</span></div>';
+      el.innerHTML =
+        '<div class="error-banner">Could not load groups: ' +
+        esc(e.message) +
+        '<br><span style="font-size:12px">The employer node may be offline, or the workspace may need to be re-unlocked.</span></div>';
     }
   }
 
@@ -462,17 +621,23 @@
   async function renderDashboard() {
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Dashboard</div>' +
-        '<div class="section-subtitle" id="dash-group-label"></div></div></div>' +
+      '<div class="section-subtitle" id="dash-group-label"></div></div></div>' +
       activeGroupBanner() +
       '<div class="info-banner security">Employee names and personal data never leave this computer. Only anonymous identifiers are sent to the enrollment system.</div>' +
-      '<div class="stats-grid" id="dash-stats">' + loading() + '</div>' +
+      '<div class="stats-grid" id="dash-stats">' +
+      loading() +
+      '</div>' +
       '<div class="panel"><div class="panel-header"><span class="panel-title">Enrollment Progress</span></div>' +
-        '<div class="pipeline" id="dash-pipeline">' + loading() + '</div></div>' +
+      '<div class="pipeline" id="dash-pipeline">' +
+      loading() +
+      '</div></div>' +
       '<div class="two-col">' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Recent Employees</span></div>' +
-          '<div class="panel-body no-pad" id="dash-recent">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Quick Actions</span></div>' +
-          '<div class="panel-body" id="dash-actions"></div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Recent Employees</span></div>' +
+      '<div class="panel-body no-pad" id="dash-recent">' +
+      loading() +
+      '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Quick Actions</span></div>' +
+      '<div class="panel-body" id="dash-actions"></div></div>' +
       '</div>';
 
     loadDashStats();
@@ -501,10 +666,18 @@
 
       if (pipeline) {
         pipeline.innerHTML =
-          '<div class="pipeline-stage"><div class="pipeline-count pending">' + esc(stats.pending) + '</div><div class="pipeline-label">Pending</div></div>' +
-          '<div class="pipeline-stage"><div class="pipeline-count issued">' + esc(stats.issued) + '</div><div class="pipeline-label">Code Issued</div></div>' +
-          '<div class="pipeline-stage"><div class="pipeline-count enrolled">' + esc(stats.enrolled) + '</div><div class="pipeline-label">Enrolled</div></div>' +
-          '<div class="pipeline-stage"><div class="pipeline-count terminated">' + esc(stats.terminated) + '</div><div class="pipeline-label">Terminated</div></div>';
+          '<div class="pipeline-stage"><div class="pipeline-count pending">' +
+          esc(stats.pending) +
+          '</div><div class="pipeline-label">Pending</div></div>' +
+          '<div class="pipeline-stage"><div class="pipeline-count issued">' +
+          esc(stats.issued) +
+          '</div><div class="pipeline-label">Code Issued</div></div>' +
+          '<div class="pipeline-stage"><div class="pipeline-count enrolled">' +
+          esc(stats.enrolled) +
+          '</div><div class="pipeline-label">Enrolled</div></div>' +
+          '<div class="pipeline-stage"><div class="pipeline-count terminated">' +
+          esc(stats.terminated) +
+          '</div><div class="pipeline-label">Terminated</div></div>';
       }
     } catch (e) {
       grid.innerHTML = statCard('Error', e.message, 'red');
@@ -522,13 +695,25 @@
         el.innerHTML = emptyState('No employees yet', 'Import a CSV roster to get started');
         return;
       }
-      el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      el.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Name</th><th>Employee ID</th><th>Status</th></tr></thead><tbody>' +
-        recent.map(function(e) {
-          return '<tr><td>' + esc(e.firstName + ' ' + e.lastName) + '</td>' +
-          '<td class="mono">' + esc(e.employeeId) + '</td>' +
-          '<td>' + badgeHtml(e.status) + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+        recent
+          .map(function (e) {
+            return (
+              '<tr><td>' +
+              esc(e.firstName + ' ' + e.lastName) +
+              '</td>' +
+              '<td class="mono">' +
+              esc(e.employeeId) +
+              '</td>' +
+              '<td>' +
+              badgeHtml(e.status) +
+              '</td></tr>'
+            );
+          })
+          .join('') +
+        '</tbody></table></div>';
     } catch (e) {
       el.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
     }
@@ -539,10 +724,10 @@
     if (!el) return;
     el.innerHTML =
       '<div style="display:flex;flex-direction:column;gap:12px">' +
-        '<button class="btn primary full-width" data-goto="import">Import Employee Roster</button>' +
-        '<button class="btn full-width" data-goto="employees">View All Employees</button>' +
-        '<button class="btn full-width" data-goto="reconcile">Check Enrollment Status</button>' +
-        '<button class="btn full-width" data-goto="tokens">Export Enrollment Codes</button>' +
+      '<button class="btn primary full-width" data-goto="import">Import Employee Roster</button>' +
+      '<button class="btn full-width" data-goto="employees">View All Employees</button>' +
+      '<button class="btn full-width" data-goto="reconcile">Check Enrollment Status</button>' +
+      '<button class="btn full-width" data-goto="tokens">Export Enrollment Codes</button>' +
       '</div>';
   }
 
@@ -559,7 +744,9 @@
     try {
       var data = await API.listGroups();
       var groups = data.groups || [];
-      var match = groups.find(function(g) { return g.groupId === activeGroup.groupId; });
+      var match = groups.find(function (g) {
+        return g.groupId === activeGroup.groupId;
+      });
       if (match) {
         activeGroup.planId = match.planId;
         activeGroup.effectiveDate = match.effectiveDate;
@@ -569,7 +756,9 @@
         activeGroup.pendingTokens = match.pendingTokens || 0;
         activeGroup.remainingSlots = match.remainingSlots || 0;
       }
-    } catch { /* silent — banner will just show dashes */ }
+    } catch {
+      /* silent — banner will just show dashes */
+    }
   }
 
   // Phase F4/F5: render a banner showing the active group context. Used on
@@ -579,29 +768,35 @@
     if (!activeGroup) return '';
     var cap = activeGroup.enrollmentCap || 0;
     var used = (activeGroup.enrolledCount || 0) + (activeGroup.pendingTokens || 0);
-    var capDisplay = activeGroup.isUnlimited || cap === 0
-      ? (used + ' (unlimited)')
-      : (used + ' / ' + cap);
-    return '<div class="info-banner security" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
-      '<div>Working in group: <strong>' + esc(activeGroup.groupId) + '</strong> &nbsp; Plan: <strong>' + esc(activeGroup.planId || '--') + '</strong> &nbsp; Utilization: <strong>' + capDisplay + '</strong></div>' +
+    var capDisplay = activeGroup.isUnlimited || cap === 0 ? used + ' (unlimited)' : used + ' / ' + cap;
+    return (
+      '<div class="info-banner security" style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+      '<div>Working in group: <strong>' +
+      esc(activeGroup.groupId) +
+      '</strong> &nbsp; Plan: <strong>' +
+      esc(activeGroup.planId || '--') +
+      '</strong> &nbsp; Utilization: <strong>' +
+      capDisplay +
+      '</strong></div>' +
       '<button class="btn sm" data-goto="groups">Switch Group</button>' +
-      '</div>';
+      '</div>'
+    );
   }
 
   async function renderImport() {
     pendingCsvContent = null;
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Import Roster</div>' +
-        '<div class="section-subtitle">Upload a CSV file with employee data. Personal information is processed locally and never sent over the network.</div></div></div>' +
+      '<div class="section-subtitle">Upload a CSV file with employee data. Personal information is processed locally and never sent over the network.</div></div></div>' +
       activeGroupBanner() +
       '<div class="info-banner warning">CSV columns required: <span class="code">employee_id</span>, <span class="code">family_id</span>, <span class="code">first_name</span>, <span class="code">last_name</span>, <span class="code">dob</span>. Optional: <span class="code">email</span>.</div>' +
       '<div class="panel"><div class="panel-header"><span class="panel-title">Step 1: Select CSV File</span></div><div class="panel-body">' +
-        '<div class="drop-zone" id="csv-drop-zone">' +
-          '<div class="drop-zone-icon">&#128196;</div>' +
-          '<div class="drop-zone-text">Drop CSV file here or click to browse</div>' +
-          '<div class="drop-zone-hint">Accepts .csv files</div>' +
-          '<input type="file" accept=".csv" id="csv-file-input">' +
-        '</div>' +
+      '<div class="drop-zone" id="csv-drop-zone">' +
+      '<div class="drop-zone-icon">&#128196;</div>' +
+      '<div class="drop-zone-text">Drop CSV file here or click to browse</div>' +
+      '<div class="drop-zone-hint">Accepts .csv files</div>' +
+      '<input type="file" accept=".csv" id="csv-file-input">' +
+      '</div>' +
       '</div></div>' +
       '<div id="csv-preview-panel" style="display:none"></div>' +
       '<div id="csv-import-panel" style="display:none"></div>' +
@@ -613,17 +808,33 @@
   function setupDropZone() {
     var zone = document.getElementById('csv-drop-zone');
     var input = document.getElementById('csv-file-input');
-    zone.onclick = function() { input.click(); };
-    zone.ondragover = function(e) { e.preventDefault(); zone.classList.add('drag-over'); };
-    zone.ondragleave = function() { zone.classList.remove('drag-over'); };
-    zone.ondrop = function(e) { e.preventDefault(); zone.classList.remove('drag-over'); handleFile(e.dataTransfer.files[0]); };
-    input.onchange = function() { if (input.files[0]) handleFile(input.files[0]); };
+    zone.onclick = function () {
+      input.click();
+    };
+    zone.ondragover = function (e) {
+      e.preventDefault();
+      zone.classList.add('drag-over');
+    };
+    zone.ondragleave = function () {
+      zone.classList.remove('drag-over');
+    };
+    zone.ondrop = function (e) {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      handleFile(e.dataTransfer.files[0]);
+    };
+    input.onchange = function () {
+      if (input.files[0]) handleFile(input.files[0]);
+    };
   }
 
   function handleFile(file) {
-    if (!file || !file.name.toLowerCase().endsWith('.csv')) { toast('Please select a .csv file', 'error'); return; }
+    if (!file || !file.name.toLowerCase().endsWith('.csv')) {
+      toast('Please select a .csv file', 'error');
+      return;
+    }
     var reader = new FileReader();
-    reader.onload = async function(e) {
+    reader.onload = async function (e) {
       pendingCsvContent = e.target.result;
       try {
         var data = await API.previewCsv(pendingCsvContent);
@@ -640,34 +851,68 @@
     panel.style.display = 'block';
 
     var rows = data.preview || [];
-    panel.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Step 2: Preview (' + esc(data.count) + ' employees from ' + esc(filename) + ')</span></div>' +
+    panel.innerHTML =
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Step 2: Preview (' +
+      esc(data.count) +
+      ' employees from ' +
+      esc(filename) +
+      ')</span></div>' +
       '<div class="panel-body no-pad"><div class="csv-preview"><table class="data-table"><thead><tr>' +
       '<th>Employee ID</th><th>Family ID</th><th>First Name</th><th>Last Name</th><th>DOB</th><th>Email</th></tr></thead><tbody>' +
-      rows.map(function(r) {
-        return '<tr><td class="mono">' + esc(r.employeeId) + '</td>' +
-        '<td class="mono">' + esc(r.familyId) + '</td>' +
-        '<td>' + esc(r.firstName) + '</td>' +
-        '<td>' + esc(r.lastName) + '</td>' +
-        '<td>' + esc(r.dob) + '</td>' +
-        '<td>' + esc(r.email || '--') + '</td></tr>';
-      }).join('') +
-      (data.count > 10 ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">... and ' + esc(data.count - 10) + ' more rows</td></tr>' : '') +
+      rows
+        .map(function (r) {
+          return (
+            '<tr><td class="mono">' +
+            esc(r.employeeId) +
+            '</td>' +
+            '<td class="mono">' +
+            esc(r.familyId) +
+            '</td>' +
+            '<td>' +
+            esc(r.firstName) +
+            '</td>' +
+            '<td>' +
+            esc(r.lastName) +
+            '</td>' +
+            '<td>' +
+            esc(r.dob) +
+            '</td>' +
+            '<td>' +
+            esc(r.email || '--') +
+            '</td></tr>'
+          );
+        })
+        .join('') +
+      (data.count > 10
+        ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">... and ' + esc(data.count - 10) + ' more rows</td></tr>'
+        : '') +
       '</tbody></table></div></div></div>';
 
     var importPanel = document.getElementById('csv-import-panel');
     importPanel.style.display = 'block';
-    importPanel.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Step 3: Generate Enrollment Codes</span></div><div class="panel-body">' +
+    importPanel.innerHTML =
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Step 3: Generate Enrollment Codes</span></div><div class="panel-body">' +
       '<div class="form-grid">' +
-        '<div class="form-group"><label for="imp-valid-until">Code Expiration Date (at most 14 days)</label>' +
-          '<input type="date" id="imp-valid-until" value="' + defaultExpiry() + '" min="' + utcDateIn(0) + '" max="' + defaultExpiry() + '"></div>' +
+      '<div class="form-group"><label for="imp-valid-until">Code Expiration Date (at most 14 days)</label>' +
+      '<input type="date" id="imp-valid-until" value="' +
+      defaultExpiry() +
+      '" min="' +
+      utcDateIn(0) +
+      '" max="' +
+      defaultExpiry() +
+      '"></div>' +
       '</div>' +
       '<div class="form-actions" style="margin-top:16px">' +
-        '<button class="btn" id="btn-dry-run">Preview (No Changes)</button>' +
-        '<button class="btn primary" id="btn-import-go">Import &amp; Generate Codes</button>' +
+      '<button class="btn" id="btn-dry-run">Preview (No Changes)</button>' +
+      '<button class="btn primary" id="btn-import-go">Import &amp; Generate Codes</button>' +
       '</div></div></div>';
 
-    document.getElementById('btn-dry-run').onclick = function() { doImport(true); };
-    document.getElementById('btn-import-go').onclick = function() { doImport(false); };
+    document.getElementById('btn-dry-run').onclick = function () {
+      doImport(true);
+    };
+    document.getElementById('btn-import-go').onclick = function () {
+      doImport(false);
+    };
   }
 
   // A-138: an invite lasts at most 14 days, counted on the UTC calendar the employer node checks expiry against
@@ -681,9 +926,15 @@
   }
 
   async function doImport(dryRun) {
-    if (!pendingCsvContent) { toast('No CSV loaded', 'error'); return; }
+    if (!pendingCsvContent) {
+      toast('No CSV loaded', 'error');
+      return;
+    }
     var validUntil = document.getElementById('imp-valid-until').value;
-    if (!validUntil) { toast('Set an expiration date', 'error'); return; }
+    if (!validUntil) {
+      toast('Set an expiration date', 'error');
+      return;
+    }
 
     var resultsPanel = document.getElementById('csv-results-panel');
     resultsPanel.style.display = 'block';
@@ -693,50 +944,108 @@
       var data = await API.importCsv(pendingCsvContent, validUntil, dryRun);
 
       if (dryRun) {
-        resultsPanel.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Preview Results</span></div><div class="panel-body">' +
+        resultsPanel.innerHTML =
+          '<div class="panel"><div class="panel-header"><span class="panel-title">Preview Results</span></div><div class="panel-body">' +
           '<div class="stats-grid">' +
-            statCard('Total in CSV', data.total, '') +
-            statCard('New Employees', data.newEntries, 'blue') +
-            statCard('Already Imported', data.skipped, 'yellow') +
+          statCard('Total in CSV', data.total, '') +
+          statCard('New Employees', data.newEntries, 'blue') +
+          statCard('Already Imported', data.skipped, 'yellow') +
           '</div>' +
-          (data.preview && data.preview.length > 0 ?
-            '<div class="table-wrap" style="margin-top:16px"><table class="data-table"><thead><tr>' +
-            '<th>Employee ID</th><th>Name</th><th>Identifier (preview)</th><th>PIN will be texted to</th></tr></thead><tbody>' +
-            data.preview.map(function(p) {
-              return '<tr><td class="mono">' + esc(p.employeeId) + '</td>' +
-              '<td>' + esc(p.name) + '</td>' +
-              '<td class="mono">' + esc(p.employeeIdHash) + '</td>' +
-              // A-109: an employee with no mobile number is issued no invite
-              '<td class="mono">' + (p.mobile ? esc(p.mobile) : '<span style="color:var(--red)">no mobile number: no invite</span>') + '</td></tr>';
-            }).join('') + '</tbody></table></div>' : '') +
-          (data.textService === null ? '<div class="error-banner" style="margin-top:16px">No text service is set up, so no invite can be issued: each PIN is texted to its employee. Set HR_TOOL_TEXT_SERVICE and restart the HR Tool.</div>' : '') +
+          (data.preview && data.preview.length > 0
+            ? '<div class="table-wrap" style="margin-top:16px"><table class="data-table"><thead><tr>' +
+              '<th>Employee ID</th><th>Name</th><th>Identifier (preview)</th><th>PIN will be texted to</th></tr></thead><tbody>' +
+              data.preview
+                .map(function (p) {
+                  return (
+                    '<tr><td class="mono">' +
+                    esc(p.employeeId) +
+                    '</td>' +
+                    '<td>' +
+                    esc(p.name) +
+                    '</td>' +
+                    '<td class="mono">' +
+                    esc(p.employeeIdHash) +
+                    '</td>' +
+                    // A-109: an employee with no mobile number is issued no invite
+                    '<td class="mono">' +
+                    (p.mobile ? esc(p.mobile) : '<span style="color:var(--red)">no mobile number: no invite</span>') +
+                    '</td></tr>'
+                  );
+                })
+                .join('') +
+              '</tbody></table></div>'
+            : '') +
+          (data.textService === null
+            ? '<div class="error-banner" style="margin-top:16px">No text service is set up, so no invite can be issued: each PIN is texted to its employee. Set HR_TOOL_TEXT_SERVICE and restart the HR Tool.</div>'
+            : '') +
           '</div></div>';
         toast('Preview complete — no changes made', 'info');
       } else {
         var pct = data.processed > 0 ? Math.round((data.success / data.processed) * 100) : 0;
-        resultsPanel.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Import Results</span></div><div class="panel-body">' +
+        resultsPanel.innerHTML =
+          '<div class="panel"><div class="panel-header"><span class="panel-title">Import Results</span></div><div class="panel-body">' +
           '<div class="stats-grid">' +
-            statCard('Processed', data.processed, '') +
-            statCard('Success', data.success, 'green') +
-            statCard('Failed', data.failed, data.failed > 0 ? 'red' : '') +
-            statCard('Already Imported', data.skipped, 'yellow') +
+          statCard('Processed', data.processed, '') +
+          statCard('Success', data.success, 'green') +
+          statCard('Failed', data.failed, data.failed > 0 ? 'red' : '') +
+          statCard('Already Imported', data.skipped, 'yellow') +
           '</div>' +
-          '<div class="progress-bar" style="margin-top:16px"><div class="progress-fill green" style="width:' + pct + '%"></div></div>' +
-          '<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted)">' + esc(pct) + '% success rate</div>' +
+          '<div class="progress-bar" style="margin-top:16px"><div class="progress-fill green" style="width:' +
+          pct +
+          '%"></div></div>' +
+          '<div style="text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted)">' +
+          esc(pct) +
+          '% success rate</div>' +
           // A-109: the PINs went straight to the employees' phones; this page never has one to show
-          (data.results && data.results.some(function(r) { return r.status === 'ok'; }) ?
-            '<div style="margin-top:16px"><div class="recon-section-title">Invites issued</div>' +
-            '<div class="info-banner">' + esc(data.pinNotice || 'Each PIN was texted straight to its employee.') + '</div>' +
-            '<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee ID</th><th>Enrollment Code</th><th>PIN texted to</th></tr></thead><tbody>' +
-            data.results.filter(function(r) { return r.status === 'ok'; }).map(function(r) {
-              return '<tr><td class="mono">' + esc(r.employeeId) + '</td><td class="mono">' + esc(r.tokenId) + '</td><td class="mono">' + esc(r.pinSentTo || '') + '</td></tr>';
-            }).join('') + '</tbody></table></div></div>' : '') +
+          (data.results &&
+          data.results.some(function (r) {
+            return r.status === 'ok';
+          })
+            ? '<div style="margin-top:16px"><div class="recon-section-title">Invites issued</div>' +
+              '<div class="info-banner">' +
+              esc(data.pinNotice || 'Each PIN was texted straight to its employee.') +
+              '</div>' +
+              '<div class="table-wrap"><table class="data-table"><thead><tr><th>Employee ID</th><th>Enrollment Code</th><th>PIN texted to</th></tr></thead><tbody>' +
+              data.results
+                .filter(function (r) {
+                  return r.status === 'ok';
+                })
+                .map(function (r) {
+                  return (
+                    '<tr><td class="mono">' +
+                    esc(r.employeeId) +
+                    '</td><td class="mono">' +
+                    esc(r.tokenId) +
+                    '</td><td class="mono">' +
+                    esc(r.pinSentTo || '') +
+                    '</td></tr>'
+                  );
+                })
+                .join('') +
+              '</tbody></table></div></div>'
+            : '') +
           (data.csvWarning ? '<div class="info-banner warning" style="margin-top:16px">' + esc(data.csvWarning) + '</div>' : '') +
-          (data.results && data.results.some(function(r) { return r.status === 'error'; }) ?
-            '<div style="margin-top:16px"><div class="recon-section-title recon-danger">Failed — Will Retry on Next Import</div>' +
-            data.results.filter(function(r) { return r.status === 'error'; }).map(function(r) {
-              return '<div style="padding:4px 0;font-size:12px"><span class="mono">' + esc(r.employeeId) + '</span>: <span style="color:var(--red)">' + esc(r.error) + '</span></div>';
-            }).join('') + '</div>' : '') +
+          (data.results &&
+          data.results.some(function (r) {
+            return r.status === 'error';
+          })
+            ? '<div style="margin-top:16px"><div class="recon-section-title recon-danger">Failed — Will Retry on Next Import</div>' +
+              data.results
+                .filter(function (r) {
+                  return r.status === 'error';
+                })
+                .map(function (r) {
+                  return (
+                    '<div style="padding:4px 0;font-size:12px"><span class="mono">' +
+                    esc(r.employeeId) +
+                    '</span>: <span style="color:var(--red)">' +
+                    esc(r.error) +
+                    '</span></div>'
+                  );
+                })
+                .join('') +
+              '</div>'
+            : '') +
           '</div></div>';
         toast(data.success + ' invites issued; each PIN was texted to its employee', 'success');
       }
@@ -755,15 +1064,17 @@
       '<div class="section-header"><div class="section-title">Employees</div></div>' +
       activeGroupBanner() +
       '<div class="search-bar">' +
-        '<input type="text" id="emp-search" placeholder="Search by name, ID, or email...">' +
-        '<select id="emp-filter"><option value="">All Statuses</option><option value="pending">Pending</option><option value="token_generated">Code Issued</option><option value="enrolled">Enrolled</option><option value="terminated">Terminated</option></select>' +
-        '<button class="btn sm" id="btn-emp-search">Search</button>' +
+      '<input type="text" id="emp-search" placeholder="Search by name, ID, or email...">' +
+      '<select id="emp-filter"><option value="">All Statuses</option><option value="pending">Pending</option><option value="token_generated">Code Issued</option><option value="enrolled">Enrolled</option><option value="terminated">Terminated</option></select>' +
+      '<button class="btn sm" id="btn-emp-search">Search</button>' +
       '</div>' +
-      '<div class="panel"><div class="panel-body no-pad" id="emp-table">' + loading() + '</div></div>' +
+      '<div class="panel"><div class="panel-body no-pad" id="emp-table">' +
+      loading() +
+      '</div></div>' +
       '<div id="emp-detail" style="display:none"></div>';
 
     document.getElementById('btn-emp-search').onclick = loadEmployeeTable;
-    document.getElementById('emp-search').addEventListener('input', function() {
+    document.getElementById('emp-search').addEventListener('input', function () {
       if (searchDebounce) clearTimeout(searchDebounce);
       searchDebounce = setTimeout(loadEmployeeTable, 300);
     });
@@ -785,22 +1096,48 @@
         el.innerHTML = emptyState('No employees found', search ? 'Try a different search term' : 'Import a CSV roster to add employees');
         return;
       }
-      el.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      el.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Name</th><th>Employee ID</th><th>Family ID</th><th>DOB</th><th>Email</th><th>Status</th><th>Code</th></tr></thead><tbody>' +
-        entries.map(function(e) {
-          return '<tr class="emp-row" data-id="' + esc(e.employeeId) + '" style="cursor:pointer">' +
-          '<td>' + esc(e.firstName + ' ' + e.lastName) + '</td>' +
-          '<td class="mono">' + esc(e.employeeId) + '</td>' +
-          '<td class="mono">' + esc(e.familyId) + '</td>' +
-          '<td>' + esc(e.dob) + '</td>' +
-          '<td>' + esc(e.email || '--') + '</td>' +
-          '<td>' + badgeHtml(e.status) + '</td>' +
-          '<td class="mono truncate" title="' + esc(e.tokenId || '') + '">' + esc(truncHash(e.tokenId, 16)) + '</td>' +
-          '</tr>';
-        }).join('') + '</tbody></table></div>';
+        entries
+          .map(function (e) {
+            return (
+              '<tr class="emp-row" data-id="' +
+              esc(e.employeeId) +
+              '" style="cursor:pointer">' +
+              '<td>' +
+              esc(e.firstName + ' ' + e.lastName) +
+              '</td>' +
+              '<td class="mono">' +
+              esc(e.employeeId) +
+              '</td>' +
+              '<td class="mono">' +
+              esc(e.familyId) +
+              '</td>' +
+              '<td>' +
+              esc(e.dob) +
+              '</td>' +
+              '<td>' +
+              esc(e.email || '--') +
+              '</td>' +
+              '<td>' +
+              badgeHtml(e.status) +
+              '</td>' +
+              '<td class="mono truncate" title="' +
+              esc(e.tokenId || '') +
+              '">' +
+              esc(truncHash(e.tokenId, 16)) +
+              '</td>' +
+              '</tr>'
+            );
+          })
+          .join('') +
+        '</tbody></table></div>';
 
-      el.querySelectorAll('.emp-row').forEach(function(row) {
-        row.onclick = function() { showEmployeeDetail(row.dataset.id); };
+      el.querySelectorAll('.emp-row').forEach(function (row) {
+        row.onclick = function () {
+          showEmployeeDetail(row.dataset.id);
+        };
       });
     } catch (e) {
       el.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
@@ -813,20 +1150,23 @@
     el.innerHTML = '<div class="panel"><div class="panel-body">' + loading() + '</div></div>';
     try {
       var e = await API.getEmployee(employeeId);
-      el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Employee Detail</span>' +
+      el.innerHTML =
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Employee Detail</span>' +
         '<button class="btn sm" id="btn-close-detail">Close</button></div><div class="panel-body">' +
         '<div class="detail-grid"><div>' +
-          detailRow('Employee ID', e.employeeId) +
-          detailRow('Family ID', e.familyId) +
-          detailRow('Name', e.firstName + ' ' + e.lastName) +
-          detailRow('Date of Birth', e.dob) +
-          detailRow('Email', e.email || '--') +
-          detailRow('Mobile (PIN texted to)', e.mobile || '--') +
-          detailRow('Status', e.status) +
-          detailRow('Enrollment Code', e.tokenId || 'Not yet issued') +
-          detailRow('Added', e.createdAt) +
+        detailRow('Employee ID', e.employeeId) +
+        detailRow('Family ID', e.familyId) +
+        detailRow('Name', e.firstName + ' ' + e.lastName) +
+        detailRow('Date of Birth', e.dob) +
+        detailRow('Email', e.email || '--') +
+        detailRow('Mobile (PIN texted to)', e.mobile || '--') +
+        detailRow('Status', e.status) +
+        detailRow('Enrollment Code', e.tokenId || 'Not yet issued') +
+        detailRow('Added', e.createdAt) +
         '</div></div></div></div>';
-      document.getElementById('btn-close-detail').onclick = function() { el.style.display = 'none'; };
+      document.getElementById('btn-close-detail').onclick = function () {
+        el.style.display = 'none';
+      };
       el.scrollIntoView({ behavior: 'smooth' });
     } catch (e) {
       el.innerHTML = '<div class="error-banner">' + esc(e.message) + '</div>';
@@ -840,20 +1180,26 @@
   async function renderTokens() {
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Enrollment Codes</div>' +
-        '<div class="section-subtitle">Each employee needs TWO things to enroll: the enrollment code you send them, and the PIN the HR Tool texted to their phone.</div></div></div>' +
+      '<div class="section-subtitle">Each employee needs TWO things to enroll: the enrollment code you send them, and the PIN the HR Tool texted to their phone.</div></div></div>' +
       activeGroupBanner() +
       // A-109: no one at HR sees a PIN, and none can be shown again
       '<div class="info-banner warning">Send each enrollment code by portal, email or sealed letter. Each PIN was texted straight to the employee\'s phone; no one at HR sees it. If a text was lost, send a new invite: a fresh code and PIN replace the old ones. A new mobile number is told to the old one first. Both need your passphrase and are recorded in the audit log.</div>' +
       '<div class="two-col">' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel A: Enrollment Codes</span>' +
-          '<button class="btn sm primary" id="btn-export-codes">Download Codes CSV</button></div>' +
-          '<div class="panel-body no-pad" id="codes-table">' + loading() + '</div></div>' +
-        '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs, texted to each employee</span>' +
-          '<input type="password" id="action-passphrase" placeholder="Passphrase" style="max-width:220px"></div>' +
-          '<div class="panel-body no-pad" id="pins-table">' + loading() + '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Channel A: Enrollment Codes</span>' +
+      '<button class="btn sm primary" id="btn-export-codes">Download Codes CSV</button></div>' +
+      '<div class="panel-body no-pad" id="codes-table">' +
+      loading() +
+      '</div></div>' +
+      '<div class="panel"><div class="panel-header"><span class="panel-title">Channel B: PINs, texted to each employee</span>' +
+      '<input type="password" id="action-passphrase" placeholder="Passphrase" style="max-width:220px"></div>' +
+      '<div class="panel-body no-pad" id="pins-table">' +
+      loading() +
+      '</div></div>' +
       '</div>';
 
-    document.getElementById('btn-export-codes').onclick = function() { doExportCsv('codes'); };
+    document.getElementById('btn-export-codes').onclick = function () {
+      doExportCsv('codes');
+    };
     loadTokenTable();
   }
 
@@ -871,26 +1217,47 @@
         return;
       }
       // Channel A: Codes (for portal / sealed letter)
-      codesEl.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      codesEl.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Employee</th><th>Enrollment Code</th></tr></thead><tbody>' +
-        tokens.map(function(t) {
-          return '<tr><td>' + esc(t.displayName) + '</td>' +
-          '<td class="mono">' + esc(t.tokenId) + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+        tokens
+          .map(function (t) {
+            return '<tr><td>' + esc(t.displayName) + '</td>' + '<td class="mono">' + esc(t.tokenId) + '</td></tr>';
+          })
+          .join('') +
+        '</tbody></table></div>';
       // Channel B (A-109): the PINs went to the employees' phones. One row per employee: where its PIN went (the last four
       // digits), a new invite for a lost text, and a change of number.
       var listed = await API.listEmployees('token_generated');
       var mobileOf = {};
-      (listed.entries || []).forEach(function(e) { mobileOf[e.employeeIdHash] = e.mobile || ''; });
-      pinsEl.innerHTML = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      (listed.entries || []).forEach(function (e) {
+        mobileOf[e.employeeIdHash] = e.mobile || '';
+      });
+      pinsEl.innerHTML =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Employee</th><th>PIN texted to</th><th></th></tr></thead><tbody>' +
-        tokens.map(function(t) {
-          return '<tr><td>' + esc(t.displayName) + '</td>' +
-          '<td class="mono" id="mobile-' + esc(t.employeeIdHash) + '">' + esc(mobileOf[t.employeeIdHash] || 'no number') + '</td>' +
-          '<td><button class="btn sm" data-reissue="' + esc(t.employeeIdHash) + '">Send new invite</button> ' +
-          '<button class="btn sm" data-contact="' + esc(t.employeeIdHash) + '">Change mobile</button></td></tr>';
-        }).join('') + '</tbody></table></div>';
-      var passphraseOrSay = function() {
+        tokens
+          .map(function (t) {
+            return (
+              '<tr><td>' +
+              esc(t.displayName) +
+              '</td>' +
+              '<td class="mono" id="mobile-' +
+              esc(t.employeeIdHash) +
+              '">' +
+              esc(mobileOf[t.employeeIdHash] || 'no number') +
+              '</td>' +
+              '<td><button class="btn sm" data-reissue="' +
+              esc(t.employeeIdHash) +
+              '">Send new invite</button> ' +
+              '<button class="btn sm" data-contact="' +
+              esc(t.employeeIdHash) +
+              '">Change mobile</button></td></tr>'
+            );
+          })
+          .join('') +
+        '</tbody></table></div>';
+      var passphraseOrSay = function () {
         var pass = document.getElementById('action-passphrase').value;
         if (!pass) toast('Enter your passphrase first', 'error');
         return pass;
@@ -912,11 +1279,16 @@
         btn.onclick = async function () {
           var pass = passphraseOrSay();
           if (!pass) return;
-          var mobile = window.prompt('The employee\'s new mobile number. The old number is told of the change first.');
+          var mobile = window.prompt("The employee's new mobile number. The old number is told of the change first.");
           if (!mobile) return;
           try {
             var r = await API.changeMobile(btn.getAttribute('data-contact'), pass, mobile);
-            toast('Mobile changed to ' + r.mobile + (r.reissued ? '; a new invite\'s PIN was texted there. Send the employee the new code.' : '.'), 'success');
+            toast(
+              'Mobile changed to ' +
+                r.mobile +
+                (r.reissued ? "; a new invite's PIN was texted there. Send the employee the new code." : '.'),
+              'success',
+            );
             loadTokenTable();
           } catch (e) {
             toast(e.message || 'The number was not changed', 'error');
@@ -930,24 +1302,37 @@
   }
 
   function doExportCsv(type) {
-    API.exportTokens().then(function(data) {
-      var tokens = data.tokens || [];
-      if (tokens.length === 0) { toast('No codes to export', 'info'); return; }
-      var csv, filename;
-      // A7: PINs are never exported from here; they are shown once at import.
-      {
-        csv = 'Name,EnrollmentCode\n' + tokens.map(function(t) {
-          return csvEscape(t.displayName) + ',' + csvEscape(t.tokenId);
-        }).join('\n');
-        filename = 'enrollment-codes.csv';
-      }
-      var blob = new Blob([csv], { type: 'text/csv' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      toast('CSV downloaded — distribute codes via portal or sealed letter', 'info');
-    }).catch(function(e) { toast('Export failed: ' + e.message, 'error'); });
+    API.exportTokens()
+      .then(function (data) {
+        var tokens = data.tokens || [];
+        if (tokens.length === 0) {
+          toast('No codes to export', 'info');
+          return;
+        }
+        var csv, filename;
+        // A7: PINs are never exported from here; they are shown once at import.
+        {
+          csv =
+            'Name,EnrollmentCode\n' +
+            tokens
+              .map(function (t) {
+                return csvEscape(t.displayName) + ',' + csvEscape(t.tokenId);
+              })
+              .join('\n');
+          filename = 'enrollment-codes.csv';
+        }
+        var blob = new Blob([csv], { type: 'text/csv' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast('CSV downloaded — distribute codes via portal or sealed letter', 'info');
+      })
+      .catch(function (e) {
+        toast('Export failed: ' + e.message, 'error');
+      });
   }
 
   // ════════════════════════════════════════════════════════════
@@ -957,12 +1342,12 @@
   async function renderReconcile() {
     app.innerHTML =
       '<div class="section-header"><div><div class="section-title">Enrollment Check</div>' +
-        '<div class="section-subtitle">Compare your employee list with the enrollment system to find discrepancies.</div></div></div>' +
+      '<div class="section-subtitle">Compare your employee list with the enrollment system to find discrepancies.</div></div></div>' +
       activeGroupBanner() +
       '<div class="info-banner info">This compares every employee individually — not just counts. It will detect if someone was enrolled who shouldn\'t be, or if an employee is missing from the system.</div>' +
       '<div class="panel"><div class="panel-body" style="text-align:center;padding:32px">' +
-        '<p style="margin-bottom:16px;color:var(--text-secondary)">This will connect to the employer node and compare enrollment records.</p>' +
-        '<button class="btn primary" id="btn-reconcile">Run Enrollment Check</button>' +
+      '<p style="margin-bottom:16px;color:var(--text-secondary)">This will connect to the employer node and compare enrollment records.</p>' +
+      '<button class="btn primary" id="btn-reconcile">Run Enrollment Check</button>' +
       '</div></div>' +
       '<div id="recon-results" style="display:none"></div>';
 
@@ -982,40 +1367,66 @@
       var unknownDetail = r.unknownOnNodeDetail || [];
       var mismatchDetail = r.statusMismatchDetail || r.statusMismatches || [];
 
-      el.innerHTML = '<div class="panel"><div class="panel-header"><span class="panel-title">Enrollment Check Report</span></div><div class="panel-body">' +
+      el.innerHTML =
+        '<div class="panel"><div class="panel-header"><span class="panel-title">Enrollment Check Report</span></div><div class="panel-body">' +
         '<div class="stats-grid">' +
-          statCard('Your Employees', r.totalLocal, '') +
-          statCard('On System', r.totalNode, '') +
-          statCard('Matched', r.matched, 'green') +
-          statCard('Status Synced', r.synced || 0, r.synced > 0 ? 'blue' : '') +
+        statCard('Your Employees', r.totalLocal, '') +
+        statCard('On System', r.totalNode, '') +
+        statCard('Matched', r.matched, 'green') +
+        statCard('Status Synced', r.synced || 0, r.synced > 0 ? 'blue' : '') +
         '</div>' +
-
-        (allOk ?
-          '<div class="success-banner" style="margin-top:16px">All employees match. No discrepancies found.</div>' :
-          '<div style="margin-top:20px">' +
-            (missingDetail.length > 0 ?
-              '<div class="recon-section"><div class="recon-section-title recon-warn">' + esc(missingDetail.length) + ' employees not yet in the enrollment system</div>' +
-              '<table class="data-table"><thead><tr><th>Name</th><th>Employee ID</th></tr></thead><tbody>' +
-              missingDetail.map(function(d) {
-                return '<tr><td>' + esc(d.name) + '</td><td class="mono">' + esc(d.employeeId || truncHash(d.hash, 16)) + '</td></tr>';
-              }).join('') + '</tbody></table></div>' : '') +
-            (unknownDetail.length > 0 ?
-              '<div class="recon-section"><div class="recon-section-title recon-danger">' + esc(unknownDetail.length) + ' unknown entries found in enrollment system</div>' +
-              '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">These entries exist on the employer node but are not in your roster. This could indicate unauthorized enrollment.</p>' +
-              unknownDetail.map(function(d) {
-                return '<div style="padding:2px 0;font-size:12px;font-family:var(--font-mono)">' + esc(truncHash(d.hash, 24)) + '</div>';
-              }).join('') + '</div>' : '') +
-            (mismatchDetail.length > 0 ?
-              '<div class="recon-section"><div class="recon-section-title recon-warn">' + esc(mismatchDetail.length) + ' status differences</div>' +
-              '<table class="data-table"><thead><tr><th>Employee</th><th>Your Records</th><th>System Status</th></tr></thead><tbody>' +
-              mismatchDetail.map(function(m) {
-                return '<tr><td>' + esc(m.name || m.employeeId || truncHash(m.employeeIdHash, 16)) + '</td>' +
-                '<td>' + badgeHtml(m.localStatus) + '</td>' +
-                '<td><span class="badge blue">' + esc(m.nodeStatus) + '</span></td></tr>';
-              }).join('') + '</tbody></table></div>' : '') +
-          '</div>'
-        ) +
-
+        (allOk
+          ? '<div class="success-banner" style="margin-top:16px">All employees match. No discrepancies found.</div>'
+          : '<div style="margin-top:20px">' +
+            (missingDetail.length > 0
+              ? '<div class="recon-section"><div class="recon-section-title recon-warn">' +
+                esc(missingDetail.length) +
+                ' employees not yet in the enrollment system</div>' +
+                '<table class="data-table"><thead><tr><th>Name</th><th>Employee ID</th></tr></thead><tbody>' +
+                missingDetail
+                  .map(function (d) {
+                    return '<tr><td>' + esc(d.name) + '</td><td class="mono">' + esc(d.employeeId || truncHash(d.hash, 16)) + '</td></tr>';
+                  })
+                  .join('') +
+                '</tbody></table></div>'
+              : '') +
+            (unknownDetail.length > 0
+              ? '<div class="recon-section"><div class="recon-section-title recon-danger">' +
+                esc(unknownDetail.length) +
+                ' unknown entries found in enrollment system</div>' +
+                '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">These entries exist on the employer node but are not in your roster. This could indicate unauthorized enrollment.</p>' +
+                unknownDetail
+                  .map(function (d) {
+                    return (
+                      '<div style="padding:2px 0;font-size:12px;font-family:var(--font-mono)">' + esc(truncHash(d.hash, 24)) + '</div>'
+                    );
+                  })
+                  .join('') +
+                '</div>'
+              : '') +
+            (mismatchDetail.length > 0
+              ? '<div class="recon-section"><div class="recon-section-title recon-warn">' +
+                esc(mismatchDetail.length) +
+                ' status differences</div>' +
+                '<table class="data-table"><thead><tr><th>Employee</th><th>Your Records</th><th>System Status</th></tr></thead><tbody>' +
+                mismatchDetail
+                  .map(function (m) {
+                    return (
+                      '<tr><td>' +
+                      esc(m.name || m.employeeId || truncHash(m.employeeIdHash, 16)) +
+                      '</td>' +
+                      '<td>' +
+                      badgeHtml(m.localStatus) +
+                      '</td>' +
+                      '<td><span class="badge blue">' +
+                      esc(m.nodeStatus) +
+                      '</span></td></tr>'
+                    );
+                  })
+                  .join('') +
+                '</tbody></table></div>'
+              : '') +
+            '</div>') +
         '</div></div>';
 
       toast(allOk ? 'All employees verified' : 'Enrollment check complete — see report', allOk ? 'success' : 'info');
@@ -1031,52 +1442,58 @@
 
   async function renderSettings() {
     var session;
-    try { session = await API.getSession(); } catch { session = { workspaceActive: false }; }
+    try {
+      session = await API.getSession();
+    } catch {
+      session = { workspaceActive: false };
+    }
 
     app.innerHTML =
       '<div class="section-header"><div class="section-title">Settings</div></div>' +
       activeGroupBanner() +
       '<div class="settings-section"><h3>Workspace</h3>' +
-        '<div class="panel"><div class="panel-body">' +
-          '<div class="detail-grid"><div>' +
-            detailRow('Employer Node', session.employerNodeUrl || 'None') +
-            detailRow('Active Group', session.groupSelected ? session.groupId : '(none selected)') +
-            detailRow('Plan (current group)', session.planId || '--') +
-            detailRow('Employees (current group)', String(session.entryCount || 0)) +
-            detailRow('Auth Mode', session.authMode || 'none') +
-          '</div></div>' +
-          '<div class="info-banner info" style="margin-top:12px">Your session will automatically lock after 15 minutes of inactivity.</div>' +
-          '<div class="form-actions" style="margin-top:16px;gap:8px">' +
-            '<button class="btn" data-goto="groups">Switch Group</button>' +
-            '<button class="btn danger" id="btn-lock">Lock Workspace</button>' +
-          '</div>' +
-        '</div></div></div>' +
-
+      '<div class="panel"><div class="panel-body">' +
+      '<div class="detail-grid"><div>' +
+      detailRow('Employer Node', session.employerNodeUrl || 'None') +
+      detailRow('Active Group', session.groupSelected ? session.groupId : '(none selected)') +
+      detailRow('Plan (current group)', session.planId || '--') +
+      detailRow('Employees (current group)', String(session.entryCount || 0)) +
+      detailRow('Auth Mode', session.authMode || 'none') +
+      '</div></div>' +
+      '<div class="info-banner info" style="margin-top:12px">Your session will automatically lock after 15 minutes of inactivity.</div>' +
+      '<div class="form-actions" style="margin-top:16px;gap:8px">' +
+      '<button class="btn" data-goto="groups">Switch Group</button>' +
+      '<button class="btn danger" id="btn-lock">Lock Workspace</button>' +
+      '</div>' +
+      '</div></div></div>' +
       '<div class="settings-section"><h3>Employer Node</h3>' +
-        '<div class="panel"><div class="panel-body" id="settings-node">' + loading() + '</div></div></div>' +
-
+      '<div class="panel"><div class="panel-body" id="settings-node">' +
+      loading() +
+      '</div></div></div>' +
       '<div class="settings-section"><h3>How It Works</h3>' +
-        '<div class="panel"><div class="panel-body">' +
-          '<div class="info-banner security" style="margin-bottom:12px">' +
-            'This tool keeps all employee names and personal data encrypted on your computer. ' +
-            'When you import a roster, each employee gets a unique anonymous identifier (like a fingerprint ' +
-            'that can\'t be reversed). Only these identifiers are sent to the enrollment system. ' +
-            'If you lose your passphrase, the connection between identifiers and employee names ' +
-            'cannot be recovered.' +
-          '</div>' +
-          '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6">' +
-            '<strong>Groups are managed in the Employer Dashboard.</strong> This HR Tool is a secure workstation for importing employees ' +
-            'into groups that already exist. To create a new group, open the Employer Dashboard, go to the Groups tab, and create it there. ' +
-            'Then come back here and click Refresh on the Groups tab to see the new group.' +
-          '</div>' +
-        '</div></div></div>';
+      '<div class="panel"><div class="panel-body">' +
+      '<div class="info-banner security" style="margin-bottom:12px">' +
+      'This tool keeps all employee names and personal data encrypted on your computer. ' +
+      'When you import a roster, each employee gets a unique anonymous identifier (like a fingerprint ' +
+      "that can't be reversed). Only these identifiers are sent to the enrollment system. " +
+      'If you lose your passphrase, the connection between identifiers and employee names ' +
+      'cannot be recovered.' +
+      '</div>' +
+      '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6">' +
+      '<strong>Groups are managed in the Employer Dashboard.</strong> This HR Tool is a secure workstation for importing employees ' +
+      'into groups that already exist. To create a new group, open the Employer Dashboard, go to the Groups tab, and create it there. ' +
+      'Then come back here and click Refresh on the Groups tab to see the new group.' +
+      '</div>' +
+      '</div></div></div>';
 
-    document.getElementById('btn-lock').onclick = async function() {
+    document.getElementById('btn-lock').onclick = async function () {
       try {
         await API.lock();
         toast('Workspace locked', 'info');
         showLockScreen();
-      } catch (e) { toast('Lock failed: ' + e.message, 'error'); }
+      } catch (e) {
+        toast('Lock failed: ' + e.message, 'error');
+      }
     };
 
     loadSettingsNode();
@@ -1089,7 +1506,8 @@
       var data = await API.employerHealth();
       if (data.online) {
         var info = data.data || {};
-        el.innerHTML = '<div class="detail-grid"><div>' +
+        el.innerHTML =
+          '<div class="detail-grid"><div>' +
           detailRow('Status', 'Online') +
           detailRow('Role', info.role || '--') +
           detailRow('Phase', info.phase || '--') +
@@ -1128,7 +1546,9 @@
         }
         return;
       }
-    } catch { /* no session */ }
+    } catch {
+      /* no session */
+    }
     // Fall through to showing the unlock overlay (default HTML state).
   }
 

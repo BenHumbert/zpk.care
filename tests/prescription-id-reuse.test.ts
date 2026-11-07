@@ -39,7 +39,15 @@ const OPERATOR = 'operator-token-for-tests';
 const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
 
 /** A prescription already written and dispensed once, with a refill used. */
-const written = () => ({ id: 'RX-A', memberWalletId: '1', quantity: 30, quantityDispensed: 30, refills: 2, refillsUsed: 1, status: 'DISPENSED' });
+const written = () => ({
+  id: 'RX-A',
+  memberWalletId: '1',
+  quantity: 30,
+  quantityDispensed: 30,
+  refills: 2,
+  refillsUsed: 1,
+  status: 'DISPENSED',
+});
 
 /** The real engine code over a bare object: one written prescription, one still being proved, nothing else. */
 function bareEngine(): any {
@@ -50,9 +58,17 @@ function bareEngine(): any {
   return e;
 }
 
-const req = (rxId?: unknown) => ({ prescriberIndex: 0, memberWalletId: '1', ndcHash: '1', pharmacyIndex: 0, quantity: 30, refills: 0, rxId });
+const req = (rxId?: unknown) => ({
+  prescriberIndex: 0,
+  memberWalletId: '1',
+  ndcHash: '1',
+  pharmacyIndex: 0,
+  quantity: 30,
+  refills: 0,
+  rxId,
+});
 
-describe('createPrescription and a caller\'s rxId', () => {
+describe("createPrescription and a caller's rxId", () => {
   test('refuses an ID already written and leaves the record as it was', async () => {
     const e = bareEngine();
     await expect(e.createPrescription(req('RX-A'))).rejects.toMatchObject({ name: 'RegistrationRefused', status: 409 });
@@ -76,7 +92,9 @@ describe('createPrescription and a caller\'s rxId', () => {
     // These still fail further on, on the missing infrastructure of the bare engine; what matters is that the
     // ID gate does not refuse them. The two shapes are the harness's and the prescriber node's.
     for (const id of [undefined, '', 'RX-MZ4K2Q1-1', 'RX-1760800000000-ab3f']) {
-      const err = await bareEngine().createPrescription(req(id)).catch((x: unknown) => x);
+      const err = await bareEngine()
+        .createPrescription(req(id))
+        .catch((x: unknown) => x);
       expect(err).toBeInstanceOf(Error);
       expect(err).not.toBeInstanceOf(RegistrationRefused);
     }
@@ -88,10 +106,15 @@ describe('createPrescription and a caller\'s rxId', () => {
     e.rxCounter = 6;
     const seen: string[] = [];
     class SeenMap extends Map<string, unknown> {
-      set(key: string, value: unknown): this { seen.push(key); return super.set(key, value); }
+      set(key: string, value: unknown): this {
+        seen.push(key);
+        return super.set(key, value);
+      }
     }
     e.pendingPrescriptions = new SeenMap();
-    e.medByNdcHash = new Map([['1', { brandName: 'X', deaSchedule: 0, formularyEntry: { requiresPriorAuth: false, stepTherapyRequired: false } }]]);
+    e.medByNdcHash = new Map([
+      ['1', { brandName: 'X', deaSchedule: 0, formularyEntry: { requiresPriorAuth: false, stepTherapyRequired: false } }],
+    ]);
     // a fixture member (memberIndex >= 0), eligible on the ledger, so it reaches the pending entry
     e.enrolledMembers = new Map([['1', { memberIndex: 0, walletId: Field(1), lifecycle: 'ELIGIBLE', displayName: 'Fixture' }]]);
     e.l2Node = { getSequencer: () => ({ lifecycleStateOf: () => ({ state: 2, name: 'eligible' }) }) };
@@ -102,8 +125,15 @@ describe('createPrescription and a caller\'s rxId', () => {
     e.checkStepTherapy = () => ({ allowed: true, message: '' });
     e.checkDeaSchedule = () => ({ allowed: true, warnings: [] });
     // Plan-bound formularies: the drug's entry in the member's formulary (the bare engine has no formulary registry)
-    e.formularyEntryFor = () => ({ registry: {}, leafIndex: 0n, entry: { requiresPriorAuth: Field(0), stepTherapyRequired: Field(0) }, copayAmountCents: 1000 });
-    e.dispatchProof = async () => { throw new Error('stop after the pending entry'); };
+    e.formularyEntryFor = () => ({
+      registry: {},
+      leafIndex: 0n,
+      entry: { requiresPriorAuth: Field(0), stepTherapyRequired: Field(0) },
+      copayAmountCents: 1000,
+    });
+    e.dispatchProof = async () => {
+      throw new Error('stop after the pending entry');
+    };
 
     await expect(e.createPrescription(req())).rejects.toThrow('stop after the pending entry');
     expect(seen).toEqual(['RX-0008']);
@@ -118,7 +148,13 @@ describe('POST /interactive/prescribe', () => {
   let engine: any;
 
   beforeAll(async () => {
-    const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-rx-id-reuse' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const node = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-rx-id-reuse' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
     engine = bareEngine();
     engine.l2Node = { withProvingLock: (fn: () => Promise<unknown>) => fn() };
@@ -128,7 +164,9 @@ describe('POST /interactive/prescribe', () => {
     url = `http://127.0.0.1:${server.getPort()}`;
   });
 
-  afterAll(async () => { await server.stop(); });
+  afterAll(async () => {
+    await server.stop();
+  });
 
   test('answers a reused ID with 409', async () => {
     const r = await fetch(`${url}/interactive/prescribe`, {

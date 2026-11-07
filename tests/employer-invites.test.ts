@@ -63,11 +63,11 @@ describe('the node keeps a fingerprint of each code, never the code', () => {
     const fingerprint = hashString(code).toString();
     const row = node.getRosterEntry('emp-1') as unknown as Record<string, unknown>;
     expect(row.tokenIdHash).toBe(fingerprint);
-    expect('tokenId' in row).toBe(false);                                  // before: the code itself
+    expect('tokenId' in row).toBe(false); // before: the code itself
     expect(JSON.stringify(node.listRoster())).not.toContain(code);
     const record = node.getTokenRecord(code) as unknown as Record<string, unknown>;
     expect(record.tokenIdHash).toBe(fingerprint);
-    expect('tokenId' in record).toBe(false);                               // before: the code itself
+    expect('tokenId' in record).toBe(false); // before: the code itself
     expect(JSON.stringify({ ...record, token: undefined })).not.toContain(code);
     expect(redeem(node, code)).toMatchObject({ valid: true, consumed: true });
     expect(node.getRosterEntry('emp-1')!.status).toBe('enrolled');
@@ -79,9 +79,9 @@ describe('an invite follows its roster entry (A-135)', () => {
     const node = freshNode();
     const code = issue(node, 'emp-2');
     node.terminateRosterEntry('emp-2');
-    expect(node.getTokenRecord(code)!.status).toBe('revoked');            // before: 'unused'
-    expect(redeem(node, code).valid).toBe(false);                         // before: redeemed
-    expect(node.getRosterEntry('emp-2')!.status).toBe('terminated');      // before: 'enrolled' again
+    expect(node.getTokenRecord(code)!.status).toBe('revoked'); // before: 'unused'
+    expect(redeem(node, code).valid).toBe(false); // before: redeemed
+    expect(node.getRosterEntry('emp-2')!.status).toBe('terminated'); // before: 'enrolled' again
     expect(node.getGroup('G1')!.enrolledCount).toBe(0);
   });
 
@@ -89,7 +89,7 @@ describe('an invite follows its roster entry (A-135)', () => {
     const node = freshNode();
     const first = issue(node, 'emp-3');
     const second = issue(node, 'emp-3');
-    expect(node.getTokenRecord(first)!.status).toBe('revoked');           // before: 'unused', a second working invite
+    expect(node.getTokenRecord(first)!.status).toBe('revoked'); // before: 'unused', a second working invite
     expect(redeem(node, first).valid).toBe(false);
     expect(redeem(node, second)).toMatchObject({ valid: true, consumed: true });
     expect(node.listRoster().filter((e) => e.employeeIdHash === 'emp-3')).toHaveLength(1);
@@ -98,7 +98,7 @@ describe('an invite follows its roster entry (A-135)', () => {
   test('an employee who has enrolled is not issued a second invite', () => {
     const node = freshNode();
     expect(redeem(node, issue(node, 'emp-4')).valid).toBe(true);
-    expect(() => issue(node, 'emp-4')).toThrow(/already enrolled/);       // before: a second invite, a second wallet
+    expect(() => issue(node, 'emp-4')).toThrow(/already enrolled/); // before: a second invite, a second wallet
     expect(node.getRosterEntry('emp-4')!.status).toBe('enrolled');
     expect(node.getGroup('G1')!.enrolledCount).toBe(1);
   });
@@ -113,12 +113,12 @@ describe('an invite follows its roster entry (A-135)', () => {
     expect(node.getRosterEntry('emp-5')!.status).toBe('enrolled');
   });
 
-  test('a redemption that crosses the employee\'s removal is refused, and the invite withdrawn', () => {
+  test("a redemption that crosses the employee's removal is refused, and the invite withdrawn", () => {
     const node = freshNode();
     const code = issue(node, 'emp-6');
-    node.getRosterEntry('emp-6')!.status = 'terminated';                  // the removal landed first, as if they crossed
+    node.getRosterEntry('emp-6')!.status = 'terminated'; // the removal landed first, as if they crossed
     const verdict = redeem(node, code);
-    expect(verdict.valid).toBe(false);                                     // before: redeemed, and the row enrolled again
+    expect(verdict.valid).toBe(false); // before: redeemed, and the row enrolled again
     expect(verdict.reason).toMatch(/no longer on the employer's roster/);
     expect(node.getTokenRecord(code)!.status).toBe('revoked');
     expect(node.getRosterEntry('emp-6')!.status).toBe('terminated');
@@ -147,21 +147,21 @@ describe('an invite lasts at most 14 days (A-138)', () => {
 
   test('the node issues no invite beyond the limit', () => {
     const node = freshNode();
-    expect(() => node.generateToken('G1', 'emp-7', 'fam-7', inDays(15))).toThrow(/at most 14 days/);   // before: issued
+    expect(() => node.generateToken('G1', 'emp-7', 'fam-7', inDays(15))).toThrow(/at most 14 days/); // before: issued
     expect(() => node.generateToken('G1', 'emp-7', 'fam-7', '20271231')).toThrow(/at most 14 days/);
     expect(node.getRosterEntry('emp-7')).toBeUndefined();
     expect(() => node.generateToken('G1', 'emp-7', 'fam-7', iso(inDays(14)))).not.toThrow();
   });
 });
 
-describe('the roster says what became of each invite, for the HR Tool\'s notices (A-109)', () => {
+describe("the roster says what became of each invite, for the HR Tool's notices (A-109)", () => {
   const inviteOf = (node: EmployerNode, employeeIdHash: string) =>
     (node.listRoster().find((e) => e.employeeIdHash === employeeIdHash) as unknown as { inviteStatus?: string }).inviteStatus;
 
   test('unused, then consumed once redeemed', () => {
     const node = freshNode();
     const code = issue(node, 'emp-8');
-    expect(inviteOf(node, 'emp-8')).toBe('unused');                       // before: no such column
+    expect(inviteOf(node, 'emp-8')).toBe('unused'); // before: no such column
     redeem(node, code);
     expect(inviteOf(node, 'emp-8')).toBe('consumed');
   });
@@ -171,7 +171,7 @@ describe('the roster says what became of each invite, for the HR Tool\'s notices
     const code = issue(node, 'emp-9');
     for (let i = 0; i < 5; i++) expect(redeem(node, code, '00000000').valid).toBe(false);
     expect(inviteOf(node, 'emp-9')).toBe('locked');
-    expect(redeem(node, code).valid).toBe(false);                         // the right PIN no longer opens it
+    expect(redeem(node, code).valid).toBe(false); // the right PIN no longer opens it
     expect(inviteOf(node, 'emp-9')).toBe('locked');
   });
 
@@ -181,7 +181,7 @@ describe('the roster says what became of each invite, for the HR Tool\'s notices
     node.terminateRosterEntry('emp-10');
     expect(inviteOf(node, 'emp-10')).toBe('revoked');
     const code = issue(node, 'emp-11');
-    node.getTokenRecord(code)!.validUntil = inDays(-1);                  // as if two weeks went by
+    node.getTokenRecord(code)!.validUntil = inDays(-1); // as if two weeks went by
     expect(inviteOf(node, 'emp-11')).toBe('expired');
   });
 

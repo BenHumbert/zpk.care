@@ -100,11 +100,7 @@ function walletForPartition(partitionIndex: number, partitionCount: number): str
 }
 
 /** Create a mock L2Receipt for a given partition */
-function mockReceipt(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): L2Receipt {
+function mockReceipt(seqNum: bigint, partitionIndex: number, partitionCount: number): L2Receipt {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     receiptId: `l2-p${partitionIndex}-${seqNum.toString().padStart(8, '0')}`,
@@ -121,11 +117,7 @@ function mockReceipt(
 }
 
 /** Create a mock AuditEvent */
-function mockAuditEvent(
-  seqNum: bigint,
-  partitionIndex: number,
-  partitionCount: number,
-): AuditEvent {
+function mockAuditEvent(seqNum: bigint, partitionIndex: number, partitionCount: number): AuditEvent {
   const walletId = walletForPartition(partitionIndex, partitionCount);
   return {
     sequenceNumber: seqNum,
@@ -157,14 +149,7 @@ function injectReceipts(
     const seqNum = startSeq + BigInt(i);
     const receipt = mockReceipt(seqNum, partitionIndex, partitionCount);
     const auditEvent = mockAuditEvent(seqNum, partitionIndex, partitionCount);
-    seq.applyReplicatedReceipt(
-      receipt,
-      auditEvent,
-      undefined,
-      INITIAL_REG_ROOT.toString(),
-      INITIAL_LC_ROOT.toString(),
-      '0',
-    );
+    seq.applyReplicatedReceipt(receipt, auditEvent, undefined, INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
     receipts.push(receipt);
   }
   return receipts;
@@ -263,11 +248,7 @@ class GossipRouter {
 }
 
 /** Build a valid leader:heartbeat GossipMessage */
-function buildHeartbeatMsg(
-  nodeId: string,
-  partitions: number[],
-  partitionSequences: Record<number, string> = {},
-): GossipMessage {
+function buildHeartbeatMsg(nodeId: string, partitions: number[], partitionSequences: Record<number, string> = {}): GossipMessage {
   const now = Date.now();
   const payload: LeaderHeartbeatPayload = {
     nodeId,
@@ -320,18 +301,9 @@ describe('Leviathan Failover — Unit Tests', () => {
   test('12-R01: spins up 3 leviathans with independent failover chains', () => {
     const nodeIds = ['lev-0', 'lev-1', 'lev-2'];
 
-    const lev0 = createLeviathan(
-      makeConfig(3, 0, nodeIds),
-      { nodeId: 'lev-0' },
-    );
-    const lev1 = createLeviathan(
-      makeConfig(3, 1, nodeIds),
-      { nodeId: 'lev-1' },
-    );
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds),
-      { nodeId: 'lev-2' },
-    );
+    const lev0 = createLeviathan(makeConfig(3, 0, nodeIds), { nodeId: 'lev-0' });
+    const lev1 = createLeviathan(makeConfig(3, 1, nodeIds), { nodeId: 'lev-1' });
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds), { nodeId: 'lev-2' });
 
     // Each leviathan leads ONLY its primary partition
     expect(lev0.isLeaderFor(0)).toBe(true);
@@ -360,10 +332,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 
   // 12-R03: Heartbeat payload structure
   test('12-R03: heartbeat payload contains nodeId, partitions, partitionSequences, timestamp', () => {
-    const lev = createLeviathan(
-      makeConfig(3, 0, ['lev-test', 'lev-1', 'lev-2']),
-      { nodeId: 'lev-test' },
-    );
+    const lev = createLeviathan(makeConfig(3, 0, ['lev-test', 'lev-1', 'lev-2']), { nodeId: 'lev-test' });
 
     // Inject mock peer network so broadcastHeartbeat doesn't early-return
     const mock = new MockPeerNetwork();
@@ -389,10 +358,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 
   // 12-R06: Promotion broadcasts gossip with correct metadata
   test('12-R06: promotion broadcasts leader:promotion gossip with correct metadata', () => {
-    const lev = createLeviathan(
-      makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']),
-      { nodeId: 'lev-1' },
-    );
+    const lev = createLeviathan(makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']), { nodeId: 'lev-1' });
 
     const mock = new MockPeerNetwork();
     (lev as any).peerNetwork = mock;
@@ -417,10 +383,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 
   // 12-R07: Promoted node accepts proofs and batches for orphaned partition
   test('12-R07: promoted node accepts proofs and batches for orphaned partition', async () => {
-    const lev = createLeviathan(
-      makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']),
-      { nodeId: 'lev-1' },
-    );
+    const lev = createLeviathan(makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']), { nodeId: 'lev-1' });
     lev.start();
 
     try {
@@ -465,14 +428,8 @@ describe('Leviathan Failover — Unit Tests', () => {
 
     // Failover chain for partition 1: ['lev-1', 'lev-2', 'lev-0']
     // lev-2 is index 1 (higher priority), lev-0 is index 2 (lower priority)
-    const lev0 = createLeviathan(
-      makeConfig(3, 0, nodeIds),
-      { nodeId: 'lev-0' },
-    );
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds),
-      { nodeId: 'lev-2' },
-    );
+    const lev0 = createLeviathan(makeConfig(3, 0, nodeIds), { nodeId: 'lev-0' });
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds), { nodeId: 'lev-2' });
 
     // Both promote for partition 1 (lev-1 died)
     lev0.promoteToLeader(1, 'lev-1');
@@ -502,10 +459,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 
     // lev-2 promotes for partition 0 (lev-0 died)
     // Failover chain for partition 0: ['lev-0', 'lev-1', 'lev-2']
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds),
-      { nodeId: 'lev-2' },
-    );
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds), { nodeId: 'lev-2' });
 
     lev2.promoteToLeader(0, 'lev-0');
     expect(lev2.isLeaderFor(0)).toBe(true);
@@ -526,19 +480,14 @@ describe('Leviathan Failover — Unit Tests', () => {
     expect(leaderMap.get(0)?.currentLeader).toBe('lev-0');
 
     // Verify demotion event emitted
-    const demotionEvent = events.find(
-      (e) => e.data?.action === 'leader_demotion' && e.data?.partitionIndex === 0,
-    );
+    const demotionEvent = events.find((e) => e.data?.action === 'leader_demotion' && e.data?.partitionIndex === 0);
     expect(demotionEvent).toBeDefined();
     expect(demotionEvent.data.newLeader).toBe('lev-0');
   });
 
   // 12-R10: Batch timer starts on promotion, stops on demotion
   test('12-R10: batch timer starts on promotion, stops on demotion', async () => {
-    const lev = createLeviathan(
-      makeConfig(3, 0, ['lev-0', 'lev-1', 'lev-2']),
-      { nodeId: 'lev-0' },
-    );
+    const lev = createLeviathan(makeConfig(3, 0, ['lev-0', 'lev-1', 'lev-2']), { nodeId: 'lev-0' });
     lev.start();
 
     try {
@@ -566,10 +515,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 
   // 12-R12: lastHeartbeatAt updates on each heartbeat receipt
   test('12-R12: lastHeartbeatAt updates on each heartbeat receipt', async () => {
-    const lev = createLeviathan(
-      makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']),
-      { nodeId: 'lev-1' },
-    );
+    const lev = createLeviathan(makeConfig(3, 1, ['lev-0', 'lev-1', 'lev-2']), { nodeId: 'lev-1' });
 
     const leaderMap = (lev as any).leaderMap as Map<number, any>;
 
@@ -601,10 +547,7 @@ describe('Leviathan Failover — Unit Tests', () => {
 describe('Leviathan Failover — Integration Tests', () => {
   // 12-R02: Heartbeat broadcast at configured intervals
   test('12-R02: broadcasts leader:heartbeat at configured intervals', async () => {
-    const lev = createLeviathan(
-      makeConfig(3, 0, ['lev-0', 'lev-1', 'lev-2'], 100, 300),
-      { nodeId: 'lev-0' },
-    );
+    const lev = createLeviathan(makeConfig(3, 0, ['lev-0', 'lev-1', 'lev-2'], 100, 300), { nodeId: 'lev-0' });
 
     const mock = new MockPeerNetwork();
     (lev as any).peerNetwork = mock;
@@ -637,18 +580,9 @@ describe('Leviathan Failover — Integration Tests', () => {
     const HB_INTERVAL = 100;
     const HB_TIMEOUT = 300;
 
-    const lev0 = createLeviathan(
-      makeConfig(3, 0, nodeIds, HB_INTERVAL, HB_TIMEOUT),
-      { nodeId: 'lev-0' },
-    );
-    const lev1 = createLeviathan(
-      makeConfig(3, 1, nodeIds, HB_INTERVAL, HB_TIMEOUT),
-      { nodeId: 'lev-1' },
-    );
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds, HB_INTERVAL, HB_TIMEOUT),
-      { nodeId: 'lev-2' },
-    );
+    const lev0 = createLeviathan(makeConfig(3, 0, nodeIds, HB_INTERVAL, HB_TIMEOUT), { nodeId: 'lev-0' });
+    const lev1 = createLeviathan(makeConfig(3, 1, nodeIds, HB_INTERVAL, HB_TIMEOUT), { nodeId: 'lev-1' });
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds, HB_INTERVAL, HB_TIMEOUT), { nodeId: 'lev-2' });
 
     const router = new GossipRouter();
     const mock0 = new MockPeerNetwork();
@@ -707,10 +641,7 @@ describe('Leviathan Failover — Integration Tests', () => {
 
     // Create lev-2 (primary=2), test failover for partition 0
     // Chain for partition 0: ['lev-0', 'lev-1', 'lev-2']
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds, 100, 300),
-      { nodeId: 'lev-2' },
-    );
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds, 100, 300), { nodeId: 'lev-2' });
 
     const leaderMap = (lev2 as any).leaderMap as Map<number, any>;
     const now = Date.now();
@@ -730,10 +661,7 @@ describe('Leviathan Failover — Integration Tests', () => {
 
     // ── Second scenario: if lev-1 IS alive, lev-2 should NOT promote ──
 
-    const lev2b = createLeviathan(
-      makeConfig(3, 2, nodeIds, 100, 300),
-      { nodeId: 'lev-2' },
-    );
+    const lev2b = createLeviathan(makeConfig(3, 2, nodeIds, 100, 300), { nodeId: 'lev-2' });
 
     const leaderMap2 = (lev2b as any).leaderMap as Map<number, any>;
     const now2 = Date.now();
@@ -756,14 +684,8 @@ describe('Leviathan Failover — Integration Tests', () => {
     const HB_INTERVAL = 100;
     const HB_TIMEOUT = 300;
 
-    const lev1 = createLeviathan(
-      makeConfig(3, 1, nodeIds, HB_INTERVAL, HB_TIMEOUT),
-      { nodeId: 'lev-1' },
-    );
-    const lev2 = createLeviathan(
-      makeConfig(3, 2, nodeIds, HB_INTERVAL, HB_TIMEOUT),
-      { nodeId: 'lev-2' },
-    );
+    const lev1 = createLeviathan(makeConfig(3, 1, nodeIds, HB_INTERVAL, HB_TIMEOUT), { nodeId: 'lev-1' });
+    const lev2 = createLeviathan(makeConfig(3, 2, nodeIds, HB_INTERVAL, HB_TIMEOUT), { nodeId: 'lev-2' });
 
     // Inject 3 receipts into lev-1's partition 1 sequencer
     const originalReceipts = injectReceipts(lev1, 1, 3, 3, 1n);
@@ -776,14 +698,7 @@ describe('Leviathan Failover — Integration Tests', () => {
       const seqNum = 1n + BigInt(i);
       const receipt = mockReceipt(seqNum, 1, 3);
       const auditEvent = mockAuditEvent(seqNum, 1, 3);
-      seq2.applyReplicatedReceipt(
-        receipt,
-        auditEvent,
-        undefined,
-        INITIAL_REG_ROOT.toString(),
-        INITIAL_LC_ROOT.toString(),
-        '0',
-      );
+      seq2.applyReplicatedReceipt(receipt, auditEvent, undefined, INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
     }
 
     // Verify lev-2 has 3 receipts on partition 1

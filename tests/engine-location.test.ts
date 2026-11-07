@@ -34,7 +34,14 @@ function importSpecifiers(file: string): string[] {
 }
 
 describe('engine location (B1, step one)', () => {
-  const engineFiles = ['interactive-service.ts', 'interactive-routes.ts', 'proof-pool.ts', 'proof-pool-worker.ts', 'proof-pool-types.ts', 'nfc-port.ts'];
+  const engineFiles = [
+    'interactive-service.ts',
+    'interactive-routes.ts',
+    'proof-pool.ts',
+    'proof-pool-worker.ts',
+    'proof-pool-types.ts',
+    'nfc-port.ts',
+  ];
 
   it('the engine modules are under src/adjudication and no longer under visualizer/engine', () => {
     for (const name of engineFiles) {

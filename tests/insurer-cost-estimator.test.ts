@@ -53,14 +53,33 @@ function run(pieces: string[], scope: Record<string, unknown>, ret: string): any
   const names = Object.keys(scope);
   return new Function(...names, `'use strict';\n${pieces.join(NL)}\nreturn ${ret};`)(...names.map((n) => scope[n]));
 }
-const escHtml = (s: unknown): string => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escHtml = (s: unknown): string =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
 const ABACAVIR_HASH = '7770452185217037457936945884955351010484654540450486511394911988126126761141';
 // l2_estimateCost for the run.ts member: plan copay $15, fee $12.50, $500 deductible not yet met
 const MEMBER_QUOTE = {
-  covered: true, drugName: 'ABACAVIR', ndcHash: ABACAVIR_HASH, classification: 'G', nadacPerUnit: 0.60042, pricingUnit: 'EA', quantity: 30,
-  tierLevel: 1, ingredientCostCents: 1801, dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3051,
-  copayAmountCents: 1500, copayBasis: 'plan', phase: 'deductible', memberPayCents: 3051, employerPayCents: 0,
+  covered: true,
+  drugName: 'ABACAVIR',
+  ndcHash: ABACAVIR_HASH,
+  classification: 'G',
+  nadacPerUnit: 0.60042,
+  pricingUnit: 'EA',
+  quantity: 30,
+  tierLevel: 1,
+  ingredientCostCents: 1801,
+  dispensingFeeCents: 1250,
+  dispensingFeeSource: 'plan',
+  totalCostCents: 3051,
+  copayAmountCents: 1500,
+  copayBasis: 'plan',
+  phase: 'deductible',
+  memberPayCents: 3051,
+  employerPayCents: 0,
 };
 
 /** The estimator with the page's fields set to `values`; the engine answers `answer`. */
@@ -70,47 +89,79 @@ async function estimate(values: Record<string, string>, answer: unknown = MEMBER
   const asked: Array<Record<string, unknown>> = [];
   const toasts: Array<[string, string]> = [];
   // the page's own money format (tests/money-separators.test.ts), not a copy of it
-  const doPriceEstimate = run(liftAll(INSURER, ['fmtCents', 'parseQuantity', 'quotePhaseLabel', 'doPriceEstimate']), {
-    $, esc: escHtml, truncHash: (h: string, n: number) => String(h).slice(0, n),
-    toast: (m: string, t: string) => { toasts.push([m, t]); },
-    API: { estimateCost: async (p: Record<string, unknown>) => { asked.push(p); return answer; } },
-    formularyData: [{ ndcHash: ABACAVIR_HASH, brandName: 'ABACAVIR', tierLevel: 1, copayAmountCents: 1000, requiresPriorAuth: false }],
-    priceHistory: [], renderPriceHistory: () => undefined,
-  }, 'doPriceEstimate');
+  const doPriceEstimate = run(
+    liftAll(INSURER, ['fmtCents', 'parseQuantity', 'quotePhaseLabel', 'doPriceEstimate']),
+    {
+      $,
+      esc: escHtml,
+      truncHash: (h: string, n: number) => String(h).slice(0, n),
+      toast: (m: string, t: string) => {
+        toasts.push([m, t]);
+      },
+      API: {
+        estimateCost: async (p: Record<string, unknown>) => {
+          asked.push(p);
+          return answer;
+        },
+      },
+      formularyData: [{ ndcHash: ABACAVIR_HASH, brandName: 'ABACAVIR', tierLevel: 1, copayAmountCents: 1000, requiresPriorAuth: false }],
+      priceHistory: [],
+      renderPriceHistory: () => undefined,
+    },
+    'doPriceEstimate',
+  );
   await doPriceEstimate();
   return { html: String(els['price-result']?.innerHTML ?? ''), asked, toasts };
 }
 
-describe('the Cost Estimator shows the engine\'s price', () => {
-  test('a member\'s quote is the engine\'s: NADAC x 30 + the plan\'s fee, all of it the member\'s in the deductible phase', async () => {
-    const { html, asked } = await estimate({ 'price-ndc': ABACAVIR_HASH, 'price-qty': '30', 'price-member': '79000000000000000001', 'price-ingredient': '5000' });
-    expect(asked).toEqual([{ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' }]);   // before: nothing asked
-    expect(html).toContain('Patient Pays</div><div class="price-item-value patient">$30.51');            // before: $10.00
-    expect(html).toContain('Plan Pays</div><div class="price-item-value plan">$0.00');                   // before: $40.00
-    expect(html).toContain('Total Cost</div><div class="price-item-value total">$30.51');                // before: $50.00
+describe("the Cost Estimator shows the engine's price", () => {
+  test("a member's quote is the engine's: NADAC x 30 + the plan's fee, all of it the member's in the deductible phase", async () => {
+    const { html, asked } = await estimate({
+      'price-ndc': ABACAVIR_HASH,
+      'price-qty': '30',
+      'price-member': '79000000000000000001',
+      'price-ingredient': '5000',
+    });
+    expect(asked).toEqual([{ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' }]); // before: nothing asked
+    expect(html).toContain('Patient Pays</div><div class="price-item-value patient">$30.51'); // before: $10.00
+    expect(html).toContain('Plan Pays</div><div class="price-item-value plan">$0.00'); // before: $40.00
+    expect(html).toContain('Total Cost</div><div class="price-item-value total">$30.51'); // before: $50.00
     expect(html).toContain('NADAC $0.60042/EA x 30 EA = $18.01');
     expect(html).toContain('$12.50 (plan)');
     expect(html).toContain('Deductible phase');
     expect(html).not.toContain('$50.00');
   });
 
-  test('with no member, a plan\'s published price is asked by its plan ID; with neither, the list price', async () => {
+  test("with no member, a plan's published price is asked by its plan ID; with neither, the list price", async () => {
     const planQuote = { ...MEMBER_QUOTE, phase: 'copay', memberPayCents: 1500, employerPayCents: 1551 };
     const plan = await estimate({ 'price-ndc': ABACAVIR_HASH, 'price-qty': '30', 'price-plan': 'PLAN-E2E-SILVER' }, planQuote);
     expect(plan.asked).toEqual([{ ndcHash: ABACAVIR_HASH, quantity: 30, planId: 'PLAN-E2E-SILVER' }]);
     expect(plan.html).toContain('Plan copay');
     expect(plan.html).toContain('$15.51');
-    const list = await estimate({ 'price-ndc': ABACAVIR_HASH, 'price-qty': '30' }, { ...planQuote, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', copayBasis: 'tier', copayAmountCents: 1000 });
+    const list = await estimate(
+      { 'price-ndc': ABACAVIR_HASH, 'price-qty': '30' },
+      { ...planQuote, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', copayBasis: 'tier', copayAmountCents: 1000 },
+    );
     expect(list.asked).toEqual([{ ndcHash: ABACAVIR_HASH, quantity: 30 }]);
     expect(list.html).toContain('Tier 1 copay');
     expect(list.html).toContain('(network default)');
   });
 
-  test('a drug off the member\'s plan is shown as not covered, with the engine\'s reason', async () => {
-    const { html } = await estimate({ 'price-ndc': '1', 'price-qty': '30', 'price-member': '7' },
-      { covered: false, drugName: 'ABACAVIR-LAMIVUDINE', nadacPerUnit: 1.56657, pricingUnit: 'EA', quantity: 30, phase: 'not-covered', reason: 'Not on the formulary of the member\'s plan' });
+  test("a drug off the member's plan is shown as not covered, with the engine's reason", async () => {
+    const { html } = await estimate(
+      { 'price-ndc': '1', 'price-qty': '30', 'price-member': '7' },
+      {
+        covered: false,
+        drugName: 'ABACAVIR-LAMIVUDINE',
+        nadacPerUnit: 1.56657,
+        pricingUnit: 'EA',
+        quantity: 30,
+        phase: 'not-covered',
+        reason: "Not on the formulary of the member's plan",
+      },
+    );
     expect(html).toContain('Not covered: ABACAVIR-LAMIVUDINE');
-    expect(html).toContain('Not on the formulary of the member\'s plan');
+    expect(html).toContain("Not on the formulary of the member's plan");
   });
 
   test('quantities are in the pricing unit to thousandths; a fourth decimal asks nothing', async () => {
@@ -122,28 +173,31 @@ describe('the Cost Estimator shows the engine\'s price', () => {
   });
 
   test('the page has no price input: the pharmacy does not set the cost', () => {
-    expect(INSURER_HTML).not.toContain('id="price-ingredient"');                   // before: "Pharmacy's reported drug cost"
+    expect(INSURER_HTML).not.toContain('id="price-ingredient"'); // before: "Pharmacy's reported drug cost"
     expect(INSURER_HTML).not.toContain('reported drug cost');
     expect(INSURER_HTML).toContain('id="price-qty" value="30" min="0.001" step="0.001"');
   });
 });
 
-describe('the insurer page asks the engine through its node\'s own pricing route, with the admin token', () => {
-  test('API.estimateCost posts the drug, quantity and member to /pricing/estimate with the node\'s admin token, never to the /rpc proxy', async () => {
+describe("the insurer page asks the engine through its node's own pricing route, with the admin token", () => {
+  test("API.estimateCost posts the drug, quantity and member to /pricing/estimate with the node's admin token, never to the /rpc proxy", async () => {
     const sent: Array<{ url: string; init: any }> = [];
     const API = new Function('location', 'localStorage', 'fetch', 'EventSource', `${INSURER_RPC}\nreturn API;`)(
       { origin: 'http://127.0.0.1:4004' },
       { getItem: () => 'insurer-admin-token', setItem: () => undefined },
-      async (url: string, init: any) => { sent.push({ url, init }); return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: MEMBER_QUOTE }) }; },
+      async (url: string, init: any) => {
+        sent.push({ url, init });
+        return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true, data: MEMBER_QUOTE }) };
+      },
       undefined,
     );
     expect(typeof API.estimateCost).toBe('function');
     const q = await API.estimateCost({ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' });
     expect(q.memberPayCents).toBe(3051);
     expect(sent).toHaveLength(1);
-    expect(sent[0].url).toBe('http://127.0.0.1:4004/pricing/estimate');          // before: the node's /rpc proxy
+    expect(sent[0].url).toBe('http://127.0.0.1:4004/pricing/estimate'); // before: the node's /rpc proxy
     expect(sent[0].init.method).toBe('POST');
     expect(sent[0].init.headers.Authorization).toBe('Bearer insurer-admin-token');
-    expect(JSON.parse(sent[0].init.body)).toEqual({ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' });   // no JSON-RPC envelope
+    expect(JSON.parse(sent[0].init.body)).toEqual({ ndcHash: ABACAVIR_HASH, quantity: 30, walletId: '79000000000000000001' }); // no JSON-RPC envelope
   });
 });

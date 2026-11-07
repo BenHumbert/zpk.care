@@ -60,17 +60,40 @@ const ndcHashOf = (ndc: string) => hashString(ndc).toString();
 
 function publishedPlan(over: Record<string, unknown>): any {
   const base: any = {
-    planId: 'PLAN-RL', name: 'Republished limits', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-    formularyNdcs: [ABACAVIR], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0, ...over,
+    planId: 'PLAN-RL',
+    name: 'Republished limits',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 100000,
+    familyOopMaxCents: 1600000,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1250,
+    formularyNdcs: [ABACAVIR],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over,
   };
   const root = buildPlanFormulary(base, catalog).root.toString();
   return { ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', Date.now()) };
 }
 
 async function enroll(walletId: string, planId: string): Promise<any> {
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(walletId)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId, groupIdHash: ndcHashOf('GRP-RL'), planIdHash: ndcHashOf(planId), planId, employerId: null, familyIdHash: 'FAMILY-RL' });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(walletId)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId,
+    groupIdHash: ndcHashOf('GRP-RL'),
+    planIdHash: ndcHashOf(planId),
+    planId,
+    employerId: null,
+    familyIdHash: 'FAMILY-RL',
+  });
   await svc.registerMemberFromEnrollment({ walletId, ownershipProofJson: '{}', displayName: 'Republish member' });
   const m = svc.enrolledMembers.get(walletId);
   m.pcpAssignment = { pcpWalletId: svc.prescriberWalletIds.get(0) };
@@ -82,21 +105,46 @@ function havePaid(m: any, paid: { deductiblePaidCents: number; oopPaidCents: num
   m.accumulatorData = withAmountsPaid(m.accumulatorData, paid);
   m.forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, m.accumulatorData.commitment());
   const c = m.credentialData;
-  m.credentialData = new CredentialData({ credentialType: c.credentialType, forestRoot: m.forest.getForestRoot(), issuerWalletId: c.issuerWalletId, subjectWalletId: c.subjectWalletId, issuedAt: c.issuedAt, expiresAt: c.expiresAt, revoked: c.revoked });
+  m.credentialData = new CredentialData({
+    credentialType: c.credentialType,
+    forestRoot: m.forest.getForestRoot(),
+    issuerWalletId: c.issuerWalletId,
+    subjectWalletId: c.subjectWalletId,
+    issuedAt: c.issuedAt,
+    expiresAt: c.expiresAt,
+    revoked: c.revoked,
+  });
   m.credentialInventory.updateCredential(0n, m.credentialData);
 }
 
-const limitsOf = (m: any) => [m.accumulatorData.deductibleAmountCents, m.accumulatorData.oopMaxCents, m.accumulatorData.annualBenefitMaxCents].map((f: Field) => Number(f.toBigInt()));
-const paidOf = (m: any) => [m.accumulatorData.deductiblePaidCents, m.accumulatorData.oopPaidCents, m.accumulatorData.annualBenefitUsedCents].map((f: Field) => Number(f.toBigInt()));
+const limitsOf = (m: any) =>
+  [m.accumulatorData.deductibleAmountCents, m.accumulatorData.oopMaxCents, m.accumulatorData.annualBenefitMaxCents].map((f: Field) =>
+    Number(f.toBigInt()),
+  );
+const paidOf = (m: any) =>
+  [m.accumulatorData.deductiblePaidCents, m.accumulatorData.oopPaidCents, m.accumulatorData.annualBenefitUsedCents].map((f: Field) =>
+    Number(f.toBigInt()),
+  );
 
 async function prescribeAndFill(walletId: string, ndc: string, quantity: number): Promise<any> {
-  const rx = await svc.createPrescription({ prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: walletId, ndcHash: ndcHashOf(ndc), quantity, refills: 0 });
+  const rx = await svc.createPrescription({
+    prescriberIndex: 0,
+    pharmacyIndex: 0,
+    memberWalletId: walletId,
+    ndcHash: ndcHashOf(ndc),
+    quantity,
+    refills: 0,
+  });
   svc.markFilled({ prescriptionId: rx.prescriptionId });
   return svc.dispensePrescription({ prescriptionId: rx.prescriptionId, quantityDispensed: quantity });
 }
 
 async function rpc(method: string, params: Record<string, unknown>): Promise<any> {
-  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const r = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
   return r.json();
 }
 
@@ -121,14 +169,25 @@ beforeAll(async () => {
   catalog = getAllFormularyEntries();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-republish-limits' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-republish-limits' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
   seq.getFormularyService().loadFromNadac(formularyRaw);
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
   svc.dispatchProof = async (program: string, method: string, _types: string[], args: unknown[]) => {
-    if (program !== 'AccumulatorFulfillment' || method !== 'proveFulfillmentWithAccumulator') return { proofJson: null, publicOutput: null, proveTimeMs: 0 };
+    if (program !== 'AccumulatorFulfillment' || method !== 'proveFulfillmentWithAccumulator')
+      return { proofJson: null, publicOutput: null, proveTimeMs: 0 };
     const r = await (AccumulatorFulfillmentProgram as any).rawMethods.proveFulfillmentWithAccumulator(...args);
     const out = r.publicOutput ?? r;
     const publicOutput: Record<string, string> = {};
@@ -141,36 +200,52 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
-describe('the member\'s own limits follow a republish at its next action, with the amounts paid kept', () => {
+describe("the member's own limits follow a republish at its next action, with the amounts paid kept", () => {
   test('a deductible lowered below the deductible paid: the next fill is in the copay phase and credits nothing', async () => {
     await node.storePlan(publishedPlan({}));
     const m = await enroll(LOWER_DEDUCTIBLE, 'PLAN-RL');
     havePaid(m, { deductiblePaidCents: 30000, oopPaidCents: 30000, annualBenefitUsedCents: 0 });
-    await node.storePlan(publishedPlan({ deductibleAmountCents: 25000, familyOopMaxCents: 1500000 }));   // the insurer republishes
+    await node.storePlan(publishedPlan({ deductibleAmountCents: 25000, familyOopMaxCents: 1500000 })); // the insurer republishes
 
     // the published limits are reported at once; the member is bound to them from its next action
-    expect((await rpc('l2_getPlanLimits', { planId: 'PLAN-RL' })).result).toMatchObject({ deductibleAmountCents: 25000, familyOopMaxCents: 1500000 });
+    expect((await rpc('l2_getPlanLimits', { planId: 'PLAN-RL' })).result).toMatchObject({
+      deductibleAmountCents: 25000,
+      familyOopMaxCents: 1500000,
+    });
     expect(limitsOf(m)).toEqual([50000, 780000, 0]);
     const quote = (await rpc('l2_estimateCost', { walletId: LOWER_DEDUCTIBLE, ndcHash: ndcHashOf(ABACAVIR), quantity: 30 })).result;
     expect(quote).toMatchObject({ memberPayCents: 1500, employerPayCents: 1675, phase: 'copay' });
-    expect(limitsOf(m)).toEqual([50000, 780000, 0]);   // a quote changes nothing
+    expect(limitsOf(m)).toEqual([50000, 780000, 0]); // a quote changes nothing
 
-    const fill = await prescribeAndFill(LOWER_DEDUCTIBLE, ABACAVIR, 30);   // the engine's A-35 root check passes inside
+    const fill = await prescribeAndFill(LOWER_DEDUCTIBLE, ABACAVIR, 30); // the engine's A-35 root check passes inside
     expect([fill.adjudication.patientPayCents, fill.adjudication.planPayCents]).toEqual([1500, 1675]);
-    expect(fill.accumulator.after.deductiblePaidCents).toBe(30000);   // no deductible credit: the lowered deductible is met
+    expect(fill.accumulator.after.deductiblePaidCents).toBe(30000); // no deductible credit: the lowered deductible is met
     expect(fill.accumulator.limits).toMatchObject({ deductibleAmountCents: 25000, oopMaxCents: 780000, familyOopMaxCents: 1500000 });
     expect(limitsOf(m)).toEqual([25000, 780000, 0]);
     expect(paidOf(m)).toEqual([30000, 31500, 1675]);
   });
 
-  test('the rebinding is one queued wallet update: the accumulator leaf and the credential\'s forest root change together', async () => {
+  test("the rebinding is one queued wallet update: the accumulator leaf and the credential's forest root change together", async () => {
     const updates = svc.walletUpdatesFor(LOWER_DEDUCTIBLE);
     const binding = updates.filter((u: any) => u.reason === 'plan binding');
     expect(binding).toHaveLength(1);
-    const rebound = withLimits(withAmountsPaid(svc.enrolledMembers.get(LOWER_DEDUCTIBLE).accumulatorData, { deductiblePaidCents: 30000, oopPaidCents: 30000, annualBenefitUsedCents: 0 }), { deductibleAmountCents: 25000, oopMaxCents: 780000, annualBenefitMaxCents: 0 });
-    expect(binding[0].forestLeaves).toContainEqual({ domain: ForestDomain.ACCESS_CONTROL, index: String(ACCUMULATOR_LEAF_INDEX), leaf: rebound.commitment().toString() });
+    const rebound = withLimits(
+      withAmountsPaid(svc.enrolledMembers.get(LOWER_DEDUCTIBLE).accumulatorData, {
+        deductiblePaidCents: 30000,
+        oopPaidCents: 30000,
+        annualBenefitUsedCents: 0,
+      }),
+      { deductibleAmountCents: 25000, oopMaxCents: 780000, annualBenefitMaxCents: 0 },
+    );
+    expect(binding[0].forestLeaves).toContainEqual({
+      domain: ForestDomain.ACCESS_CONTROL,
+      index: String(ACCUMULATOR_LEAF_INDEX),
+      leaf: rebound.commitment().toString(),
+    });
     // the fill's update comes after it, from the rebound credential
     expect(updates.indexOf(binding[0])).toBeLessThan(updates.length - 1);
     // the device can rebuild the root it is asked to prove from the parts it is sent (checked when queued); and a

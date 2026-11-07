@@ -25,12 +25,12 @@ import { LANE_ICONS, describeEvent } from './utils.js';
 
 /** Lane definitions: name, stage labels */
 const LANE_DEFS = [
-  { id: 'enrollment',   label: 'Enrollment',   stages: ['Token Gen', 'Token Used', 'Enrolling', 'Credential Issued', 'ELIGIBLE'] },
-  { id: 'eligibility',  label: 'Eligibility',  stages: ['Check', 'Verified', 'Formulary', 'On Formulary'] },
+  { id: 'enrollment', label: 'Enrollment', stages: ['Token Gen', 'Token Used', 'Enrolling', 'Credential Issued', 'ELIGIBLE'] },
+  { id: 'eligibility', label: 'Eligibility', stages: ['Check', 'Verified', 'Formulary', 'On Formulary'] },
   { id: 'prescription', label: 'Prescription', stages: ['Written', 'eScript Sent', 'Received', 'Status'] },
-  { id: 'fulfillment',  label: 'Fulfillment',  stages: ['Fill Started', 'Settled', 'Accum Updated', 'Batched', 'L1 Settled'] },
-  { id: 'messaging',    label: 'Messaging',    stages: ['Composed', 'Encrypted', 'Sent', 'Received', 'Decrypted'] },
-  { id: 'batch',        label: 'Batch',        stages: ['Pending', 'Building', 'Settling', 'SETTLED'] },
+  { id: 'fulfillment', label: 'Fulfillment', stages: ['Fill Started', 'Settled', 'Accum Updated', 'Batched', 'L1 Settled'] },
+  { id: 'messaging', label: 'Messaging', stages: ['Composed', 'Encrypted', 'Sent', 'Received', 'Decrypted'] },
+  { id: 'batch', label: 'Batch', stages: ['Pending', 'Building', 'Settling', 'SETTLED'] },
 ];
 
 export class LaneRenderer {

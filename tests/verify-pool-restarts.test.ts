@@ -105,8 +105,12 @@ function runPool<Seen>(scenario: Record<string, unknown>): Promise<PoolRun & See
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
     const guard = setTimeout(() => child.kill(), 45_000);
     child.on('close', (code) => {
       clearTimeout(guard);

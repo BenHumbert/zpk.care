@@ -14,32 +14,10 @@
  * limitations under the License.
  */
 
-import {
-  SmartContract,
-  state,
-  State,
-  Field,
-  method,
-  Poseidon,
-  MerkleWitness,
-  Permissions,
-} from 'o1js';
-import {
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
-} from '../wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  LIFECYCLE_REGISTERED,
-  LIFECYCLE_REVOKED,
-  lifecycleLeafCommitment,
-  assertValidTransition,
-} from './lifecycle.js';
-import {
-  EMPTY_CREDENTIAL_ROOT,
-  TransitionOutput,
-  StateTransitionProof,
-} from './state-transition.js';
+import { SmartContract, state, State, Field, method, Poseidon, MerkleWitness, Permissions } from 'o1js';
+import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
+import { LifecycleWitness, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED, lifecycleLeafCommitment, assertValidTransition } from './lifecycle.js';
+import { EMPTY_CREDENTIAL_ROOT, TransitionOutput, StateTransitionProof } from './state-transition.js';
 import { BatchProof, BatchOutput } from '../l2/batch-program.js';
 
 /** Merkle witness for the global credential registry (same height as wallet registry) */
@@ -101,8 +79,7 @@ export class CareContract extends SmartContract {
     this.account.permissions.set({
       ...Permissions.default(),
       editState: Permissions.proofOrSignature(),
-      setVerificationKey:
-        Permissions.VerificationKey.impossibleDuringCurrentVersion(),
+      setVerificationKey: Permissions.VerificationKey.impossibleDuringCurrentVersion(),
       setPermissions: Permissions.impossible(),
     });
   }
@@ -114,11 +91,7 @@ export class CareContract extends SmartContract {
    * @param initialRegistryRoot — root of empty MerkleTree(WALLET_TREE_HEIGHT)
    * @param initialLifecycleRoot — root of empty MerkleTree(WALLET_TREE_HEIGHT)
    */
-  @method async initState(
-    adminPkHash: Field,
-    initialRegistryRoot: Field,
-    initialLifecycleRoot: Field,
-  ) {
+  @method async initState(adminPkHash: Field, initialRegistryRoot: Field, initialLifecycleRoot: Field) {
     // Require sender signature — deployer must sign the init transaction
     this.sender.getAndRequireSignature();
 
@@ -163,45 +136,30 @@ export class CareContract extends SmartContract {
    * @param registryWitness — Merkle witness proving the registry slot is empty
    * @param lifecycleWitness — Merkle witness proving the lifecycle slot is empty
    */
-  @method async registerWallet(
-    walletId: Field,
-    registryWitness: WalletRegistryWitness,
-    lifecycleWitness: LifecycleWitness,
-  ) {
+  @method async registerWallet(walletId: Field, registryWitness: WalletRegistryWitness, lifecycleWitness: LifecycleWitness) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
     Poseidon.hash(sender.toFields()).assertEquals(adminHash, 'Not admin');
 
     // Verify the registry slot is empty (leaf == Field(0))
-    const currentRegistryRoot =
-      this.walletRegistryRoot.getAndRequireEquals();
+    const currentRegistryRoot = this.walletRegistryRoot.getAndRequireEquals();
     const emptyRoot = registryWitness.calculateRoot(Field(0));
     emptyRoot.assertEquals(currentRegistryRoot, 'Registry slot is not empty');
 
     // Verify the lifecycle slot is empty
     const currentLifecycleRoot = this.lifecycleRoot.getAndRequireEquals();
     const emptyLifecycleRoot = lifecycleWitness.calculateRoot(Field(0));
-    emptyLifecycleRoot.assertEquals(
-      currentLifecycleRoot,
-      'Lifecycle slot is not empty',
-    );
+    emptyLifecycleRoot.assertEquals(currentLifecycleRoot, 'Lifecycle slot is not empty');
 
     // Compute WalletState commitment: Poseidon.hash([walletId, credentialRoot, nonce])
     // Matches WalletState.commitment() exactly
-    const walletCommitment = Poseidon.hash([
-      walletId,
-      EMPTY_CREDENTIAL_ROOT,
-      Field(0),
-    ]);
+    const walletCommitment = Poseidon.hash([walletId, EMPTY_CREDENTIAL_ROOT, Field(0)]);
     const newRegistryRoot = registryWitness.calculateRoot(walletCommitment);
     this.walletRegistryRoot.set(newRegistryRoot);
 
     // Set lifecycle to REGISTERED
-    const newLifecycleLeaf = lifecycleLeafCommitment(
-      walletId,
-      LIFECYCLE_REGISTERED,
-    );
+    const newLifecycleLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED);
     const newLifecycleRoot = lifecycleWitness.calculateRoot(newLifecycleLeaf);
     this.lifecycleRoot.set(newLifecycleRoot);
 
@@ -220,12 +178,7 @@ export class CareContract extends SmartContract {
    * @param newLifecycle — target lifecycle value
    * @param lifecycleWitness — Merkle witness for the wallet's lifecycle slot
    */
-  @method async updateLifecycle(
-    walletId: Field,
-    currentLifecycle: Field,
-    newLifecycle: Field,
-    lifecycleWitness: LifecycleWitness,
-  ) {
+  @method async updateLifecycle(walletId: Field, currentLifecycle: Field, newLifecycle: Field, lifecycleWitness: LifecycleWitness) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -235,10 +188,7 @@ export class CareContract extends SmartContract {
     const currentLifecycleRoot = this.lifecycleRoot.getAndRequireEquals();
     const currentLeaf = lifecycleLeafCommitment(walletId, currentLifecycle);
     const computedRoot = lifecycleWitness.calculateRoot(currentLeaf);
-    computedRoot.assertEquals(
-      currentLifecycleRoot,
-      'Lifecycle state mismatch',
-    );
+    computedRoot.assertEquals(currentLifecycleRoot, 'Lifecycle state mismatch');
 
     // Validate the transition
     assertValidTransition(currentLifecycle, newLifecycle);
@@ -284,20 +234,13 @@ export class CareContract extends SmartContract {
     // Verify wallet is not revoked
     const currentLifecycleRoot = this.lifecycleRoot.getAndRequireEquals();
     const lifecycleLeaf = lifecycleLeafCommitment(walletId, currentLifecycle);
-    lifecycleWitness
-      .calculateRoot(lifecycleLeaf)
-      .assertEquals(currentLifecycleRoot, 'Lifecycle state mismatch');
-    currentLifecycle
-      .equals(LIFECYCLE_REVOKED)
-      .assertFalse('Wallet is revoked');
+    lifecycleWitness.calculateRoot(lifecycleLeaf).assertEquals(currentLifecycleRoot, 'Lifecycle state mismatch');
+    currentLifecycle.equals(LIFECYCLE_REVOKED).assertFalse('Wallet is revoked');
 
     // Verify old wallet state matches the registry
-    const currentRegistryRoot =
-      this.walletRegistryRoot.getAndRequireEquals();
+    const currentRegistryRoot = this.walletRegistryRoot.getAndRequireEquals();
     const oldCommitment = Poseidon.hash([walletId, oldCredentialRoot, oldNonce]);
-    registryWitness
-      .calculateRoot(oldCommitment)
-      .assertEquals(currentRegistryRoot, 'Old wallet state mismatch');
+    registryWitness.calculateRoot(oldCommitment).assertEquals(currentRegistryRoot, 'Old wallet state mismatch');
 
     // Enforce nonce increment
     newNonce.assertEquals(oldNonce.add(1), 'Nonce must increment by 1');
@@ -324,9 +267,7 @@ export class CareContract extends SmartContract {
    *
    * @param proof — StateTransitionProof (wraps ProofGateProof + state transition)
    */
-  @method async settleTransition(
-    proof: StateTransitionProof,
-  ) {
+  @method async settleTransition(proof: StateTransitionProof) {
     // Verify the recursive proof
     proof.verify();
 
@@ -334,30 +275,19 @@ export class CareContract extends SmartContract {
     const output = proof.publicOutput as unknown as TransitionOutput;
 
     // Verify old roots match current on-chain state
-    const currentRegistryRoot =
-      this.walletRegistryRoot.getAndRequireEquals();
+    const currentRegistryRoot = this.walletRegistryRoot.getAndRequireEquals();
     const currentLifecycleRoot = this.lifecycleRoot.getAndRequireEquals();
 
-    output.oldRegistryRoot.assertEquals(
-      currentRegistryRoot,
-      'Registry root mismatch — state has changed since proof was generated',
-    );
-    output.oldLifecycleRoot.assertEquals(
-      currentLifecycleRoot,
-      'Lifecycle root mismatch — state has changed since proof was generated',
-    );
+    output.oldRegistryRoot.assertEquals(currentRegistryRoot, 'Registry root mismatch — state has changed since proof was generated');
+    output.oldLifecycleRoot.assertEquals(currentLifecycleRoot, 'Lifecycle root mismatch — state has changed since proof was generated');
 
     // Apply new roots
     this.walletRegistryRoot.set(output.newRegistryRoot);
     this.lifecycleRoot.set(output.newLifecycleRoot);
 
     // If both roots changed, this was a registration — increment walletCount
-    const registryChanged = output.oldRegistryRoot
-      .equals(output.newRegistryRoot)
-      .not();
-    const lifecycleChanged = output.oldLifecycleRoot
-      .equals(output.newLifecycleRoot)
-      .not();
+    const registryChanged = output.oldRegistryRoot.equals(output.newRegistryRoot).not();
+    const lifecycleChanged = output.oldLifecycleRoot.equals(output.newLifecycleRoot).not();
     const isRegistration = registryChanged.and(lifecycleChanged);
 
     const currentCount = this.walletCount.getAndRequireEquals();
@@ -389,14 +319,10 @@ export class CareContract extends SmartContract {
     const output = proof.publicOutput as unknown as BatchOutput;
 
     // Assert old roots match current on-chain state
-    const currentRegistryRoot =
-      this.walletRegistryRoot.getAndRequireEquals();
+    const currentRegistryRoot = this.walletRegistryRoot.getAndRequireEquals();
     const currentLifecycleRoot = this.lifecycleRoot.getAndRequireEquals();
 
-    output.oldRegistryRoot.assertEquals(
-      currentRegistryRoot,
-      'Batch registry root mismatch — L1 state has changed since batch was built',
-    );
+    output.oldRegistryRoot.assertEquals(currentRegistryRoot, 'Batch registry root mismatch — L1 state has changed since batch was built');
     output.oldLifecycleRoot.assertEquals(
       currentLifecycleRoot,
       'Batch lifecycle root mismatch — L1 state has changed since batch was built',
@@ -425,11 +351,7 @@ export class CareContract extends SmartContract {
    * @param initialCredentialRegistryRoot — root of empty MerkleTree(WALLET_TREE_HEIGHT)
    * @param vkHash — EligibilityProgram verification key hash
    */
-  @method async initEligibilityState(
-    initialBenefitPlanRoot: Field,
-    initialCredentialRegistryRoot: Field,
-    vkHash: Field,
-  ) {
+  @method async initEligibilityState(initialBenefitPlanRoot: Field, initialCredentialRegistryRoot: Field, vkHash: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -437,10 +359,7 @@ export class CareContract extends SmartContract {
 
     // Require not yet initialized (slot 4 == Field(0))
     const currentBenefitRoot = this.benefitPlanRoot.getAndRequireEquals();
-    currentBenefitRoot.assertEquals(
-      Field(0),
-      'Eligibility state already initialized',
-    );
+    currentBenefitRoot.assertEquals(Field(0), 'Eligibility state already initialized');
 
     this.benefitPlanRoot.set(initialBenefitPlanRoot);
     this.credentialRegistryRoot.set(initialCredentialRegistryRoot);
@@ -456,10 +375,7 @@ export class CareContract extends SmartContract {
    *
    * @param newBenefitPlanRoot — the updated benefit plan tree root
    */
-  @method async updateBenefitPlan(
-    expectedOldBenefitPlanRoot: Field,
-    newBenefitPlanRoot: Field,
-  ) {
+  @method async updateBenefitPlan(expectedOldBenefitPlanRoot: Field, newBenefitPlanRoot: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -483,10 +399,7 @@ export class CareContract extends SmartContract {
    * @param credentialCommitment — the credential commitment to register
    * @param credentialRegistryWitness — Merkle witness proving the slot is empty
    */
-  @method async registerGlobalCredential(
-    credentialCommitment: Field,
-    credentialRegistryWitness: CredentialRegistryWitness,
-  ) {
+  @method async registerGlobalCredential(credentialCommitment: Field, credentialRegistryWitness: CredentialRegistryWitness) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -494,9 +407,7 @@ export class CareContract extends SmartContract {
 
     // Verify the slot is empty
     const currentRoot = this.credentialRegistryRoot.getAndRequireEquals();
-    credentialRegistryWitness
-      .calculateRoot(Field(0))
-      .assertEquals(currentRoot, 'Credential registry slot is not empty');
+    credentialRegistryWitness.calculateRoot(Field(0)).assertEquals(currentRoot, 'Credential registry slot is not empty');
 
     // Insert credential commitment
     const newRoot = credentialRegistryWitness.calculateRoot(credentialCommitment);
@@ -515,9 +426,7 @@ export class CareContract extends SmartContract {
    *
    * @param initialMessagingRoot — Poseidon.hash([emptyMsgRoot, emptyDelRoot, emptyKeyRoot])
    */
-  @method async initMessaging(
-    initialMessagingRoot: Field,
-  ) {
+  @method async initMessaging(initialMessagingRoot: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -525,10 +434,7 @@ export class CareContract extends SmartContract {
 
     // Require not yet initialized (slot 7 == Field(0))
     const currentMessagingRoot = this.messagingRoot.getAndRequireEquals();
-    currentMessagingRoot.assertEquals(
-      Field(0),
-      'Messaging state already initialized',
-    );
+    currentMessagingRoot.assertEquals(Field(0), 'Messaging state already initialized');
 
     this.messagingRoot.set(initialMessagingRoot);
 
@@ -544,11 +450,7 @@ export class CareContract extends SmartContract {
    * @param newMessagingRoot — the updated packed messaging root
    * @param messageCommitment — the message commitment being added
    */
-  @method async submitMessage(
-    expectedOldMessagingRoot: Field,
-    newMessagingRoot: Field,
-    messageCommitment: Field,
-  ) {
+  @method async submitMessage(expectedOldMessagingRoot: Field, newMessagingRoot: Field, messageCommitment: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -569,11 +471,7 @@ export class CareContract extends SmartContract {
    * @param newMessagingRoot — the updated packed messaging root
    * @param delegationCommitment — the delegation commitment being added
    */
-  @method async registerDelegation(
-    expectedOldMessagingRoot: Field,
-    newMessagingRoot: Field,
-    delegationCommitment: Field,
-  ) {
+  @method async registerDelegation(expectedOldMessagingRoot: Field, newMessagingRoot: Field, delegationCommitment: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -597,11 +495,7 @@ export class CareContract extends SmartContract {
    * @param newMessagingRoot — the updated packed messaging root (post-revocation)
    * @param revokedDelegationCommitment — the commitment of the delegation that was revoked
    */
-  @method async revokeDelegation(
-    expectedOldMessagingRoot: Field,
-    newMessagingRoot: Field,
-    revokedDelegationCommitment: Field,
-  ) {
+  @method async revokeDelegation(expectedOldMessagingRoot: Field, newMessagingRoot: Field, revokedDelegationCommitment: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();
@@ -625,11 +519,7 @@ export class CareContract extends SmartContract {
    * @param newMessagingRoot — the updated packed messaging root
    * @param encryptionPubKeyHash — Poseidon.hash([walletId, pubKeyX, pubKeyY])
    */
-  @method async registerEncryptionKey(
-    expectedOldMessagingRoot: Field,
-    newMessagingRoot: Field,
-    encryptionPubKeyHash: Field,
-  ) {
+  @method async registerEncryptionKey(expectedOldMessagingRoot: Field, newMessagingRoot: Field, encryptionPubKeyHash: Field) {
     // Admin gating
     const sender = this.sender.getAndRequireSignature();
     const adminHash = this.adminPublicKeyHash.getAndRequireEquals();

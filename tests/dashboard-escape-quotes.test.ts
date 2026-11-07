@@ -58,13 +58,23 @@ function run(pieces: string[], scope: Record<string, unknown>, ret: string): any
 function textElement() {
   let text = '';
   return {
-    set textContent(v: unknown) { text = v == null ? '' : String(v); },
-    get innerHTML() { return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); },
+    set textContent(v: unknown) {
+      text = v == null ? '' : String(v);
+    },
+    get innerHTML() {
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
   };
 }
 const document = { createElement: textElement };
 /** An attribute value as the browser reads it back out of the markup. */
-const unescapeHtml = (s: string): string => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const unescapeHtml = (s: string): string =>
+  s
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 
 /** Every escape helper in the dashboards and the explorer, found by name in their scripts. */
 function escapeHelpers(): Array<{ file: string; name: string }> {
@@ -87,9 +97,15 @@ describe('the escape helpers', () => {
 
   test('one is found in each dashboard and the explorer', () => {
     expect(helpers.map((h) => `${h.file}:${h.name}`).sort()).toEqual([
-      'dashboard-employer/app.js:esc', 'dashboard-hr-tool/app.js:esc', 'dashboard-insurer/app.js:esc',
-      'dashboard-leviathan/app.js:escHtml', 'dashboard-marketplace/app.js:esc', 'dashboard-member/app.js:esc',
-      'dashboard-pharmacy/app.js:escapeHtml', 'dashboard-prescriber/app.js:esc', 'dashboard-shared/utils.js:esc',
+      'dashboard-employer/app.js:esc',
+      'dashboard-hr-tool/app.js:esc',
+      'dashboard-insurer/app.js:esc',
+      'dashboard-leviathan/app.js:escHtml',
+      'dashboard-marketplace/app.js:esc',
+      'dashboard-member/app.js:esc',
+      'dashboard-pharmacy/app.js:escapeHtml',
+      'dashboard-prescriber/app.js:esc',
+      'dashboard-shared/utils.js:esc',
       'explorer/app.js:esc',
     ]);
   });
@@ -97,8 +113,8 @@ describe('the escape helpers', () => {
   test('each escapes double and single quotes as well as markup', () => {
     for (const { file, name } of helpers) {
       const esc = run([lift(read(file), name)], { document }, name);
-      expect([file, esc(ATTR)]).toEqual([file, ATTR_ESCAPED]);                          // before (insurer, employer, marketplace, pharmacy, explorer): the quote ended the attribute
-      expect([file, esc("O'Brien <b>& Sons")]).toEqual([file, 'O&#39;Brien &lt;b&gt;&amp; Sons']);   // before (member, network screen too): the single quote raw
+      expect([file, esc(ATTR)]).toEqual([file, ATTR_ESCAPED]); // before (insurer, employer, marketplace, pharmacy, explorer): the quote ended the attribute
+      expect([file, esc("O'Brien <b>& Sons")]).toEqual([file, 'O&#39;Brien &lt;b&gt;&amp; Sons']); // before (member, network screen too): the single quote raw
       expect([file, esc(null)]).toEqual([file, '']);
     }
   });
@@ -108,46 +124,86 @@ describe('a value in a quoted attribute stays inside it', () => {
   test('the insurer\'s roster: a member\'s wallet ID in title=""', () => {
     const INSURER = read('dashboard-insurer/app.js');
     const els: Record<string, { innerHTML: string }> = {};
-    const renderGroupDetail = run(['esc', 'truncHash', 'fmtDate', 'renderGroupDetail'].map((n) => lift(INSURER, n)), {
-      document, $: (id: string) => (els[id] = els[id] ?? { innerHTML: '' }),
-      rosterData: { entries: [{ walletId: ATTR, groupId: 'GRP-1', role: 'member', planId: 'PLAN-1', displayName: "O'Brien", registeredAt: 0 }] },
-    }, 'renderGroupDetail');
+    const renderGroupDetail = run(
+      ['esc', 'truncHash', 'fmtDate', 'renderGroupDetail'].map((n) => lift(INSURER, n)),
+      {
+        document,
+        $: (id: string) => (els[id] = els[id] ?? { innerHTML: '' }),
+        rosterData: {
+          entries: [{ walletId: ATTR, groupId: 'GRP-1', role: 'member', planId: 'PLAN-1', displayName: "O'Brien", registeredAt: 0 }],
+        },
+      },
+      'renderGroupDetail',
+    );
     renderGroupDetail('GRP-1');
     const html = els['emp-detail-body'].innerHTML;
     expect(html).toContain(`<span class="hash" title="${ATTR_ESCAPED}">`);
-    expect(html).not.toContain('onmouseover="');                                        // before: title="1001" onmouseover="steal()"
+    expect(html).not.toContain('onmouseover="'); // before: title="1001" onmouseover="steal()"
   });
 
   test('the employer\'s group list: a group ID in data-gid=""', async () => {
     const EMPLOYER = read('dashboard-employer/app.js');
     const table = { innerHTML: '', querySelectorAll: () => [] };
-    const loadGroupsTable = run(['esc', 'fmtDateShort', 'loading', 'emptyState', 'loadGroupsTable'].map((n) => lift(EMPLOYER, n)), {
-      document: { ...document, getElementById: () => table },
-      API: { listGroups: async () => [{ groupId: 'GRP-1" onmouseover="steal()', planId: "PLAN-'1'", status: 'active', enrollmentCap: 10, enrolledCount: 1, pendingTokens: 0, effectiveDate: '2026-01-01' }] },
-      doDeleteGroup: () => undefined,
-    }, 'loadGroupsTable');
+    const loadGroupsTable = run(
+      ['esc', 'fmtDateShort', 'loading', 'emptyState', 'loadGroupsTable'].map((n) => lift(EMPLOYER, n)),
+      {
+        document: { ...document, getElementById: () => table },
+        API: {
+          listGroups: async () => [
+            {
+              groupId: 'GRP-1" onmouseover="steal()',
+              planId: "PLAN-'1'",
+              status: 'active',
+              enrollmentCap: 10,
+              enrolledCount: 1,
+              pendingTokens: 0,
+              effectiveDate: '2026-01-01',
+            },
+          ],
+        },
+        doDeleteGroup: () => undefined,
+      },
+      'loadGroupsTable',
+    );
     await loadGroupsTable();
     expect(table.innerHTML).toContain('data-gid="GRP-1&quot; onmouseover=&quot;steal()"');
     expect(table.innerHTML).toContain('PLAN-&#39;1&#39;');
-    expect(table.innerHTML).not.toContain('onmouseover="');                             // before: data-gid="GRP-1" onmouseover="steal()"
+    expect(table.innerHTML).not.toContain('onmouseover="'); // before: data-gid="GRP-1" onmouseover="steal()"
   });
 
   test('the marketplace: a plan ID in data-plan=""', () => {
     const MARKETPLACE = read('dashboard-marketplace/app.js');
     const grid = { innerHTML: '', querySelectorAll: () => [] };
-    const renderPlanCards = run(['esc', 'fmtCents', 'fmtLimit', 'fmtFee', 'renderPlanCards'].map((n) => lift(MARKETPLACE, n)), {
-      document: { ...document, getElementById: () => grid },
-      plans: [{ planId: 'PLAN-1" onmouseover="steal()', name: 'Gold <b>PPO</b>', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 0, annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, dispensingFeeCents: 1000 }],
-      selectedPlanIds: [],
-    }, 'renderPlanCards');
+    const renderPlanCards = run(
+      ['esc', 'fmtCents', 'fmtLimit', 'fmtFee', 'renderPlanCards'].map((n) => lift(MARKETPLACE, n)),
+      {
+        document: { ...document, getElementById: () => grid },
+        plans: [
+          {
+            planId: 'PLAN-1" onmouseover="steal()',
+            name: 'Gold <b>PPO</b>',
+            coverageType: 1,
+            copayAmountCents: 1000,
+            deductibleAmountCents: 50000,
+            oopMaxCents: 0,
+            annualBenefitMaxCents: 0,
+            familyDeductibleAmountCents: 0,
+            familyOopMaxCents: 0,
+            dispensingFeeCents: 1000,
+          },
+        ],
+        selectedPlanIds: [],
+      },
+      'renderPlanCards',
+    );
     renderPlanCards();
     expect(grid.innerHTML).toContain('data-plan="PLAN-1&quot; onmouseover=&quot;steal()"');
-    expect(grid.innerHTML).not.toContain('onmouseover="');                              // before: data-plan="PLAN-1" onmouseover="steal()"
+    expect(grid.innerHTML).not.toContain('onmouseover="'); // before: data-plan="PLAN-1" onmouseover="steal()"
     expect(grid.innerHTML).toContain('Gold &lt;b&gt;PPO&lt;/b&gt;');
   });
 });
 
-describe('the insurer\'s group list', () => {
+describe("the insurer's group list", () => {
   test('carries a group ID in data-gid with a listener, never inside an inline handler', async () => {
     const INSURER = read('dashboard-insurer/app.js');
     const GID = "GRP-1');steal();//";
@@ -155,24 +211,40 @@ describe('the insurer\'s group list', () => {
     const list = {
       innerHTML: '',
       // the items a browser builds from the markup, each data-gid read back as the browser reads it
-      querySelectorAll: (selector: string) => (selector !== '.emp-item' ? [] : [...list.innerHTML.matchAll(/<div class="emp-item[^"]*" data-gid="([^"]*)">/g)].map((m) => {
-        const item = { dataset: { gid: unescapeHtml(m[1]) }, onclick: null };
-        items.push(item);
-        return item;
-      })),
+      querySelectorAll: (selector: string) =>
+        selector !== '.emp-item'
+          ? []
+          : [...list.innerHTML.matchAll(/<div class="emp-item[^"]*" data-gid="([^"]*)">/g)].map((m) => {
+              const item = { dataset: { gid: unescapeHtml(m[1]) }, onclick: null };
+              items.push(item);
+              return item;
+            }),
     };
     const selected: string[] = [];
-    const loadRosterData = run(['esc', 'loadRosterData'].map((n) => lift(INSURER, n)), {
-      document, $: (id: string) => (id === 'emp-list' ? list : null),
-      API: { getRoster: async () => ({ data: { entries: [{ walletId: '1001', groupId: GID }], groupSummary: { [GID]: { count: 1, roles: { member: 1 } } } } }) },
-      rosterData: null, selectedGroup: 'GRP-ALREADY-SHOWN', selectGroup: (gid: string) => { selected.push(gid); },
-    }, 'loadRosterData');
+    const loadRosterData = run(
+      ['esc', 'loadRosterData'].map((n) => lift(INSURER, n)),
+      {
+        document,
+        $: (id: string) => (id === 'emp-list' ? list : null),
+        API: {
+          getRoster: async () => ({
+            data: { entries: [{ walletId: '1001', groupId: GID }], groupSummary: { [GID]: { count: 1, roles: { member: 1 } } } },
+          }),
+        },
+        rosterData: null,
+        selectedGroup: 'GRP-ALREADY-SHOWN',
+        selectGroup: (gid: string) => {
+          selected.push(gid);
+        },
+      },
+      'loadRosterData',
+    );
     await loadRosterData();
     // before: onclick="App.selectGroup('GRP-1&#39;);steal();//')", which the browser runs as App.selectGroup('GRP-1');steal();//')
     expect(list.innerHTML).not.toContain('onclick');
     expect(list.innerHTML).toContain('<div class="emp-item" data-gid="GRP-1&#39;);steal();//">');
     expect(items).toHaveLength(1);
     items[0].onclick!();
-    expect(selected).toEqual([GID]);                                                     // the group, exactly as registered
+    expect(selected).toEqual([GID]); // the group, exactly as registered
   });
 });

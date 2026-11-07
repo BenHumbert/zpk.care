@@ -28,7 +28,15 @@
  * published in the ceremony record, so a label need not be a full name.
  */
 import {
-  createCipheriv, createDecipheriv, createHash, createPublicKey, randomBytes, scryptSync, sign, verify, type KeyObject,
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createPublicKey,
+  randomBytes,
+  scryptSync,
+  sign,
+  verify,
+  type KeyObject,
 } from 'crypto';
 import { privateKeyFromSeedHex } from '../security/signed-request.js';
 import { publicKeyHexFromSeed } from '../security/node-roles.js';
@@ -75,10 +83,15 @@ export interface UnlockedHolder {
 export function isHolderCard(value: unknown): value is HolderCard {
   if (!value || typeof value !== 'object') return false;
   const c = value as Record<string, unknown>;
-  return typeof c.label === 'string' && LABEL.test(c.label)
-    && (c.group === undefined || (typeof c.group === 'string' && GROUP.test(c.group)))
-    && typeof c.signPublicKeyHex === 'string' && HEX32.test(c.signPublicKeyHex)
-    && typeof c.boxPublicKeyHex === 'string' && HEX32.test(c.boxPublicKeyHex);
+  return (
+    typeof c.label === 'string' &&
+    LABEL.test(c.label) &&
+    (c.group === undefined || (typeof c.group === 'string' && GROUP.test(c.group))) &&
+    typeof c.signPublicKeyHex === 'string' &&
+    HEX32.test(c.signPublicKeyHex) &&
+    typeof c.boxPublicKeyHex === 'string' &&
+    HEX32.test(c.boxPublicKeyHex)
+  );
 }
 
 /** A card's fingerprint, to read aloud at the ceremony: 16 hex digits of the SHA-256 of its two public keys. */
@@ -95,7 +108,11 @@ export function holderFingerprint(card: HolderCard): string {
 export function verifyHolderSignature(signPublicKeyHex: string, message: Buffer, signatureHex: string): boolean {
   if (!HEX32.test(signPublicKeyHex) || typeof signatureHex !== 'string' || !/^[0-9a-f]{128}$/.test(signatureHex)) return false;
   try {
-    const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(signPublicKeyHex, 'hex')]), format: 'der', type: 'spki' });
+    const key = createPublicKey({
+      key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(signPublicKeyHex, 'hex')]),
+      format: 'der',
+      type: 'spki',
+    });
     return verify(null, message, key, Buffer.from(signatureHex, 'hex'));
   } catch {
     return false;
@@ -103,12 +120,18 @@ export function verifyHolderSignature(signPublicKeyHex: string, message: Buffer,
 }
 
 function aad(file: Pick<HolderKeyFile, 'label' | 'group' | 'signPublicKeyHex' | 'boxPublicKeyHex'>): Buffer {
-  return Buffer.from(`zpk.care/holder-key/v1\n${file.label}\n${file.group ?? ''}\n${file.signPublicKeyHex}\n${file.boxPublicKeyHex}`, 'utf8');
+  return Buffer.from(
+    `zpk.care/holder-key/v1\n${file.label}\n${file.group ?? ''}\n${file.signPublicKeyHex}\n${file.boxPublicKeyHex}`,
+    'utf8',
+  );
 }
 
 function passphraseKey(passphrase: string, kdf: HolderKeyFile['kdf']): Buffer {
   return scryptSync(passphrase.normalize('NFC'), Buffer.from(kdf.salt, 'hex'), 32, {
-    N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * kdf.N * kdf.r + 32 * 1024 * 1024,
+    N: kdf.N,
+    r: kdf.r,
+    p: kdf.p,
+    maxmem: 256 * kdf.N * kdf.r + 32 * 1024 * 1024,
   });
 }
 
@@ -119,9 +142,12 @@ export function createHolderKey(
   opts: { group?: string; scryptN?: number; now?: Date } = {},
 ): { file: HolderKeyFile; card: HolderCard } {
   if (typeof label !== 'string' || !LABEL.test(label)) {
-    throw new Error('createHolderKey: a label is 1 to 48 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit');
+    throw new Error(
+      'createHolderKey: a label is 1 to 48 letters, digits, spaces, dots, dashes or underscores, starting with a letter or digit',
+    );
   }
-  if (opts.group !== undefined && !GROUP.test(opts.group)) throw new Error('createHolderKey: a group is 1 to 32 lower-case letters, digits, dashes or underscores');
+  if (opts.group !== undefined && !GROUP.test(opts.group))
+    throw new Error('createHolderKey: a group is 1 to 32 lower-case letters, digits, dashes or underscores');
   if (typeof passphrase !== 'string' || passphrase.length < MIN_HOLDER_PASSPHRASE) {
     throw new Error(`createHolderKey: the passphrase must be at least ${MIN_HOLDER_PASSPHRASE} characters`);
   }
@@ -171,7 +197,8 @@ export function unlockHolderKey(file: HolderKeyFile, passphrase: string): Unlock
     boxPublicKeyHex: file.boxPublicKeyHex,
   };
   if (!isHolderCard(card)) throw new Error('unlockHolderKey: this is not a holder key file');
-  if (!Number.isInteger(file.kdf.N) || file.kdf.N < 2 ** 12 || file.kdf.N > 2 ** 20) throw new Error('unlockHolderKey: the key file asks for an unusable scrypt cost');
+  if (!Number.isInteger(file.kdf.N) || file.kdf.N < 2 ** 12 || file.kdf.N > 2 ** 20)
+    throw new Error('unlockHolderKey: the key file asks for an unusable scrypt cost');
   const key = passphraseKey(String(passphrase ?? ''), file.kdf);
   let secrets: { signSeedHex: string; boxPrivateHex: string };
   try {

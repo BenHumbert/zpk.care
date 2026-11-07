@@ -13,7 +13,10 @@
 import { eq } from './equations.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const norm = (w) => String(w || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+const norm = (w) =>
+  String(w || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
 
 /** { card: '2b', find: 'f5' } -> { eq: 'eq-2b', find: 'f5' }; other targets pass through. */
 export function boardTarget(t) {
@@ -36,20 +39,32 @@ export function checkBoardAction(a) {
   const verbs = ['clear', 'title', 'write', 'annotate', 'value', 'circle', 'underline', 'box', 'arrow', 'check', 'erase', 'pen'];
   if (!verbs.includes(a.do)) throw new Error(`unknown board action "${a.do}"`);
   const w = a.when;
-  const cueOk = w == null || w === 'start' || w === 'end' || (typeof w === 'number' && w >= 0 && w <= 1)
-    || (typeof w === 'object' && typeof w.word === 'string' && w.word && (w.at == null || (typeof w.at === 'number' && w.at >= 0 && w.at <= 1)));
+  const cueOk =
+    w == null ||
+    w === 'start' ||
+    w === 'end' ||
+    (typeof w === 'number' && w >= 0 && w <= 1) ||
+    (typeof w === 'object' &&
+      typeof w.word === 'string' &&
+      w.word &&
+      (w.at == null || (typeof w.at === 'number' && w.at >= 0 && w.at <= 1)));
   if (!cueOk) throw new Error(`board action "${a.do}": when ${JSON.stringify(w)} is not 'start', 'end', a fraction 0..1 or { word, at }`);
   if (a.do === 'write') eq(a.card);
   if (a.do === 'title' && !a.text) throw new Error('board action "title" has no text');
   if ((a.do === 'value' || a.do === 'annotate') && (a.text == null || a.text === '')) throw new Error(`board action "${a.do}" has no text`);
-  if (['value', 'circle', 'underline', 'box', 'check'].includes(a.do) && a.target == null) throw new Error(`board action "${a.do}" has no target`);
+  if (['value', 'circle', 'underline', 'box', 'check'].includes(a.do) && a.target == null)
+    throw new Error(`board action "${a.do}" has no target`);
   if (a.do === 'arrow' && (a.from == null || a.to == null)) throw new Error('board action "arrow" needs from and to');
   for (const k of ['target', 'near', 'from', 'to']) {
     const t = a[k];
     if (!t || typeof t !== 'object') continue;
     if (t.card != null) eq(t.card);
     if (t.findRe != null) {
-      try { new RegExp(t.findRe); } catch (e) { throw new Error(`board action "${a.do}": findRe ${t.findRe} is not a regular expression (${e.message})`); }
+      try {
+        new RegExp(t.findRe);
+      } catch (e) {
+        throw new Error(`board action "${a.do}": findRe ${t.findRe} is not a regular expression (${e.message})`);
+      }
     }
   }
 }
@@ -69,22 +84,65 @@ export function makeBoardRunner({ board, log = () => {} }) {
 
   async function act(a, ms) {
     switch (a.do) {
-      case 'clear': return board.start('clear', { ghost: a.ghost ?? 0.06, ms: a.ms, keepTitle: a.keepTitle });
-      case 'title': return board.start('setTitle', a.text, { ms: a.ms, color: a.color });
+      case 'clear':
+        return board.start('clear', { ghost: a.ghost ?? 0.06, ms: a.ms, keepTitle: a.keepTitle });
+      case 'title':
+        return board.start('setTitle', a.text, { ms: a.ms, color: a.color });
       case 'write': {
         const card = eq(a.card);
-        return board.start('writeEquation', card.latex, { id: a.id || `eq-${a.card}`, durationMs: ms, size: a.size, color: a.color, at: a.at, align: a.align, order: a.order });
+        return board.start('writeEquation', card.latex, {
+          id: a.id || `eq-${a.card}`,
+          durationMs: ms,
+          size: a.size,
+          color: a.color,
+          at: a.at,
+          align: a.align,
+          order: a.order,
+        });
       }
-      case 'annotate': return board.start('annotate', { text: a.text, near: boardTarget(a.near ?? a.target), side: a.side, at: a.at, color: a.color, size: a.size, rotate: a.rotate, ms: a.ms, id: a.id });
-      case 'value': return board.start('value', { target: boardTarget(a.target), text: a.text, side: a.side, color: a.color, size: a.size, ms: a.ms, id: a.id });
+      case 'annotate':
+        return board.start('annotate', {
+          text: a.text,
+          near: boardTarget(a.near ?? a.target),
+          side: a.side,
+          at: a.at,
+          color: a.color,
+          size: a.size,
+          rotate: a.rotate,
+          ms: a.ms,
+          id: a.id,
+        });
+      case 'value':
+        return board.start('value', {
+          target: boardTarget(a.target),
+          text: a.text,
+          side: a.side,
+          color: a.color,
+          size: a.size,
+          ms: a.ms,
+          id: a.id,
+        });
       case 'circle':
       case 'underline':
       case 'box':
-      case 'check': return board.start(a.do, { target: boardTarget(a.target), color: a.color, pad: a.pad, ms: a.ms, label: a.label, width: a.width, id: a.id });
-      case 'arrow': return board.start('arrow', { from: boardTarget(a.from), to: boardTarget(a.to), bend: a.bend, color: a.color, ms: a.ms, id: a.id });
-      case 'erase': return board.start('erase', { ids: a.ids, ms: a.ms });
-      case 'pen': return board.start('pen', a.visible !== false);
-      default: log(`board: unknown action ${a.do}`);
+      case 'check':
+        return board.start(a.do, {
+          target: boardTarget(a.target),
+          color: a.color,
+          pad: a.pad,
+          ms: a.ms,
+          label: a.label,
+          width: a.width,
+          id: a.id,
+        });
+      case 'arrow':
+        return board.start('arrow', { from: boardTarget(a.from), to: boardTarget(a.to), bend: a.bend, color: a.color, ms: a.ms, id: a.id });
+      case 'erase':
+        return board.start('erase', { ids: a.ids, ms: a.ms });
+      case 'pen':
+        return board.start('pen', a.visible !== false);
+      default:
+        log(`board: unknown action ${a.do}`);
     }
   }
 
@@ -110,6 +168,6 @@ export function makeBoardRunner({ board, log = () => {} }) {
   return {
     run,
     /** The narrator's during() hook for one line. */
-    during: (line) => (line.board && line.board.length ? (clip) => run(line.board, clip) : undefined)
+    during: (line) => (line.board && line.board.length ? (clip) => run(line.board, clip) : undefined),
   };
 }

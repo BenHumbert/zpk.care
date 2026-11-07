@@ -86,12 +86,20 @@ beforeAll(async () => {
   ndcHash = hashString(ABACAVIR).toString();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-proxy-reads' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-proxy-reads' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   node.getSequencer().getFormularyService().loadFromNadac(formularyRaw);
   // The member holds a registration on the ledger and an attestation the sequencer signed for it. Issued in-process:
   // over RPC it answers only the member's own signature (A10b), and this file has no member key.
   await node.enableAttestations();
-  node.getSequencer().adminMutate('test: provision the member', ({ provision }) => { provision(Field(BigInt(MEMBER)), LIFECYCLE_ELIGIBLE); });
+  node.getSequencer().adminMutate('test: provision the member', ({ provision }) => {
+    provision(Field(BigInt(MEMBER)), LIFECYCLE_ELIGIBLE);
+  });
   if (node.requestAttestation(MEMBER)?.w !== MEMBER) throw new Error('the fixture attestation was not issued');
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   const insurerKey = generateNodeKey('insurer-node');
@@ -101,8 +109,21 @@ beforeAll(async () => {
     asked.push(request);
     if (request.walletId !== MEMBER) return null;
     return {
-      covered: true, copayAmountCents: 1500, copayBasis: 'plan', tierLevel: 1,
-      price: { basis: 'NADAC', ndc: ABACAVIR, nadacUnitPriceE5: 60042, pricingUnit: 'EA', dispensingFeeCents: 1250, dispensingFeeSource: 'plan', quantity: 30, ingredientCostCents: 1801, totalCostCents: 3051 },
+      covered: true,
+      copayAmountCents: 1500,
+      copayBasis: 'plan',
+      tierLevel: 1,
+      price: {
+        basis: 'NADAC',
+        ndc: ABACAVIR,
+        nadacUnitPriceE5: 60042,
+        pricingUnit: 'EA',
+        dispensingFeeCents: 1250,
+        dispensingFeeSource: 'plan',
+        quantity: 30,
+        ingredientCostCents: 1801,
+        totalCostCents: 3051,
+      },
       split: { patientPayCents: 3051, planPayCents: 0, deductibleCreditCents: 3051, phase: 'deductible', familyRule: 0 },
     };
   });
@@ -112,8 +133,16 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-reads-'));
   dirs.push(dir);
   insurer = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: INSURER_ADMIN, nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: INSURER_ADMIN,
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
     rpcProxy: resolveRpcProxyPolicy({}, 'insurer node'),
   } as any);
   await insurer.start();
@@ -124,8 +153,16 @@ beforeAll(async () => {
   const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'proxy-reads-'));
   dirs.push(dir2);
   forwarding = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir2, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: INSURER_ADMIN, nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: dir2,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: INSURER_ADMIN,
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
     rpcProxy: { enabled: true, allowed: new Set(['l2_estimateCost', 'l2_getAttestation']) },
   } as any);
   await forwarding.start();
@@ -136,14 +173,25 @@ afterAll(async () => {
   await forwarding?.stop();
   await insurer?.stop();
   await rpcServer?.stop();
-  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of dirs) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 /**
  * POST l2_estimateCost to a node's /rpc as a page on an allowed origin would. A page on any other site used to send it
  * as text/plain, which needs no CORS preflight; the node now refuses that before the proxy sees it (A-82).
  */
-async function quoteVia(nodeUrl: string, params: Record<string, unknown>, headers: Record<string, string> = {}, type = 'application/json'): Promise<{ status: number; json: any }> {
+async function quoteVia(
+  nodeUrl: string,
+  params: Record<string, unknown>,
+  headers: Record<string, string> = {},
+  type = 'application/json',
+): Promise<{ status: number; json: any }> {
   const r = await fetch(`${nodeUrl}/rpc`, {
     method: 'POST',
     headers: { 'Content-Type': type, ...headers },
@@ -152,7 +200,11 @@ async function quoteVia(nodeUrl: string, params: Record<string, unknown>, header
   return { status: r.status, json: await r.json() };
 }
 /** POST the attestation read to a node's /rpc, as a page on an allowed origin would. */
-async function attestationVia(nodeUrl: string, params: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ status: number; json: any }> {
+async function attestationVia(
+  nodeUrl: string,
+  params: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; json: any }> {
   const r = await fetch(`${nodeUrl}/rpc`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
@@ -162,11 +214,11 @@ async function attestationVia(nodeUrl: string, params: Record<string, unknown>, 
 }
 const viaInsurer = (params: Record<string, unknown>, headers: Record<string, string> = {}) => quoteVia(insurerUrl, params, headers);
 
-describe('the insurer node\'s /rpc proxy forwards no quote (owner decision 2026-10-19)', () => {
-  test('a caller with no credential gets no member\'s quote, and the engine is not asked', async () => {
+describe("the insurer node's /rpc proxy forwards no quote (owner decision 2026-10-19)", () => {
+  test("a caller with no credential gets no member's quote, and the engine is not asked", async () => {
     asked.length = 0;
     const r = await viaInsurer({ walletId: MEMBER, ndcHash, quantity: 30 });
-    expect(r.json.result).toBeUndefined();               // before A-49: the member's phase and share
+    expect(r.json.result).toBeUndefined(); // before A-49: the member's phase and share
     expect(r.status).toBe(403);
     expect(r.json.error).toMatchObject({ code: -32601 });
     expect(r.json.error.message).toMatch(/not available through this node's proxy/);
@@ -181,11 +233,11 @@ describe('the insurer node\'s /rpc proxy forwards no quote (owner decision 2026-
     expect(r.json.error.message).not.toMatch(/not a member/); // before A-49: "This wallet is not a member enrolled with the engine"
   });
 
-  test('the insurer node\'s own administrator gets no quote through it either: the Cost Estimator has its own route', async () => {
+  test("the insurer node's own administrator gets no quote through it either: the Cost Estimator has its own route", async () => {
     asked.length = 0;
     for (const headers of [{ Authorization: `Bearer ${INSURER_ADMIN}` }, { Authorization: 'Bearer not-the-token' }]) {
       const r = await viaInsurer({ walletId: MEMBER, ndcHash, quantity: 30 }, headers);
-      expect(r.status).toBe(403);                        // before: 200 for the administrator, as the plan
+      expect(r.status).toBe(403); // before: 200 for the administrator, as the plan
       expect(r.json.error).toMatchObject({ code: -32601 });
     }
     expect(asked).toEqual([]);
@@ -193,12 +245,12 @@ describe('the insurer node\'s /rpc proxy forwards no quote (owner decision 2026-
 
   test('a quote that names no member is not forwarded either', async () => {
     const r = await viaInsurer({ ndcHash, quantity: 30 });
-    expect(r.status).toBe(403);                          // before: the list price
+    expect(r.status).toBe(403); // before: the list price
     expect(r.json.error).toMatchObject({ code: -32601 });
   });
 });
 
-describe('a proxy configured to forward a member-data read forwards it only for the node\'s administrator (A-49)', () => {
+describe("a proxy configured to forward a member-data read forwards it only for the node's administrator (A-49)", () => {
   test('no credential: refused before the sequencer is asked', async () => {
     asked.length = 0;
     const r = await quoteVia(forwardingUrl, { walletId: MEMBER, ndcHash, quantity: 30 });
@@ -211,11 +263,17 @@ describe('a proxy configured to forward a member-data read forwards it only for 
     expect(unknown.json.error.message).not.toMatch(/not a member/);
   });
 
-  test('the node\'s administrator: forwarded and read as the plan; a wrong token is no credential', async () => {
+  test("the node's administrator: forwarded and read as the plan; a wrong token is no credential", async () => {
     asked.length = 0;
     const r = await quoteVia(forwardingUrl, { walletId: MEMBER, ndcHash, quantity: 30 }, { Authorization: `Bearer ${INSURER_ADMIN}` });
     expect(r.status).toBe(200);
-    expect(r.json.result).toMatchObject({ covered: true, phase: 'deductible', memberPayCents: 3051, employerPayCents: 0, totalCostCents: 3051 });
+    expect(r.json.result).toMatchObject({
+      covered: true,
+      phase: 'deductible',
+      memberPayCents: 3051,
+      employerPayCents: 0,
+      totalCostCents: 3051,
+    });
     expect(asked).toEqual([{ walletId: MEMBER, ndcHash, quantity: 30 }]);
     const wrong = await quoteVia(forwardingUrl, { walletId: MEMBER, ndcHash, quantity: 30 }, { Authorization: 'Bearer not-the-token' });
     expect(wrong.status).toBe(403);
@@ -224,24 +282,30 @@ describe('a proxy configured to forward a member-data read forwards it only for 
   test('a call that names no member is no member-data read: the list price, NADAC x quantity plus the network default fee', async () => {
     const r = await quoteVia(forwardingUrl, { ndcHash, quantity: 30 });
     expect(r.status).toBe(200);
-    expect(r.json.result).toMatchObject({ covered: true, ingredientCostCents: 1925, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2925 });
+    expect(r.json.result).toMatchObject({
+      covered: true,
+      ingredientCostCents: 1925,
+      dispensingFeeCents: 1000,
+      dispensingFeeSource: 'network-default',
+      totalCostCents: 2925,
+    });
   });
 });
 
-describe('the member\'s attestation, the tap that opens its drug history, is no node\'s to lend', () => {
-  test('a proxy configured to forward it gets the sequencer\'s refusal, for a caller with no credential and for the node\'s administrator alike', async () => {
+describe("the member's attestation, the tap that opens its drug history, is no node's to lend", () => {
+  test("a proxy configured to forward it gets the sequencer's refusal, for a caller with no credential and for the node's administrator alike", async () => {
     const anonymous = await attestationVia(forwardingUrl, { walletId: MEMBER });
-    expect(anonymous.json.result).toBeUndefined();       // before the sweep: the member's signed attestation, forwarded under the node's key
+    expect(anonymous.json.result).toBeUndefined(); // before the sweep: the member's signed attestation, forwarded under the node's key
     expect(anonymous.json.error).toMatchObject({ code: -32003 }); // before: -32004, the proxy's own refusal of a D1 read
     expect(anonymous.json.error.message).toMatch(/not by wallet 790000000000/); // before: the proxy's refusal, which named no wallet
     const admin = await attestationVia(forwardingUrl, { walletId: MEMBER }, { Authorization: `Bearer ${INSURER_ADMIN}` });
-    expect(admin.json.result).toBeUndefined();           // before: the member's attestation, read under the insurer node's key as the plan
+    expect(admin.json.result).toBeUndefined(); // before: the member's attestation, read under the insurer node's key as the plan
     expect(admin.json.error).toMatchObject({ code: -32003 }); // before: no error
     expect(admin.json.error.message).toMatch(/signed by insurer-node, not by wallet 790000000000/); // before: no error
   });
 });
 
-describe('the table the proxy reads is the sequencer\'s own', () => {
+describe("the table the proxy reads is the sequencer's own", () => {
   test('L2RpcServer enforces the table in member-data-methods.ts, and a call reads member data only when it names one', async () => {
     const { MEMBER_DATA_METHODS, callReadsMemberData } = await import('../src/l2/member-data-methods.js');
     expect(L2RpcServerClass.MEMBER_DATA_METHODS).toBe(MEMBER_DATA_METHODS);

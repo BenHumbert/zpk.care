@@ -89,7 +89,8 @@ export function resolveBindHost(env: NodeJS.ProcessEnv, role: string): string {
       '  [net] %s is bound to %s, reachable from the whole network. Set ZKTRIDENT_HOST to ' +
         '127.0.0.1 unless this host is meant to serve other machines, and name the host they ' +
         'reach it by in ZKTRIDENT_PUBLIC_HOSTS: beyond loopback it answers no other Host.',
-      role, host,
+      role,
+      host,
     );
   }
   return host;
@@ -110,19 +111,19 @@ export function resolveAllowedOrigins(
   env: NodeJS.ProcessEnv,
   opts: { role: string; allowWildcard?: boolean } = { role: 'server' },
 ): string[] {
-  const configured = env.ZKTRIDENT_CORS_ORIGINS?.split(',').map((s) => s.trim()).filter(Boolean);
+  const configured = env.ZKTRIDENT_CORS_ORIGINS?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (configured?.includes('*')) {
     if (!opts.allowWildcard) {
       console.warn(
-        '  [net] %s: a CORS wildcard was requested but is not permitted here. Falling back ' +
-          'to the local dashboard origins.',
+        '  [net] %s: a CORS wildcard was requested but is not permitted here. Falling back ' + 'to the local dashboard origins.',
         opts.role,
       );
     } else {
       console.warn(
-        '  [net] %s: CORS is open to ANY origin. Any page the user visits can call this ' +
-          'server and read the response. Local use only.',
+        '  [net] %s: CORS is open to ANY origin. Any page the user visits can call this ' + 'server and read the response. Local use only.',
         opts.role,
       );
       return ['*'];
@@ -187,7 +188,10 @@ const WILDCARD_BINDS = new Set(['0.0.0.0', '::', '[::]']);
  * or `name:port`. None by default.
  */
 export function resolvePublicHosts(env: NodeJS.ProcessEnv): string[] {
-  return (env.ZKTRIDENT_PUBLIC_HOSTS ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return (env.ZKTRIDENT_PUBLIC_HOSTS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 /** What a listener is known by, beside the loopback names. */
@@ -393,11 +397,7 @@ export function isLoopbackBind(host: string | undefined): boolean {
  */
 
 /** Status and chain reads every dashboard polls. */
-const PROXY_BASE: readonly string[] = [
-  'l2_getStatus',
-  'l2_getHealth',
-  'l2_getChainState',
-];
+const PROXY_BASE: readonly string[] = ['l2_getStatus', 'l2_getHealth', 'l2_getChainState'];
 
 /** Formulary and plan reads: the pharmacy, prescriber, insurer and member pages. */
 const PROXY_CATALOG: readonly string[] = [

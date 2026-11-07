@@ -46,7 +46,11 @@
   /** Format a date/timestamp */
   function fmtDate(v) {
     if (!v) return '--';
-    try { return new Date(v).toLocaleString(); } catch { return String(v); }
+    try {
+      return new Date(v).toLocaleString();
+    } catch {
+      return String(v);
+    }
   }
 
   /** Show a toast notification */
@@ -61,7 +65,9 @@
     setTimeout(function () {
       el.style.opacity = '0';
       el.style.transition = 'opacity 0.3s';
-      setTimeout(function () { el.remove(); }, 300);
+      setTimeout(function () {
+        el.remove();
+      }, 300);
     }, 4000);
   }
 
@@ -120,9 +126,14 @@
       close: function () {
         closed = true;
         if (timer) clearTimeout(timer);
-        if (source) { source.close(); source = null; }
+        if (source) {
+          source.close();
+          source = null;
+        }
       },
-      getSource: function () { return source; },
+      getSource: function () {
+        return source;
+      },
     };
   }
 

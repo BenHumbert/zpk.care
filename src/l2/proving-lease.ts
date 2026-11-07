@@ -84,7 +84,9 @@ export class ProvingLease {
     this.ttlMs = ms;
   }
 
-  get ttl(): number { return this.ttlMs; }
+  get ttl(): number {
+    return this.ttlMs;
+  }
 
   /**
    * Ask for the lease. Granted when it is free (or lapsed) and nobody arrived earlier and is still
@@ -110,7 +112,10 @@ export class ProvingLease {
     }
     this.queue.set(holder, now);
     let position = 0;
-    for (const k of this.queue.keys()) { position++; if (k === holder) break; }
+    for (const k of this.queue.keys()) {
+      position++;
+      if (k === holder) break;
+    }
     const expiresAt = this.holder === null ? now : this.expiresAt;
     const retryAfterMs = Math.min(5_000, Math.max(500, Math.ceil((expiresAt - now) / Math.max(1, position))));
     return { granted: false, position, retryAfterMs, expiresAt };
@@ -135,7 +140,11 @@ export class ProvingLease {
     const now = this.now();
     this.expireIfDue(now);
     this.pruneWaiters(now);
-    return { held: this.holder !== null, queueLength: this.queue.size, expiresInMs: this.holder === null ? 0 : Math.max(0, this.expiresAt - now) };
+    return {
+      held: this.holder !== null,
+      queueLength: this.queue.size,
+      expiresInMs: this.holder === null ? 0 : Math.max(0, this.expiresAt - now),
+    };
   }
 
   /**

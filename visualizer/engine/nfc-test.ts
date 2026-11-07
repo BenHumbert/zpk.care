@@ -28,15 +28,21 @@
  */
 import HID from 'node-hid';
 
-const VID = 0x1FC9;
+const VID = 0x1fc9;
 const PID = 0x0088;
 
 function toHex(data: number[] | Buffer | Uint8Array, max = 64): string {
-  return Array.from(data).slice(0, max).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  return Array.from(data)
+    .slice(0, max)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join(' ');
 }
 
 function toAscii(data: Buffer | Uint8Array, start = 0, end?: number): string {
-  return Array.from(data).slice(start, end).map(b => (b >= 0x20 && b < 0x7F) ? String.fromCharCode(b) : '.').join('');
+  return Array.from(data)
+    .slice(start, end)
+    .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.'))
+    .join('');
 }
 
 function hidWrite(device: HID.HID, payload: number[]): void {
@@ -69,7 +75,9 @@ function isAlive(device: HID.HID): boolean {
   try {
     const r = sendSio(device, 0x00, [], 500);
     return r !== null;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 function main() {
@@ -79,8 +87,11 @@ function main() {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 
-  const nfcDevices = HID.devices().filter(d => d.vendorId === VID && d.productId === PID);
-  if (nfcDevices.length === 0) { console.log('  Device not found'); return; }
+  const nfcDevices = HID.devices().filter((d) => d.vendorId === VID && d.productId === PID);
+  if (nfcDevices.length === 0) {
+    console.log('  Device not found');
+    return;
+  }
   console.log(`  Device: ${nfcDevices[0].product}`);
 
   const device = new HID.HID(nfcDevices[0].path!);
@@ -102,7 +113,7 @@ function main() {
     console.log('  Testing each with data=[] and data=[0x00], data=[0x01]');
     console.log('═══════════════════════════════════════════════════════════');
 
-    for (let req = 0x06; req <= 0x0F; req++) {
+    for (let req = 0x06; req <= 0x0f; req++) {
       // No data
       let r = sendSio(device, req, []);
       const noData = respStr(r);
@@ -115,7 +126,7 @@ function main() {
       r = sendSio(device, req, [0x01]);
       const d1 = respStr(r);
 
-      console.log(`  req=0x${req.toString(16).padStart(2,'0')}:`);
+      console.log(`  req=0x${req.toString(16).padStart(2, '0')}:`);
       console.log(`    no data: ${noData}`);
       console.log(`    data=00: ${d0}`);
       console.log(`    data=01: ${d1}`);
@@ -136,7 +147,7 @@ function main() {
     for (let req = 0x10; req <= 0x20; req++) {
       const r = sendSio(device, req, [0x01]);
       if (!r) {
-        console.log(`  req=0x${req.toString(16).padStart(2,'0')}: NO RESPONSE`);
+        console.log(`  req=0x${req.toString(16).padStart(2, '0')}: NO RESPONSE`);
         if (!isAlive(device)) {
           console.log(`    *** CRASHED ***`);
           return;
@@ -145,7 +156,7 @@ function main() {
         const len = r[0];
         const isStandard = len === 5;
         if (!isStandard) {
-          console.log(`  req=0x${req.toString(16).padStart(2,'0')}: *** DIFFERENT *** ${respStr(r)}`);
+          console.log(`  req=0x${req.toString(16).padStart(2, '0')}: *** DIFFERENT *** ${respStr(r)}`);
         }
       }
     }
@@ -159,7 +170,7 @@ function main() {
     console.log('═══════════════════════════════════════════════════════════');
 
     // Try each candidate req code for GPIO_SetVENValue
-    const venCandidates = [0x06, 0x07, 0x08, 0x09, 0x0A];
+    const venCandidates = [0x06, 0x07, 0x08, 0x09, 0x0a];
 
     for (const venReq of venCandidates) {
       console.log(`\n  Trying req=0x${venReq.toString(16)} as GPIO_SetVENValue...`);
@@ -169,17 +180,19 @@ function main() {
       console.log(`    VEN LOW:  ${respStr(r1)}`);
 
       // Wait 50ms
-      const d1 = Date.now(); while (Date.now() - d1 < 50) {}
+      const d1 = Date.now();
+      while (Date.now() - d1 < 50) {}
 
       // VEN HIGH
       const r2 = sendSio(device, venReq, [0x01]);
       console.log(`    VEN HIGH: ${respStr(r2)}`);
 
       // Wait 10ms for PN7150 boot
-      const d2 = Date.now(); while (Date.now() - d2 < 10) {}
+      const d2 = Date.now();
+      while (Date.now() - d2 < 10) {}
 
       // Try I2C INIT
-      const initR = sendSio(device, 0x01, [0x80, 0x1A, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00]);
+      const initR = sendSio(device, 0x01, [0x80, 0x1a, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00]);
       console.log(`    INIT_PORT: ${respStr(initR)}`);
 
       // Check if INIT succeeded (resp=0x00)
@@ -188,21 +201,36 @@ function main() {
 
         // Try I2C DEVICE_WRITE — NCI CORE_RESET
         console.log('    Trying I2C DEVICE_WRITE (NCI CORE_RESET to 0x28)...');
-        const writeR = sendSio(device, 0x03, [
-          0x04, 0x00,  // txLen LE
-          0x03,         // START + STOP
-          0x28,         // PN7150 addr
-          0x20, 0x00, 0x01, 0x01,  // NCI CORE_RESET
-        ], 3000);
+        const writeR = sendSio(
+          device,
+          0x03,
+          [
+            0x04,
+            0x00, // txLen LE
+            0x03, // START + STOP
+            0x28, // PN7150 addr
+            0x20,
+            0x00,
+            0x01,
+            0x01, // NCI CORE_RESET
+          ],
+          3000,
+        );
         console.log(`    DEVICE_WRITE: ${respStr(writeR)}`);
 
         if (writeR) {
           // Try I2C read
-          const readR = sendSio(device, 0x04, [
-            0x20, 0x00,  // rxLen=32 LE
-            0x0B,         // START+STOP+NACK_LAST
-            0x28,
-          ], 3000);
+          const readR = sendSio(
+            device,
+            0x04,
+            [
+              0x20,
+              0x00, // rxLen=32 LE
+              0x0b, // START+STOP+NACK_LAST
+              0x28,
+            ],
+            3000,
+          );
           console.log(`    DEVICE_READ: ${respStr(readR)}`);
         }
 
@@ -229,10 +257,10 @@ function main() {
     //   NXP:   [0x0C, 0x00, 0x00, 0x01, ...]  (length=12)
 
     // Try NXP total-length format
-    const initData = [0x80, 0x1A, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const initData = [0x80, 0x1a, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00];
 
     // NXP format: length = 4 + 8 = 12 = 0x0C
-    const nxpPkt = [0x0C, 0x00, 0x00, 0x01, ...initData];
+    const nxpPkt = [0x0c, 0x00, 0x00, 0x01, ...initData];
     console.log(`  NXP format:  TX: ${toHex(nxpPkt)}`);
     hidWrite(device, nxpPkt);
     const nxpResp = hidRead(device, 1000);
@@ -255,19 +283,18 @@ function main() {
     for (let req = 0x06; req <= 0x40; req++) {
       const r = sendSio(device, req, [], 500);
       if (!r) {
-        console.log(`  req=0x${req.toString(16).padStart(2,'0')}: NO RESPONSE ***`);
+        console.log(`  req=0x${req.toString(16).padStart(2, '0')}: NO RESPONSE ***`);
         allStandard = false;
         if (!isAlive(device)) {
           console.log('    *** CRASHED — stopping ***');
           break;
         }
       } else if (r[0] !== 5 || r[3] !== req) {
-        console.log(`  req=0x${req.toString(16).padStart(2,'0')}: ${respStr(r)} *** DIFFERENT ***`);
+        console.log(`  req=0x${req.toString(16).padStart(2, '0')}: ${respStr(r)} *** DIFFERENT ***`);
         allStandard = false;
       }
     }
     if (allStandard) console.log('  All req=0x06-0x40 return standard echo (no GPIO VEN found)');
-
   } finally {
     device.close();
   }

@@ -63,9 +63,9 @@ export interface FormularyCheckResult {
  * Cost phase that applies to the member's current accumulator state.
  */
 export type CostPhase =
-  | 'deductible'         // member pays toward remaining deductible
-  | 'copay'              // normal copay phase (deductible met or none)
-  | 'oop-max-met'        // OOPM reached — member pays $0
+  | 'deductible' // member pays toward remaining deductible
+  | 'copay' // normal copay phase (deductible met or none)
+  | 'oop-max-met' // OOPM reached — member pays $0
   | 'benefit-exhausted'; // plan benefit exhausted — member pays 100%
 
 /**
@@ -122,10 +122,7 @@ export class BenefitCheckService {
    * @param ndcHash — Poseidon hash of the NDC code
    * @param formularyRegistry — the insurer's published formulary tree
    */
-  static lookupFormulary(
-    ndcHash: Field,
-    formularyRegistry: FormularyRegistry,
-  ): FormularyCheckResult {
+  static lookupFormulary(ndcHash: Field, formularyRegistry: FormularyRegistry): FormularyCheckResult {
     const ndcStr = ndcHash.toString();
 
     // Scan entries for matching NDC hash
@@ -199,12 +196,10 @@ export class BenefitCheckService {
       eligibilityCredential.revoked.toString() === '0';
 
     // 2. Verify forest root matches credential
-    const forestRootMatches =
-      eligibilityForest.getForestRoot().toString() === eligibilityCredential.forestRoot.toString();
+    const forestRootMatches = eligibilityForest.getForestRoot().toString() === eligibilityCredential.forestRoot.toString();
 
     // 3. Verify accumulator in forest
-    const accumulatorVerified = forestRootMatches &&
-      AccumulatorQueryService.verifyInForest(eligibilityForest, accumulatorData);
+    const accumulatorVerified = forestRootMatches && AccumulatorQueryService.verifyInForest(eligibilityForest, accumulatorData);
 
     // 4. Look up formulary
     const formulary = BenefitCheckService.lookupFormulary(ndcHash, formularyRegistry);
@@ -228,11 +223,7 @@ export class BenefitCheckService {
 
     // 8. Estimate cost
     const { patientPayCents, planPayCents } = formulary.covered
-      ? AccumulatorQueryService.estimatePatientCost(
-          accumulatorData,
-          totalCostCents,
-          formulary.copayCents,
-        )
+      ? AccumulatorQueryService.estimatePatientCost(accumulatorData, totalCostCents, formulary.copayCents)
       : { patientPayCents: totalCostCents, planPayCents: 0 };
 
     return {

@@ -64,7 +64,6 @@ const ALT_ENROLLMENT_KEY = 'aB4@cD6!eF8#gH0$iJ2%';
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Layer 2 — Proof-Gated Wallets', () => {
-
   describe('Wallet Derivation', () => {
     test('member wallet ID is deterministic', () => {
       const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
@@ -74,7 +73,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
     test('member wallet ID changes when data changes', () => {
       const id1 = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
-      const id2 = deriveMemberWalletId({ ...testMember, cardholderId: 'DIFFERENT' }, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: { ...testMember, cardholderId: 'DIFFERENT' } }));
+      const id2 = deriveMemberWalletId(
+        { ...testMember, cardholderId: 'DIFFERENT' },
+        TEST_ENROLLMENT_KEY,
+        Field(0),
+        fixtureIdentitySalt({ localData: { ...testMember, cardholderId: 'DIFFERENT' } }),
+      );
       expect(id1.toString()).not.toBe(id2.toString());
     });
 
@@ -152,7 +156,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
       const proof = await ProofGateProgram.verifyMember(
         walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       expect(proof).toBeDefined();
@@ -163,10 +172,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const walletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
       const preimage = prescriberWalletPreimage(testPrescriber, TEST_ENROLLMENT_KEY);
 
-      const proof = await ProofGateProgram.verifyPrescriber(
-        walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const proof = await ProofGateProgram.verifyPrescriber(walletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       expect(proof).toBeDefined();
       expect(proof.proof.publicInput.toString()).toBe(walletId.toString());
@@ -176,10 +182,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const walletId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
       const preimage = pharmacyWalletPreimage(testPharmacy, TEST_ENROLLMENT_KEY);
 
-      const proof = await ProofGateProgram.verifyPharmacy(
-        walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!,
-      );
+      const proof = await ProofGateProgram.verifyPharmacy(walletId, preimage[0]!, preimage[1]!, preimage[2]!);
 
       expect(proof).toBeDefined();
       expect(proof.proof.publicInput.toString()).toBe(walletId.toString());
@@ -192,8 +195,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       await expect(
         ProofGateProgram.verifyMember(
           walletId,
-          wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-          wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
+          wrongPreimage[0]!,
+          wrongPreimage[1]!,
+          wrongPreimage[2]!,
+          wrongPreimage[3]!,
+          wrongPreimage[4]!,
+          wrongPreimage[5]!,
         ),
       ).rejects.toThrow();
     });
@@ -203,14 +210,19 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const wrongPreimage = memberWalletPreimage(
         { ...testMember, firstName: 'Jane' },
         TEST_ENROLLMENT_KEY,
-        Field(0), fixtureIdentitySalt({ localData: testMember }),
+        Field(0),
+        fixtureIdentitySalt({ localData: testMember }),
       );
 
       await expect(
         ProofGateProgram.verifyMember(
           walletId,
-          wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-          wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
+          wrongPreimage[0]!,
+          wrongPreimage[1]!,
+          wrongPreimage[2]!,
+          wrongPreimage[3]!,
+          wrongPreimage[4]!,
+          wrongPreimage[5]!,
         ),
       ).rejects.toThrow();
     });
@@ -219,12 +231,7 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
       const walletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
       const wrongPreimage = prescriberWalletPreimage(testPrescriber, 'wrong-key');
 
-      await expect(
-        ProofGateProgram.verifyPrescriber(
-          walletId,
-          wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-        ),
-      ).rejects.toThrow();
+      await expect(ProofGateProgram.verifyPrescriber(walletId, wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!)).rejects.toThrow();
     });
 
     test('proof verification succeeds with verification key', async () => {
@@ -233,7 +240,12 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
 
       const result = await ProofGateProgram.verifyMember(
         walletId,
-        preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+        preimage[0]!,
+        preimage[1]!,
+        preimage[2]!,
+        preimage[3]!,
+        preimage[4]!,
+        preimage[5]!,
       );
 
       const isValid = await ProofGateProgram.verify(result.proof);
@@ -409,18 +421,15 @@ describe('Layer 2 — Proof-Gated Wallets', () => {
     });
 
     test('deriveMemberWalletId rejects weak key', () => {
-      expect(() => deriveMemberWalletId(testMember, 'weak', Field(0), fixtureIdentitySalt({ localData: testMember })))
-        .toThrow('at least');
+      expect(() => deriveMemberWalletId(testMember, 'weak', Field(0), fixtureIdentitySalt({ localData: testMember }))).toThrow('at least');
     });
 
     test('derivePrescriberWalletId rejects weak key', () => {
-      expect(() => derivePrescriberWalletId(testPrescriber, '1234'))
-        .toThrow('at least');
+      expect(() => derivePrescriberWalletId(testPrescriber, '1234')).toThrow('at least');
     });
 
     test('derivePharmacyWalletId rejects weak key', () => {
-      expect(() => derivePharmacyWalletId(testPharmacy, ''))
-        .toThrow('at least');
+      expect(() => derivePharmacyWalletId(testPharmacy, '')).toThrow('at least');
     });
 
     test('generated key works with derivation', () => {

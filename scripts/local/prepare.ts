@@ -44,21 +44,29 @@ export async function checkMachine(explorerPort: number, print: (line: string) =
     print(`  ✓ Node ${process.versions.node}`);
   }
   const memory = os.totalmem() / GB;
-  print(memory < 16
-    ? `  ! ${memory.toFixed(0)} GB of memory: the network compiles its circuits in several processes at once and may not fit in less than 16 GB.`
-    : `  ✓ ${memory.toFixed(0)} GB of memory`);
+  print(
+    memory < 16
+      ? `  ! ${memory.toFixed(0)} GB of memory: the network compiles its circuits in several processes at once and may not fit in less than 16 GB.`
+      : `  ✓ ${memory.toFixed(0)} GB of memory`,
+  );
   try {
     const disk = statfsSync(ROOT);
     const free = (disk.bavail * disk.bsize) / GB;
-    print(free < 5 ? `  ! ${free.toFixed(1)} GB free on this disk: the circuits' compile cache and the network's state need about 5 GB.` : `  ✓ ${free.toFixed(0)} GB free on this disk`);
+    print(
+      free < 5
+        ? `  ! ${free.toFixed(1)} GB free on this disk: the circuits' compile cache and the network's state need about 5 GB.`
+        : `  ✓ ${free.toFixed(0)} GB free on this disk`,
+    );
   } catch {
     print('  ? could not read the free disk space');
   }
   const taken: string[] = [];
   for (const { port, serves } of networkPorts(explorerPort)) if (!(await portIsFree(port))) taken.push(`${port} (${serves})`);
-  print(taken.length === 0
-    ? '  ✓ the network\'s ports are free'
-    : `  ! in use: ${taken.join(', ')}. If this network is still running, \`npm stop\` stops it; another program is left alone.`);
+  print(
+    taken.length === 0
+      ? "  ✓ the network's ports are free"
+      : `  ! in use: ${taken.join(', ')}. If this network is still running, \`npm stop\` stops it; another program is left alone.`,
+  );
   return ok;
 }
 
@@ -81,7 +89,11 @@ export async function setup(args: string[], print: (line: string) => void = (l) 
   const envName = path.relative(ROOT, ENV_FILE).replace(/\\/g, '/');
   if (!existing || newSecrets) {
     writeFileSync(ENV_FILE, newLocalEnv(explorerPort), { encoding: 'utf8', mode: 0o600 });
-    try { chmodSync(ENV_FILE, 0o600); } catch { /* Windows keeps the folder's own access list */ }
+    try {
+      chmodSync(ENV_FILE, 0o600);
+    } catch {
+      /* Windows keeps the folder's own access list */
+    }
     print(`  ✓ wrote ${envName} with new secrets${existing ? ' (the old ones are gone: sign in to each dashboard again)' : ''}`);
   } else {
     print(`  ✓ ${envName} is there (\`npm run setup -- --new-secrets\` makes new ones)`);
@@ -94,4 +106,3 @@ export async function setup(args: string[], print: (line: string) => void = (l) 
   print('');
   return true;
 }
-

@@ -70,7 +70,8 @@ async function rpcWith(headers: Record<string, string>, body: string) {
 }
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
 const byWallet = (who: Who, body: string) => signRequest({ ...walletSigner(EK[who], W[who]), method: 'POST', path: '/rpc', body });
-const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) => signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
+const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) =>
+  signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
 
 /** The four reads the 'pcp' reader opens, each asked for the member by a wallet: answered or refused. */
 const PCP_READS = ['l2_getClaimsByMember', 'l2_getReceiptsByWallet', 'l2_reconstructAccumulator', 'l2_getEntity'] as const;
@@ -79,7 +80,8 @@ async function readsAs(who: Who): Promise<Record<string, string>> {
   for (const method of PCP_READS) {
     const body = envelope(method, { walletId: W.member });
     const r = await rpcWith(byWallet(who, body), body);
-    out[method] = r.error === undefined ? 'answered' : r.error.code === RPC_FORBIDDEN ? 'refused' : `error ${r.error.code}: ${r.error.message}`;
+    out[method] =
+      r.error === undefined ? 'answered' : r.error.code === RPC_FORBIDDEN ? 'refused' : `error ${r.error.code}: ${r.error.message}`;
   }
   return out;
 }
@@ -109,7 +111,13 @@ function engineNaming(pcp: Who | null) {
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pcp-reads-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pcp-reads-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
   server.registerNodeKey(prescriberNode.nodeId, prescriberNode.publicKeyHex, 'prescriber');
@@ -117,7 +125,12 @@ beforeAll(async () => {
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
   const register = async (key: ReturnType<typeof generateNodeKey>, who: Who, type: string) => {
-    const body = envelope('l2_registerEntity', { walletId: W[who], displayName: who, type, signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex });
+    const body = envelope('l2_registerEntity', {
+      walletId: W[who],
+      displayName: who,
+      type,
+      signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex,
+    });
     const j = await rpcWith(byNode(key, body), body);
     if (j.error) throw new Error(`fixture registration of ${who} failed: ${j.error.message}`);
   };
@@ -137,9 +150,11 @@ beforeAll(async () => {
   });
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
-describe('the member\'s choice', () => {
+describe("the member's choice", () => {
   test('the prescriber the member names reads its claims, receipts, accumulator and directory entry, and lists it', async () => {
     await memberNames('drA');
     expect(await readsAs('drA')).toEqual(ALL_ANSWERED);
@@ -149,9 +164,9 @@ describe('the member\'s choice', () => {
   test('a prescriber the member named before reads nothing once it names another, and no longer lists it', async () => {
     await memberNames('drA');
     await memberNames('drB');
-    expect(await readsAs('drA')).toEqual(ALL_REFUSED);   // before: every read answered, through the link kept for good
+    expect(await readsAs('drA')).toEqual(ALL_REFUSED); // before: every read answered, through the link kept for good
     expect(await readsAs('drB')).toEqual(ALL_ANSWERED);
-    expect(await patientsOf('drA')).toEqual([]);         // before: the member, for good
+    expect(await patientsOf('drA')).toEqual([]); // before: the member, for good
     expect(await patientsOf('drB')).toEqual([W.member]);
   });
 
@@ -159,7 +174,7 @@ describe('the member\'s choice', () => {
     await memberNames('drB');
     await memberNames('drA');
     expect(await readsAs('drA')).toEqual(ALL_ANSWERED);
-    expect(await readsAs('drB')).toEqual(ALL_REFUSED);   // before: every read answered
+    expect(await readsAs('drB')).toEqual(ALL_REFUSED); // before: every read answered
     expect(await patientsOf('drA')).toEqual([W.member]);
     expect(await patientsOf('drB')).toEqual([]);
   });
@@ -178,11 +193,11 @@ describe('the provider registry', () => {
     await memberNames('drC');
     expect(await readsAs('drC')).toEqual(ALL_ANSWERED);
     await planSetsStatus('drC', ProviderLifecycle.SUSPENDED);
-    expect(await readsAs('drC')).toEqual(ALL_REFUSED);   // before: every read answered
+    expect(await readsAs('drC')).toEqual(ALL_REFUSED); // before: every read answered
     await planSetsStatus('drC', ProviderLifecycle.ACTIVE);
     expect(await readsAs('drC')).toEqual(ALL_ANSWERED);
     await planSetsStatus('drC', ProviderLifecycle.TERMINATED);
-    expect(await readsAs('drC')).toEqual(ALL_REFUSED);   // before: every read answered
+    expect(await readsAs('drC')).toEqual(ALL_REFUSED); // before: every read answered
     // The list still names the member: whom a suspension or a termination leaves without primary care, for the plan.
     expect(await patientsOf('drC')).toEqual([W.member]);
     const asPlan = await rpcWith(bearer, envelope('l2_getPcpAssignments', { prescriberWalletId: W.drC }));
@@ -190,23 +205,25 @@ describe('the provider registry', () => {
   });
 
   test('a wallet that is not a credentialed, active prescriber opens nothing by being named', async () => {
-    await memberNames('drX');                             // in the directory as a prescriber, never credentialed
-    expect(await readsAs('drX')).toEqual(ALL_REFUSED);   // before: every read answered
-    await memberNames('rx');                              // a credentialed pharmacy
-    expect(await readsAs('rx')).toEqual(ALL_REFUSED);    // before: every read answered
+    await memberNames('drX'); // in the directory as a prescriber, never credentialed
+    expect(await readsAs('drX')).toEqual(ALL_REFUSED); // before: every read answered
+    await memberNames('rx'); // a credentialed pharmacy
+    expect(await readsAs('rx')).toEqual(ALL_REFUSED); // before: every read answered
   });
 });
 
-describe('the engine\'s record of the member\'s choice', () => {
-  afterEach(() => { server.setMemberCostQuoteProvider(null); });
+describe("the engine's record of the member's choice", () => {
+  afterEach(() => {
+    server.setMemberCostQuoteProvider(null);
+  });
 
-  test('must name the same prescriber as the member\'s latest link, where an engine is attached', async () => {
+  test("must name the same prescriber as the member's latest link, where an engine is attached", async () => {
     await memberNames('drA');
     server.setMemberCostQuoteProvider(engineNaming('drB'));
-    expect(await readsAs('drA')).toEqual(ALL_REFUSED);   // the link names Dr A; the engine's record, Dr B
-    expect(await readsAs('drB')).toEqual(ALL_REFUSED);   // and the engine's record alone opens nothing
+    expect(await readsAs('drA')).toEqual(ALL_REFUSED); // the link names Dr A; the engine's record, Dr B
+    expect(await readsAs('drB')).toEqual(ALL_REFUSED); // and the engine's record alone opens nothing
     server.setMemberCostQuoteProvider(engineNaming(null));
-    expect(await readsAs('drA')).toEqual(ALL_REFUSED);   // an engine that records no choice for the member
+    expect(await readsAs('drA')).toEqual(ALL_REFUSED); // an engine that records no choice for the member
     server.setMemberCostQuoteProvider(engineNaming('drA'));
     expect(await readsAs('drA')).toEqual(ALL_ANSWERED);
   });

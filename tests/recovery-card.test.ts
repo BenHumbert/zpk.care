@@ -30,8 +30,14 @@ import os from 'os';
 import path from 'path';
 import type { AddressInfo } from 'net';
 import {
-  splitEnrollmentKey, combineEnrollmentKey, issueRecoveryCards, recoveryPinVerifier, isRecoveryCardV3, recoveryCardBytes,
-  validateRecoveryPin, NFC_CAPACITY_BYTES,
+  splitEnrollmentKey,
+  combineEnrollmentKey,
+  issueRecoveryCards,
+  recoveryPinVerifier,
+  isRecoveryCardV3,
+  recoveryCardBytes,
+  validateRecoveryPin,
+  NFC_CAPACITY_BYTES,
 } from '../src/security/recovery-card.js';
 import { generateEnrollmentKey, generateIdentitySalt } from '../src/wallets/wallet-derivation.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
@@ -56,7 +62,13 @@ const DEPOSIT_REFUSED = 'Recovery deposits are filed only by an enrolled wallet,
 
 /** Headers that sign `text` as `walletId` with the wallet key derived from `enrollmentKey`, as a member's device signs its deposit. */
 function signedAs(walletId: string, enrollmentKey: string, text: string): Record<string, string> {
-  return signRequest({ signerId: walletId, privateKey: deriveWalletSigningKey(enrollmentKey).privateKey, method: 'POST', path: '/recovery/deposit', body: text });
+  return signRequest({
+    signerId: walletId,
+    privateKey: deriveWalletSigningKey(enrollmentKey).privateKey,
+    method: 'POST',
+    path: '/recovery/deposit',
+    body: text,
+  });
 }
 
 /**
@@ -71,7 +83,10 @@ async function sequencerWith(keys: Record<string, string>): Promise<{ url: strin
       if (req.method === 'GET' && req.url === '/viz/entities') {
         reads++;
         const entities = Object.entries(keys).map(([walletId, enrollmentKey]) => ({
-          walletId, displayName: 'Member', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(enrollmentKey).publicKeyHex,
+          walletId,
+          displayName: 'Member',
+          type: 'member',
+          signingPublicKeyHex: deriveWalletSigningKey(enrollmentKey).publicKeyHex,
         }));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(entities));
@@ -85,7 +100,11 @@ async function sequencerWith(keys: Record<string, string>): Promise<{ url: strin
   return {
     url: `http://127.0.0.1:${(service.address() as AddressInfo).port}`,
     reads: () => reads,
-    stop: () => new Promise<void>((resolve) => { service.closeAllConnections(); service.close(() => resolve()); }),
+    stop: () =>
+      new Promise<void>((resolve) => {
+        service.closeAllConnections();
+        service.close(() => resolve());
+      }),
   };
 }
 
@@ -93,21 +112,38 @@ async function sequencerWith(keys: Record<string, string>): Promise<{ url: strin
 async function insurerAt(sequencerUrl: string, walletId: string): Promise<{ server: NautilusAppServer; url: string; dir: string }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'a12b-ins-'));
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl, stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'insurer-token',
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'insurer-token',
   } as unknown as NautilusAppConfig);
   server.registerRoutes(buildInsurerRoutes(server));
   await server.start();
   // The deposits at enrollment arrive with its completion; here the wallet is seeded as enrolled, as completion leaves it.
-  (server as unknown as { __enrollmentRegistry?: Map<string, unknown> }).__enrollmentRegistry = new Map([[walletId, { walletId, tokenId: 'CODE' }]]);
+  (server as unknown as { __enrollmentRegistry?: Map<string, unknown> }).__enrollmentRegistry = new Map([
+    [walletId, { walletId, tokenId: 'CODE' }],
+  ]);
   return { server, url: `http://127.0.0.1:${server.getPort()}`, dir };
 }
 
 /** POSTs `body` as JSON to `url + p` with any `headers` beside the content type; the status, the JSON and Retry-After. */
 async function postTo(url: string, p: string, body: unknown, headers: Record<string, string> = {}) {
-  const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const r = await fetch(url + p, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
   let json: any = null;
-  try { json = await r.json(); } catch { json = null; }
+  try {
+    json = await r.json();
+  } catch {
+    json = null;
+  }
   return { status: r.status, json, retryAfter: r.headers.get('retry-after') };
 }
 const data = (r: { json: any }) => (r.json && 'data' in r.json ? r.json.data : r.json);
@@ -153,7 +189,14 @@ describe('the split', () => {
   });
 
   test('issuing makes two cards and two deposits that match by id and carry the salt, group and plan', () => {
-    const issued = issueRecoveryCards({ enrollmentKey: KEY, recoveryPin: '246813', identitySalt: SALT, groupIdHash: GROUP, planIdHash: PLAN, domainTag: 0 });
+    const issued = issueRecoveryCards({
+      enrollmentKey: KEY,
+      recoveryPin: '246813',
+      identitySalt: SALT,
+      groupIdHash: GROUP,
+      planIdHash: PLAN,
+      domainTag: 0,
+    });
     expect(issued.cards).toHaveLength(2);
     expect(issued.deposits).toHaveLength(2);
     for (let i = 0; i < 2; i++) {
@@ -170,7 +213,14 @@ describe('the insurer releases a deposit against the verifier, attempt-limited p
   let server: NautilusAppServer;
   let url: string;
   let dir: string;
-  const issued = issueRecoveryCards({ enrollmentKey: KEY, recoveryPin: '246813', identitySalt: SALT, groupIdHash: GROUP, planIdHash: PLAN, domainTag: 0 });
+  const issued = issueRecoveryCards({
+    enrollmentKey: KEY,
+    recoveryPin: '246813',
+    identitySalt: SALT,
+    groupIdHash: GROUP,
+    planIdHash: PLAN,
+    domainTag: 0,
+  });
   const [cardA, cardB] = issued.cards;
   let sequencer: Awaited<ReturnType<typeof sequencerWith>>;
 
@@ -188,7 +238,11 @@ describe('the insurer releases a deposit against the verifier, attempt-limited p
   afterAll(async () => {
     await server.stop();
     await sequencer.stop();
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   test('a wrong verifier is refused, then throttled with Retry-After, and the card is not released', async () => {
@@ -214,7 +268,10 @@ describe('the insurer releases a deposit against the verifier, attempt-limited p
   });
 
   test('an unknown card id, a malformed verifier and a missing body are refused without a hint', async () => {
-    expect((await post('/recovery/release', { cardId: 'ffffffffffffffff', pinVerifier: recoveryPinVerifier('246813', 'ffffffffffffffff') })).status).toBe(403);
+    expect(
+      (await post('/recovery/release', { cardId: 'ffffffffffffffff', pinVerifier: recoveryPinVerifier('246813', 'ffffffffffffffff') }))
+        .status,
+    ).toBe(403);
     expect((await post('/recovery/release', { cardId: cardB.id, pinVerifier: 'nothex' })).status).toBe(400);
     expect((await post('/recovery/release', {})).status).toBe(400);
   });
@@ -249,53 +306,64 @@ describe('POST /recovery/deposit: a deposit comes from the wallet itself', () =>
   afterAll(async () => {
     await server.stop();
     await sequencer.stop();
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   });
 
   test('a request the wallet did not sign, or one for a wallet the insurer did not enroll, is refused with one answer and files nothing', async () => {
     const stray = cardsFor(generateEnrollmentKey(), '111111');
     const answers = [
-      await deposit(WALLET, stray.deposits),                                                    // an enrolled wallet, unsigned
-      await deposit('42', stray.deposits),                                                      // a wallet nobody enrolled, unsigned
-      await deposit(WALLET, stray.deposits, { walletId: WALLET, key: OTHER_KEY }),              // signed in the wallet's name with another key
-      await deposit(WALLET, stray.deposits, { walletId: OTHER_WALLET, key: OTHER_KEY }),        // signed by another wallet
-      await deposit(OTHER_WALLET, stray.deposits, { walletId: OTHER_WALLET, key: OTHER_KEY }),  // signed by a wallet this insurer did not enroll
+      await deposit(WALLET, stray.deposits), // an enrolled wallet, unsigned
+      await deposit('42', stray.deposits), // a wallet nobody enrolled, unsigned
+      await deposit(WALLET, stray.deposits, { walletId: WALLET, key: OTHER_KEY }), // signed in the wallet's name with another key
+      await deposit(WALLET, stray.deposits, { walletId: OTHER_WALLET, key: OTHER_KEY }), // signed by another wallet
+      await deposit(OTHER_WALLET, stray.deposits, { walletId: OTHER_WALLET, key: OTHER_KEY }), // signed by a wallet this insurer did not enroll
     ];
-    expect(answers.map((r) => [r.status, r.json?.error])).toEqual(Array(5).fill([403, DEPOSIT_REFUSED]));   // before: [[201, undefined], [404, 'No enrollment for this wallet'], [201, undefined], [201, undefined], [404, 'No enrollment for this wallet']]
+    expect(answers.map((r) => [r.status, r.json?.error])).toEqual(Array(5).fill([403, DEPOSIT_REFUSED])); // before: [[201, undefined], [404, 'No enrollment for this wallet'], [201, undefined], [201, undefined], [404, 'No enrollment for this wallet']]
     for (const c of stray.cards) {
-      expect((await post('/recovery/release', { cardId: c.id, pinVerifier: recoveryPinVerifier('111111', c.id) })).status).toBe(403);   // before: 200, the stranger's deposit filed under the member's wallet
+      expect((await post('/recovery/release', { cardId: c.id, pinVerifier: recoveryPinVerifier('111111', c.id) })).status).toBe(403); // before: 200, the stranger's deposit filed under the member's wallet
     }
   });
 
-  test('with a card\'s ID, a stranger neither replaces the member\'s deposit nor revives a card the member revoked', async () => {
+  test("with a card's ID, a stranger neither replaces the member's deposit nor revives a card the member revoked", async () => {
     const issued = cardsFor(KEY, '246813');
     expect((await deposit(WALLET, issued.deposits, { walletId: WALLET, key: KEY })).status).toBe(201);
     const [live, revoked] = issued.cards;
-    expect((await post('/recovery/revoke', { cardId: revoked.id, pinVerifier: recoveryPinVerifier('246813', revoked.id) })).status).toBe(200);
+    expect((await post('/recovery/revoke', { cardId: revoked.id, pinVerifier: recoveryPinVerifier('246813', revoked.id) })).status).toBe(
+      200,
+    );
     // The stranger's own shares and PIN, filed under the member's two card IDs.
     const theirs = cardsFor(generateEnrollmentKey(), '111111').deposits;
     const forged = [live, revoked].map((c, i) => ({ ...theirs[i], cardId: c.id, pinVerifier: recoveryPinVerifier('111111', c.id) }));
-    expect((await deposit(WALLET, forged)).status).toBe(403);   // before: 201, both deposits replaced
-    expect((await post('/recovery/release', { cardId: revoked.id, pinVerifier: recoveryPinVerifier('111111', revoked.id) })).status).toBe(403);   // before: 200, the revoked card released the stranger's share
+    expect((await deposit(WALLET, forged)).status).toBe(403); // before: 201, both deposits replaced
+    expect((await post('/recovery/release', { cardId: revoked.id, pinVerifier: recoveryPinVerifier('111111', revoked.id) })).status).toBe(
+      403,
+    ); // before: 200, the revoked card released the stranger's share
     const own = await post('/recovery/release', { cardId: live.id, pinVerifier: recoveryPinVerifier('246813', live.id) });
-    expect(own.status).toBe(200);   // before: 403, the member's deposit was the stranger's
+    expect(own.status).toBe(200); // before: 403, the member's deposit was the stranger's
     expect(combineEnrollmentKey(live, data(own).share2Hex)).toBe(KEY);
   });
 
-  test('the wallet\'s own signed deposit is filed and releases, and the same signed request presented again is refused', async () => {
+  test("the wallet's own signed deposit is filed and releases, and the same signed request presented again is refused", async () => {
     const issued = cardsFor(KEY, '246813');
     const body = { walletId: WALLET, deposits: issued.deposits };
     const headers = signedAs(WALLET, KEY, JSON.stringify(body));
     const first = await post('/recovery/deposit', body, headers);
     expect([first.status, data(first).recoveryCards]).toEqual([201, issued.cards.map((c) => ({ cardId: c.id, filed: true }))]);
     const again = await post('/recovery/deposit', body, headers);
-    expect([again.status, again.json?.error]).toEqual([403, DEPOSIT_REFUSED]);   // before: [201, undefined], filed again
-    const r = await post('/recovery/release', { cardId: issued.cards[0].id, pinVerifier: recoveryPinVerifier('246813', issued.cards[0].id) });
+    expect([again.status, again.json?.error]).toEqual([403, DEPOSIT_REFUSED]); // before: [201, undefined], filed again
+    const r = await post('/recovery/release', {
+      cardId: issued.cards[0].id,
+      pinVerifier: recoveryPinVerifier('246813', issued.cards[0].id),
+    });
     expect(r.status).toBe(200);
     expect(combineEnrollmentKey(issued.cards[0], data(r).share2Hex)).toBe(KEY);
   });
 
-  test('deposits signed together read the sequencer\'s registry once at most', async () => {
+  test("deposits signed together read the sequencer's registry once at most", async () => {
     const before = sequencer.reads();
     const sent = await Promise.all([0, 1, 2].map(() => deposit(WALLET, cardsFor(KEY, '246813').deposits, { walletId: WALLET, key: KEY })));
     expect(sent.map((r) => r.status)).toEqual([201, 201, 201]);
@@ -307,16 +375,25 @@ describe('POST /recovery/deposit: a deposit comes from the wallet itself', () =>
     try {
       const at = (walletId: string, signer?: { walletId: string; key: string }) => {
         const body = { walletId, deposits: cardsFor(KEY, '246813').deposits };
-        return postTo(unreachable.url, '/recovery/deposit', body, signer ? signedAs(signer.walletId, signer.key, JSON.stringify(body)) : {});
+        return postTo(
+          unreachable.url,
+          '/recovery/deposit',
+          body,
+          signer ? signedAs(signer.walletId, signer.key, JSON.stringify(body)) : {},
+        );
       };
       const enrolled = await at(WALLET, { walletId: WALLET, key: KEY });
       const other = await at(OTHER_WALLET, { walletId: OTHER_WALLET, key: OTHER_KEY });
-      expect([enrolled.status, other.status]).toEqual([502, 502]);   // before: [201, 404]
-      expect(enrolled.json?.error).toBe(other.json?.error);           // before: undefined and 'No enrollment for this wallet'
-      expect((await at(WALLET)).status).toBe(403);                    // before: 201
+      expect([enrolled.status, other.status]).toEqual([502, 502]); // before: [201, 404]
+      expect(enrolled.json?.error).toBe(other.json?.error); // before: undefined and 'No enrollment for this wallet'
+      expect((await at(WALLET)).status).toBe(403); // before: 201
     } finally {
       await unreachable.server.stop();
-      try { fs.rmSync(unreachable.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        fs.rmSync(unreachable.dir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
     }
   });
 });

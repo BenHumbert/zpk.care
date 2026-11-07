@@ -30,10 +30,7 @@ export class PharmacyData extends Struct({
   serviceProviderIdHash: Field,
 }) {
   commitment(): Field {
-    return Poseidon.hash([
-      this.serviceProviderIdQualifier,
-      this.serviceProviderIdHash,
-    ]);
+    return Poseidon.hash([this.serviceProviderIdQualifier, this.serviceProviderIdHash]);
   }
 }
 
@@ -41,6 +38,6 @@ export class PharmacyData extends Struct({
  * Raw pharmacy data — lives locally, never on-chain.
  */
 export interface PharmacyLocalData {
-  serviceProviderIdQualifier: number;  // 201-B1
-  serviceProviderId: string;           // 202-B2 (NPI)
+  serviceProviderIdQualifier: number; // 201-B1
+  serviceProviderId: string; // 202-B2 (NPI)
 }

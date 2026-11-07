@@ -42,13 +42,18 @@ export function pinCeremonyRecord(
   try {
     record = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as CeremonyRecord;
   } catch (err) {
-    throw new CeremonyRecordError(`the ceremony record at ${recordPath} could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    throw new CeremonyRecordError(
+      `the ceremony record at ${recordPath} could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   const anchorFile = path.join(anchorDir, 'ceremony-anchor.json');
   const write = (hash: string) => {
     fs.mkdirSync(anchorDir, { recursive: true });
     const tmp = `${anchorFile}.tmp-${process.pid}`;
-    fs.writeFileSync(tmp, JSON.stringify({ v: 1, recordHash: hash, record, pinnedAt: new Date().toISOString() } satisfies AnchorFile, null, 2));
+    fs.writeFileSync(
+      tmp,
+      JSON.stringify({ v: 1, recordHash: hash, record, pinnedAt: new Date().toISOString() } satisfies AnchorFile, null, 2),
+    );
     fs.renameSync(tmp, anchorFile);
   };
   if (!fs.existsSync(anchorFile)) {

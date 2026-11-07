@@ -75,8 +75,14 @@ function operation<T>(name: string, events: string[]) {
   const run = (): Promise<T> => {
     events.push(`${name} starts`);
     return new Promise<T>((resolve, reject) => {
-      finish = (value) => { events.push(`${name} ends`); resolve(value); };
-      fail = (err) => { events.push(`${name} fails`); reject(err); };
+      finish = (value) => {
+        events.push(`${name} ends`);
+        resolve(value);
+      };
+      fail = (err) => {
+        events.push(`${name} fails`);
+        reject(err);
+      };
     });
   };
   return { run, finish: (value: T) => finish(value), fail: (err: Error) => fail(err) };
@@ -86,8 +92,14 @@ function operation<T>(name: string, events: string[]) {
 function track<T>(promise: Promise<T>) {
   const seen: { status: 'pending' | 'resolved' | 'rejected'; value?: T; error?: string } = { status: 'pending' };
   promise.then(
-    (value) => { seen.status = 'resolved'; seen.value = value; },
-    (err) => { seen.status = 'rejected'; seen.error = err instanceof Error ? err.message : String(err); },
+    (value) => {
+      seen.status = 'resolved';
+      seen.value = value;
+    },
+    (err) => {
+      seen.status = 'rejected';
+      seen.error = err instanceof Error ? err.message : String(err);
+    },
   );
   return seen;
 }
@@ -99,17 +111,29 @@ describe('L2Node: an operation that holds the proving lock past five minutes', (
     const fill = operation<{ prescriptionId: string; status: string }>('fill', events);
     // as the fill route does: dispense runs under the lock as a background job, and the job records what came back
     const job: { status: string; result?: unknown; error?: string } = { status: 'pending' };
-    node.withProvingLock(fill.run)
-      .then((result) => { job.status = 'complete'; job.result = result; })
-      .catch((err: Error) => { job.status = 'error'; job.error = err.message; });
+    node
+      .withProvingLock(fill.run)
+      .then((result) => {
+        job.status = 'complete';
+        job.result = result;
+      })
+      .catch((err: Error) => {
+        job.status = 'error';
+        job.error = err.message;
+      });
     await elapse();
     expect(events).toEqual(['fill starts']);
 
-    const termination = track(node.withProvingLock(async () => { events.push('terminate'); return { lifecycle: 'REVOKED' }; }));
+    const termination = track(
+      node.withProvingLock(async () => {
+        events.push('terminate');
+        return { lifecycle: 'REVOKED' };
+      }),
+    );
     await elapse(6 * MINUTE);
-    expect(events).toEqual(['fill starts']);     // before: ['fill starts', 'terminate']: the lock was let go at five minutes and the termination ran in the middle of the fill
-    expect(job.status).toBe('pending');          // before: 'error', the pharmacy told the fill had failed while it was still running
-    expect(termination.status).toBe('pending');  // before: 'resolved'
+    expect(events).toEqual(['fill starts']); // before: ['fill starts', 'terminate']: the lock was let go at five minutes and the termination ran in the middle of the fill
+    expect(job.status).toBe('pending'); // before: 'error', the pharmacy told the fill had failed while it was still running
+    expect(termination.status).toBe('pending'); // before: 'resolved'
 
     fill.finish({ prescriptionId: 'RX-OVERRUN', status: 'DISPENSED' });
     await elapse();
@@ -123,10 +147,15 @@ describe('L2Node: an operation that holds the proving lock past five minutes', (
     const events: string[] = [];
     const proof = operation<string>('proof', events);
     const first = track(node.withProvingLock(proof.run));
-    const second = track(node.withProvingLock(async () => { events.push('next'); return 'next done'; }));
+    const second = track(
+      node.withProvingLock(async () => {
+        events.push('next');
+        return 'next done';
+      }),
+    );
     await elapse(7 * MINUTE);
-    expect(first.status).toBe('pending');        // before: 'rejected' with 'Proving lock timeout: operation exceeded 5 minutes'
-    expect(events).toEqual(['proof starts']);    // before: ['proof starts', 'next']
+    expect(first.status).toBe('pending'); // before: 'rejected' with 'Proving lock timeout: operation exceeded 5 minutes'
+    expect(events).toEqual(['proof starts']); // before: ['proof starts', 'next']
 
     proof.fail(new Error('Prove timeout after 180000ms for AccumulatorFulfillment.fulfill'));
     await elapse();
@@ -142,14 +171,14 @@ describe('L2Node: an operation that holds the proving lock past five minutes', (
     await elapse(5 * MINUTE - 1);
     expect(lockWarnings()).toEqual([]);
     await elapse(1);
-    expect(lockWarnings()).toHaveLength(1);       // before: nothing was logged; the caller was refused instead
+    expect(lockWarnings()).toHaveLength(1); // before: nothing was logged; the caller was refused instead
     expect(lockWarnings()[0]).toMatch(/lock-node: an operation has held the proving lock for 300 s and is still running/);
 
     await elapse(2 * MINUTE);
     expect(lockWarnings()).toHaveLength(1);
     batch.finish('built');
     await elapse();
-    expect(lockWarnings()).toHaveLength(2);       // before: nothing was logged
+    expect(lockWarnings()).toHaveLength(2); // before: nothing was logged
     expect(lockWarnings()[1]).toMatch(/lock-node: the operation that held the proving lock past 300 s let go of it after 420 s/);
     expect(result).toEqual({ status: 'resolved', value: 'built' }); // before: rejected with the lock's timeout at five minutes
     expect(jest.getTimerCount()).toBe(0);
@@ -161,8 +190,18 @@ describe('L2Node: an operation that holds the proving lock past five minutes', (
     const first = operation<string>('first', events);
     const results = [
       track(node.withProvingLock(first.run)),
-      track(node.withProvingLock(async () => { events.push('second'); return 'second done'; })),
-      track(node.withProvingLock(async () => { events.push('third'); throw new Error('third refused'); })),
+      track(
+        node.withProvingLock(async () => {
+          events.push('second');
+          return 'second done';
+        }),
+      ),
+      track(
+        node.withProvingLock(async () => {
+          events.push('third');
+          throw new Error('third refused');
+        }),
+      ),
     ];
     await elapse(4 * MINUTE);
     expect(events).toEqual(['first starts']);
@@ -184,11 +223,21 @@ describe("L2Leviathan: its batch cycle's in-process proving lock", () => {
     const config: LeviathanConfig = {
       partitionCount: 2,
       primaryPartition: 0,
-      failoverChain: new Map([[0, ['lock-lev']], [1, ['lock-lev']]]),
+      failoverChain: new Map([
+        [0, ['lock-lev']],
+        [1, ['lock-lev']],
+      ]),
       heartbeatIntervalMs: 999_999,
       heartbeatTimeoutMs: 999_999,
     };
-    return new L2Leviathan(config, { batchIntervalMs: 999_999, l2Only: true, nodeId: 'lock-lev' }, new InMemoryStore(), EMPTY, EMPTY, Field(0));
+    return new L2Leviathan(
+      config,
+      { batchIntervalMs: 999_999, l2Only: true, nodeId: 'lock-lev' },
+      new InMemoryStore(),
+      EMPTY,
+      EMPTY,
+      Field(0),
+    );
   }
 
   /** A partition with a proof pending whose in-process batch build runs until the test ends it. */
@@ -205,7 +254,9 @@ describe("L2Leviathan: its batch cycle's in-process proving lock", () => {
     const lev = newLeviathan();
     const events: string[] = [];
     const failures: unknown[] = [];
-    lev.on((e) => { if (e.type === 'batch:failed') failures.push(e.data.reason); });
+    lev.on((e) => {
+      if (e.type === 'batch:failed') failures.push(e.data.reason);
+    });
     const p0 = provingPartition(lev, 0, events);
     const p1 = provingPartition(lev, 1, events);
 
@@ -213,10 +264,10 @@ describe("L2Leviathan: its batch cycle's in-process proving lock", () => {
     await elapse();
     const second = track(lev.forceBatch(1));
     await elapse(6 * MINUTE);
-    expect(events).toEqual(['batch 0 starts']);   // before: ['batch 0 starts', 'batch 1 starts']: two batches proving at once in one o1js context
-    expect(first.status).toBe('pending');         // before: resolved null, the batch reported failed while it was still proving
-    expect(failures).toEqual([]);                 // before: ['Proving lock timeout: operation exceeded 5 minutes']
-    expect(lockWarnings()).toHaveLength(1);       // before: nothing was logged
+    expect(events).toEqual(['batch 0 starts']); // before: ['batch 0 starts', 'batch 1 starts']: two batches proving at once in one o1js context
+    expect(first.status).toBe('pending'); // before: resolved null, the batch reported failed while it was still proving
+    expect(failures).toEqual([]); // before: ['Proving lock timeout: operation exceeded 5 minutes']
+    expect(lockWarnings()).toHaveLength(1); // before: nothing was logged
     expect(lockWarnings()[0]).toMatch(/lock-lev: an operation has held the proving lock for 300 s/);
 
     p0.finish();
@@ -226,6 +277,6 @@ describe("L2Leviathan: its batch cycle's in-process proving lock", () => {
     p1.finish();
     await elapse();
     expect(second).toEqual({ status: 'resolved', value: p1.batch });
-    expect(lockWarnings()).toHaveLength(2);       // before: nothing was logged
+    expect(lockWarnings()).toHaveLength(2); // before: nothing was logged
   });
 });

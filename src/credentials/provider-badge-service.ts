@@ -122,10 +122,7 @@ export function createProviderBadge(
 
   try {
     const cipher = createCipheriv('aes-256-gcm', derivedKey, iv);
-    const encrypted = Buffer.concat([
-      cipher.update(enrollmentKey, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(enrollmentKey, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
 
     const badge: ProviderBadge = {
@@ -189,10 +186,7 @@ export function decryptBadge(badge: ProviderBadge, pin: string): string {
     decipher.setAuthTag(authTag);
 
     try {
-      const decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
       return decrypted.toString('utf8');
     } catch {
       throw new Error('Badge decryption failed — wrong PIN or corrupted badge');

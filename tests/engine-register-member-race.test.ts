@@ -35,8 +35,8 @@ import { Field, MerkleTree } from 'o1js';
 
 jest.setTimeout(300_000);
 
-const RACED = '79200000000000000001';      // two registrations sent together while the roots are held
-const RELEASED = '79200000000000000002';   // the first registration fails after the check; the second, sent with it, registers
+const RACED = '79200000000000000001'; // two registrations sent together while the roots are held
+const RELEASED = '79200000000000000002'; // the first registration fails after the check; the second, sent with it, registers
 
 let node: any;
 let seq: any;
@@ -47,11 +47,21 @@ const ndcHashOf = (ndc: string) => hashString(ndc).toString();
 
 /** Approved by the insurer and REGISTERED on the ledger by the member's own registration proof: ready to register with the engine. */
 function readyToRegister(walletId: string): void {
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(walletId)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId, groupIdHash: ndcHashOf('GRP-RACE'), planIdHash: ndcHashOf('PLAN-RACE'), planId: 'PLAN-RACE', employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(walletId)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId,
+    groupIdHash: ndcHashOf('GRP-RACE'),
+    planIdHash: ndcHashOf('PLAN-RACE'),
+    planId: 'PLAN-RACE',
+    employerId: null,
+    familyIdHash: null,
+  });
 }
 
-const register = (walletId: string, displayName: string) => svc.registerMemberFromEnrollment({ walletId, ownershipProofJson: '{}', displayName });
+const register = (walletId: string, displayName: string) =>
+  svc.registerMemberFromEnrollment({ walletId, ownershipProofJson: '{}', displayName });
 const mintsOf = (walletId: string) => svc.walletUpdatesFor(walletId).filter((u: any) => u.reason === 'credential mint');
 
 beforeAll(async () => {
@@ -67,16 +77,39 @@ beforeAll(async () => {
   LC = await import('../src/engine/lifecycle.js');
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-register-race' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-register-race' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
 
   const base: any = {
-    planId: 'PLAN-RACE', name: 'Registration race', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-    formularyNdcs: ['00378410591'], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-RACE',
+    name: 'Registration race',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1250,
+    formularyNdcs: ['00378410591'],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, getAllFormularyEntries()).root.toString();
   await node.storePlan({ ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) });
@@ -84,23 +117,25 @@ beforeAll(async () => {
 
 test('two registrations sent together while the roots are held make one record and one mint; the second answers as for a registered wallet', async () => {
   readyToRegister(RACED);
-  expect(seq.acquireProvingLease('stand-in-prover').granted).toBe(true);   // a device proving: the roots wait for it
+  expect(seq.acquireProvingLease('stand-in-prover').granted).toBe(true); // a device proving: the roots wait for it
   const first = register(RACED, 'First');
   const second = register(RACED, 'Second');
-  await new Promise((resolve) => setTimeout(resolve, 50));   // both are sent; neither may finish while the roots are held
+  await new Promise((resolve) => setTimeout(resolve, 50)); // both are sent; neither may finish while the roots are held
   expect(svc.enrolledMembers.has(RACED)).toBe(false);
   expect(seq.releaseProvingLease('stand-in-prover')).toBe(true);
   const [a, b] = await Promise.all([first, second]);
 
   expect(a).toMatchObject({ walletId: RACED, displayName: 'First', registered: true, walletUpdate: { status: 'pending' } });
-  expect(b).toEqual({ walletId: RACED, displayName: 'First', alreadyRegistered: true });   // before: registered again, with a second mint
-  expect(svc.enrolledMembers.get(RACED).displayName).toBe('First');   // before: 'Second', the second record over the first
-  expect(mintsOf(RACED).map((u: any) => u.updateId)).toEqual([a.walletUpdate.updateId]);   // before: two mints, the second from the first's root to the same root
-  expect(svc.pendingWalletUpdates.get(a.walletUpdate.updateId).oldInventoryRoot).toBe(seq.getWalletStateForRpc(RACED).credentialInventoryRoot);
+  expect(b).toEqual({ walletId: RACED, displayName: 'First', alreadyRegistered: true }); // before: registered again, with a second mint
+  expect(svc.enrolledMembers.get(RACED).displayName).toBe('First'); // before: 'Second', the second record over the first
+  expect(mintsOf(RACED).map((u: any) => u.updateId)).toEqual([a.walletUpdate.updateId]); // before: two mints, the second from the first's root to the same root
+  expect(svc.pendingWalletUpdates.get(a.walletUpdate.updateId).oldInventoryRoot).toBe(
+    seq.getWalletStateForRpc(RACED).credentialInventoryRoot,
+  );
 
   // sent again later, it answers the same way and queues nothing
-  expect(await register(RACED, 'Third')).toEqual({ walletId: RACED, displayName: 'First', alreadyRegistered: true });   // before: the second registration's name
-  expect(mintsOf(RACED)).toHaveLength(1);   // before: 2
+  expect(await register(RACED, 'Third')).toEqual({ walletId: RACED, displayName: 'First', alreadyRegistered: true }); // before: the second registration's name
+  expect(mintsOf(RACED)).toHaveLength(1); // before: 2
 });
 
 test('a registration that fails after the check releases the wallet: the second, sent with it, registers it', async () => {

@@ -44,9 +44,9 @@ describe('the suite lists', () => {
 
   test('name every suite exactly once between them', () => {
     const listed = [...batch, ...slow].sort();
-    expect(listed).toEqual([...new Set(listed)].sort());      // no suite twice
-    expect(suites.filter((s) => !listed.includes(s))).toEqual([]);   // none left out
-    expect(listed.filter((s) => !suites.includes(s))).toEqual([]);   // none that is gone
+    expect(listed).toEqual([...new Set(listed)].sort()); // no suite twice
+    expect(suites.filter((s) => !listed.includes(s))).toEqual([]); // none left out
+    expect(listed.filter((s) => !suites.includes(s))).toEqual([]); // none that is gone
   });
 
   test('name each suite by its path from the repository root', () => {

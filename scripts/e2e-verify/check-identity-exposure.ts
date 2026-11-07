@@ -14,17 +14,27 @@ const people = [
 ];
 for (const p of people) {
   const h = { first: hashString(p.first).toString(), last: hashString(p.last).toString(), dob: hashDate(p.dob).toString() };
-  console.log(p.key, 'first-name hash on disk:', stateText.includes(h.first), '| in public /interactive/state:', publicState.includes(h.first),
-    '| DOB hash on disk:', stateText.includes(h.dob));
+  console.log(
+    p.key,
+    'first-name hash on disk:',
+    stateText.includes(h.first),
+    '| in public /interactive/state:',
+    publicState.includes(h.first),
+    '| DOB hash on disk:',
+    stateText.includes(h.dob),
+  );
 }
 // Dictionary attack on one stored first-name hash: try a short list of common names.
-const names = ['James','Mary','Avery','Rowan','Jules','Sasha','Michael','Linda','Robert','Patricia'];
-const found = names.filter(n => stateText.includes(hashString(n).toString()));
+const names = ['James', 'Mary', 'Avery', 'Rowan', 'Jules', 'Sasha', 'Michael', 'Linda', 'Robert', 'Patricia'];
+const found = names.filter((n) => stateText.includes(hashString(n).toString()));
 console.log('names recovered from disk by a 10-name dictionary:', found.join(', '));
 // Birth dates: every day 1930-2010 (~29k candidates).
-let dobHits = 0; const t = Date.now();
-for (let y = 1930; y <= 2010; y++) for (let m = 1; m <= 12; m++) for (let d = 1; d <= 31; d++) {
-  const s = `${y}${String(m).padStart(2,'0')}${String(d).padStart(2,'0')}`;
-  if (stateText.includes(hashDate(s).toString())) dobHits++;
-}
-console.log(`birth dates recovered by brute force: ${dobHits} (in ${Math.round((Date.now()-t)/1000)} s)`);
+let dobHits = 0;
+const t = Date.now();
+for (let y = 1930; y <= 2010; y++)
+  for (let m = 1; m <= 12; m++)
+    for (let d = 1; d <= 31; d++) {
+      const s = `${y}${String(m).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+      if (stateText.includes(hashDate(s).toString())) dobHits++;
+    }
+console.log(`birth dates recovered by brute force: ${dobHits} (in ${Math.round((Date.now() - t) / 1000)} s)`);

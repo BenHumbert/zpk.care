@@ -135,9 +135,7 @@ export function buildNfcIdentityRecord(walletId: string): NfcIdentityRecord {
  *
  * @returns The walletId if the payload is valid, null otherwise
  */
-export function parseNfcIdentityPayload(
-  raw: string | Record<string, unknown>,
-): string | null {
+export function parseNfcIdentityPayload(raw: string | Record<string, unknown>): string | null {
   try {
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
 
@@ -203,10 +201,7 @@ export const NFC_TAG_CAPACITY = {
  * The NDEF type string "zktrident.care:member-id" is 24 bytes.
  * Total overhead: ~34 bytes.
  */
-export function fitsOnTag(
-  record: NfcIdentityRecord,
-  tagType: keyof typeof NFC_TAG_CAPACITY,
-): boolean {
+export function fitsOnTag(record: NfcIdentityRecord, tagType: keyof typeof NFC_TAG_CAPACITY): boolean {
   const overhead = 34; // NDEF header + type string
   return record.sizeBytes + overhead <= NFC_TAG_CAPACITY[tagType];
 }

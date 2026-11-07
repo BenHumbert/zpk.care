@@ -33,10 +33,27 @@ export function dashboards(env: Record<string, string | undefined>): Dashboard[]
   const explorer = Number(env.ZKTRIDENT_EXPLORER_PORT) || DEFAULT_EXPLORER_PORT;
   return [
     { name: 'Insurer (the plan)', url: 'http://localhost:4004/', asks: 'Admin tab, Admin Token', token: 'ZKTRIDENT_INSURER_ADMIN_TOKEN' },
-    { name: 'Marketplace (employers)', url: 'http://localhost:4004/marketplace/', asks: 'nothing; activation shows the employer node and its token once' },
-    { name: 'HR Tool (the employer)', url: `http://localhost:${HR_TOOL_PORT}/`, asks: 'the employer node URL and token from activation, and a passphrase you choose' },
-    { name: 'Member (the phone)', url: 'http://localhost:4001/', asks: 'a device PIN you choose; the enrollment PIN is in `npm run texts`' },
-    { name: 'Prescriber', url: 'http://localhost:4002/', asks: 'Onboarding tab, Node admin token (for a patient\'s own price)', token: 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN' },
+    {
+      name: 'Marketplace (employers)',
+      url: 'http://localhost:4004/marketplace/',
+      asks: 'nothing; activation shows the employer node and its token once',
+    },
+    {
+      name: 'HR Tool (the employer)',
+      url: `http://localhost:${HR_TOOL_PORT}/`,
+      asks: 'the employer node URL and token from activation, and a passphrase you choose',
+    },
+    {
+      name: 'Member (the phone)',
+      url: 'http://localhost:4001/',
+      asks: 'a device PIN you choose; the enrollment PIN is in `npm run texts`',
+    },
+    {
+      name: 'Prescriber',
+      url: 'http://localhost:4002/',
+      asks: "Onboarding tab, Node admin token (for a patient's own price)",
+      token: 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN',
+    },
     { name: 'Pharmacy', url: 'http://localhost:4003/', asks: 'nothing' },
     { name: 'Sequencer', url: 'http://localhost:3030/', asks: 'Config & Admin tab, Admin Token', token: 'ZKTRIDENT_ADMIN_TOKEN' },
     { name: 'Explorer', url: `http://localhost:${explorer}/`, asks: 'nothing' },
@@ -56,7 +73,9 @@ export function guideText(env: Record<string, string | undefined>, showTokens: b
   lines.push(
     '',
     "  Sample files: .zpk/samples/roster.csv (the HR Tool's import) and .zpk/samples/sample-ein-letter.pdf (the marketplace's upload).",
-    showTokens ? '  These tokens are for this machine only; `npm run tokens` shows them again.' : '  `npm run tokens` shows the tokens; `npm run texts` shows the PINs the HR Tool texted.',
+    showTokens
+      ? '  These tokens are for this machine only; `npm run tokens` shows them again.'
+      : '  `npm run tokens` shows the tokens; `npm run texts` shows the PINs the HR Tool texted.',
     '',
   );
   return lines.join('\n');

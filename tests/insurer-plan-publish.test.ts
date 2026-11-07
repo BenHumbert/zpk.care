@@ -47,15 +47,34 @@ let ndcA: string;
 let ndcB: string;
 const tempDirs: string[] = [];
 
-interface Captured { status: number; payload: any }
+interface Captured {
+  status: number;
+  payload: any;
+}
 function fakeRes(): { res: unknown; captured: () => Captured } {
   let status = 0;
   let payload: any = {};
   const res = {
-    writeHead(code: number) { status = code; return this; },
-    setHeader() { return this; },
-    end(body?: string) { if (body) { try { payload = JSON.parse(body); } catch { payload = { raw: body }; } } return this; },
-    get writableEnded() { return status !== 0; },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
+    end(body?: string) {
+      if (body) {
+        try {
+          payload = JSON.parse(body);
+        } catch {
+          payload = { raw: body };
+        }
+      }
+      return this;
+    },
+    get writableEnded() {
+      return status !== 0;
+    },
   };
   return { res, captured: () => ({ status, payload }) };
 }
@@ -66,15 +85,32 @@ function find(method: string, p: string): any {
 }
 async function call(method: string, p: string, args: { params?: Record<string, string>; body?: unknown } = {}): Promise<Captured> {
   const { res, captured } = fakeRes();
-  await find(method, p).handler({ url: p, headers: {}, socket: { remoteAddress: '127.0.0.1' } } as any, res as any, args.params ?? {}, new URLSearchParams(), args.body);
+  await find(method, p).handler(
+    { url: p, headers: {}, socket: { remoteAddress: '127.0.0.1' } } as any,
+    res as any,
+    args.params ?? {},
+    new URLSearchParams(),
+    args.body,
+  );
   return captured();
 }
 async function rpc(method: string, params: Record<string, unknown>): Promise<any> {
-  const r = await fetch(`${seqUrl}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const r = await fetch(`${seqUrl}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
   return r.json();
 }
-const rootOf = (copayAmountCents: number, formularyNdcs: string[]) => buildPlanFormulary({ copayAmountCents, formularyNdcs }, catalog).root.toString();
-const planBody = (over: Record<string, unknown>) => ({ planId: 'PLAN-PUB-X', name: 'Published', copayAmountCents: 1500, formularyNdcs: [ndcA], ...over });
+const rootOf = (copayAmountCents: number, formularyNdcs: string[]) =>
+  buildPlanFormulary({ copayAmountCents, formularyNdcs }, catalog).root.toString();
+const planBody = (over: Record<string, unknown>) => ({
+  planId: 'PLAN-PUB-X',
+  name: 'Published',
+  copayAmountCents: 1500,
+  formularyNdcs: [ndcA],
+  ...over,
+});
 
 beforeAll(async () => {
   process.env.ZKTRIDENT_FORMULARY_LIMIT = '100';
@@ -93,7 +129,13 @@ beforeAll(async () => {
   ndcB = catalog[7].ndc;
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-publish' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-publish' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
   const insurerKey = generateNodeKey('insurer-node');
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
@@ -104,22 +146,45 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-publish-'));
   tempDirs.push(dir);
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: 'admin-token-for-tests', nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'admin-token-for-tests',
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
   } as any);
-  server.setEntityNode(new InsurerNode({ role: 'insurer', sequencerUrl: seqUrl, displayName: 'Insurer', clientOptions: server.sequencerClientOptions() } as any));
+  server.setEntityNode(
+    new InsurerNode({
+      role: 'insurer',
+      sequencerUrl: seqUrl,
+      displayName: 'Insurer',
+      clientOptions: server.sequencerClientOptions(),
+    } as any),
+  );
   routes = buildInsurerRoutes(server);
 });
 
 afterAll(async () => {
   await rpcServer?.stop();
-  for (const dir of tempDirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of tempDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 describe('publishing a plan commits to its formulary', () => {
   test('publishing writes the root the engine rebuilds, not the overlay version, and the published terms', async () => {
     const dashed = `${ndcA.slice(0, 5)}-${ndcA.slice(5, 9)}-${ndcA.slice(9)}`;
-    const created = await call('POST', '/plans', { body: planBody({ planId: 'PLAN-PUB-1', formularyNdcs: [dashed, ndcB, '99999999999'] }) });
+    const created = await call('POST', '/plans', {
+      body: planBody({ planId: 'PLAN-PUB-1', formularyNdcs: [dashed, ndcB, '99999999999'] }),
+    });
     expect(created.status).toBe(201);
     expect(created.payload.data.publishError).toBeUndefined();
     expect(created.payload.data.published).toBe(true);
@@ -129,19 +194,40 @@ describe('publishing a plan commits to its formulary', () => {
     const stored = seq.getPlan('PLAN-PUB-1');
     expect(stored.formularyRoot).toBe(root);
     expect(stored.networkRoot).toBe('0');
-    expect(stored.publishedTerms).toMatchObject({ copayAmountCents: 1500, formularyNdcs: [dashed, ndcB, '99999999999'], formularyRoot: root, networkRoot: '0' });
-    expect(seq.getFormularyService().getOverlay('PLAN-PUB-1').defaults).toEqual({ tier1Copay: 1500, tier2Copay: 1500, tier3Copay: 1500, tier4Copay: 1500 });
+    expect(stored.publishedTerms).toMatchObject({
+      copayAmountCents: 1500,
+      formularyNdcs: [dashed, ndcB, '99999999999'],
+      formularyRoot: root,
+      networkRoot: '0',
+    });
+    expect(seq.getFormularyService().getOverlay('PLAN-PUB-1').defaults).toEqual({
+      tier1Copay: 1500,
+      tier2Copay: 1500,
+      tier3Copay: 1500,
+      tier4Copay: 1500,
+    });
 
     const republished = await call('POST', '/plans/:planId/publish', { params: { planId: 'PLAN-PUB-1' } });
     expect(republished.status).toBe(200);
-    expect(republished.payload.data).toMatchObject({ published: true, formularyRoot: root, formularyEntryCount: 2, unknownNdcs: ['99999999999'], networkRoot: '0' });
+    expect(republished.payload.data).toMatchObject({
+      published: true,
+      formularyRoot: root,
+      formularyEntryCount: 2,
+      unknownNdcs: ['99999999999'],
+      networkRoot: '0',
+    });
   });
 
   test('a $0 copay stays $0, at every tier and in every entry', async () => {
     const created = await call('POST', '/plans', { body: planBody({ planId: 'PLAN-PUB-ZERO', copayAmountCents: 0 }) });
     expect(created.status).toBe(201);
     expect(created.payload.data.formularyRoot).toBe(rootOf(0, [ndcA]));
-    expect(seq.getFormularyService().getOverlay('PLAN-PUB-ZERO').defaults).toEqual({ tier1Copay: 0, tier2Copay: 0, tier3Copay: 0, tier4Copay: 0 });
+    expect(seq.getFormularyService().getOverlay('PLAN-PUB-ZERO').defaults).toEqual({
+      tier1Copay: 0,
+      tier2Copay: 0,
+      tier3Copay: 0,
+      tier4Copay: 0,
+    });
   });
 
   test('a provider network is published as its Merkle root, not a count', async () => {
@@ -153,7 +239,12 @@ describe('publishing a plan commits to its formulary', () => {
   });
 
   test('create refuses a copay or an NDC list it cannot bind, and stores nothing', async () => {
-    const bad: Array<Record<string, unknown>> = [{ copayAmountCents: -1 }, { copayAmountCents: 10.5 }, { copayAmountCents: '1500' }, { formularyNdcs: [1, 2] }];
+    const bad: Array<Record<string, unknown>> = [
+      { copayAmountCents: -1 },
+      { copayAmountCents: 10.5 },
+      { copayAmountCents: '1500' },
+      { formularyNdcs: [1, 2] },
+    ];
     for (const [i, over] of bad.entries()) {
       const r = await call('POST', '/plans', { body: planBody({ planId: `PLAN-PUB-BAD-${i}`, ...over }) });
       expect([JSON.stringify(over), r.status]).toEqual([JSON.stringify(over), 400]);
@@ -178,7 +269,13 @@ describe('publishing a plan commits to its formulary', () => {
     const before = seq.getPlan('PLAN-PUB-1');
     const r = await call('PUT', '/plans/:planId', {
       params: { planId: 'PLAN-PUB-1' },
-      body: { copayAmountCents: 2000, formularyRoot: '123', networkRoot: '9', published: true, publishedTerms: { ...before.publishedTerms, copayAmountCents: 1 } },
+      body: {
+        copayAmountCents: 2000,
+        formularyRoot: '123',
+        networkRoot: '9',
+        published: true,
+        publishedTerms: { ...before.publishedTerms, copayAmountCents: 1 },
+      },
     });
     expect(r.status).toBe(200);
     const stored = seq.getPlan('PLAN-PUB-1');

@@ -26,17 +26,11 @@ import {
 import { AccumulatorQueryService } from '../src/access-control/accumulator-query-service.js';
 import { BenefitCheckService } from '../src/access-control/benefit-check-service.js';
 import type { AccumulatorLocalData } from '../src/access-control/accumulator-data.js';
-import {
-  AccumulatorFulfillmentOutput,
-  AccumulatorFulfillmentProgram,
-} from '../src/fulfillment/accumulator-fulfillment-program.js';
+import { AccumulatorFulfillmentOutput, AccumulatorFulfillmentProgram } from '../src/fulfillment/accumulator-fulfillment-program.js';
 import { AccumulatorFulfillmentService } from '../src/fulfillment/accumulator-fulfillment-service.js';
 import { FamilyAccumulatorService } from '../src/onboarding/family-accumulator-service.js';
 import { FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from '../src/fulfillment/fulfillment-program.js';
-import {
-  FulfillmentData,
-  ReversalData,
-} from '../src/fulfillment/fulfillment-data.js';
+import { FulfillmentData, ReversalData } from '../src/fulfillment/fulfillment-data.js';
 import {
   PrescriptionData,
   PrescriptionStatusData,
@@ -49,16 +43,9 @@ import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots, forestRootWithAccessControl } from '../src/eligibility/forest-roots.js';
 import { FormularyEntry } from '../src/access-control/formulary-entry.js';
 import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
-import {
-  hashString,
-  dateToField,
-  centsToField,
-  quantityToField,
-} from '../src/zkp/hash-utils.js';
+import { hashString, dateToField, centsToField, quantityToField } from '../src/zkp/hash-utils.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WalletRegistry,
-} from '../src/wallets/wallet-state.js';
+import { WalletRegistry } from '../src/wallets/wallet-state.js';
 import { DOMAIN_TAG_PHARMACY } from '../src/wallets/wallet-derivation.js';
 
 // ─── Test Data ──────────────────────────────────────────────
@@ -110,20 +97,22 @@ function createTestFulfillmentData(rxCommitment: Field): FulfillmentData {
     pharmacyWalletId,
     ndcHash,
     quantityDispensed: quantityToField(30),
-    ingredientCostCents: centsToField(5000),  // $50.00
-    dispensingFeeCents: centsToField(500),     // $5.00
+    ingredientCostCents: centsToField(5000), // $50.00
+    dispensingFeeCents: centsToField(500), // $5.00
     dateOfService: dateToField('20260215'),
   });
 }
 
-function createTestAccumulator(overrides: Partial<{
-  deductibleAmount: number;
-  deductiblePaid: number;
-  oopMax: number;
-  oopPaid: number;
-  benefitMax: number;
-  benefitUsed: number;
-}> = {}): AccumulatorData {
+function createTestAccumulator(
+  overrides: Partial<{
+    deductibleAmount: number;
+    deductiblePaid: number;
+    oopMax: number;
+    oopPaid: number;
+    benefitMax: number;
+    benefitUsed: number;
+  }> = {},
+): AccumulatorData {
   return new AccumulatorData({
     planYear: dateToField('20260101'),
     deductibleAmountCents: Field(overrides.deductibleAmount ?? 0),
@@ -208,11 +197,7 @@ function setupDualCredentialScenario(accumulator: AccumulatorData): {
   const memberInventory = new CredentialInventory();
 
   // Insert accumulator at leaf 127 of ACCESS_CONTROL tree
-  eligibilityForest.setLeaf(
-    ForestDomain.ACCESS_CONTROL,
-    ACCUMULATOR_LEAF_INDEX,
-    accumulator.commitment(),
-  );
+  eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, accumulator.commitment());
 
   // Build eligibility credential
   const eligibilityCredential = new CredentialData({
@@ -247,7 +232,6 @@ function setupDualCredentialScenario(accumulator: AccumulatorData): {
 // ─── Tests ──────────────────────────────────────────────────
 
 describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', () => {
-
   // ── AccumulatorData Model ─────────────────────────────────
 
   describe('AccumulatorData Model', () => {
@@ -328,23 +312,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const planPay = Field(4500);
       const deductibleCredit = Field(0);
 
-      const expected = Poseidon.hash([
-        fulfillment.commitment(),
-        patientPay,
-        planPay,
-        deductibleCredit,
-      ]);
+      const expected = Poseidon.hash([fulfillment.commitment(), patientPay, planPay, deductibleCredit]);
 
       // Verify it differs from plain commitment
       expect(expected.toString()).not.toBe(fulfillment.commitment().toString());
 
       // Verify determinism
-      const again = Poseidon.hash([
-        fulfillment.commitment(),
-        patientPay,
-        planPay,
-        deductibleCredit,
-      ]);
+      const again = Poseidon.hash([fulfillment.commitment(), patientPay, planPay, deductibleCredit]);
       expect(again.toString()).toBe(expected.toString());
     });
   });
@@ -357,11 +331,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
     beforeEach(() => {
       const registry = createTestWalletRegistry();
       const formularyRegistry = createTestFormularyRegistry();
-      service = new AccumulatorFulfillmentService(
-        new InMemoryStore(),
-        registry,
-        formularyRegistry,
-      );
+      service = new AccumulatorFulfillmentService(new InMemoryStore(), registry, formularyRegistry);
     });
 
     it('no accumulators (zero limits) → same as simple copay', () => {
@@ -370,8 +340,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const formulary = createTestFormularyEntry(); // copay = 1000
       const accumulator = createTestAccumulator(); // all zeros
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       // Normal copay: min(5500, 1000) = 1000
       expect(patientPayCents.toString()).toBe('1000');
@@ -384,11 +353,10 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const formulary = createTestFormularyEntry(); // copay = 1000
       const accumulator = createTestAccumulator({
         deductibleAmount: 50000, // $500 deductible
-        deductiblePaid: 0,       // nothing paid yet
+        deductiblePaid: 0, // nothing paid yet
       });
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       // Deductible phase: min(5500, 50000-0) = min(5500, 50000) = 5500
       expect(patientPayCents.toString()).toBe('5500');
@@ -401,11 +369,14 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const formulary = createTestFormularyEntry(); // copay = 1000
       const accumulator = createTestAccumulator({
         deductibleAmount: 50000, // $500 deductible
-        deductiblePaid: 47000,   // $470 paid → $30 remaining
+        deductiblePaid: 47000, // $470 paid → $30 remaining
       });
 
-      const { patientPayCents, planPayCents, deductibleCreditCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents, deductibleCreditCents } = service.calculateAccumulatorAwareAmounts(
+        fulfillment,
+        formulary,
+        accumulator,
+      );
 
       // remaining = 3000; deductiblePay = min(5500, 3000) = 3000
       // afterDeductible = 5500 - 3000 = 2500; copayOnRemainder = min(2500, 1000) = 1000
@@ -424,8 +395,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         deductiblePaid: 50000, // deductible fully met
       });
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       // Normal copay: min(5500, 1000) = 1000
       expect(patientPayCents.toString()).toBe('1000');
@@ -437,12 +407,11 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const fulfillment = createTestFulfillmentData(rxHash);
       const formulary = createTestFormularyEntry();
       const accumulator = createTestAccumulator({
-        oopMax: 500000,    // $5000 OOPM
-        oopPaid: 500000,   // fully met
+        oopMax: 500000, // $5000 OOPM
+        oopPaid: 500000, // fully met
       });
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       expect(patientPayCents.toString()).toBe('0');
       expect(planPayCents.toString()).toBe('5500');
@@ -453,12 +422,11 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const fulfillment = createTestFulfillmentData(rxHash); // total = 5500
       const formulary = createTestFormularyEntry();
       const accumulator = createTestAccumulator({
-        benefitMax: 100000,   // $1000 annual benefit max
-        benefitUsed: 100000,  // fully used
+        benefitMax: 100000, // $1000 annual benefit max
+        benefitUsed: 100000, // fully used
       });
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       // Plan won't pay any more → patient pays total
       expect(patientPayCents.toString()).toBe('5500');
@@ -470,14 +438,13 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const fulfillment = createTestFulfillmentData(rxHash);
       const formulary = createTestFormularyEntry();
       const accumulator = createTestAccumulator({
-        oopMax: 500000,       // OOPM set
-        oopPaid: 500000,      // OOPM met
-        benefitMax: 100000,   // benefit max set
-        benefitUsed: 100000,  // benefit exhausted
+        oopMax: 500000, // OOPM set
+        oopPaid: 500000, // OOPM met
+        benefitMax: 100000, // benefit max set
+        benefitUsed: 100000, // benefit exhausted
       });
 
-      const { patientPayCents, planPayCents } =
-        service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
+      const { patientPayCents, planPayCents } = service.calculateAccumulatorAwareAmounts(fulfillment, formulary, accumulator);
 
       // OOPM met → patient $0 (overrides benefit exhaustion)
       expect(patientPayCents.toString()).toBe('0');
@@ -488,13 +455,11 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── AccumulatorFulfillmentProgram (slow — requires compile) ─
 
   describe('AccumulatorFulfillmentProgram', () => {
-
     beforeAll(async () => {
       await AccumulatorFulfillmentProgram.compile();
     }, 180_000);
 
     describe('proveFulfillmentWithAccumulator', () => {
-
       it('deductible phase: $55 claim, $500 deductible unpaid → patient pays $55', async () => {
         const accumulator = createTestAccumulator({
           deductibleAmount: 50000, // $500 deductible
@@ -514,10 +479,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accumulatorWitness = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
           scenario.prescriptionCredential,
@@ -538,7 +500,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0), // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -572,10 +539,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accumulatorWitness = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
           scenario.prescriptionCredential,
@@ -596,7 +560,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0), // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -624,10 +593,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accumulatorWitness = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
           scenario.prescriptionCredential,
@@ -648,7 +614,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0), // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -672,10 +643,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accumulatorWitness = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
           scenario.prescriptionCredential,
@@ -696,7 +664,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0), // B8: no family limits
         );
 
         const output = result.proof.publicOutput;
@@ -712,15 +685,19 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
     // A-35: the engine's copy of the accumulator keeps the member's plan year and limits after a fill, as the circuit
     // does. It used to be rebuilt with fixed limits ($500, $8,000, no benefit cap, plan year 2026), so for any plan
     // whose limits differed the engine's record stopped matching the root the proof committed to.
-    describe('the engine keeps the member\'s plan limits (A-35)', () => {
-      const planAccumulator = (paid: [number, number, number] = [25000, 0, 0]) => new AccumulatorData({
-        planYear: dateToField('20270101'),
-        deductibleAmountCents: Field(25000), deductiblePaidCents: Field(paid[0]),
-        oopMaxCents: Field(780000), oopPaidCents: Field(paid[1]),
-        annualBenefitMaxCents: Field(2500000), annualBenefitUsedCents: Field(paid[2]),
-      });
+    describe("the engine keeps the member's plan limits (A-35)", () => {
+      const planAccumulator = (paid: [number, number, number] = [25000, 0, 0]) =>
+        new AccumulatorData({
+          planYear: dateToField('20270101'),
+          deductibleAmountCents: Field(25000),
+          deductiblePaidCents: Field(paid[0]),
+          oopMaxCents: Field(780000),
+          oopPaidCents: Field(paid[1]),
+          annualBenefitMaxCents: Field(2500000),
+          annualBenefitUsedCents: Field(paid[2]),
+        });
 
-      it('after a fill the engine\'s accumulator reaches the proof\'s root for a plan with its own limits; the old fixed rebuild did not', async () => {
+      it("after a fill the engine's accumulator reaches the proof's root for a plan with its own limits; the old fixed rebuild did not", async () => {
         const accumulator = planAccumulator();
         const scenario = setupDualCredentialScenario(accumulator);
         const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
@@ -728,12 +705,30 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
         const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionCredential, scenario.rxData, scenario.filledStatus, fulfillment, formularyRegistry.getEntry(0n)!,
-          ForestRoots.fromForest(scenario.prescriptionForest), scenario.prescriptionForest.getWitness(ForestDomain.MEDICATION, 0n),
-          scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 1n), scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n),
-          formularyRegistry.getEntryWitness(0n), formularyRegistry.getRoot(), scenario.eligibilityCredential,
-          eligForestRoots, accumulator, accumulatorWitness, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),
+          scenario.prescriptionCredential,
+          scenario.rxData,
+          scenario.filledStatus,
+          fulfillment,
+          formularyRegistry.getEntry(0n)!,
+          ForestRoots.fromForest(scenario.prescriptionForest),
+          scenario.prescriptionForest.getWitness(ForestDomain.MEDICATION, 0n),
+          scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 1n),
+          scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n),
+          formularyRegistry.getEntryWitness(0n),
+          formularyRegistry.getRoot(),
+          scenario.eligibilityCredential,
+          eligForestRoots,
+          accumulator,
+          accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
         );
         const output = result.proof.publicOutput;
         const after = withAmountsPaid(accumulator, {
@@ -741,30 +736,47 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           oopPaidCents: Number(output.patientPayCents.toBigInt()),
           annualBenefitUsedCents: Number(output.planPayCents.toBigInt()),
         });
-        expect([after.planYear, after.deductibleAmountCents, after.oopMaxCents, after.annualBenefitMaxCents].map(String))
-          .toEqual([accumulator.planYear, accumulator.deductibleAmountCents, accumulator.oopMaxCents, accumulator.annualBenefitMaxCents].map(String));
+        expect([after.planYear, after.deductibleAmountCents, after.oopMaxCents, after.annualBenefitMaxCents].map(String)).toEqual(
+          [accumulator.planYear, accumulator.deductibleAmountCents, accumulator.oopMaxCents, accumulator.annualBenefitMaxCents].map(String),
+        );
         const engineRoot = forestRootWithAccessControl(eligForestRoots, accumulatorWitness.calculateRoot(after.commitment()));
         expect(engineRoot.toString()).toBe(output.newEligibilityForestRoot.toString());
         const oldFixed = buildAccumulatorData({
-          planYear: '20260101', deductibleAmountCents: 50000, deductiblePaidCents: Number(after.deductiblePaidCents.toBigInt()),
-          oopMaxCents: 800000, oopPaidCents: Number(after.oopPaidCents.toBigInt()), annualBenefitMaxCents: 0, annualBenefitUsedCents: Number(after.annualBenefitUsedCents.toBigInt()),
+          planYear: '20260101',
+          deductibleAmountCents: 50000,
+          deductiblePaidCents: Number(after.deductiblePaidCents.toBigInt()),
+          oopMaxCents: 800000,
+          oopPaidCents: Number(after.oopPaidCents.toBigInt()),
+          annualBenefitMaxCents: 0,
+          annualBenefitUsedCents: Number(after.annualBenefitUsedCents.toBigInt()),
         });
-        expect(forestRootWithAccessControl(eligForestRoots, accumulatorWitness.calculateRoot(oldFixed.commitment())).toString()).not.toBe(output.newEligibilityForestRoot.toString());
+        expect(forestRootWithAccessControl(eligForestRoots, accumulatorWitness.calculateRoot(oldFixed.commitment())).toString()).not.toBe(
+          output.newEligibilityForestRoot.toString(),
+        );
       }, 120_000);
 
       it('a reversal and a new plan year keep the limits too', () => {
         const acc = planAccumulator([25000, 41000, 160000]);
         const reversed = withAmountsPaid(acc, { deductiblePaidCents: 20000, oopPaidCents: 36000, annualBenefitUsedCents: 155500 });
-        expect([reversed.planYear, reversed.deductibleAmountCents, reversed.oopMaxCents, reversed.annualBenefitMaxCents].map(String))
-          .toEqual([acc.planYear, acc.deductibleAmountCents, acc.oopMaxCents, acc.annualBenefitMaxCents].map(String));
-        expect([reversed.deductiblePaidCents, reversed.oopPaidCents, reversed.annualBenefitUsedCents].map(String)).toEqual(['20000', '36000', '155500']);
+        expect(
+          [reversed.planYear, reversed.deductibleAmountCents, reversed.oopMaxCents, reversed.annualBenefitMaxCents].map(String),
+        ).toEqual([acc.planYear, acc.deductibleAmountCents, acc.oopMaxCents, acc.annualBenefitMaxCents].map(String));
+        expect([reversed.deductiblePaidCents, reversed.oopPaidCents, reversed.annualBenefitUsedCents].map(String)).toEqual([
+          '20000',
+          '36000',
+          '155500',
+        ]);
         const next = forNewPlanYear(acc, '20280101');
         expect(next.planYear.toString()).toBe(dateToField('20280101').toString());
         expect([next.deductiblePaidCents, next.oopPaidCents, next.annualBenefitUsedCents].map(String)).toEqual(['0', '0', '0']);
-        expect([next.deductibleAmountCents, next.oopMaxCents, next.annualBenefitMaxCents].map(String)).toEqual(['25000', '780000', '2500000']);
+        expect([next.deductibleAmountCents, next.oopMaxCents, next.annualBenefitMaxCents].map(String)).toEqual([
+          '25000',
+          '780000',
+          '2500000',
+        ]);
       });
 
-      it('the engine rebuilds through these helpers and checks the proof\'s root before it records anything (source)', () => {
+      it("the engine rebuilds through these helpers and checks the proof's root before it records anything (source)", () => {
         const src = fs.readFileSync('src/adjudication/interactive-service.ts', 'utf8');
         expect(src).not.toContain('const deductibleAmt = 50000');
         expect((src.match(/withAmountsPaid\(enrolled\.accumulatorData/g) ?? []).length).toBe(2);
@@ -791,10 +803,30 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
         const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
         const result = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
-          scenario.prescriptionCredential, scenario.rxData, scenario.filledStatus, fulfillment, formularyEntry, rxForestRoots,
-          medicationWitness, statusWitness, newSlotWitness, formularyWitness, formularyRoot, scenario.eligibilityCredential,
-          eligForestRoots, accumulator, accumulatorWitness, PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH,
-          Field(family.paid[0]), Field(family.paid[1]), Field(family.paid[2]), Field(family.limits[0]), Field(family.limits[1]), Field(family.limits[2]),
+          scenario.prescriptionCredential,
+          scenario.rxData,
+          scenario.filledStatus,
+          fulfillment,
+          formularyEntry,
+          rxForestRoots,
+          medicationWitness,
+          statusWitness,
+          newSlotWitness,
+          formularyWitness,
+          formularyRoot,
+          scenario.eligibilityCredential,
+          eligForestRoots,
+          accumulator,
+          accumulatorWitness,
+          PHARM_QUAL,
+          PHARM_ID_HASH,
+          PHARM_EK_HASH,
+          Field(family.paid[0]),
+          Field(family.paid[1]),
+          Field(family.paid[2]),
+          Field(family.limits[0]),
+          Field(family.limits[1]),
+          Field(family.limits[2]),
         );
         const output = result.proof.publicOutput;
         // the A-23 property: the engine's accumulator after the fill, from the proof's own amounts, is the leaf the proof committed
@@ -809,9 +841,16 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         });
         scenario.eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, after.commitment());
         expect(output.newEligibilityForestRoot.toString()).toBe(scenario.eligibilityForest.getForestRoot().toString());
-        const reference = FamilyAccumulatorService.computeFamilyAdjustedPay(1000, 5500,
+        const reference = FamilyAccumulatorService.computeFamilyAdjustedPay(
+          1000,
+          5500,
           { deductiblePaidCents: family.paid[0], oopPaidCents: family.paid[1], annualBenefitUsedCents: family.paid[2], memberCount: 2 },
-          { familyDeductibleAmountCents: family.limits[0], familyOopMaxCents: family.limits[1], familyAnnualBenefitMaxCents: family.limits[2] });
+          {
+            familyDeductibleAmountCents: family.limits[0],
+            familyOopMaxCents: family.limits[1],
+            familyAnnualBenefitMaxCents: family.limits[2],
+          },
+        );
         expect(output.patientPayCents.toString()).toBe(String(reference.patientPayCents));
         expect(output.planPayCents.toString()).toBe(String(reference.planPayCents));
         expect(output.familyCommitment.toString()).toBe(Poseidon.hash([...family.paid, ...family.limits].map((n) => Field(n))).toString());
@@ -820,23 +859,43 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       it('no family limits: the individual split, rule 0', async () => {
         const output = await proveWithFamily({ paid: [0, 0, 0], limits: [0, 0, 0] });
-        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['1000', '4500', '0']);
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual([
+          '1000',
+          '4500',
+          '0',
+        ]);
       }, 120_000);
       it('family out-of-pocket maximum met: the patient pays nothing', async () => {
         const output = await proveWithFamily({ paid: [100000, 1600000, 0], limits: [100000, 1600000, 0] });
-        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['0', '5500', '1']);
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual([
+          '0',
+          '5500',
+          '1',
+        ]);
       }, 120_000);
       it('patient pay capped at the family out-of-pocket remaining', async () => {
         const output = await proveWithFamily({ paid: [100000, 1599500, 0], limits: [100000, 1600000, 0] });
-        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['500', '5000', '3']);
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual([
+          '500',
+          '5000',
+          '3',
+        ]);
       }, 120_000);
       it('family annual benefit exhausted: the patient pays everything', async () => {
         const output = await proveWithFamily({ paid: [0, 0, 100000], limits: [0, 0, 100000] });
-        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['5500', '0', '2']);
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual([
+          '5500',
+          '0',
+          '2',
+        ]);
       }, 120_000);
       it('plan pay capped at the family benefit remaining', async () => {
         const output = await proveWithFamily({ paid: [0, 0, 97000], limits: [0, 0, 100000] });
-        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual(['2500', '3000', '4']);
+        expect([output.patientPayCents.toString(), output.planPayCents.toString(), output.familyRule.toString()]).toEqual([
+          '2500',
+          '3000',
+          '4',
+        ]);
       }, 120_000);
     });
 
@@ -862,10 +921,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const newSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 2n);
 
         const eligForestRoots = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accumulatorWitness = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accumulatorWitness = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const fulfillResult = await AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
           scenario.prescriptionCredential,
@@ -886,7 +942,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           PHARM_QUAL,
           PHARM_ID_HASH,
           PHARM_EK_HASH,
-          Field(0), Field(0), Field(0), Field(0), Field(0), Field(0),   // B8: no family limits
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0),
+          Field(0), // B8: no family limits
         );
 
         const origPatientPay = fulfillResult.proof.publicOutput.patientPayCents;
@@ -895,17 +956,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const origDeductibleCredit = fulfillResult.proof.publicOutput.deductibleCreditCents;
 
         // Mutate prescription forest: insert settlement commitment at index 2
-        const settlementCommitment = Poseidon.hash([
-          fulfillment.commitment(),
-          origPatientPay,
-          origPlanPay,
-          origDeductibleCredit,
-        ]);
-        scenario.prescriptionForest.setLeaf(
-          ForestDomain.TRANSACTION,
-          2n,
-          settlementCommitment,
-        );
+        const settlementCommitment = Poseidon.hash([fulfillment.commitment(), origPatientPay, origPlanPay, origDeductibleCredit]);
+        scenario.prescriptionForest.setLeaf(ForestDomain.TRANSACTION, 2n, settlementCommitment);
 
         // Update prescription credential
         const postFulfillCredential = new CredentialData({
@@ -929,11 +981,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           annualBenefitUsedCents: Field(BigInt(accumulator.annualBenefitUsedCents.toString()) + BigInt(origPlanPay.toString())),
         });
 
-        scenario.eligibilityForest.setLeaf(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-          postFulfillAccumulator.commitment(),
-        );
+        scenario.eligibilityForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, postFulfillAccumulator.commitment());
 
         const postFulfillEligCredential = new CredentialData({
           credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
@@ -962,10 +1010,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const reversalSlotWitness = scenario.prescriptionForest.getWitness(ForestDomain.TRANSACTION, 3n);
 
         const eligForestRoots2 = ForestRoots.fromForest(scenario.eligibilityForest);
-        const accWitness2 = scenario.eligibilityForest.getWitness(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-        );
+        const accWitness2 = scenario.eligibilityForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX);
 
         const reversalResult = await AccumulatorFulfillmentProgram.proveReversalWithAccumulator(
           postFulfillCredential,
@@ -994,8 +1039,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         expect(output.planPayCents.toString()).toBe(origPlanPay.toString());
 
         // New eligibility forest root changed again (accumulator reversed)
-        expect(output.newEligibilityForestRoot.toString())
-          .not.toBe(postFulfillEligCredential.forestRoot.toString());
+        expect(output.newEligibilityForestRoot.toString()).not.toBe(postFulfillEligCredential.forestRoot.toString());
       }, 120_000);
     });
   });
@@ -1003,7 +1047,6 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── AccumulatorFulfillmentService (end-to-end with proofs) ─
 
   describe('AccumulatorFulfillmentService — end-to-end', () => {
-
     beforeAll(async () => {
       // Should already be compiled from the AccumulatorFulfillmentProgram describe block
       // Compile again in case tests run in isolation
@@ -1018,11 +1061,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const scenario = setupDualCredentialScenario(accumulator);
       const formularyRegistry = createTestFormularyRegistry();
 
-      const service = new AccumulatorFulfillmentService(
-        new InMemoryStore(),
-        scenario.registry,
-        formularyRegistry,
-      );
+      const service = new AccumulatorFulfillmentService(new InMemoryStore(), scenario.registry, formularyRegistry);
 
       const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
 
@@ -1036,9 +1075,9 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         fulfillment,
         scenario.prescriptionForest,
         scenario.eligibilityForest,
-        0n,  // rxLeafIndex
-        1n,  // latestStatusIndex (FILLED at index 1)
-        0n,  // formularyEntryIndex
+        0n, // rxLeafIndex
+        1n, // latestStatusIndex (FILLED at index 1)
+        0n, // formularyEntryIndex
         accumulator,
         ACCUMULATOR_LEAF_INDEX,
         scenario.pharmacyInventory,
@@ -1053,10 +1092,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       expect(result.planPayCents.toString()).toBe('4500');
 
       // Both credentials updated
-      expect(result.newPrescriptionCredentialData.forestRoot.toString())
-        .not.toBe(scenario.prescriptionCredential.forestRoot.toString());
-      expect(result.newEligibilityCredentialData.forestRoot.toString())
-        .not.toBe(scenario.eligibilityCredential.forestRoot.toString());
+      expect(result.newPrescriptionCredentialData.forestRoot.toString()).not.toBe(scenario.prescriptionCredential.forestRoot.toString());
+      expect(result.newEligibilityCredentialData.forestRoot.toString()).not.toBe(scenario.eligibilityCredential.forestRoot.toString());
 
       // Accumulator updated (C4 fix): deductiblePaid unchanged because deductible was already met
       // (deductibleCredit=0), oopPaid increased by patientPay (1000), benefitUsed by planPay (4500)
@@ -1076,11 +1113,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       const scenario = setupDualCredentialScenario(accumulator);
       const formularyRegistry = createTestFormularyRegistry();
 
-      const service = new AccumulatorFulfillmentService(
-        new InMemoryStore(),
-        scenario.registry,
-        formularyRegistry,
-      );
+      const service = new AccumulatorFulfillmentService(new InMemoryStore(), scenario.registry, formularyRegistry);
 
       const fulfillment = createTestFulfillmentData(scenario.rxData.commitment());
 
@@ -1128,8 +1161,8 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         reversalData,
         scenario.prescriptionForest,
         scenario.eligibilityForest,
-        0n,  // rxLeafIndex
-        2n,  // originalFulfillmentIndex
+        0n, // rxLeafIndex
+        2n, // originalFulfillmentIndex
         fulfillResult.patientPayCents,
         fulfillResult.planPayCents,
         fulfillResult.deductibleCreditCents,
@@ -1147,12 +1180,9 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       expect(reversalResult.planRefundCents.toString()).toBe('4500');
 
       // Accumulator restored to original values
-      expect(reversalResult.newAccumulatorData.deductiblePaidCents.toString())
-        .toBe(accumulator.deductiblePaidCents.toString());
-      expect(reversalResult.newAccumulatorData.oopPaidCents.toString())
-        .toBe(accumulator.oopPaidCents.toString());
-      expect(reversalResult.newAccumulatorData.annualBenefitUsedCents.toString())
-        .toBe(accumulator.annualBenefitUsedCents.toString());
+      expect(reversalResult.newAccumulatorData.deductiblePaidCents.toString()).toBe(accumulator.deductiblePaidCents.toString());
+      expect(reversalResult.newAccumulatorData.oopPaidCents.toString()).toBe(accumulator.oopPaidCents.toString());
+      expect(reversalResult.newAccumulatorData.annualBenefitUsedCents.toString()).toBe(accumulator.annualBenefitUsedCents.toString());
 
       // Reversal at index 3
       expect(reversalResult.reversalIndex).toBe(3n);
@@ -1162,13 +1192,12 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── AccumulatorQueryService (fast — no ZkProgram) ──────
 
   describe('AccumulatorQueryService', () => {
-
     describe('getStatus', () => {
       test('returns correct values for fresh accumulator (no spending)', () => {
         const acc = createTestAccumulator({
           deductibleAmount: 50000, // $500
-          oopMax: 500000,         // $5,000
-          benefitMax: 10000000,   // $100,000
+          oopMax: 500000, // $5,000
+          benefitMax: 10000000, // $100,000
         });
         const status = AccumulatorQueryService.getStatus(acc);
 
@@ -1250,11 +1279,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       test('returns true when accumulator matches forest leaf', () => {
         const acc = createTestAccumulator({ deductibleAmount: 50000 });
         const forest = new MerkleForest();
-        forest.setLeaf(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-          acc.commitment(),
-        );
+        forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, acc.commitment());
 
         expect(AccumulatorQueryService.verifyInForest(forest, acc)).toBe(true);
       });
@@ -1263,11 +1288,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const acc = createTestAccumulator({ deductibleAmount: 50000 });
         const differentAcc = createTestAccumulator({ deductibleAmount: 99999 });
         const forest = new MerkleForest();
-        forest.setLeaf(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-          differentAcc.commitment(),
-        );
+        forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, differentAcc.commitment());
 
         expect(AccumulatorQueryService.verifyInForest(forest, acc)).toBe(false);
       });
@@ -1286,8 +1307,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           oopMax: 500000,
           oopPaid: 500000,
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         expect(patientPayCents).toBe(0);
         expect(planPayCents).toBe(5500);
@@ -1298,8 +1318,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           benefitMax: 100000,
           benefitUsed: 100000,
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         expect(patientPayCents).toBe(5500);
         expect(planPayCents).toBe(0);
@@ -1312,8 +1331,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           benefitMax: 100000,
           benefitUsed: 100000,
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         expect(patientPayCents).toBe(0);
         expect(planPayCents).toBe(5500);
@@ -1324,8 +1342,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 0,
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         // $55 total < $500 remaining deductible → patient pays $55
         expect(patientPayCents).toBe(5500);
@@ -1337,8 +1354,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 48000, // $20 remaining
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         // remaining = 2000; deductiblePay = min(5500, 2000) = 2000
         // afterDeductible = 3500; copayOnRemainder = min(3500, 1000) = 1000
@@ -1352,8 +1368,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
           deductibleAmount: 50000,
           deductiblePaid: 50000,
         });
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         expect(patientPayCents).toBe(1000);
         expect(planPayCents).toBe(4500);
@@ -1361,8 +1376,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       test('no accumulators → normal copay', () => {
         const acc = createTestAccumulator(); // all zeros
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 5500, 1000);
 
         expect(patientPayCents).toBe(1000);
         expect(planPayCents).toBe(4500);
@@ -1370,8 +1384,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       test('copay exceeds total → patient pays total', () => {
         const acc = createTestAccumulator();
-        const { patientPayCents, planPayCents } =
-          AccumulatorQueryService.estimatePatientCost(acc, 500, 1000);
+        const { patientPayCents, planPayCents } = AccumulatorQueryService.estimatePatientCost(acc, 500, 1000);
 
         expect(patientPayCents).toBe(500);
         expect(planPayCents).toBe(0);
@@ -1382,14 +1395,9 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── BenefitCheckService (fast — no ZkProgram) ─────────
 
   describe('BenefitCheckService', () => {
-
     function setupBenefitCheck(accumulator: AccumulatorData) {
       const forest = new MerkleForest();
-      forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        ACCUMULATOR_LEAF_INDEX,
-        accumulator.commitment(),
-      );
+      forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, accumulator.commitment());
 
       const credential = new CredentialData({
         credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
@@ -1463,8 +1471,10 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
 
       test('oop-max-met overrides benefit-exhausted', () => {
         const acc = createTestAccumulator({
-          oopMax: 500000, oopPaid: 500000,
-          benefitMax: 100000, benefitUsed: 100000,
+          oopMax: 500000,
+          oopPaid: 500000,
+          benefitMax: 100000,
+          benefitUsed: 100000,
         });
         const status = AccumulatorQueryService.getStatus(acc);
         expect(BenefitCheckService.determineCostPhase(status)).toBe('oop-max-met');
@@ -1476,9 +1486,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const acc = createTestAccumulator(); // no accumulators
         const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
-        const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, credential, forest, acc, formularyRegistry,
-        );
+        const result = BenefitCheckService.checkBenefit(ndcHash, 5500, credential, forest, acc, formularyRegistry);
 
         expect(result.formulary.covered).toBe(true);
         expect(result.formulary.tierLabel).toBe('Generic');
@@ -1498,9 +1506,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         });
         const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
-        const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, credential, forest, acc, formularyRegistry,
-        );
+        const result = BenefitCheckService.checkBenefit(ndcHash, 5500, credential, forest, acc, formularyRegistry);
 
         expect(result.costPhase).toBe('deductible');
         expect(result.estimatedPatientPayCents).toBe(5500); // total < deductible remaining
@@ -1515,9 +1521,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         });
         const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
-        const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, credential, forest, acc, formularyRegistry,
-        );
+        const result = BenefitCheckService.checkBenefit(ndcHash, 5500, credential, forest, acc, formularyRegistry);
 
         expect(result.costPhase).toBe('oop-max-met');
         expect(result.estimatedPatientPayCents).toBe(0);
@@ -1529,9 +1533,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
         const unknownNdc = hashString('99999999999');
 
-        const result = BenefitCheckService.checkBenefit(
-          unknownNdc, 5500, credential, forest, acc, formularyRegistry,
-        );
+        const result = BenefitCheckService.checkBenefit(unknownNdc, 5500, credential, forest, acc, formularyRegistry);
 
         expect(result.formulary.covered).toBe(false);
         expect(result.estimatedPatientPayCents).toBe(5500);
@@ -1541,11 +1543,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
       test('revoked credential is flagged as inactive', () => {
         const acc = createTestAccumulator();
         const forest = new MerkleForest();
-        forest.setLeaf(
-          ForestDomain.ACCESS_CONTROL,
-          ACCUMULATOR_LEAF_INDEX,
-          acc.commitment(),
-        );
+        forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, acc.commitment());
 
         const revokedCredential = new CredentialData({
           credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
@@ -1558,9 +1556,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         });
 
         const registry = createTestFormularyRegistry();
-        const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, revokedCredential, forest, acc, registry,
-        );
+        const result = BenefitCheckService.checkBenefit(ndcHash, 5500, revokedCredential, forest, acc, registry);
 
         expect(result.verification.credentialActive).toBe(false);
       });
@@ -1571,9 +1567,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         const { credential, forest, formularyRegistry } = setupBenefitCheck(acc);
 
         // Pass wrong accumulator data — doesn't match forest
-        const result = BenefitCheckService.checkBenefit(
-          ndcHash, 5500, credential, forest, wrongAcc, formularyRegistry,
-        );
+        const result = BenefitCheckService.checkBenefit(ndcHash, 5500, credential, forest, wrongAcc, formularyRegistry);
 
         expect(result.verification.accumulatorVerified).toBe(false);
         // Still returns an estimate (best-effort), but caller knows it's unverified

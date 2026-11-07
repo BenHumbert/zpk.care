@@ -23,30 +23,106 @@
   // ── State ──────────────────────────────────────────────────
   var sseEvents = [];
   var sseCount = 0;
-  var formularyData = [];       // in-memory, fetched from sequencer
-  var planData = [];             // in-memory, initialized from defaults
-  var employerData = [];         // employers/groups
-  var priceHistory = [];         // recent pricing estimates
+  var formularyData = []; // in-memory, fetched from sequencer
+  var planData = []; // in-memory, initialized from defaults
+  var employerData = []; // employers/groups
+  var priceHistory = []; // recent pricing estimates
 
   // ── Formulary fallback (live data loaded from sequencer) ──
   var DEFAULT_FORMULARY = [
-    { ndcHash: '2819374650192837465019283746', brandName: 'Lisinopril 10mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
-    { ndcHash: '3920485761203948576120394857', brandName: 'Metformin 500mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
-    { ndcHash: '5031596872314059687231405968', brandName: 'Atorvastatin 20mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
-    { ndcHash: '6142607983425160798342516079', brandName: 'Omeprazole 20mg', tierLevel: 1, copayAmountCents: 750, requiresPriorAuth: false },
+    {
+      ndcHash: '2819374650192837465019283746',
+      brandName: 'Lisinopril 10mg',
+      tierLevel: 1,
+      copayAmountCents: 500,
+      requiresPriorAuth: false,
+    },
+    {
+      ndcHash: '3920485761203948576120394857',
+      brandName: 'Metformin 500mg',
+      tierLevel: 1,
+      copayAmountCents: 500,
+      requiresPriorAuth: false,
+    },
+    {
+      ndcHash: '5031596872314059687231405968',
+      brandName: 'Atorvastatin 20mg',
+      tierLevel: 1,
+      copayAmountCents: 500,
+      requiresPriorAuth: false,
+    },
+    {
+      ndcHash: '6142607983425160798342516079',
+      brandName: 'Omeprazole 20mg',
+      tierLevel: 1,
+      copayAmountCents: 750,
+      requiresPriorAuth: false,
+    },
     { ndcHash: '7253718094536271809453627180', brandName: 'Amlodipine 5mg', tierLevel: 1, copayAmountCents: 500, requiresPriorAuth: false },
     { ndcHash: '8364829105647382910564738291', brandName: 'Eliquis 5mg', tierLevel: 2, copayAmountCents: 3500, requiresPriorAuth: false },
-    { ndcHash: '9475930216758493021675849302', brandName: 'Jardiance 10mg', tierLevel: 2, copayAmountCents: 4500, requiresPriorAuth: false },
+    {
+      ndcHash: '9475930216758493021675849302',
+      brandName: 'Jardiance 10mg',
+      tierLevel: 2,
+      copayAmountCents: 4500,
+      requiresPriorAuth: false,
+    },
     { ndcHash: '1586041327869504132786950413', brandName: 'Ozempic 0.5mg', tierLevel: 3, copayAmountCents: 7500, requiresPriorAuth: true },
     { ndcHash: '2697152438970615243897061524', brandName: 'Humira 40mg', tierLevel: 4, copayAmountCents: 15000, requiresPriorAuth: true },
-    { ndcHash: '3708263549081726354908172635', brandName: 'Keytruda 200mg', tierLevel: 4, copayAmountCents: 25000, requiresPriorAuth: true },
+    {
+      ndcHash: '3708263549081726354908172635',
+      brandName: 'Keytruda 200mg',
+      tierLevel: 4,
+      copayAmountCents: 25000,
+      requiresPriorAuth: true,
+    },
   ];
 
   var DEFAULT_PLANS = [
-    { id: 'PLAN-GOLD-001', name: 'Gold PPO 2026', copay: 2000, deductible: 100000, oopMax: 500000, annualMax: 10000000, famDeductible: 200000, famOopMax: 1000000, coverage: 'pharmacy' },
-    { id: 'PLAN-SILVER-002', name: 'Silver HMO 2026', copay: 3500, deductible: 200000, oopMax: 700000, annualMax: 8000000, famDeductible: 400000, famOopMax: 1400000, coverage: 'pharmacy' },
-    { id: 'PLAN-PLATINUM-003', name: 'Platinum PPO 2026', copay: 1000, deductible: 50000, oopMax: 300000, annualMax: 15000000, famDeductible: 100000, famOopMax: 600000, coverage: 'pharmacy' },
-    { id: 'PLAN-BRONZE-004', name: 'Bronze HDHP 2026', copay: 5000, deductible: 350000, oopMax: 900000, annualMax: 5000000, famDeductible: 700000, famOopMax: 1800000, coverage: 'pharmacy' },
+    {
+      id: 'PLAN-GOLD-001',
+      name: 'Gold PPO 2026',
+      copay: 2000,
+      deductible: 100000,
+      oopMax: 500000,
+      annualMax: 10000000,
+      famDeductible: 200000,
+      famOopMax: 1000000,
+      coverage: 'pharmacy',
+    },
+    {
+      id: 'PLAN-SILVER-002',
+      name: 'Silver HMO 2026',
+      copay: 3500,
+      deductible: 200000,
+      oopMax: 700000,
+      annualMax: 8000000,
+      famDeductible: 400000,
+      famOopMax: 1400000,
+      coverage: 'pharmacy',
+    },
+    {
+      id: 'PLAN-PLATINUM-003',
+      name: 'Platinum PPO 2026',
+      copay: 1000,
+      deductible: 50000,
+      oopMax: 300000,
+      annualMax: 15000000,
+      famDeductible: 100000,
+      famOopMax: 600000,
+      coverage: 'pharmacy',
+    },
+    {
+      id: 'PLAN-BRONZE-004',
+      name: 'Bronze HDHP 2026',
+      copay: 5000,
+      deductible: 350000,
+      oopMax: 900000,
+      annualMax: 5000000,
+      famDeductible: 700000,
+      famOopMax: 1800000,
+      coverage: 'pharmacy',
+    },
   ];
 
   // ── Helpers ────────────────────────────────────────────────
@@ -79,10 +155,16 @@
 
   function fmtDate(v) {
     if (!v) return '--';
-    try { return new Date(v).toLocaleString(); } catch (e) { return String(v); }
+    try {
+      return new Date(v).toLocaleString();
+    } catch (e) {
+      return String(v);
+    }
   }
 
-  function $(id) { return document.getElementById(id); }
+  function $(id) {
+    return document.getElementById(id);
+  }
 
   function toast(msg, type) {
     type = type || 'info';
@@ -92,7 +174,13 @@
     el.className = 'toast toast-' + type;
     el.textContent = msg;
     c.appendChild(el);
-    setTimeout(function () { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(function () { el.remove(); }, 300); }, 4000);
+    setTimeout(function () {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.3s';
+      setTimeout(function () {
+        el.remove();
+      }, 300);
+    }, 4000);
   }
 
   function showResult(id, msg, ok) {
@@ -101,7 +189,10 @@
     el.innerHTML = '<div class="form-result ' + (ok ? 'success' : 'error') + '">' + esc(msg) + '</div>';
   }
 
-  function clearResult(id) { var el = $(id); if (el) el.innerHTML = ''; }
+  function clearResult(id) {
+    var el = $(id);
+    if (el) el.innerHTML = '';
+  }
 
   // ── Data Loading (from sequencer, no localStorage) ─────────
   async function loadFormularyFromSequencer() {
@@ -111,7 +202,9 @@
         formularyData = JSON.parse(result.entriesJson);
         return;
       }
-    } catch (_) { /* sequencer unavailable, use defaults */ }
+    } catch (_) {
+      /* sequencer unavailable, use defaults */
+    }
     if (formularyData.length === 0) formularyData = DEFAULT_FORMULARY.slice();
   }
 
@@ -134,15 +227,24 @@
   function navigate(tab) {
     tab = tab || 'overview';
     currentTab = tab;
-    if (window._overviewTimer) { clearInterval(window._overviewTimer); window._overviewTimer = null; }
-    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === tab); });
-    pages.forEach(function (p) { p.classList.toggle('active', p.id === 'page-' + tab); });
+    if (window._overviewTimer) {
+      clearInterval(window._overviewTimer);
+      window._overviewTimer = null;
+    }
+    tabs.forEach(function (t) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+    });
+    pages.forEach(function (p) {
+      p.classList.toggle('active', p.id === 'page-' + tab);
+    });
     window.location.hash = tab;
     onPageEnter(tab);
   }
 
   tabs.forEach(function (t) {
-    t.addEventListener('click', function () { navigate(t.dataset.tab); });
+    t.addEventListener('click', function () {
+      navigate(t.dataset.tab);
+    });
   });
 
   window.addEventListener('hashchange', function () {
@@ -151,18 +253,42 @@
 
   function onPageEnter(tab) {
     switch (tab) {
-      case 'overview': loadOverview(); break;
-      case 'formulary': loadFormularyPage(); break;
-      case 'plans': loadPlansPage(); break;
-      case 'employers': loadEmployersPage(); break;
-      case 'eligibility': loadEligibilityPage(); break;
-      case 'priorauth': loadPriorAuthPage(); break;
-      case 'credentialing': loadCredentialingPage(); break;
-      case 'reports': loadReportsPage(); break;
-      case 'pricing': initPricing(); break;
-      case 'claims': initClaims(); break;
-      case 'audit': loadAuditPage(); break;
-      case 'admin': loadAdminPage(); break;
+      case 'overview':
+        loadOverview();
+        break;
+      case 'formulary':
+        loadFormularyPage();
+        break;
+      case 'plans':
+        loadPlansPage();
+        break;
+      case 'employers':
+        loadEmployersPage();
+        break;
+      case 'eligibility':
+        loadEligibilityPage();
+        break;
+      case 'priorauth':
+        loadPriorAuthPage();
+        break;
+      case 'credentialing':
+        loadCredentialingPage();
+        break;
+      case 'reports':
+        loadReportsPage();
+        break;
+      case 'pricing':
+        initPricing();
+        break;
+      case 'claims':
+        initClaims();
+        break;
+      case 'audit':
+        loadAuditPage();
+        break;
+      case 'admin':
+        loadAdminPage();
+        break;
     }
   }
 
@@ -179,17 +305,13 @@
 
   async function loadOverviewStats() {
     try {
-      var results = await Promise.allSettled([
-        API.getReceipts(1000, 0),
-        API.getBatches(1000, 0),
-        API.getHealth(),
-      ]);
+      var results = await Promise.allSettled([API.getReceipts(1000, 0), API.getBatches(1000, 0), API.getHealth()]);
       var rData = results[0].status === 'fulfilled' ? results[0].value : null;
       var bData = results[1].status === 'fulfilled' ? results[1].value : null;
       var hOk = results[2].status === 'fulfilled';
 
-      var receipts = rData ? (Array.isArray(rData) ? rData : (rData.data || [])) : [];
-      var batches = bData ? (Array.isArray(bData) ? bData : (bData.data || [])) : [];
+      var receipts = rData ? (Array.isArray(rData) ? rData : rData.data || []) : [];
+      var batches = bData ? (Array.isArray(bData) ? bData : bData.data || []) : [];
 
       setTextContent('ov-receipts', Array.isArray(receipts) ? receipts.length : '--');
       setTextContent('ov-batches', Array.isArray(batches) ? batches.length : '--');
@@ -213,9 +335,15 @@
       var data = res.data || res;
       el.innerHTML =
         '<div class="detail-grid">' +
-          '<div class="detail-key">Phase</div><div class="detail-val">' + esc(data.phase || data.onboarding?.phase || '--') + '</div>' +
-          '<div class="detail-key">Role</div><div class="detail-val">' + esc(data.role || 'insurer') + '</div>' +
-          '<div class="detail-key">Status</div><div class="detail-val">' + esc(data.status || '--') + '</div>' +
+        '<div class="detail-key">Phase</div><div class="detail-val">' +
+        esc(data.phase || data.onboarding?.phase || '--') +
+        '</div>' +
+        '<div class="detail-key">Role</div><div class="detail-val">' +
+        esc(data.role || 'insurer') +
+        '</div>' +
+        '<div class="detail-key">Status</div><div class="detail-val">' +
+        esc(data.status || '--') +
+        '</div>' +
         '</div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">' + esc(e.message) + '</div>';
@@ -253,10 +381,18 @@
       if (t >= 1 && t <= 4) tiers[t - 1]++;
     });
     el.innerHTML =
-      '<div class="stat-card"><span class="stat-label">Tier 1 — Generic</span><span class="stat-value">' + tiers[0] + '</span></div>' +
-      '<div class="stat-card"><span class="stat-label">Tier 2 — Preferred</span><span class="stat-value">' + tiers[1] + '</span></div>' +
-      '<div class="stat-card"><span class="stat-label">Tier 3 — Non-Preferred</span><span class="stat-value">' + tiers[2] + '</span></div>' +
-      '<div class="stat-card"><span class="stat-label">Tier 4 — Specialty</span><span class="stat-value">' + tiers[3] + '</span></div>';
+      '<div class="stat-card"><span class="stat-label">Tier 1 — Generic</span><span class="stat-value">' +
+      tiers[0] +
+      '</span></div>' +
+      '<div class="stat-card"><span class="stat-label">Tier 2 — Preferred</span><span class="stat-value">' +
+      tiers[1] +
+      '</span></div>' +
+      '<div class="stat-card"><span class="stat-label">Tier 3 — Non-Preferred</span><span class="stat-value">' +
+      tiers[2] +
+      '</span></div>' +
+      '<div class="stat-card"><span class="stat-label">Tier 4 — Specialty</span><span class="stat-value">' +
+      tiers[3] +
+      '</span></div>';
   }
 
   /**
@@ -274,8 +410,7 @@
     if (filter) {
       var f = filter.toLowerCase();
       items = items.filter(function (e) {
-        return (e.ndcHash && e.ndcHash.toLowerCase().indexOf(f) !== -1) ||
-               (e.brandName && e.brandName.toLowerCase().indexOf(f) !== -1);
+        return (e.ndcHash && e.ndcHash.toLowerCase().indexOf(f) !== -1) || (e.brandName && e.brandName.toLowerCase().indexOf(f) !== -1);
       });
     }
     if (items.length === 0) {
@@ -286,19 +421,39 @@
     // the row's place in a search-filtered list named another entry (A-91).
     el.innerHTML =
       '<table class="data-table"><thead><tr>' +
-        '<th>NDC Hash</th><th>Brand Name</th><th>Tier</th><th>Copay</th><th>Prior Auth</th><th>Actions</th>' +
+      '<th>NDC Hash</th><th>Brand Name</th><th>Tier</th><th>Copay</th><th>Prior Auth</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
-      items.map(function (e) {
-        var tierNames = ['', 'Generic', 'Preferred', 'Non-Preferred', 'Specialty'];
-        return '<tr>' +
-          '<td><span class="hash" title="' + esc(e.ndcHash) + '">' + esc(truncHash(e.ndcHash, 16)) + '</span></td>' +
-          '<td>' + esc(e.brandName || '--') + '</td>' +
-          '<td><span class="badge tier-' + esc(String(e.tierLevel)) + '">' + esc('T' + e.tierLevel + ' ' + tierNames[e.tierLevel]) + '</span></td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(e.copayAmountCents) + '</td>' +
-          '<td>' + (e.requiresPriorAuth ? '<span class="badge badge-pending">Yes</span>' : 'No') + '</td>' +
-          '<td><button class="btn btn-sm btn-danger" data-act="removeFormularyEntry" data-arg="' + formularyData.indexOf(e) + '">Remove</button></td>' +
-        '</tr>';
-      }).join('') +
+      items
+        .map(function (e) {
+          var tierNames = ['', 'Generic', 'Preferred', 'Non-Preferred', 'Specialty'];
+          return (
+            '<tr>' +
+            '<td><span class="hash" title="' +
+            esc(e.ndcHash) +
+            '">' +
+            esc(truncHash(e.ndcHash, 16)) +
+            '</span></td>' +
+            '<td>' +
+            esc(e.brandName || '--') +
+            '</td>' +
+            '<td><span class="badge tier-' +
+            esc(String(e.tierLevel)) +
+            '">' +
+            esc('T' + e.tierLevel + ' ' + tierNames[e.tierLevel]) +
+            '</span></td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            fmtCents(e.copayAmountCents) +
+            '</td>' +
+            '<td>' +
+            (e.requiresPriorAuth ? '<span class="badge badge-pending">Yes</span>' : 'No') +
+            '</td>' +
+            '<td><button class="btn btn-sm btn-danger" data-act="removeFormularyEntry" data-arg="' +
+            formularyData.indexOf(e) +
+            '">Remove</button></td>' +
+            '</tr>'
+          );
+        })
+        .join('') +
       '</tbody></table>';
   }
 
@@ -307,12 +462,25 @@
     var fileInput = $('form-file-input');
     if (!zone || !fileInput) return;
 
-    zone.onclick = function () { fileInput.click(); };
-    fileInput.onchange = function () { if (fileInput.files.length) parseCSV(fileInput.files[0]); };
+    zone.onclick = function () {
+      fileInput.click();
+    };
+    fileInput.onchange = function () {
+      if (fileInput.files.length) parseCSV(fileInput.files[0]);
+    };
 
-    zone.ondragover = function (e) { e.preventDefault(); zone.classList.add('drag-over'); };
-    zone.ondragleave = function () { zone.classList.remove('drag-over'); };
-    zone.ondrop = function (e) { e.preventDefault(); zone.classList.remove('drag-over'); if (e.dataTransfer.files.length) parseCSV(e.dataTransfer.files[0]); };
+    zone.ondragover = function (e) {
+      e.preventDefault();
+      zone.classList.add('drag-over');
+    };
+    zone.ondragleave = function () {
+      zone.classList.remove('drag-over');
+    };
+    zone.ondrop = function (e) {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      if (e.dataTransfer.files.length) parseCSV(e.dataTransfer.files[0]);
+    };
 
     var cancelBtn = $('form-cancel-upload');
     var publishBtn = $('form-publish-btn');
@@ -340,10 +508,16 @@
    * which. `error` is set when the file cannot be read at all.
    */
   function csvFormularyEntries(text) {
-    var lines = String(text == null ? '' : text).split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var lines = String(text == null ? '' : text)
+      .split(/\r?\n/)
+      .filter(function (l) {
+        return l.trim();
+      });
     if (lines.length < 2) return { error: 'CSV must have a header row and at least one data row', entries: [], errors: [] };
 
-    var header = lines[0].split(',').map(function (h) { return h.trim().toLowerCase(); });
+    var header = lines[0].split(',').map(function (h) {
+      return h.trim().toLowerCase();
+    });
     var ndcIdx = header.indexOf('ndchash');
     var tierIdx = header.indexOf('tierlevel');
     var copayIdx = header.indexOf('copayamountcents');
@@ -355,7 +529,9 @@
     var entries = [];
     var errors = [];
     for (var i = 1; i < lines.length; i++) {
-      var cols = lines[i].split(',').map(function (c) { return c.trim(); });
+      var cols = lines[i].split(',').map(function (c) {
+        return c.trim();
+      });
       if (!cols[ndcIdx]) continue;
       var copay = copayIdx !== -1 ? copayCentsFromText(cols[copayIdx], 1000) : 1000;
       if (isNaN(copay)) {
@@ -377,11 +553,17 @@
     var reader = new FileReader();
     reader.onload = function (e) {
       var parsed = csvFormularyEntries(e.target.result);
-      if (parsed.error) { toast(parsed.error, 'error'); return; }
+      if (parsed.error) {
+        toast(parsed.error, 'error');
+        return;
+      }
       if (parsed.errors.length > 0) {
         toast(parsed.errors.length + ' row(s) not read. ' + parsed.errors[0] + (parsed.errors.length > 1 ? ' (and others)' : ''), 'error');
       }
-      if (parsed.entries.length === 0) { toast('No valid entries found in CSV', 'error'); return; }
+      if (parsed.entries.length === 0) {
+        toast('No valid entries found in CSV', 'error');
+        return;
+      }
 
       csvParsedData = parsed.entries;
       showUploadPreview(parsed.entries);
@@ -398,16 +580,29 @@
     preview.classList.remove('hidden');
     if (countEl) countEl.textContent = entries.length;
 
-    var html = '<table class="data-table"><thead><tr><th>NDC Hash</th><th>Brand</th><th>Tier</th><th>Copay</th><th>PA</th></tr></thead><tbody>';
+    var html =
+      '<table class="data-table"><thead><tr><th>NDC Hash</th><th>Brand</th><th>Tier</th><th>Copay</th><th>PA</th></tr></thead><tbody>';
     entries.slice(0, 50).forEach(function (e) {
-      html += '<tr>' +
-        '<td><span class="hash">' + esc(truncHash(e.ndcHash, 16)) + '</span></td>' +
-        '<td>' + esc(e.brandName || '--') + '</td>' +
-        '<td>' + e.tierLevel + '</td>' +
-        '<td>' + fmtCents(e.copayAmountCents) + '</td>' +
-        '<td>' + (e.requiresPriorAuth ? 'Yes' : 'No') + '</td></tr>';
+      html +=
+        '<tr>' +
+        '<td><span class="hash">' +
+        esc(truncHash(e.ndcHash, 16)) +
+        '</span></td>' +
+        '<td>' +
+        esc(e.brandName || '--') +
+        '</td>' +
+        '<td>' +
+        e.tierLevel +
+        '</td>' +
+        '<td>' +
+        fmtCents(e.copayAmountCents) +
+        '</td>' +
+        '<td>' +
+        (e.requiresPriorAuth ? 'Yes' : 'No') +
+        '</td></tr>';
     });
-    if (entries.length > 50) html += '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">... and ' + (entries.length - 50) + ' more</td></tr>';
+    if (entries.length > 50)
+      html += '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">... and ' + (entries.length - 50) + ' more</td></tr>';
     html += '</tbody></table>';
     tableEl.innerHTML = html;
   }
@@ -426,9 +621,12 @@
 
     // Merge locally: update existing by ndcHash or add new
     var existingMap = {};
-    formularyData.forEach(function (e, i) { existingMap[e.ndcHash] = i; });
+    formularyData.forEach(function (e, i) {
+      existingMap[e.ndcHash] = i;
+    });
 
-    var added = 0, updated = 0;
+    var added = 0,
+      updated = 0;
     csvParsedData.forEach(function (e) {
       if (existingMap[e.ndcHash] !== undefined) {
         formularyData[existingMap[e.ndcHash]] = e;
@@ -441,10 +639,13 @@
 
     // Publish to sequencer immediately (single source of truth)
     var publishBtn = $('form-publish-btn');
-    if (publishBtn) { publishBtn.disabled = true; publishBtn.textContent = 'Publishing...'; }
+    if (publishBtn) {
+      publishBtn.disabled = true;
+      publishBtn.textContent = 'Publishing...';
+    }
     try {
       var entriesJson = JSON.stringify(formularyData);
-      var planIdHash = (planData.length > 0 ? planData[0].id : 'default-plan');
+      var planIdHash = planData.length > 0 ? planData[0].id : 'default-plan';
       await API.publishFormulary(planIdHash, '0', entriesJson);
       toast('Published ' + added + ' new, ' + updated + ' updated to sequencer', 'success');
       showResult('form-upload-result', 'Published to sequencer: ' + (added + updated) + ' formulary entries', true);
@@ -452,7 +653,10 @@
       toast('Sequencer publish failed: ' + e.message, 'error');
       showResult('form-upload-result', 'Publish failed: ' + e.message, false);
     } finally {
-      if (publishBtn) { publishBtn.disabled = false; publishBtn.textContent = 'Publish to Sequencer'; }
+      if (publishBtn) {
+        publishBtn.disabled = false;
+        publishBtn.textContent = 'Publish to Sequencer';
+      }
     }
 
     cancelUpload();
@@ -464,16 +668,24 @@
     var toggle = $('form-manual-toggle');
     var body = $('form-manual-body');
     if (toggle && body) {
-      toggle.onclick = function () { body.classList.toggle('hidden'); };
+      toggle.onclick = function () {
+        body.classList.toggle('hidden');
+      };
     }
     var addBtn = $('form-add-btn');
     if (addBtn) addBtn.onclick = addFormularyEntry;
 
     var searchInput = $('form-search');
-    if (searchInput) searchInput.oninput = function () { renderFormularyTable(); };
+    if (searchInput)
+      searchInput.oninput = function () {
+        renderFormularyTable();
+      };
 
     var refreshBtn = $('form-refresh-btn');
-    if (refreshBtn) refreshBtn.onclick = function () { renderFormularyTable(); };
+    if (refreshBtn)
+      refreshBtn.onclick = function () {
+        renderFormularyTable();
+      };
   }
 
   function addFormularyEntry() {
@@ -483,8 +695,14 @@
     // A typed 0 is a $0 copay; only an empty box takes the default (copayCentsFromText).
     var copay = copayCentsFromText(($('form-copay') || {}).value, 1000);
 
-    if (!ndc.trim()) { toast('NDC Hash is required', 'error'); return; }
-    if (isNaN(copay)) { toast('Copay must be a whole number of cents, 0 or more (blank for $10.00)', 'error'); return; }
+    if (!ndc.trim()) {
+      toast('NDC Hash is required', 'error');
+      return;
+    }
+    if (isNaN(copay)) {
+      toast('Copay must be a whole number of cents, 0 or more (blank for $10.00)', 'error');
+      return;
+    }
 
     formularyData.push({
       ndcHash: ndc.trim(),
@@ -518,7 +736,7 @@
   async function publishFormularyToSequencer() {
     try {
       var entriesJson = JSON.stringify(formularyData);
-      var planIdHash = (planData.length > 0 ? planData[0].id : 'default-plan');
+      var planIdHash = planData.length > 0 ? planData[0].id : 'default-plan';
       await API.publishFormulary(planIdHash, '0', entriesJson);
     } catch (e) {
       console.warn('[Formulary] Sequencer publish failed:', e.message);
@@ -540,7 +758,9 @@
     try {
       var plans = await API.getPlans();
       planData = Array.isArray(plans) ? plans : [];
-    } catch { /* keep existing planData */ }
+    } catch {
+      /* keep existing planData */
+    }
   }
 
   function coverageLabel(t) {
@@ -569,17 +789,25 @@
 
   function planStatusBadge(state) {
     if (state === 'published') return '<span class="badge badge-ready">Published</span>';
-    if (state === 'draft-pending') return '<span class="badge badge-pending" title="Members are billed the published terms until this edit is published">Draft, published version in force</span>';
-    if (state === 'republish') return '<span class="badge badge-error" title="Published before published terms were kept: no member can be bound to it until it is published again">Republish needed</span>';
+    if (state === 'draft-pending')
+      return '<span class="badge badge-pending" title="Members are billed the published terms until this edit is published">Draft, published version in force</span>';
+    if (state === 'republish')
+      return '<span class="badge badge-error" title="Published before published terms were kept: no member can be bound to it until it is published again">Republish needed</span>';
     return '<span class="badge badge-pending">Draft</span>';
   }
 
   /** What to tell the operator after a publish: the route says when an edit saved during the publish is still a draft. */
   function publishOutcome(pid, result) {
     if (result && result.draftPending) {
-      return { msg: result.message || ('Published ' + pid + ' as it was when publishing began; a newer draft is not published yet'), type: 'info' };
+      return {
+        msg: result.message || 'Published ' + pid + ' as it was when publishing began; a newer draft is not published yet',
+        type: 'info',
+      };
     }
-    return { msg: 'Plan published: ' + pid + ' (' + ((result && result.formularyEntryCount) || 0) + ' formulary entries)', type: 'success' };
+    return {
+      msg: 'Plan published: ' + pid + ' (' + ((result && result.formularyEntryCount) || 0) + ' formulary entries)',
+      type: 'success',
+    };
   }
 
   function renderPlanList() {
@@ -591,31 +819,65 @@
     }
     el.innerHTML =
       '<table class="data-table"><thead><tr>' +
-        '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Disp. Fee</th><th>Coverage</th><th>Formulary</th><th>Network</th><th>Status</th><th>Actions</th>' +
+      '<th>Plan ID</th><th>Name</th><th>Copay</th><th>Deductible</th><th>OOP Max</th><th>Annual Max</th><th>Disp. Fee</th><th>Coverage</th><th>Formulary</th><th>Network</th><th>Status</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
-      planData.map(function (p) {
-        var pid = p.planId || p.id;
-        var state = planPublishState(p);
-        var formularyCount = (p.formularyNdcs && p.formularyNdcs.length) || 0;
-        var networkCount = (p.networkProviderWalletIds && p.networkProviderWalletIds.length) || 0;
-        return '<tr>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(pid) + '</td>' +
-          '<td><a href="#" class="plan-edit-link" data-plan-id="' + esc(pid) + '" style="color:var(--accent-blue);text-decoration:underline;cursor:pointer">' + esc(p.name) + '</a></td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.copayAmountCents || p.copay || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtCents(p.deductibleAmountCents || p.deductible || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtLimit(p.oopMaxCents || p.oopMax || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + fmtLimit(p.annualBenefitMaxCents || p.annualMax || 0) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + (p.dispensingFeeCents != null ? fmtCents(p.dispensingFeeCents) : 'Default') + '</td>' +
-          '<td>' + coverageLabel(p.coverageType || p.coverage) + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + (formularyCount > 0 ? formularyCount + ' NDCs' : 'All') + '</td>' +
-          '<td style="font-family:var(--font-mono)">' + (networkCount > 0 ? networkCount + ' providers' : 'All') + '</td>' +
-          '<td>' + planStatusBadge(state) + '</td>' +
-          '<td style="white-space:nowrap">' +
-            '<button class="btn btn-sm btn-primary plan-publish-btn" data-plan-id="' + esc(pid) + '"' + (state === 'published' ? ' disabled' : '') + '>Publish</button> ' +
-            '<button class="btn btn-sm plan-delete-btn" data-plan-id="' + esc(pid) + '">Delete</button>' +
-          '</td>' +
-        '</tr>';
-      }).join('') +
+      planData
+        .map(function (p) {
+          var pid = p.planId || p.id;
+          var state = planPublishState(p);
+          var formularyCount = (p.formularyNdcs && p.formularyNdcs.length) || 0;
+          var networkCount = (p.networkProviderWalletIds && p.networkProviderWalletIds.length) || 0;
+          return (
+            '<tr>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(pid) +
+            '</td>' +
+            '<td><a href="#" class="plan-edit-link" data-plan-id="' +
+            esc(pid) +
+            '" style="color:var(--accent-blue);text-decoration:underline;cursor:pointer">' +
+            esc(p.name) +
+            '</a></td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            fmtCents(p.copayAmountCents || p.copay || 0) +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            fmtCents(p.deductibleAmountCents || p.deductible || 0) +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            fmtLimit(p.oopMaxCents || p.oopMax || 0) +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            fmtLimit(p.annualBenefitMaxCents || p.annualMax || 0) +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            (p.dispensingFeeCents != null ? fmtCents(p.dispensingFeeCents) : 'Default') +
+            '</td>' +
+            '<td>' +
+            coverageLabel(p.coverageType || p.coverage) +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            (formularyCount > 0 ? formularyCount + ' NDCs' : 'All') +
+            '</td>' +
+            '<td style="font-family:var(--font-mono)">' +
+            (networkCount > 0 ? networkCount + ' providers' : 'All') +
+            '</td>' +
+            '<td>' +
+            planStatusBadge(state) +
+            '</td>' +
+            '<td style="white-space:nowrap">' +
+            '<button class="btn btn-sm btn-primary plan-publish-btn" data-plan-id="' +
+            esc(pid) +
+            '"' +
+            (state === 'published' ? ' disabled' : '') +
+            '>Publish</button> ' +
+            '<button class="btn btn-sm plan-delete-btn" data-plan-id="' +
+            esc(pid) +
+            '">Delete</button>' +
+            '</td>' +
+            '</tr>'
+          );
+        })
+        .join('') +
       '</tbody></table>';
 
     // Bind publish/delete buttons
@@ -778,25 +1040,51 @@
     var container = $('plan-template-cards');
     if (!container) return;
     // check which planIds already exist
-    var existingIds = new Set(planData.map(function (p) { return p.planId || p.id; }));
+    var existingIds = new Set(
+      planData.map(function (p) {
+        return p.planId || p.id;
+      }),
+    );
     container.innerHTML = PLAN_TEMPLATES.map(function (t) {
       var exists = existingIds.has(t.planId);
       var selected = selectedTemplates.has(t.planId);
-      return '<div class="template-card' + (selected ? ' template-selected' : '') + (exists ? ' template-exists' : '') + '" data-plan-id="' + esc(t.planId) + '" style="' +
-        'border:2px solid ' + (exists ? 'var(--border)' : selected ? 'var(--accent-blue)' : 'var(--border)') + ';' +
-        'border-radius:8px;padding:12px;width:220px;cursor:' + (exists ? 'default' : 'pointer') + ';' +
-        'background:' + (exists ? 'var(--bg-secondary)' : selected ? 'rgba(59,130,246,0.08)' : 'var(--bg-primary)') + ';' +
-        'opacity:' + (exists ? '0.6' : '1') + ';transition:all 0.15s' +
-      '">' +
-        '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + esc(t.name) + '</div>' +
-        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">' + esc(t.desc) + '</div>' +
+      return (
+        '<div class="template-card' +
+        (selected ? ' template-selected' : '') +
+        (exists ? ' template-exists' : '') +
+        '" data-plan-id="' +
+        esc(t.planId) +
+        '" style="' +
+        'border:2px solid ' +
+        (exists ? 'var(--border)' : selected ? 'var(--accent-blue)' : 'var(--border)') +
+        ';' +
+        'border-radius:8px;padding:12px;width:220px;cursor:' +
+        (exists ? 'default' : 'pointer') +
+        ';' +
+        'background:' +
+        (exists ? 'var(--bg-secondary)' : selected ? 'rgba(59,130,246,0.08)' : 'var(--bg-primary)') +
+        ';' +
+        'opacity:' +
+        (exists ? '0.6' : '1') +
+        ';transition:all 0.15s' +
+        '">' +
+        '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' +
+        esc(t.name) +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;line-height:1.4">' +
+        esc(t.desc) +
+        '</div>' +
         '<div style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary)">' +
-          'Copay ' + fmtCents(t.copayAmountCents) +
-          ' | Ded ' + fmtCents(t.deductibleAmountCents) +
-          ' | OOP ' + fmtCents(t.oopMaxCents) +
+        'Copay ' +
+        fmtCents(t.copayAmountCents) +
+        ' | Ded ' +
+        fmtCents(t.deductibleAmountCents) +
+        ' | OOP ' +
+        fmtCents(t.oopMaxCents) +
         '</div>' +
         (exists ? '<div style="font-size:11px;color:var(--accent-green);margin-top:6px;font-weight:600">Already created</div>' : '') +
-      '</div>';
+        '</div>'
+      );
     }).join('');
 
     container.querySelectorAll('.template-card').forEach(function (card) {
@@ -819,7 +1107,10 @@
       return;
     }
     var btn = $('plan-template-create-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Creating...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+    }
     var created = 0;
     var errors = [];
     for (var i = 0; i < PLAN_TEMPLATES.length; i++) {
@@ -850,7 +1141,10 @@
     await fetchPlans();
     renderPlanList();
     renderTemplateCards();
-    if (btn) { btn.disabled = false; btn.textContent = 'Create Selected Plans'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Create Selected Plans';
+    }
     if (created > 0) toast('Created ' + created + ' plan(s)', 'success');
     if (errors.length > 0) toast('Errors: ' + errors.join('; '), 'error');
     showResult('plan-template-result', 'Created ' + created + ' of ' + (created + errors.length) + ' plans', errors.length === 0);
@@ -860,20 +1154,30 @@
     var toggle = $('plan-templates-toggle');
     var body = $('plan-templates-body');
     if (toggle && body) {
-      toggle.onclick = function () { body.classList.toggle('hidden'); };
+      toggle.onclick = function () {
+        body.classList.toggle('hidden');
+      };
     }
     var selectAll = $('plan-template-select-all');
     var clearBtn = $('plan-template-clear');
     var createBtn = $('plan-template-create-btn');
-    var existingIds = new Set(planData.map(function (p) { return p.planId || p.id; }));
-    if (selectAll) selectAll.onclick = function () {
-      PLAN_TEMPLATES.forEach(function (t) { if (!existingIds.has(t.planId)) selectedTemplates.add(t.planId); });
-      renderTemplateCards();
-    };
-    if (clearBtn) clearBtn.onclick = function () {
-      selectedTemplates.clear();
-      renderTemplateCards();
-    };
+    var existingIds = new Set(
+      planData.map(function (p) {
+        return p.planId || p.id;
+      }),
+    );
+    if (selectAll)
+      selectAll.onclick = function () {
+        PLAN_TEMPLATES.forEach(function (t) {
+          if (!existingIds.has(t.planId)) selectedTemplates.add(t.planId);
+        });
+        renderTemplateCards();
+      };
+    if (clearBtn)
+      clearBtn.onclick = function () {
+        selectedTemplates.clear();
+        renderTemplateCards();
+      };
     if (createBtn) createBtn.onclick = createSelectedTemplates;
     renderTemplateCards();
   }
@@ -882,16 +1186,19 @@
     var toggle = $('plan-create-toggle');
     var body = $('plan-create-body');
     if (toggle && body) {
-      toggle.onclick = function () { body.classList.toggle('hidden'); };
+      toggle.onclick = function () {
+        body.classList.toggle('hidden');
+      };
     }
     var createBtn = $('plan-create-btn');
     if (createBtn) createBtn.onclick = createPlan;
 
     var refreshBtn = $('plan-refresh-btn');
-    if (refreshBtn) refreshBtn.onclick = async function () {
-      await fetchPlans();
-      renderPlanList();
-    };
+    if (refreshBtn)
+      refreshBtn.onclick = async function () {
+        await fetchPlans();
+        renderPlanList();
+      };
   }
 
   /** A dispensing-fee field in cents: blank -> undefined (the plan sets none, the network default applies); 0 stays 0. */
@@ -917,7 +1224,10 @@
   async function createPlan() {
     var name = ($('plan-name') || {}).value || '';
     var id = ($('plan-id') || {}).value || '';
-    if (!name.trim() || !id.trim()) { toast('Plan Name and Plan ID are required', 'error'); return; }
+    if (!name.trim() || !id.trim()) {
+      toast('Plan Name and Plan ID are required', 'error');
+      return;
+    }
 
     var coverageMap = { pharmacy: 1, medical: 2, dental: 3 };
     var coverageVal = ($('plan-coverage') || {}).value || 'pharmacy';
@@ -959,8 +1269,13 @@
   var selectedNetworkWalletIds = new Set();
 
   async function openPlanDetail(planId) {
-    var plan = planData.find(function (p) { return (p.planId || p.id) === planId; });
-    if (!plan) { toast('Plan not found', 'error'); return; }
+    var plan = planData.find(function (p) {
+      return (p.planId || p.id) === planId;
+    });
+    if (!plan) {
+      toast('Plan not found', 'error');
+      return;
+    }
 
     editingPlanId = planId;
     selectedFormularyNdcs = new Set(plan.formularyNdcs || []);
@@ -978,8 +1293,12 @@
     // Fetch formulary + providers in parallel
     try {
       var [formData, provData] = await Promise.all([
-        API.getFormulary('default').catch(function () { return { entries: [] }; }),
-        API.getProviderRegistry().catch(function () { return { providers: [] }; }),
+        API.getFormulary('default').catch(function () {
+          return { entries: [] };
+        }),
+        API.getProviderRegistry().catch(function () {
+          return { providers: [] };
+        }),
       ]);
       allFormularyEntries = (formData && formData.entries) || formData || [];
       if (!Array.isArray(allFormularyEntries)) allFormularyEntries = [];
@@ -1001,10 +1320,11 @@
     var terms = planPublishedTerms(plan);
     var since = terms && terms.publishedAt ? ' Published ' + new Date(terms.publishedAt).toLocaleString() + '.' : '';
     var says = {
-      'published': 'Members are bound to these terms.' + since,
+      published: 'Members are bound to these terms.' + since,
       'draft-pending': 'Members are billed the published terms until this plan is published again; the edits below are a draft.' + since,
-      'republish': 'This plan was published before published terms were kept, so no member can be bound to it and no employee can enroll in it. Use Save &amp; Publish to publish it again.',
-      'draft': 'Not published: no member can be bound to it until it is published.',
+      republish:
+        'This plan was published before published terms were kept, so no member can be bound to it and no employee can enroll in it. Use Save &amp; Publish to publish it again.',
+      draft: 'Not published: no member can be bound to it until it is published.',
     }[state];
     return planStatusBadge(state) + ' <span style="color:var(--text-secondary)">' + says + '</span>';
   }
@@ -1024,23 +1344,47 @@
     });
 
     var statsEl = $('plan-formulary-stats');
-    if (statsEl) statsEl.textContent = selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
+    if (statsEl)
+      statsEl.textContent =
+        selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
 
     var listEl = $('plan-formulary-list');
     if (!listEl) return;
 
     // Show max 200 for performance
     var visible = filtered.slice(0, 200);
-    listEl.innerHTML = visible.map(function (e) {
-      var checked = selectedFormularyNdcs.has(e.ndc) ? ' checked' : '';
-      var tier = 'T' + (e.tierLevel || '?');
-      return '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
-        '<input type="checkbox" class="plan-form-ndc-cb" data-ndc="' + esc(e.ndc) + '"' + checked + '>' +
-        '<span style="font-family:var(--font-mono);min-width:90px">' + esc(e.ndc) + '</span>' +
-        '<span style="flex:1">' + esc(e.brandName || e.genericName || e.description || 'Unknown') + '</span>' +
-        '<span class="badge badge-' + (e.tierLevel === 1 ? 'active' : e.tierLevel === 2 ? 'info' : e.tierLevel === 3 ? 'pending' : 'specialty') + '" style="font-size:10px">' + tier + '</span>' +
-      '</label>';
-    }).join('') + (filtered.length > 200 ? '<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">Showing 200 of ' + filtered.length + ' — use search to narrow</div>' : '');
+    listEl.innerHTML =
+      visible
+        .map(function (e) {
+          var checked = selectedFormularyNdcs.has(e.ndc) ? ' checked' : '';
+          var tier = 'T' + (e.tierLevel || '?');
+          return (
+            '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+            '<input type="checkbox" class="plan-form-ndc-cb" data-ndc="' +
+            esc(e.ndc) +
+            '"' +
+            checked +
+            '>' +
+            '<span style="font-family:var(--font-mono);min-width:90px">' +
+            esc(e.ndc) +
+            '</span>' +
+            '<span style="flex:1">' +
+            esc(e.brandName || e.genericName || e.description || 'Unknown') +
+            '</span>' +
+            '<span class="badge badge-' +
+            (e.tierLevel === 1 ? 'active' : e.tierLevel === 2 ? 'info' : e.tierLevel === 3 ? 'pending' : 'specialty') +
+            '" style="font-size:10px">' +
+            tier +
+            '</span>' +
+            '</label>'
+          );
+        })
+        .join('') +
+      (filtered.length > 200
+        ? '<div style="padding:8px;text-align:center;color:var(--text-secondary);font-size:11px">Showing 200 of ' +
+          filtered.length +
+          ' — use search to narrow</div>'
+        : '');
 
     // Bind checkbox changes
     listEl.querySelectorAll('.plan-form-ndc-cb').forEach(function (cb) {
@@ -1048,7 +1392,9 @@
         if (cb.checked) selectedFormularyNdcs.add(cb.dataset.ndc);
         else selectedFormularyNdcs.delete(cb.dataset.ndc);
         var s = $('plan-formulary-stats');
-        if (s) s.textContent = selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
+        if (s)
+          s.textContent =
+            selectedFormularyNdcs.size + ' selected / ' + allFormularyEntries.length + ' total (' + filtered.length + ' shown)';
       };
     });
   }
@@ -1068,40 +1414,58 @@
     });
 
     var statsEl = $('plan-network-stats');
-    if (statsEl) statsEl.textContent = selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
+    if (statsEl)
+      statsEl.textContent =
+        selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
 
     var listEl = $('plan-network-list');
     if (!listEl) return;
 
-    listEl.innerHTML = filtered.map(function (p) {
-      var checked = selectedNetworkWalletIds.has(p.walletId) ? ' checked' : '';
-      var typeIcon = p.providerType === 'pharmacy' ? 'Rx' : 'Dr';
-      return '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
-        '<input type="checkbox" class="plan-net-cb" data-wallet="' + esc(p.walletId) + '"' + checked + '>' +
-        '<span class="badge badge-info" style="font-size:10px;min-width:24px;text-align:center">' + typeIcon + '</span>' +
-        '<span style="flex:1">' + esc(p.displayName || 'Unknown') + '</span>' +
-        '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' + esc(p.npi || '') + '</span>' +
-      '</label>';
-    }).join('');
+    listEl.innerHTML = filtered
+      .map(function (p) {
+        var checked = selectedNetworkWalletIds.has(p.walletId) ? ' checked' : '';
+        var typeIcon = p.providerType === 'pharmacy' ? 'Rx' : 'Dr';
+        return (
+          '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+          '<input type="checkbox" class="plan-net-cb" data-wallet="' +
+          esc(p.walletId) +
+          '"' +
+          checked +
+          '>' +
+          '<span class="badge badge-info" style="font-size:10px;min-width:24px;text-align:center">' +
+          typeIcon +
+          '</span>' +
+          '<span style="flex:1">' +
+          esc(p.displayName || 'Unknown') +
+          '</span>' +
+          '<span style="font-family:var(--font-mono);font-size:11px;color:var(--text-secondary)">' +
+          esc(p.npi || '') +
+          '</span>' +
+          '</label>'
+        );
+      })
+      .join('');
 
     listEl.querySelectorAll('.plan-net-cb').forEach(function (cb) {
       cb.onchange = function () {
         if (cb.checked) selectedNetworkWalletIds.add(cb.dataset.wallet);
         else selectedNetworkWalletIds.delete(cb.dataset.wallet);
         var s = $('plan-network-stats');
-        if (s) s.textContent = selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
+        if (s)
+          s.textContent =
+            selectedNetworkWalletIds.size + ' selected / ' + allNetworkProviders.length + ' total (' + filtered.length + ' shown)';
       };
     });
   }
 
   function initPlanDetailEvents() {
-
     var closeBtn = $('plan-detail-close');
-    if (closeBtn) closeBtn.onclick = function () {
-      var panel = $('plan-detail-panel');
-      if (panel) panel.classList.add('hidden');
-      editingPlanId = null;
-    };
+    if (closeBtn)
+      closeBtn.onclick = function () {
+        var panel = $('plan-detail-panel');
+        if (panel) panel.classList.add('hidden');
+        editingPlanId = null;
+      };
 
     // Search/filter handlers
     var formSearch = $('plan-formulary-search');
@@ -1115,89 +1479,114 @@
 
     // Select all / clear
     var formSelectAll = $('plan-formulary-select-all');
-    if (formSelectAll) formSelectAll.onclick = function () {
-      $('plan-formulary-list').querySelectorAll('.plan-form-ndc-cb').forEach(function (cb) {
-        cb.checked = true;
-        selectedFormularyNdcs.add(cb.dataset.ndc);
-      });
-      renderFormularySelection();
-    };
+    if (formSelectAll)
+      formSelectAll.onclick = function () {
+        $('plan-formulary-list')
+          .querySelectorAll('.plan-form-ndc-cb')
+          .forEach(function (cb) {
+            cb.checked = true;
+            selectedFormularyNdcs.add(cb.dataset.ndc);
+          });
+        renderFormularySelection();
+      };
     var formClear = $('plan-formulary-clear');
-    if (formClear) formClear.onclick = function () {
-      selectedFormularyNdcs.clear();
-      renderFormularySelection();
-    };
+    if (formClear)
+      formClear.onclick = function () {
+        selectedFormularyNdcs.clear();
+        renderFormularySelection();
+      };
     var netSelectAll = $('plan-network-select-all');
-    if (netSelectAll) netSelectAll.onclick = function () {
-      $('plan-network-list').querySelectorAll('.plan-net-cb').forEach(function (cb) {
-        cb.checked = true;
-        selectedNetworkWalletIds.add(cb.dataset.wallet);
-      });
-      renderNetworkSelection();
-    };
+    if (netSelectAll)
+      netSelectAll.onclick = function () {
+        $('plan-network-list')
+          .querySelectorAll('.plan-net-cb')
+          .forEach(function (cb) {
+            cb.checked = true;
+            selectedNetworkWalletIds.add(cb.dataset.wallet);
+          });
+        renderNetworkSelection();
+      };
     var netClear = $('plan-network-clear');
-    if (netClear) netClear.onclick = function () {
-      selectedNetworkWalletIds.clear();
-      renderNetworkSelection();
-    };
+    if (netClear)
+      netClear.onclick = function () {
+        selectedNetworkWalletIds.clear();
+        renderNetworkSelection();
+      };
 
     // Save
     var saveBtn = $('plan-detail-save');
-    if (saveBtn) saveBtn.onclick = async function () {
-      if (!editingPlanId) return;
-      try {
-        await API.updatePlan(editingPlanId, {
-          formularyNdcs: Array.from(selectedFormularyNdcs),
-          networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
-          dispensingFeeCents: detailFee(),
-        });
-        toast('Plan configuration saved', 'success');
-        showResult('plan-detail-result', 'Saved formulary (' + selectedFormularyNdcs.size + ' NDCs) + network (' + selectedNetworkWalletIds.size + ' providers)', true);
-        await fetchPlans();
-        renderPlanList();
-        // a save is a draft until the plan is published again
-        var saved = planData.find(function (p) { return (p.planId || p.id) === editingPlanId; });
-        var savedStatusEl = $('plan-detail-status');
-        if (saved && savedStatusEl) savedStatusEl.innerHTML = planDetailStatus(saved);
-      } catch (err) {
-        toast('Save failed: ' + err.message, 'error');
-        showResult('plan-detail-result', err.message, false);
-      }
-    };
+    if (saveBtn)
+      saveBtn.onclick = async function () {
+        if (!editingPlanId) return;
+        try {
+          await API.updatePlan(editingPlanId, {
+            formularyNdcs: Array.from(selectedFormularyNdcs),
+            networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+            dispensingFeeCents: detailFee(),
+          });
+          toast('Plan configuration saved', 'success');
+          showResult(
+            'plan-detail-result',
+            'Saved formulary (' + selectedFormularyNdcs.size + ' NDCs) + network (' + selectedNetworkWalletIds.size + ' providers)',
+            true,
+          );
+          await fetchPlans();
+          renderPlanList();
+          // a save is a draft until the plan is published again
+          var saved = planData.find(function (p) {
+            return (p.planId || p.id) === editingPlanId;
+          });
+          var savedStatusEl = $('plan-detail-status');
+          if (saved && savedStatusEl) savedStatusEl.innerHTML = planDetailStatus(saved);
+        } catch (err) {
+          toast('Save failed: ' + err.message, 'error');
+          showResult('plan-detail-result', err.message, false);
+        }
+      };
 
     // Save & Publish
     var publishBtn = $('plan-detail-publish');
-    if (publishBtn) publishBtn.onclick = async function () {
-      if (!editingPlanId) return;
-      publishBtn.disabled = true;
-      publishBtn.textContent = 'Publishing...';
-      try {
-        await API.updatePlan(editingPlanId, {
-          formularyNdcs: Array.from(selectedFormularyNdcs),
-          networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
-          dispensingFeeCents: detailFee(),
-        });
-        var result = await API.publishPlan(editingPlanId);
-        if (result && result.draftPending) {
-          toast(publishOutcome(editingPlanId, result).msg, 'info');
-          showResult('plan-detail-result', result.message || 'Published; a newer draft is not published yet', true);
-        } else {
-          toast('Plan published: ' + (result.formularyEntryCount || 0) + ' formulary entries, ' + (result.networkProviderCount || 0) + ' network providers', 'success');
-          showResult('plan-detail-result', 'Published successfully', true);
+    if (publishBtn)
+      publishBtn.onclick = async function () {
+        if (!editingPlanId) return;
+        publishBtn.disabled = true;
+        publishBtn.textContent = 'Publishing...';
+        try {
+          await API.updatePlan(editingPlanId, {
+            formularyNdcs: Array.from(selectedFormularyNdcs),
+            networkProviderWalletIds: Array.from(selectedNetworkWalletIds),
+            dispensingFeeCents: detailFee(),
+          });
+          var result = await API.publishPlan(editingPlanId);
+          if (result && result.draftPending) {
+            toast(publishOutcome(editingPlanId, result).msg, 'info');
+            showResult('plan-detail-result', result.message || 'Published; a newer draft is not published yet', true);
+          } else {
+            toast(
+              'Plan published: ' +
+                (result.formularyEntryCount || 0) +
+                ' formulary entries, ' +
+                (result.networkProviderCount || 0) +
+                ' network providers',
+              'success',
+            );
+            showResult('plan-detail-result', 'Published successfully', true);
+          }
+          await fetchPlans();
+          renderPlanList();
+          var refreshed = planData.find(function (p) {
+            return (p.planId || p.id) === editingPlanId;
+          });
+          var detailStatusEl = $('plan-detail-status');
+          if (refreshed && detailStatusEl) detailStatusEl.innerHTML = planDetailStatus(refreshed);
+        } catch (err) {
+          toast('Publish failed: ' + err.message, 'error');
+          showResult('plan-detail-result', err.message, false);
+        } finally {
+          publishBtn.disabled = false;
+          publishBtn.textContent = 'Save & Publish';
         }
-        await fetchPlans();
-        renderPlanList();
-        var refreshed = planData.find(function (p) { return (p.planId || p.id) === editingPlanId; });
-        var detailStatusEl = $('plan-detail-status');
-        if (refreshed && detailStatusEl) detailStatusEl.innerHTML = planDetailStatus(refreshed);
-      } catch (err) {
-        toast('Publish failed: ' + err.message, 'error');
-        showResult('plan-detail-result', err.message, false);
-      } finally {
-        publishBtn.disabled = false;
-        publishBtn.textContent = 'Save & Publish';
-      }
-    };
+      };
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1217,9 +1606,12 @@
     if (appsRefreshBtn) appsRefreshBtn.onclick = loadMarketplaceApplications;
     // Auto-poll every 10s so insurer sees doc uploads + status changes in real time
     if (_appsPollTimer) clearInterval(_appsPollTimer);
-    _appsPollTimer = setInterval(function() {
+    _appsPollTimer = setInterval(function () {
       if (currentTab === 'employers') loadMarketplaceApplications({ quiet: true });
-      else { clearInterval(_appsPollTimer); _appsPollTimer = null; }
+      else {
+        clearInterval(_appsPollTimer);
+        _appsPollTimer = null;
+      }
     }, 10000);
   }
 
@@ -1246,30 +1638,68 @@
     };
     try {
       var apps = await API.getEmployerApplications();
-      var list = Array.isArray(apps) ? apps : (apps.data || apps);
+      var list = Array.isArray(apps) ? apps : apps.data || apps;
       if (!list || list.length === 0) {
         show('<div class="empty-state">No marketplace applications yet.</div>');
         return;
       }
-      show('<table class="data-table"><thead><tr>' +
-        '<th>Company</th><th>EIN</th><th>Plans</th><th>Cap</th><th>Status</th><th>Submitted</th><th>Document</th><th>Actions</th></tr></thead><tbody>' +
-        list.map(function(a) {
-          var statusColor = { submitted: 'yellow', under_review: 'yellow', needs_documents: 'orange', approved: 'blue', signed: 'green', active: 'green', denied: 'red' };
-          var docStatus = a.cp575DocumentId
-            ? '<span class="badge green" style="font-size:10px">CP 575 on file</span>'
-            : '<span class="badge orange" style="font-size:10px">Not uploaded</span>';
-          return '<tr>' +
-            '<td><strong>' + esc(a.companyName) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + esc(a.employerId) + '</span></td>' +
-            '<td class="mono">' + esc(a.ein || '--') + '</td>' +
-            '<td>' + (a.selectedPlanIds || []).map(function(p) { return '<span class="badge badge-sm">' + esc(p) + '</span>'; }).join(' ') + '</td>' +
-            '<td>' + esc(a.enrollmentCap) + '</td>' +
-            '<td><span class="badge ' + (statusColor[a.status] || 'yellow') + '">' + esc(a.status) + '</span></td>' +
-            '<td style="font-size:11px">' + new Date(a.submittedAt).toLocaleDateString() + '</td>' +
-            '<td>' + docStatus + '</td>' +
-            '<td class="actions-cell">' + renderAppActions(a) + '</td>' +
-          '</tr>';
-        }).join('') +
-        '</tbody></table>');
+      show(
+        '<table class="data-table"><thead><tr>' +
+          '<th>Company</th><th>EIN</th><th>Plans</th><th>Cap</th><th>Status</th><th>Submitted</th><th>Document</th><th>Actions</th></tr></thead><tbody>' +
+          list
+            .map(function (a) {
+              var statusColor = {
+                submitted: 'yellow',
+                under_review: 'yellow',
+                needs_documents: 'orange',
+                approved: 'blue',
+                signed: 'green',
+                active: 'green',
+                denied: 'red',
+              };
+              var docStatus = a.cp575DocumentId
+                ? '<span class="badge green" style="font-size:10px">CP 575 on file</span>'
+                : '<span class="badge orange" style="font-size:10px">Not uploaded</span>';
+              return (
+                '<tr>' +
+                '<td><strong>' +
+                esc(a.companyName) +
+                '</strong><br><span style="font-size:11px;color:var(--text-muted)">' +
+                esc(a.employerId) +
+                '</span></td>' +
+                '<td class="mono">' +
+                esc(a.ein || '--') +
+                '</td>' +
+                '<td>' +
+                (a.selectedPlanIds || [])
+                  .map(function (p) {
+                    return '<span class="badge badge-sm">' + esc(p) + '</span>';
+                  })
+                  .join(' ') +
+                '</td>' +
+                '<td>' +
+                esc(a.enrollmentCap) +
+                '</td>' +
+                '<td><span class="badge ' +
+                (statusColor[a.status] || 'yellow') +
+                '">' +
+                esc(a.status) +
+                '</span></td>' +
+                '<td style="font-size:11px">' +
+                new Date(a.submittedAt).toLocaleDateString() +
+                '</td>' +
+                '<td>' +
+                docStatus +
+                '</td>' +
+                '<td class="actions-cell">' +
+                renderAppActions(a) +
+                '</td>' +
+                '</tr>'
+              );
+            })
+            .join('') +
+          '</tbody></table>',
+      );
     } catch (e) {
       if (quiet) return;
       show('<div class="form-result error">Failed to load applications: ' + esc(e.message) + '</div>');
@@ -1279,35 +1709,54 @@
   function renderAppActions(a) {
     var id = a.applicationId;
     var hasDoc = !!a.cp575DocumentId;
-    var reviewLink = hasDoc ? '<button class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575" data-act="reviewDoc" data-arg="' + esc(id) + '">Review PDF</button>' : '';
+    var reviewLink = hasDoc
+      ? '<button class="btn btn-sm" style="margin-right:4px" title="Review uploaded CP 575" data-act="reviewDoc" data-arg="' +
+        esc(id) +
+        '">Review PDF</button>'
+      : '';
 
     if (a.status === 'submitted' || a.status === 'under_review' || a.status === 'needs_documents') {
       if (hasDoc) {
         // Document uploaded — prominent review + approve flow
-        return '<div style="display:flex;flex-direction:column;gap:6px">' +
+        return (
+          '<div style="display:flex;flex-direction:column;gap:6px">' +
           '<div style="display:flex;gap:4px">' +
-            reviewLink +
-            '<button class="btn btn-sm btn-primary" data-act="approveApp" data-arg="' + esc(id) + '">Approve</button>' +
+          reviewLink +
+          '<button class="btn btn-sm btn-primary" data-act="approveApp" data-arg="' +
+          esc(id) +
+          '">Approve</button>' +
           '</div>' +
           '<div style="display:flex;gap:4px">' +
-            '<button class="btn btn-sm" data-act="requestDocs" data-arg="' + esc(id) + '">Request Resubmission</button>' +
-            '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' + esc(id) + '">Deny</button>' +
+          '<button class="btn btn-sm" data-act="requestDocs" data-arg="' +
+          esc(id) +
+          '">Request Resubmission</button>' +
+          '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' +
+          esc(id) +
+          '">Deny</button>' +
           '</div>' +
-        '</div>';
+          '</div>'
+        );
       } else {
         // No document yet
-        return '<button class="btn btn-sm" data-act="requestDocs" data-arg="' + esc(id) + '">Request Docs</button> ' +
-          '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' + esc(id) + '">Deny</button>';
+        return (
+          '<button class="btn btn-sm" data-act="requestDocs" data-arg="' +
+          esc(id) +
+          '">Request Docs</button> ' +
+          '<button class="btn btn-sm btn-danger" data-act="denyApp" data-arg="' +
+          esc(id) +
+          '">Deny</button>'
+        );
       }
     }
     if (a.status === 'approved') return '<span class="badge blue">Approved — awaiting employer signature</span>';
     if (a.status === 'signed' || a.status === 'active') {
       // The insurer node compares the commitment the employer signed with its plans' current published terms.
-      var changed = a.termsChanged === true
-        ? ' <span class="badge badge-error" title="A plan this employer signed for was published again with other terms, or withdrawn, since the agreement was signed. The employer can sign the new terms on the marketplace.">Terms changed since signed</span>'
-        : a.signedBeforeFullTerms === true
-          ? ' <span class="badge badge-pending" title="This employer signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it signed (copay, deductible, OOP max, annual max) are unchanged. The employer can sign the full terms on the marketplace.">Signed before full terms</span>'
-          : '';
+      var changed =
+        a.termsChanged === true
+          ? ' <span class="badge badge-error" title="A plan this employer signed for was published again with other terms, or withdrawn, since the agreement was signed. The employer can sign the new terms on the marketplace.">Terms changed since signed</span>'
+          : a.signedBeforeFullTerms === true
+            ? ' <span class="badge badge-pending" title="This employer signed before agreements covered dispensing fees, formularies, family limits and the provider network. The terms it signed (copay, deductible, OOP max, annual max) are unchanged. The employer can sign the full terms on the marketplace.">Signed before full terms</span>'
+            : '';
       return '<span class="badge green">' + esc(a.status) + '</span>' + changed;
     }
     if (a.status === 'denied') return '<span class="badge red">Denied</span>';
@@ -1319,7 +1768,9 @@
       await API.approveEmployerApplication(appId);
       toast('Application approved', 'success');
       loadMarketplaceApplications();
-    } catch (e) { toast('Approve failed: ' + e.message, 'error'); }
+    } catch (e) {
+      toast('Approve failed: ' + e.message, 'error');
+    }
   }
 
   async function denyApp(appId) {
@@ -1329,7 +1780,9 @@
       await API.denyEmployerApplication(appId, reason);
       toast('Application denied', 'info');
       loadMarketplaceApplications();
-    } catch (e) { toast('Deny failed: ' + e.message, 'error'); }
+    } catch (e) {
+      toast('Deny failed: ' + e.message, 'error');
+    }
   }
 
   async function requestDocs(appId) {
@@ -1337,7 +1790,9 @@
       await API.requestEmployerDocuments(appId);
       toast('Documents requested from employer', 'success');
       loadMarketplaceApplications();
-    } catch (e) { toast('Request failed: ' + e.message, 'error'); }
+    } catch (e) {
+      toast('Request failed: ' + e.message, 'error');
+    }
   }
 
   // The document route is admin-only, so the PDF is fetched with the token and opened from memory.
@@ -1346,8 +1801,11 @@
     try {
       var blob = await API.getEmployerDocument(appId);
       var url = URL.createObjectURL(blob);
-      if (win) win.location.href = url; else window.open(url, '_blank');
-      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+      if (win) win.location.href = url;
+      else window.open(url, '_blank');
+      setTimeout(function () {
+        URL.revokeObjectURL(url);
+      }, 60000);
     } catch (e) {
       if (win) win.close();
       toast('Could not open the CP 575: ' + e.message, 'error');
@@ -1374,19 +1832,43 @@
       if (listEl) {
         // A group ID can be the one a member's node registered with its entity, so it rides in data-gid with a listener,
         // never inside an inline handler, where the browser decodes an escaped quote before the script reads it.
-        listEl.innerHTML = groupIds.map(function (gid, i) {
-          var s = summary[gid];
-          var roles = Object.keys(s.roles || {}).map(function (r) { return s.roles[r] + ' ' + r; }).join(', ');
-          return '<div class="emp-item' + (selectedGroup === gid ? ' active' : '') + '" data-gid="' + esc(gid) + '">' +
-            '<div class="emp-avatar">' + esc(gid.charAt(0).toUpperCase()) + '</div>' +
-            '<div class="emp-info">' +
-              '<div class="emp-name">' + esc(gid) + '</div>' +
-              '<div class="emp-sub">' + s.count + ' member' + (s.count !== 1 ? 's' : '') + ' · ' + esc(roles) + '</div>' +
-            '</div>' +
-          '</div>';
-        }).join('');
+        listEl.innerHTML = groupIds
+          .map(function (gid, i) {
+            var s = summary[gid];
+            var roles = Object.keys(s.roles || {})
+              .map(function (r) {
+                return s.roles[r] + ' ' + r;
+              })
+              .join(', ');
+            return (
+              '<div class="emp-item' +
+              (selectedGroup === gid ? ' active' : '') +
+              '" data-gid="' +
+              esc(gid) +
+              '">' +
+              '<div class="emp-avatar">' +
+              esc(gid.charAt(0).toUpperCase()) +
+              '</div>' +
+              '<div class="emp-info">' +
+              '<div class="emp-name">' +
+              esc(gid) +
+              '</div>' +
+              '<div class="emp-sub">' +
+              s.count +
+              ' member' +
+              (s.count !== 1 ? 's' : '') +
+              ' · ' +
+              esc(roles) +
+              '</div>' +
+              '</div>' +
+              '</div>'
+            );
+          })
+          .join('');
         listEl.querySelectorAll('.emp-item').forEach(function (item) {
-          item.onclick = function () { selectGroup(item.dataset.gid); };
+          item.onclick = function () {
+            selectGroup(item.dataset.gid);
+          };
         });
       }
 
@@ -1408,8 +1890,14 @@
     var bodyEl = $('emp-detail-body');
     if (!headerEl || !bodyEl || !rosterData) return;
 
-    var entries = (rosterData.entries || []).filter(function (e) { return (e.groupId || 'unassigned') === gid; });
-    headerEl.innerHTML = esc(gid) + ' <span style="font-size:12px;color:var(--text-secondary);font-weight:400;margin-left:8px">' + entries.length + ' members</span>';
+    var entries = (rosterData.entries || []).filter(function (e) {
+      return (e.groupId || 'unassigned') === gid;
+    });
+    headerEl.innerHTML =
+      esc(gid) +
+      ' <span style="font-size:12px;color:var(--text-secondary);font-weight:400;margin-left:8px">' +
+      entries.length +
+      ' members</span>';
 
     if (entries.length === 0) {
       bodyEl.innerHTML = '<div class="empty-state">No members in this group</div>';
@@ -1418,15 +1906,31 @@
 
     bodyEl.innerHTML =
       '<table class="data-table"><thead><tr><th>Wallet ID</th><th>Role</th><th>Plan</th><th>Display Name</th><th>Registered</th></tr></thead><tbody>' +
-      entries.map(function (e) {
-        return '<tr>' +
-          '<td><span class="hash" title="' + esc(e.walletId) + '">' + esc(truncHash(e.walletId, 16)) + '</span></td>' +
-          '<td><span class="badge badge-info">' + esc(e.role || 'member') + '</span></td>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(e.planId || '--') + '</td>' +
-          '<td>' + esc(e.displayName || '--') + '</td>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(fmtDate(e.registeredAt)) + '</td>' +
-        '</tr>';
-      }).join('') +
+      entries
+        .map(function (e) {
+          return (
+            '<tr>' +
+            '<td><span class="hash" title="' +
+            esc(e.walletId) +
+            '">' +
+            esc(truncHash(e.walletId, 16)) +
+            '</span></td>' +
+            '<td><span class="badge badge-info">' +
+            esc(e.role || 'member') +
+            '</span></td>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(e.planId || '--') +
+            '</td>' +
+            '<td>' +
+            esc(e.displayName || '--') +
+            '</td>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(fmtDate(e.registeredAt)) +
+            '</td>' +
+            '</tr>'
+          );
+        })
+        .join('') +
       '</tbody></table>';
   }
 
@@ -1468,14 +1972,28 @@
         } else {
           pendingEl.innerHTML =
             '<table class="data-table"><thead><tr><th>Wallet ID</th><th>Role</th><th>Group</th><th>Registered</th></tr></thead><tbody>' +
-            recent.map(function (e) {
-              return '<tr>' +
-                '<td><span class="hash" title="' + esc(e.walletId) + '">' + esc(truncHash(e.walletId, 16)) + '</span></td>' +
-                '<td><span class="badge badge-info">' + esc(e.role || 'member') + '</span></td>' +
-                '<td>' + esc(e.groupId || '--') + '</td>' +
-                '<td style="font-family:var(--font-mono);font-size:12px">' + esc(fmtDate(e.registeredAt)) + '</td>' +
-              '</tr>';
-            }).join('') +
+            recent
+              .map(function (e) {
+                return (
+                  '<tr>' +
+                  '<td><span class="hash" title="' +
+                  esc(e.walletId) +
+                  '">' +
+                  esc(truncHash(e.walletId, 16)) +
+                  '</span></td>' +
+                  '<td><span class="badge badge-info">' +
+                  esc(e.role || 'member') +
+                  '</span></td>' +
+                  '<td>' +
+                  esc(e.groupId || '--') +
+                  '</td>' +
+                  '<td style="font-family:var(--font-mono);font-size:12px">' +
+                  esc(fmtDate(e.registeredAt)) +
+                  '</td>' +
+                  '</tr>'
+                );
+              })
+              .join('') +
             '</tbody></table>';
         }
       }
@@ -1502,7 +2020,10 @@
 
   async function doEligibilityLookup() {
     var walletId = ($('elig-wallet') || {}).value || '';
-    if (!walletId.trim()) { toast('Enter a wallet ID', 'error'); return; }
+    if (!walletId.trim()) {
+      toast('Enter a wallet ID', 'error');
+      return;
+    }
 
     var resultEl = $('elig-lookup-result');
     if (!resultEl) return;
@@ -1511,21 +2032,37 @@
     try {
       var res = await API.getRoster();
       var entries = (res.data || res).entries || [];
-      var found = entries.find(function (e) { return e.walletId === walletId.trim(); });
+      var found = entries.find(function (e) {
+        return e.walletId === walletId.trim();
+      });
 
       if (found) {
         resultEl.innerHTML =
           '<div class="member-card">' +
-            '<div class="member-card-header">' +
-              '<span class="member-card-wallet" title="' + esc(found.walletId) + '">' + esc(truncHash(found.walletId, 20)) + '</span>' +
-              '<span class="badge badge-info">' + esc(found.role || 'member') + '</span>' +
-            '</div>' +
-            '<div class="detail-grid">' +
-              '<div class="detail-key">Display Name</div><div class="detail-val">' + esc(found.displayName || '--') + '</div>' +
-              '<div class="detail-key">Group</div><div class="detail-val">' + esc(found.groupId || '--') + '</div>' +
-              '<div class="detail-key">Employer</div><div class="detail-val">' + esc(found.employerId || '--') + '</div>' +
-              '<div class="detail-key">Registered</div><div class="detail-val">' + esc(fmtDate(found.registeredAt)) + '</div>' +
-            '</div>' +
+          '<div class="member-card-header">' +
+          '<span class="member-card-wallet" title="' +
+          esc(found.walletId) +
+          '">' +
+          esc(truncHash(found.walletId, 20)) +
+          '</span>' +
+          '<span class="badge badge-info">' +
+          esc(found.role || 'member') +
+          '</span>' +
+          '</div>' +
+          '<div class="detail-grid">' +
+          '<div class="detail-key">Display Name</div><div class="detail-val">' +
+          esc(found.displayName || '--') +
+          '</div>' +
+          '<div class="detail-key">Group</div><div class="detail-val">' +
+          esc(found.groupId || '--') +
+          '</div>' +
+          '<div class="detail-key">Employer</div><div class="detail-val">' +
+          esc(found.employerId || '--') +
+          '</div>' +
+          '<div class="detail-key">Registered</div><div class="detail-val">' +
+          esc(fmtDate(found.registeredAt)) +
+          '</div>' +
+          '</div>' +
           '</div>';
       } else {
         resultEl.innerHTML = '<div class="form-result error">Wallet not found in enrolled members</div>';
@@ -1540,7 +2077,10 @@
     var action = ($('elig-action-type') || {}).value || 'promote';
     var reason = ($('elig-action-reason') || {}).value || '';
 
-    if (!wallet.trim()) { toast('Enter a wallet ID', 'error'); return; }
+    if (!wallet.trim()) {
+      toast('Enter a wallet ID', 'error');
+      return;
+    }
 
     try {
       if (action === 'revoke') {
@@ -1591,16 +2131,26 @@
       var role = ($('cred-role-filter') || {}).value || '';
       var res = await API.getProviderRegistry(role || undefined);
       var data = res.data || res;
-      var providers = Array.isArray(data) ? data : (data.providers || data.entries || []);
+      var providers = Array.isArray(data) ? data : data.providers || data.entries || [];
 
       // Stats
       if (statsEl) {
-        var prescribers = providers.filter(function (p) { return p.providerType === 'prescriber' || p.metadata?.providerType === 'prescriber'; }).length;
-        var pharmacies = providers.filter(function (p) { return p.providerType === 'pharmacy' || p.metadata?.providerType === 'pharmacy'; }).length;
+        var prescribers = providers.filter(function (p) {
+          return p.providerType === 'prescriber' || p.metadata?.providerType === 'prescriber';
+        }).length;
+        var pharmacies = providers.filter(function (p) {
+          return p.providerType === 'pharmacy' || p.metadata?.providerType === 'pharmacy';
+        }).length;
         statsEl.innerHTML =
-          '<div class="stat-card"><span class="stat-label">Total Providers</span><span class="stat-value">' + providers.length + '</span></div>' +
-          '<div class="stat-card"><span class="stat-label">Prescribers</span><span class="stat-value">' + prescribers + '</span></div>' +
-          '<div class="stat-card"><span class="stat-label">Pharmacies</span><span class="stat-value">' + pharmacies + '</span></div>';
+          '<div class="stat-card"><span class="stat-label">Total Providers</span><span class="stat-value">' +
+          providers.length +
+          '</span></div>' +
+          '<div class="stat-card"><span class="stat-label">Prescribers</span><span class="stat-value">' +
+          prescribers +
+          '</span></div>' +
+          '<div class="stat-card"><span class="stat-label">Pharmacies</span><span class="stat-value">' +
+          pharmacies +
+          '</span></div>';
       }
 
       if (providers.length === 0) {
@@ -1610,26 +2160,46 @@
 
       el.innerHTML =
         '<table class="data-table"><thead><tr>' +
-          '<th>Wallet ID</th><th>Name</th><th>Type</th><th>NPI</th><th>State</th><th>Actions</th>' +
+        '<th>Wallet ID</th><th>Name</th><th>Type</th><th>NPI</th><th>State</th><th>Actions</th>' +
         '</tr></thead><tbody>' +
-        providers.map(function (p) {
-          var meta = p.metadata || p;
-          var wid = p.walletId || meta.walletId || (p.leaf && p.leaf.walletId) || '--';
-          var name = meta.displayName || '--';
-          var type = meta.providerType || '--';
-          var npi = meta.npi || '--';
-          var state = meta.credentialState || p.credentialState || '--';
-          return '<tr>' +
-            '<td><span class="hash" title="' + esc(wid) + '">' + esc(truncHash(wid, 14)) + '</span></td>' +
-            '<td>' + esc(name) + '</td>' +
-            '<td><span class="badge badge-info">' + esc(type) + '</span></td>' +
-            '<td style="font-family:var(--font-mono)">' + esc(npi) + '</td>' +
-            '<td>' + esc(state) + '</td>' +
-            '<td>' +
-              '<button class="btn btn-sm" data-act="suspendProvider" data-arg="' + esc(wid) + '">Suspend</button> ' +
-              '<button class="btn btn-sm btn-danger" data-act="terminateProvider" data-arg="' + esc(wid) + '">Terminate</button>' +
-            '</td></tr>';
-        }).join('') +
+        providers
+          .map(function (p) {
+            var meta = p.metadata || p;
+            var wid = p.walletId || meta.walletId || (p.leaf && p.leaf.walletId) || '--';
+            var name = meta.displayName || '--';
+            var type = meta.providerType || '--';
+            var npi = meta.npi || '--';
+            var state = meta.credentialState || p.credentialState || '--';
+            return (
+              '<tr>' +
+              '<td><span class="hash" title="' +
+              esc(wid) +
+              '">' +
+              esc(truncHash(wid, 14)) +
+              '</span></td>' +
+              '<td>' +
+              esc(name) +
+              '</td>' +
+              '<td><span class="badge badge-info">' +
+              esc(type) +
+              '</span></td>' +
+              '<td style="font-family:var(--font-mono)">' +
+              esc(npi) +
+              '</td>' +
+              '<td>' +
+              esc(state) +
+              '</td>' +
+              '<td>' +
+              '<button class="btn btn-sm" data-act="suspendProvider" data-arg="' +
+              esc(wid) +
+              '">Suspend</button> ' +
+              '<button class="btn btn-sm btn-danger" data-act="terminateProvider" data-arg="' +
+              esc(wid) +
+              '">Terminate</button>' +
+              '</td></tr>'
+            );
+          })
+          .join('') +
         '</tbody></table>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Failed to load registry: ' + esc(e.message) + '</div>';
@@ -1653,19 +2223,46 @@
 
       el.innerHTML =
         '<table class="data-table"><thead><tr>' +
-          '<th>Application ID</th><th>Name</th><th>Type</th><th>NPI</th><th>Status</th><th>Submitted</th><th>Actions</th>' +
+        '<th>Application ID</th><th>Name</th><th>Type</th><th>NPI</th><th>Status</th><th>Submitted</th><th>Actions</th>' +
         '</tr></thead><tbody>' +
-        apps.map(function (a) {
-          var statusClass = a.status === 'approved' ? 'badge-ready' : a.status === 'denied' ? 'badge-error' : a.status === 'verified' ? 'badge-info' : 'badge-pending';
-          return '<tr>' +
-            '<td style="font-family:var(--font-mono);font-size:12px">' + esc(truncHash(a.applicationId, 20)) + '</td>' +
-            '<td>' + esc(a.displayName) + '</td>' +
-            '<td><span class="badge badge-info">' + esc(a.providerType) + '</span></td>' +
-            '<td style="font-family:var(--font-mono)">' + esc(a.npi) + '</td>' +
-            '<td><span class="badge ' + statusClass + '">' + esc(a.status) + '</span></td>' +
-            '<td style="font-family:var(--font-mono);font-size:12px">' + esc(fmtDate(a.submittedAt)) + '</td>' +
-            '<td>' + credAppActions(a) + '</td></tr>';
-        }).join('') +
+        apps
+          .map(function (a) {
+            var statusClass =
+              a.status === 'approved'
+                ? 'badge-ready'
+                : a.status === 'denied'
+                  ? 'badge-error'
+                  : a.status === 'verified'
+                    ? 'badge-info'
+                    : 'badge-pending';
+            return (
+              '<tr>' +
+              '<td style="font-family:var(--font-mono);font-size:12px">' +
+              esc(truncHash(a.applicationId, 20)) +
+              '</td>' +
+              '<td>' +
+              esc(a.displayName) +
+              '</td>' +
+              '<td><span class="badge badge-info">' +
+              esc(a.providerType) +
+              '</span></td>' +
+              '<td style="font-family:var(--font-mono)">' +
+              esc(a.npi) +
+              '</td>' +
+              '<td><span class="badge ' +
+              statusClass +
+              '">' +
+              esc(a.status) +
+              '</span></td>' +
+              '<td style="font-family:var(--font-mono);font-size:12px">' +
+              esc(fmtDate(a.submittedAt)) +
+              '</td>' +
+              '<td>' +
+              credAppActions(a) +
+              '</td></tr>'
+            );
+          })
+          .join('') +
         '</tbody></table>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Failed to load applications: ' + esc(e.message) + '</div>';
@@ -1676,29 +2273,42 @@
     var btns = [];
     if (app.status === 'pending') {
       btns.push('<button class="btn btn-sm" data-act="verifyApp" data-arg="' + esc(app.applicationId) + '">Verify</button>');
-      btns.push('<button class="btn btn-sm btn-danger" data-act="denyCredentialingApp" data-arg="' + esc(app.applicationId) + '">Deny</button>');
+      btns.push(
+        '<button class="btn btn-sm btn-danger" data-act="denyCredentialingApp" data-arg="' + esc(app.applicationId) + '">Deny</button>',
+      );
     }
     if (app.status === 'verified' || app.status === 'pending') {
-      btns.push('<button class="btn btn-sm btn-primary" data-act="approveCredentialingApp" data-arg="' + esc(app.applicationId) + '">Approve</button>');
+      btns.push(
+        '<button class="btn btn-sm btn-primary" data-act="approveCredentialingApp" data-arg="' +
+          esc(app.applicationId) +
+          '">Approve</button>',
+      );
     }
     return btns.join(' ') || '--';
   }
 
   async function doCredentialingLookup() {
     var wallet = ($('cred-lookup-wallet') || {}).value || '';
-    if (!wallet.trim()) { toast('Enter a wallet ID', 'error'); return; }
+    if (!wallet.trim()) {
+      toast('Enter a wallet ID', 'error');
+      return;
+    }
     var el = $('cred-lookup-result');
     if (!el) return;
     el.innerHTML = '<div class="loading">Looking up...</div>';
     try {
       var res = await API.getCredentialingStatus(wallet.trim());
       var data = res.data || res;
-      el.innerHTML = '<div class="detail-grid" style="margin-top:12px">' +
-        Object.keys(data).map(function (k) {
-          var v = data[k];
-          var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-          return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
-        }).join('') + '</div>';
+      el.innerHTML =
+        '<div class="detail-grid" style="margin-top:12px">' +
+        Object.keys(data)
+          .map(function (k) {
+            var v = data[k];
+            var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+            return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
+          })
+          .join('') +
+        '</div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">' + esc(e.message) + '</div>';
     }
@@ -1718,7 +2328,10 @@
     var source = ($('rpt-source') || {}).value || 'member';
     var sourceId = ($('rpt-source-id') || {}).value || '';
 
-    if (!sourceId.trim()) { toast('Enter a source ID', 'error'); return; }
+    if (!sourceId.trim()) {
+      toast('Enter a source ID', 'error');
+      return;
+    }
 
     var resultsPanel = $('rpt-results-panel');
     var resultsEl = $('rpt-results');
@@ -1733,12 +2346,20 @@
       // Step 1: Fetch claims by source type
       var claims;
       switch (source) {
-        case 'member': claims = await API.getMemberClaims(sourceId.trim()); break;
-        case 'pharmacy': claims = await API.getPharmacyClaims(sourceId.trim()); break;
-        case 'prescriber': claims = await API.getPrescriberClaims(sourceId.trim()); break;
-        case 'drug': claims = await API.getDrugClaims(sourceId.trim()); break;
+        case 'member':
+          claims = await API.getMemberClaims(sourceId.trim());
+          break;
+        case 'pharmacy':
+          claims = await API.getPharmacyClaims(sourceId.trim());
+          break;
+        case 'prescriber':
+          claims = await API.getPrescriberClaims(sourceId.trim());
+          break;
+        case 'drug':
+          claims = await API.getDrugClaims(sourceId.trim());
+          break;
       }
-      var claimsList = Array.isArray(claims) ? claims : (claims && claims.data ? claims.data : []);
+      var claimsList = Array.isArray(claims) ? claims : claims && claims.data ? claims.data : [];
 
       if (claimsList.length === 0) {
         resultsEl.innerHTML = '<div class="empty-state">No claims found for this source. Cannot generate report.</div>';
@@ -1764,30 +2385,50 @@
     if (Array.isArray(data)) {
       if (data.length === 0) return '<div class="empty-state">Report returned empty results</div>';
       var keys = Object.keys(data[0]);
-      return '<div style="max-height:500px;overflow:auto">' +
+      return (
+        '<div style="max-height:500px;overflow:auto">' +
         '<table class="data-table"><thead><tr>' +
-        keys.map(function (k) { return '<th>' + esc(k) + '</th>'; }).join('') +
+        keys
+          .map(function (k) {
+            return '<th>' + esc(k) + '</th>';
+          })
+          .join('') +
         '</tr></thead><tbody>' +
-        data.slice(0, 200).map(function (row) {
-          return '<tr>' + keys.map(function (k) {
-            var v = row[k];
-            var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v != null ? v : '--');
-            return '<td style="font-size:12px">' + esc(display) + '</td>';
-          }).join('') + '</tr>';
-        }).join('') +
-        '</tbody></table></div>';
+        data
+          .slice(0, 200)
+          .map(function (row) {
+            return (
+              '<tr>' +
+              keys
+                .map(function (k) {
+                  var v = row[k];
+                  var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v != null ? v : '--');
+                  return '<td style="font-size:12px">' + esc(display) + '</td>';
+                })
+                .join('') +
+              '</tr>'
+            );
+          })
+          .join('') +
+        '</tbody></table></div>'
+      );
     }
 
     // Render as key-value pairs
     if (typeof data === 'object') {
       var keys = Object.keys(data);
-      return '<div class="detail-grid">' +
-        keys.map(function (k) {
-          var v = data[k];
-          if (Array.isArray(v)) return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + v.length + ' items</div>';
-          var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-          return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
-        }).join('') + '</div>';
+      return (
+        '<div class="detail-grid">' +
+        keys
+          .map(function (k) {
+            var v = data[k];
+            if (Array.isArray(v)) return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + v.length + ' items</div>';
+            var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+            return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
+          })
+          .join('') +
+        '</div>'
+      );
     }
 
     return '<pre style="white-space:pre-wrap;font-size:12px">' + esc(JSON.stringify(data, null, 2)) + '</pre>';
@@ -1816,55 +2457,114 @@
 
   /** The pending requests, each with a reason box, Approve and Deny. */
   function renderPendingPriorAuths(requests) {
-    var rows = (requests || []).filter(function (r) { return r && paIdOk(r.id); });
+    var rows = (requests || []).filter(function (r) {
+      return r && paIdOk(r.id);
+    });
     if (rows.length === 0) return '<div class="empty-state">No prior-authorization requests are waiting for a decision.</div>';
-    return '<table class="data-table"><thead><tr>' +
-      '<th>Request</th><th>Member</th><th>Drug</th><th>NDC</th><th>Quantity</th><th>Prescriber</th><th>Requested</th><th>Prescriber\'s Reason</th><th>Decision</th>' +
+    return (
+      '<table class="data-table"><thead><tr>' +
+      "<th>Request</th><th>Member</th><th>Drug</th><th>NDC</th><th>Quantity</th><th>Prescriber</th><th>Requested</th><th>Prescriber's Reason</th><th>Decision</th>" +
       '</tr></thead><tbody>' +
-      rows.map(function (r) {
-        var id = r.id;
-        return '<tr>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(id) + '</td>' +
-          '<td><span class="hash" title="The member\'s wallet ID, cut">' + esc(r.member || '--') + '</span></td>' +
-          '<td>' + esc(r.drugName || '--') + '</td>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(r.ndc || '--') + '</td>' +
-          '<td>' + esc(paQuantity(r)) + '</td>' +
-          '<td>' + esc(r.prescriberName || '--') + '</td>' +
-          '<td style="font-size:12px">' + esc(fmtDate(r.requestedAt)) + '</td>' +
-          '<td style="font-size:12px">' + esc(r.reason || '--') + '</td>' +
-          '<td class="actions-cell">' +
-            '<input type="text" class="form-input" id="pa-reason-' + id + '" placeholder="Reason (required to deny)" maxlength="500" style="min-width:200px;margin-bottom:6px">' +
+      rows
+        .map(function (r) {
+          var id = r.id;
+          return (
+            '<tr>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(id) +
+            '</td>' +
+            '<td><span class="hash" title="The member\'s wallet ID, cut">' +
+            esc(r.member || '--') +
+            '</span></td>' +
+            '<td>' +
+            esc(r.drugName || '--') +
+            '</td>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(r.ndc || '--') +
+            '</td>' +
+            '<td>' +
+            esc(paQuantity(r)) +
+            '</td>' +
+            '<td>' +
+            esc(r.prescriberName || '--') +
+            '</td>' +
+            '<td style="font-size:12px">' +
+            esc(fmtDate(r.requestedAt)) +
+            '</td>' +
+            '<td style="font-size:12px">' +
+            esc(r.reason || '--') +
+            '</td>' +
+            '<td class="actions-cell">' +
+            '<input type="text" class="form-input" id="pa-reason-' +
+            id +
+            '" placeholder="Reason (required to deny)" maxlength="500" style="min-width:200px;margin-bottom:6px">' +
             '<div style="display:flex;gap:4px">' +
-              '<button class="btn btn-sm btn-primary" id="pa-approve-' + id + '" data-act="approvePriorAuth" data-arg="' + esc(id) + '">Approve</button>' +
-              '<button class="btn btn-sm btn-danger" id="pa-deny-' + id + '" data-act="denyPriorAuth" data-arg="' + esc(id) + '">Deny</button>' +
+            '<button class="btn btn-sm btn-primary" id="pa-approve-' +
+            id +
+            '" data-act="approvePriorAuth" data-arg="' +
+            esc(id) +
+            '">Approve</button>' +
+            '<button class="btn btn-sm btn-danger" id="pa-deny-' +
+            id +
+            '" data-act="denyPriorAuth" data-arg="' +
+            esc(id) +
+            '">Deny</button>' +
             '</div>' +
-          '</td>' +
-        '</tr>';
-      }).join('') +
-      '</tbody></table>';
+            '</td>' +
+            '</tr>'
+          );
+        })
+        .join('') +
+      '</tbody></table>'
+    );
   }
 
   /** The latest decisions, newest first. */
   function renderPriorAuthDecisions(decisions) {
-    var rows = (decisions || []).filter(function (d) { return d && paIdOk(d.id); });
+    var rows = (decisions || []).filter(function (d) {
+      return d && paIdOk(d.id);
+    });
     if (rows.length === 0) return '<div class="empty-state">No decisions yet.</div>';
-    return '<table class="data-table"><thead><tr>' +
+    return (
+      '<table class="data-table"><thead><tr>' +
       '<th>Request</th><th>Member</th><th>Drug</th><th>Quantity</th><th>Prescriber</th><th>Decision</th><th>Reason</th><th>Decided</th>' +
       '</tr></thead><tbody>' +
-      rows.map(function (d) {
-        var badge = d.status === 'APPROVED' ? '<span class="badge badge-ready">Approved</span>' : '<span class="badge badge-error">Denied</span>';
-        return '<tr>' +
-          '<td style="font-family:var(--font-mono);font-size:12px">' + esc(d.id) + '</td>' +
-          '<td><span class="hash">' + esc(d.member || '--') + '</span></td>' +
-          '<td>' + esc(d.drugName || '--') + '</td>' +
-          '<td>' + esc(paQuantity(d)) + '</td>' +
-          '<td>' + esc(d.prescriberName || '--') + '</td>' +
-          '<td>' + badge + '</td>' +
-          '<td style="font-size:12px">' + esc(d.decisionReason || '--') + '</td>' +
-          '<td style="font-size:12px">' + esc(fmtDate(d.resolvedAt)) + '</td>' +
-        '</tr>';
-      }).join('') +
-      '</tbody></table>';
+      rows
+        .map(function (d) {
+          var badge =
+            d.status === 'APPROVED' ? '<span class="badge badge-ready">Approved</span>' : '<span class="badge badge-error">Denied</span>';
+          return (
+            '<tr>' +
+            '<td style="font-family:var(--font-mono);font-size:12px">' +
+            esc(d.id) +
+            '</td>' +
+            '<td><span class="hash">' +
+            esc(d.member || '--') +
+            '</span></td>' +
+            '<td>' +
+            esc(d.drugName || '--') +
+            '</td>' +
+            '<td>' +
+            esc(paQuantity(d)) +
+            '</td>' +
+            '<td>' +
+            esc(d.prescriberName || '--') +
+            '</td>' +
+            '<td>' +
+            badge +
+            '</td>' +
+            '<td style="font-size:12px">' +
+            esc(d.decisionReason || '--') +
+            '</td>' +
+            '<td style="font-size:12px">' +
+            esc(fmtDate(d.resolvedAt)) +
+            '</td>' +
+            '</tr>'
+          );
+        })
+        .join('') +
+      '</tbody></table>'
+    );
   }
 
   async function loadPendingPriorAuths() {
@@ -1913,7 +2613,7 @@
     paRowBusy(id, 'approve');
     try {
       var r = await API.approvePriorAuth(id);
-      var note = r && r.walletUpdate === 'pending' ? ' The member\'s device applies it when it next syncs.' : '';
+      var note = r && r.walletUpdate === 'pending' ? " The member's device applies it when it next syncs." : '';
       toast('Approved ' + id + '.' + note, 'success');
       showResult('pa-action-result', 'Approved ' + id + (r && r.drugName ? ' (' + r.drugName + ')' : '') + '.' + note, true);
     } catch (e) {
@@ -1965,7 +2665,7 @@
   function quotePhaseLabel(q) {
     if (q.phase === 'copay') return q.copayBasis === 'tier' ? 'Tier ' + q.tierLevel + ' copay' : 'Plan copay';
     var labels = {
-      'deductible': 'Deductible phase',
+      deductible: 'Deductible phase',
       'oop-max-reached': 'Out-of-pocket max reached',
       'benefit-max-reached': 'Annual benefit max reached',
     };
@@ -1986,8 +2686,14 @@
 
     var resultEl = $('price-result');
     if (!resultEl) return;
-    if (!ndcHash) { toast('NDC Hash is required', 'error'); return; }
-    if (isNaN(quantity)) { toast('Quantity must be greater than 0, in the drug\'s pricing unit, with at most three decimals', 'error'); return; }
+    if (!ndcHash) {
+      toast('NDC Hash is required', 'error');
+      return;
+    }
+    if (isNaN(quantity)) {
+      toast("Quantity must be greater than 0, in the drug's pricing unit, with at most three decimals", 'error');
+      return;
+    }
 
     var params = { ndcHash: ndcHash, quantity: quantity };
     if (memberWallet) params.walletId = memberWallet;
@@ -2003,42 +2709,82 @@
     var unit = q.pricingUnit || 'unit';
     var priced = q.ingredientCostCents != null;
     var basis = priced
-      ? 'NADAC $' + Number(q.nadacPerUnit).toFixed(5) + '/' + esc(unit) + ' x ' + esc(q.quantity) + ' ' + esc(unit) + ' = ' + fmtCents(q.ingredientCostCents)
+      ? 'NADAC $' +
+        Number(q.nadacPerUnit).toFixed(5) +
+        '/' +
+        esc(unit) +
+        ' x ' +
+        esc(q.quantity) +
+        ' ' +
+        esc(unit) +
+        ' = ' +
+        fmtCents(q.ingredientCostCents)
       : '';
     var who = memberWallet ? 'Member ' + esc(truncHash(memberWallet, 16)) : planId ? 'Plan ' + esc(planId) : 'List price';
 
     if (!q.covered) {
       resultEl.innerHTML =
         '<div class="price-result-card">' +
-          '<div class="price-result-header">Not covered: ' + esc(q.drugName || truncHash(ndcHash, 16)) + '</div>' +
-          '<div class="form-result error">' + esc(q.reason || 'Not covered') + '</div>' +
-          '<div class="detail-grid" style="margin-top:12px">' +
-            '<div class="detail-key">Quoted For</div><div class="detail-val">' + who + '</div>' +
-            (priced ? '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' + basis + '</div>' : '') +
-          '</div>' +
+        '<div class="price-result-header">Not covered: ' +
+        esc(q.drugName || truncHash(ndcHash, 16)) +
+        '</div>' +
+        '<div class="form-result error">' +
+        esc(q.reason || 'Not covered') +
+        '</div>' +
+        '<div class="detail-grid" style="margin-top:12px">' +
+        '<div class="detail-key">Quoted For</div><div class="detail-val">' +
+        who +
+        '</div>' +
+        (priced ? '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' + basis + '</div>' : '') +
+        '</div>' +
         '</div>';
       return;
     }
 
     resultEl.innerHTML =
       '<div class="price-result-card">' +
-        '<div class="price-result-header">Cost Estimate: ' + esc(q.drugName || truncHash(ndcHash, 16)) + '</div>' +
-        '<div class="price-breakdown">' +
-          '<div class="price-item"><div class="price-item-label">Patient Pays</div><div class="price-item-value patient">' + fmtCents(q.memberPayCents) + '</div></div>' +
-          '<div class="price-item"><div class="price-item-label">Plan Pays</div><div class="price-item-value plan">' + fmtCents(q.employerPayCents) + '</div></div>' +
-          '<div class="price-item"><div class="price-item-label">Total Cost</div><div class="price-item-value total">' + fmtCents(q.totalCostCents) + '</div></div>' +
-        '</div>' +
-        '<div class="detail-grid" style="margin-top:12px">' +
-          '<div class="detail-key">Quoted For</div><div class="detail-val">' + who + '</div>' +
-          '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' + basis + '</div>' +
-          '<div class="detail-key">Dispensing Fee</div><div class="detail-val">' + fmtCents(q.dispensingFeeCents) + (q.dispensingFeeSource === 'plan' ? ' (plan)' : ' (network default)') + '</div>' +
-          '<div class="detail-key">Member Pays By</div><div class="detail-val">' + esc(quotePhaseLabel(q)) + '</div>' +
-          '<div class="detail-key">' + (q.copayBasis === 'tier' ? 'Tier Copay' : 'Plan Copay') + '</div><div class="detail-val">' + fmtCents(q.copayAmountCents) + '</div>' +
-        '</div>' +
+      '<div class="price-result-header">Cost Estimate: ' +
+      esc(q.drugName || truncHash(ndcHash, 16)) +
+      '</div>' +
+      '<div class="price-breakdown">' +
+      '<div class="price-item"><div class="price-item-label">Patient Pays</div><div class="price-item-value patient">' +
+      fmtCents(q.memberPayCents) +
+      '</div></div>' +
+      '<div class="price-item"><div class="price-item-label">Plan Pays</div><div class="price-item-value plan">' +
+      fmtCents(q.employerPayCents) +
+      '</div></div>' +
+      '<div class="price-item"><div class="price-item-label">Total Cost</div><div class="price-item-value total">' +
+      fmtCents(q.totalCostCents) +
+      '</div></div>' +
+      '</div>' +
+      '<div class="detail-grid" style="margin-top:12px">' +
+      '<div class="detail-key">Quoted For</div><div class="detail-val">' +
+      who +
+      '</div>' +
+      '<div class="detail-key">Ingredient (NADAC)</div><div class="detail-val">' +
+      basis +
+      '</div>' +
+      '<div class="detail-key">Dispensing Fee</div><div class="detail-val">' +
+      fmtCents(q.dispensingFeeCents) +
+      (q.dispensingFeeSource === 'plan' ? ' (plan)' : ' (network default)') +
+      '</div>' +
+      '<div class="detail-key">Member Pays By</div><div class="detail-val">' +
+      esc(quotePhaseLabel(q)) +
+      '</div>' +
+      '<div class="detail-key">' +
+      (q.copayBasis === 'tier' ? 'Tier Copay' : 'Plan Copay') +
+      '</div><div class="detail-val">' +
+      fmtCents(q.copayAmountCents) +
+      '</div>' +
+      '</div>' +
       '</div>';
 
     priceHistory.unshift({
-      ndcHash: ndcHash, brandName: q.drugName, tier: q.tierLevel, patientPay: q.memberPayCents, planPay: q.employerPayCents,
+      ndcHash: ndcHash,
+      brandName: q.drugName,
+      tier: q.tierLevel,
+      patientPay: q.memberPayCents,
+      planPay: q.employerPayCents,
       timestamp: new Date().toISOString(),
     });
     if (priceHistory.length > 20) priceHistory.pop();
@@ -2053,17 +2799,35 @@
       el.innerHTML = '<div class="empty-state">Run an estimate above to see results here</div>';
       return;
     }
-    el.innerHTML = priceHistory.map(function (e) {
-      return '<div class="price-history-item">' +
-        '<span class="price-history-ndc" title="' + esc(e.ndcHash) + '">' + esc(e.brandName || truncHash(e.ndcHash, 12)) + '</span>' +
-        '<span class="badge tier-' + e.tier + '">T' + e.tier + '</span>' +
-        '<span style="color:var(--text-muted);font-size:12px">' + fmtDate(e.timestamp).split(',')[1] + '</span>' +
-        '<span class="price-history-split">' +
-          '<span style="color:var(--yellow)">' + fmtCents(e.patientPay) + '</span> / ' +
-          '<span style="color:var(--green)">' + fmtCents(e.planPay) + '</span>' +
-        '</span>' +
-      '</div>';
-    }).join('');
+    el.innerHTML = priceHistory
+      .map(function (e) {
+        return (
+          '<div class="price-history-item">' +
+          '<span class="price-history-ndc" title="' +
+          esc(e.ndcHash) +
+          '">' +
+          esc(e.brandName || truncHash(e.ndcHash, 12)) +
+          '</span>' +
+          '<span class="badge tier-' +
+          e.tier +
+          '">T' +
+          e.tier +
+          '</span>' +
+          '<span style="color:var(--text-muted);font-size:12px">' +
+          fmtDate(e.timestamp).split(',')[1] +
+          '</span>' +
+          '<span class="price-history-split">' +
+          '<span style="color:var(--yellow)">' +
+          fmtCents(e.patientPay) +
+          '</span> / ' +
+          '<span style="color:var(--green)">' +
+          fmtCents(e.planPay) +
+          '</span>' +
+          '</span>' +
+          '</div>'
+        );
+      })
+      .join('');
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -2078,7 +2842,10 @@
   async function doQueryClaims() {
     var type = ($('cl-type') || {}).value || 'member';
     var id = ($('cl-id') || {}).value || '';
-    if (!id.trim()) { toast('Enter an ID to query', 'error'); return; }
+    if (!id.trim()) {
+      toast('Enter an ID to query', 'error');
+      return;
+    }
 
     var resultsPanel = $('cl-results-panel');
     var resultsEl = $('cl-results');
@@ -2091,12 +2858,20 @@
     try {
       var data;
       switch (type) {
-        case 'member': data = await API.getMemberClaims(id.trim()); break;
-        case 'prescriber': data = await API.getPrescriberClaims(id.trim()); break;
-        case 'pharmacy': data = await API.getPharmacyClaims(id.trim()); break;
-        case 'drug': data = await API.getDrugClaims(id.trim()); break;
+        case 'member':
+          data = await API.getMemberClaims(id.trim());
+          break;
+        case 'prescriber':
+          data = await API.getPrescriberClaims(id.trim());
+          break;
+        case 'pharmacy':
+          data = await API.getPharmacyClaims(id.trim());
+          break;
+        case 'drug':
+          data = await API.getDrugClaims(id.trim());
+          break;
       }
-      var claims = Array.isArray(data) ? data : (data && data.data ? data.data : []);
+      var claims = Array.isArray(data) ? data : data && data.data ? data.data : [];
       if (countBadge) countBadge.textContent = claims.length + ' results';
 
       if (claims.length === 0) {
@@ -2106,18 +2881,38 @@
 
       resultsEl.innerHTML =
         '<table class="data-table"><thead><tr>' +
-          '<th>#</th><th>Member</th><th>NDC Hash</th><th>Patient Pay</th><th>Plan Pay</th><th>Date</th>' +
+        '<th>#</th><th>Member</th><th>NDC Hash</th><th>Patient Pay</th><th>Plan Pay</th><th>Date</th>' +
         '</tr></thead><tbody>' +
-        claims.map(function (c, i) {
-          return '<tr>' +
-            '<td>' + (i + 1) + '</td>' +
-            '<td><span class="hash" title="' + esc(c.memberWalletId || c.walletId) + '">' + esc(truncHash(c.memberWalletId || c.walletId, 14)) + '</span></td>' +
-            '<td><span class="hash" title="' + esc(c.ndcHash) + '">' + esc(truncHash(c.ndcHash, 14)) + '</span></td>' +
-            '<td style="font-family:var(--font-mono)">' + (c.patientPayCents != null ? fmtCents(c.patientPayCents) : '--') + '</td>' +
-            '<td style="font-family:var(--font-mono)">' + (c.planPayCents != null ? fmtCents(c.planPayCents) : '--') + '</td>' +
-            '<td style="font-family:var(--font-mono);font-size:12px">' + esc(c.dateOfService || fmtDate(c.timestamp)) + '</td>' +
-          '</tr>';
-        }).join('') +
+        claims
+          .map(function (c, i) {
+            return (
+              '<tr>' +
+              '<td>' +
+              (i + 1) +
+              '</td>' +
+              '<td><span class="hash" title="' +
+              esc(c.memberWalletId || c.walletId) +
+              '">' +
+              esc(truncHash(c.memberWalletId || c.walletId, 14)) +
+              '</span></td>' +
+              '<td><span class="hash" title="' +
+              esc(c.ndcHash) +
+              '">' +
+              esc(truncHash(c.ndcHash, 14)) +
+              '</span></td>' +
+              '<td style="font-family:var(--font-mono)">' +
+              (c.patientPayCents != null ? fmtCents(c.patientPayCents) : '--') +
+              '</td>' +
+              '<td style="font-family:var(--font-mono)">' +
+              (c.planPayCents != null ? fmtCents(c.planPayCents) : '--') +
+              '</td>' +
+              '<td style="font-family:var(--font-mono);font-size:12px">' +
+              esc(c.dateOfService || fmtDate(c.timestamp)) +
+              '</td>' +
+              '</tr>'
+            );
+          })
+          .join('') +
         '</tbody></table>';
     } catch (e) {
       resultsEl.innerHTML = '<div class="form-result error">Query failed: ' + esc(e.message) + '</div>';
@@ -2194,7 +2989,14 @@
     try {
       var res = await API.detectDuplicateClaims();
       var data = res.data || res;
-      var count = data.totalDuplicates !== undefined ? data.totalDuplicates : (data.duplicateCount !== undefined ? data.duplicateCount : (Array.isArray(data.duplicateGroups || data.duplicates) ? (data.duplicateGroups || data.duplicates).length : 0));
+      var count =
+        data.totalDuplicates !== undefined
+          ? data.totalDuplicates
+          : data.duplicateCount !== undefined
+            ? data.duplicateCount
+            : Array.isArray(data.duplicateGroups || data.duplicates)
+              ? (data.duplicateGroups || data.duplicates).length
+              : 0;
       if (el) el.textContent = count === 0 ? 'None' : String(count);
       if (card) card.className = 'stat-card stat-clickable ' + (count === 0 ? 'check-pass' : 'check-fail');
       toast('Duplicate claims: ' + count, count === 0 ? 'success' : 'error');
@@ -2220,15 +3022,29 @@
       el.innerHTML =
         '<div style="max-height:350px;overflow-y:auto">' +
         '<table class="data-table"><thead><tr><th>#</th><th>Wallet</th><th>Type</th><th>Seq</th><th>Chain Hash</th></tr></thead><tbody>' +
-        events.map(function (e, i) {
-          return '<tr>' +
-            '<td>' + (i + 1) + '</td>' +
-            '<td><span class="hash">' + esc(truncHash(e.walletId, 14)) + '</span></td>' +
-            '<td>' + esc(e.isRegistration ? 'Registration' : 'Update') + '</td>' +
-            '<td style="font-family:var(--font-mono)">' + esc(e.sequenceNumber !== undefined ? e.sequenceNumber : '--') + '</td>' +
-            '<td><span class="hash">' + esc(truncHash(e.chainHash, 14)) + '</span></td>' +
-          '</tr>';
-        }).join('') +
+        events
+          .map(function (e, i) {
+            return (
+              '<tr>' +
+              '<td>' +
+              (i + 1) +
+              '</td>' +
+              '<td><span class="hash">' +
+              esc(truncHash(e.walletId, 14)) +
+              '</span></td>' +
+              '<td>' +
+              esc(e.isRegistration ? 'Registration' : 'Update') +
+              '</td>' +
+              '<td style="font-family:var(--font-mono)">' +
+              esc(e.sequenceNumber !== undefined ? e.sequenceNumber : '--') +
+              '</td>' +
+              '<td><span class="hash">' +
+              esc(truncHash(e.chainHash, 14)) +
+              '</span></td>' +
+              '</tr>'
+            );
+          })
+          .join('') +
         '</tbody></table></div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Failed to load audit log: ' + esc(e.message) + '</div>';
@@ -2249,11 +3065,13 @@
       var keys = Object.keys(data);
       el.innerHTML =
         '<div class="detail-grid">' +
-        keys.map(function (k) {
-          var v = data[k];
-          var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-          return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
-        }).join('') +
+        keys
+          .map(function (k) {
+            var v = data[k];
+            var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+            return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
+          })
+          .join('') +
         '</div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">No chain proof: ' + esc(e.message) + '</div>';
@@ -2312,11 +3130,13 @@
       var keys = Object.keys(obj);
       el.innerHTML =
         '<div class="detail-grid">' +
-        keys.map(function (k) {
-          var v = obj[k];
-          var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-          return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
-        }).join('') +
+        keys
+          .map(function (k) {
+            var v = obj[k];
+            var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+            return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
+          })
+          .join('') +
         '</div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Health check failed: ' + esc(e.message) + '</div>';
@@ -2346,10 +3166,16 @@
     var token = ($('admin-enr-token') || {}).value || '';
     var role = ($('admin-enr-role') || {}).value || 'member';
 
-    if (!wallet.trim()) { toast('Wallet ID is required', 'error'); return; }
+    if (!wallet.trim()) {
+      toast('Wallet ID is required', 'error');
+      return;
+    }
 
     var btn = $('admin-enr-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Processing...'; }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Processing...';
+    }
     try {
       await API.processEnrollment(wallet.trim(), token.trim() || undefined, role);
       toast('Enrollment processed', 'success');
@@ -2358,7 +3184,10 @@
       toast('Enrollment failed: ' + e.message, 'error');
       showResult('admin-enr-result', e.message, false);
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Process Enrollment'; }
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Process Enrollment';
+      }
     }
   }
 
@@ -2372,11 +3201,13 @@
       var keys = Object.keys(data);
       el.innerHTML =
         '<div class="detail-grid">' +
-        keys.map(function (k) {
-          var v = data[k];
-          var display = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
-          return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
-        }).join('') +
+        keys
+          .map(function (k) {
+            var v = data[k];
+            var display = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+            return '<div class="detail-key">' + esc(k) + '</div><div class="detail-val">' + esc(display) + '</div>';
+          })
+          .join('') +
         '</div>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Failed: ' + esc(e.message) + '</div>';
@@ -2385,7 +3216,10 @@
 
   async function doMsgLookup() {
     var walletId = ($('admin-msg-wallet') || {}).value || '';
-    if (!walletId.trim()) { toast('Enter a wallet ID', 'error'); return; }
+    if (!walletId.trim()) {
+      toast('Enter a wallet ID', 'error');
+      return;
+    }
 
     var el = $('admin-msg-results');
     if (!el) return;
@@ -2393,24 +3227,38 @@
 
     try {
       var res = await API.getMessagesByWallet(walletId.trim());
-      var messages = Array.isArray(res) ? res : (res.data || []);
+      var messages = Array.isArray(res) ? res : res.data || [];
       if (messages.length === 0) {
         el.innerHTML = '<div class="empty-state">No messages found for this wallet</div>';
         return;
       }
       el.innerHTML =
         '<table class="data-table" style="margin-top:12px"><thead><tr>' +
-          '<th>#</th><th>Sender</th><th>Recipient</th><th>Thread</th><th>Timestamp</th>' +
+        '<th>#</th><th>Sender</th><th>Recipient</th><th>Thread</th><th>Timestamp</th>' +
         '</tr></thead><tbody>' +
-        messages.map(function (m, i) {
-          return '<tr>' +
-            '<td>' + (i + 1) + '</td>' +
-            '<td><span class="hash">' + esc(truncHash(m.senderWalletId || m.sender, 14)) + '</span></td>' +
-            '<td><span class="hash">' + esc(truncHash(m.recipientWalletId || m.recipient, 14)) + '</span></td>' +
-            '<td><span class="hash">' + esc(truncHash(m.threadIdHash || m.threadId, 14)) + '</span></td>' +
-            '<td style="font-family:var(--font-mono);font-size:12px">' + esc(fmtDate(m.timestamp || m.storedAt)) + '</td>' +
-          '</tr>';
-        }).join('') +
+        messages
+          .map(function (m, i) {
+            return (
+              '<tr>' +
+              '<td>' +
+              (i + 1) +
+              '</td>' +
+              '<td><span class="hash">' +
+              esc(truncHash(m.senderWalletId || m.sender, 14)) +
+              '</span></td>' +
+              '<td><span class="hash">' +
+              esc(truncHash(m.recipientWalletId || m.recipient, 14)) +
+              '</span></td>' +
+              '<td><span class="hash">' +
+              esc(truncHash(m.threadIdHash || m.threadId, 14)) +
+              '</span></td>' +
+              '<td style="font-family:var(--font-mono);font-size:12px">' +
+              esc(fmtDate(m.timestamp || m.storedAt)) +
+              '</td>' +
+              '</tr>'
+            );
+          })
+          .join('') +
         '</tbody></table>';
     } catch (e) {
       el.innerHTML = '<div class="form-result error">Lookup failed: ' + esc(e.message) + '</div>';
@@ -2443,16 +3291,28 @@
       el.innerHTML = '<div class="empty-state">Waiting for events...</div>';
       return;
     }
-    el.innerHTML = sseEvents.slice(-50).reverse().map(function (ev) {
-      var time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '--';
-      var type = ev.type || ev.event || 'event';
-      var data = ev.data || ev.message || JSON.stringify(ev).slice(0, 120);
-      return '<div class="event-item">' +
-        '<span class="event-time">' + esc(time) + '</span>' +
-        '<span class="event-type">' + esc(type) + '</span>' +
-        '<span class="event-data">' + esc(String(data)) + '</span>' +
-      '</div>';
-    }).join('');
+    el.innerHTML = sseEvents
+      .slice(-50)
+      .reverse()
+      .map(function (ev) {
+        var time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '--';
+        var type = ev.type || ev.event || 'event';
+        var data = ev.data || ev.message || JSON.stringify(ev).slice(0, 120);
+        return (
+          '<div class="event-item">' +
+          '<span class="event-time">' +
+          esc(time) +
+          '</span>' +
+          '<span class="event-type">' +
+          esc(type) +
+          '</span>' +
+          '<span class="event-data">' +
+          esc(String(data)) +
+          '</span>' +
+          '</div>'
+        );
+      })
+      .join('');
   }
 
   async function checkConnection() {
@@ -2492,36 +3352,74 @@
     denyPriorAuth: denyPriorAuth,
     suspendProvider: async function (wid) {
       if (!confirm('Suspend provider ' + wid.slice(0, 16) + '...?')) return;
-      try { await API.suspendProvider(wid); toast('Provider suspended', 'success'); loadProviderRegistry(); }
-      catch (e) { toast('Failed: ' + e.message, 'error'); }
+      try {
+        await API.suspendProvider(wid);
+        toast('Provider suspended', 'success');
+        loadProviderRegistry();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
     },
     terminateProvider: async function (wid) {
       if (!confirm('Terminate provider ' + wid.slice(0, 16) + '...? This is permanent.')) return;
-      try { await API.terminateProvider(wid); toast('Provider terminated', 'success'); loadProviderRegistry(); }
-      catch (e) { toast('Failed: ' + e.message, 'error'); }
+      try {
+        await API.terminateProvider(wid);
+        toast('Provider terminated', 'success');
+        loadProviderRegistry();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
     },
     verifyApp: async function (appId) {
-      try { await API.verifyApplication(appId); toast('Application verified', 'success'); loadCredentialingApps(); }
-      catch (e) { toast('Failed: ' + e.message, 'error'); }
+      try {
+        await API.verifyApplication(appId);
+        toast('Application verified', 'success');
+        loadCredentialingApps();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
     },
     approveCredentialingApp: async function (appId) {
       var walletId = prompt('Enter provider wallet ID to credential:');
       if (!walletId) return;
-      try { await API.approveApplication(appId, walletId); toast('Application approved & credentialed', 'success'); loadCredentialingApps(); loadProviderRegistry(); }
-      catch (e) { toast('Failed: ' + e.message, 'error'); }
+      try {
+        await API.approveApplication(appId, walletId);
+        toast('Application approved & credentialed', 'success');
+        loadCredentialingApps();
+        loadProviderRegistry();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
     },
     // Credentialing's own deny. It was a second denyApp key in this object, which replaced the employer application's
     // denyApp above, so Deny on an employer application posted to the credentialing route, which has no such application.
     denyCredentialingApp: async function (appId) {
       var reason = prompt('Denial reason (optional):');
-      try { await API.denyApplication(appId, reason || 'Denied by insurer'); toast('Application denied', 'info'); loadCredentialingApps(); }
-      catch (e) { toast('Failed: ' + e.message, 'error'); }
+      try {
+        await API.denyApplication(appId, reason || 'Denied by insurer');
+        toast('Application denied', 'info');
+        loadCredentialingApps();
+      } catch (e) {
+        toast('Failed: ' + e.message, 'error');
+      }
     },
   };
 
   /** What a data-act may name: each acts on the application, provider, request or entry whose ID is in data-arg. */
-  var ID_ACTIONS = ['removeFormularyEntry', 'approveApp', 'denyApp', 'requestDocs', 'reviewDoc', 'approvePriorAuth', 'denyPriorAuth',
-    'suspendProvider', 'terminateProvider', 'verifyApp', 'approveCredentialingApp', 'denyCredentialingApp'];
+  var ID_ACTIONS = [
+    'removeFormularyEntry',
+    'approveApp',
+    'denyApp',
+    'requestDocs',
+    'reviewDoc',
+    'approvePriorAuth',
+    'denyPriorAuth',
+    'suspendProvider',
+    'terminateProvider',
+    'verifyApp',
+    'approveCredentialingApp',
+    'denyCredentialingApp',
+  ];
 
   /**
    * A-88: a button that acts on an application, a provider, a prior authorization or a staged formulary entry names the

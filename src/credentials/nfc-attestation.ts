@@ -124,12 +124,22 @@ export function isAttestation(obj: unknown): obj is NfcCredentialAttestation {
 
 /** PKCS8 DER prefix for Ed25519 private key (32-byte seed follows) */
 const ED25519_PKCS8_PREFIX = Buffer.from([
-  0x30, 0x2e,       // SEQUENCE (46 bytes)
-  0x02, 0x01, 0x00, // INTEGER 0 (version)
-  0x30, 0x05,       // SEQUENCE (5 bytes)
-  0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-  0x04, 0x22,       // OCTET STRING (34 bytes)
-  0x04, 0x20,       // OCTET STRING (32 bytes) — the raw seed
+  0x30,
+  0x2e, // SEQUENCE (46 bytes)
+  0x02,
+  0x01,
+  0x00, // INTEGER 0 (version)
+  0x30,
+  0x05, // SEQUENCE (5 bytes)
+  0x06,
+  0x03,
+  0x2b,
+  0x65,
+  0x70, // OID 1.3.101.112 (Ed25519)
+  0x04,
+  0x22, // OCTET STRING (34 bytes)
+  0x04,
+  0x20, // OCTET STRING (32 bytes) — the raw seed
 ]);
 
 /** Build an Ed25519 KeyObject from a 32-byte seed */
@@ -148,10 +158,18 @@ function extractRawPublicKey(publicKey: KeyObject): Buffer {
 /** Build an Ed25519 public KeyObject from raw 32 bytes */
 function ed25519PublicKeyFromRaw(raw: Buffer): KeyObject {
   const spkiPrefix = Buffer.from([
-    0x30, 0x2a,       // SEQUENCE (42 bytes)
-    0x30, 0x05,       // SEQUENCE (5 bytes)
-    0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-    0x03, 0x21, 0x00, // BIT STRING (33 bytes, 0 unused bits)
+    0x30,
+    0x2a, // SEQUENCE (42 bytes)
+    0x30,
+    0x05, // SEQUENCE (5 bytes)
+    0x06,
+    0x03,
+    0x2b,
+    0x65,
+    0x70, // OID 1.3.101.112 (Ed25519)
+    0x03,
+    0x21,
+    0x00, // BIT STRING (33 bytes, 0 unused bits)
   ]);
   return createPublicKey({
     key: Buffer.concat([spkiPrefix, raw]),
@@ -259,10 +277,7 @@ export class SequencerAttestationAuthority {
    * default and no fallback: an empty or mismatched key is a refusal, because a signature is only
    * evidence if you already know whose signature it should be.
    */
-  static verifyAttestation(
-    att: NfcCredentialAttestation,
-    expectedPublicKeyHex: string,
-  ): AttestationVerifyResult {
+  static verifyAttestation(att: NfcCredentialAttestation, expectedPublicKeyHex: string): AttestationVerifyResult {
     // Check required fields
     if (!isAttestation(att)) {
       return { valid: false, expired: false, reason: 'Not a valid attestation object' };

@@ -34,9 +34,7 @@ import { generateKeyPairSync, sign as edSign } from 'crypto';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WalletRegistry, WalletState, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
-import {
-  lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE,
-} from '../src/engine/lifecycle.js';
+import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE } from '../src/engine/lifecycle.js';
 import { TransitionOutput } from '../src/engine/state-transition.js';
 import { NautilusAppServer } from '../src/nodes/nautilus-app-server.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
@@ -46,12 +44,16 @@ import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js'
 class Reference {
   reg = new WalletRegistry();
   lc = new MerkleTree(WALLET_TREE_HEIGHT);
-  roots() { return { reg: this.reg.getRoot(), lc: this.lc.getRoot() }; }
+  roots() {
+    return { reg: this.reg.getRoot(), lc: this.lc.getRoot() };
+  }
   provision(wid: Field, state: Field) {
     if (!this.reg.isRegistered(wid)) this.reg.register(wid);
     this.lc.setLeaf(this.reg.getIndex(wid), lifecycleLeafCommitment(wid, state));
   }
-  register(wid: Field) { this.provision(wid, LIFECYCLE_REGISTERED); }
+  register(wid: Field) {
+    this.provision(wid, LIFECYCLE_REGISTERED);
+  }
   update(wid: Field, newCred: Field) {
     const s = this.reg.getState(wid);
     this.reg.updateState(wid, new WalletState({ walletId: wid, credentialInventoryRoot: newCred, nonce: s.nonce.add(1) }));
@@ -63,11 +65,17 @@ function mockProof(walletId: Field, before: { reg: Field; lc: Field }, after: { 
   return {
     publicOutput: new TransitionOutput({
       walletId,
-      oldRegistryRoot: before.reg, newRegistryRoot: after.reg,
-      oldLifecycleRoot: before.lc, newLifecycleRoot: after.lc,
+      oldRegistryRoot: before.reg,
+      newRegistryRoot: after.reg,
+      oldLifecycleRoot: before.lc,
+      newLifecycleRoot: after.lc,
     }),
-    verify() { /* no-op, as in o1js outside a circuit */ },
-    toJSON() { return {}; },
+    verify() {
+      /* no-op, as in o1js outside a circuit */
+    },
+    toJSON() {
+      return {};
+    },
   } as any;
 }
 
@@ -112,13 +120,13 @@ describe('Registry consistency — one copy of wallet state', () => {
     const seq = newSequencer();
     const ref = new Reference();
     const providers = [wallet(1), wallet(2), wallet(3)];
-    seq.adminMutate('seed', ({ provision }) => providers.forEach(p => provision(p, LIFECYCLE_ELIGIBLE)));
-    providers.forEach(p => ref.provision(p, LIFECYCLE_ELIGIBLE));
+    seq.adminMutate('seed', ({ provision }) => providers.forEach((p) => provision(p, LIFECYCLE_ELIGIBLE)));
+    providers.forEach((p) => ref.provision(p, LIFECYCLE_ELIGIBLE));
     expect(seq.getCurrentRegistryRoot().toString()).toBe(ref.roots().reg.toString());
     expect(seq.getCurrentLifecycleRoot().toString()).toBe(ref.roots().lc.toString());
     expectWitnessesMatchRoot(seq, providers);
     // Idempotent: a session reset re-provisions without re-registering.
-    seq.adminMutate('seed again', ({ provision }) => providers.forEach(p => provision(p, LIFECYCLE_ELIGIBLE)));
+    seq.adminMutate('seed again', ({ provision }) => providers.forEach((p) => provision(p, LIFECYCLE_ELIGIBLE)));
     expect(seq.getCurrentRegistryRoot().toString()).toBe(ref.roots().reg.toString());
   });
 
@@ -126,14 +134,15 @@ describe('Registry consistency — one copy of wallet state', () => {
     const seq = newSequencer();
     const ref = new Reference();
     const providers = [wallet(1), wallet(2)];
-    seq.adminMutate('seed', ({ provision }) => providers.forEach(p => provision(p, LIFECYCLE_ELIGIBLE)));
-    providers.forEach(p => ref.provision(p, LIFECYCLE_ELIGIBLE));
+    seq.adminMutate('seed', ({ provision }) => providers.forEach((p) => provision(p, LIFECYCLE_ELIGIBLE)));
+    providers.forEach((p) => ref.provision(p, LIFECYCLE_ELIGIBLE));
     const members: Field[] = [];
 
     for (let m = 0; m < 6; m++) {
       const w = wallet(100 + m);
       // 1. Member's own registration proof.
-      let before = ref.roots(); ref.register(w);
+      let before = ref.roots();
+      ref.register(w);
       await seq.submitProof(mockProof(w, before, ref.roots()));
       members.push(w);
       expectWitnessesMatchRoot(seq, [...providers, ...members]);
@@ -142,25 +151,30 @@ describe('Registry consistency — one copy of wallet state', () => {
       ref.provision(w, LIFECYCLE_ELIGIBLE);
       expect(seq.getCurrentLifecycleRoot().toString()).toBe(ref.roots().lc.toString());
       // 3. Credential mint: a proven wallet update that carries the new credential root.
-      before = ref.roots(); ref.update(w, credRoot(m));
+      before = ref.roots();
+      ref.update(w, credRoot(m));
       await seq.submitProof(mockProof(w, before, ref.roots()), { newCredentialInventoryRoot: credRoot(m).toString() } as any);
       expectWitnessesMatchRoot(seq, [...providers, ...members]);
       // 4. Fills for every member so far (wallet updates on older leaves too).
       for (const [i, other] of members.entries()) {
-        before = ref.roots(); ref.update(other, credRoot(1000 + m * 10 + i));
-        await seq.submitProof(mockProof(other, before, ref.roots()), { newCredentialInventoryRoot: credRoot(1000 + m * 10 + i).toString() } as any);
+        before = ref.roots();
+        ref.update(other, credRoot(1000 + m * 10 + i));
+        await seq.submitProof(mockProof(other, before, ref.roots()), {
+          newCredentialInventoryRoot: credRoot(1000 + m * 10 + i).toString(),
+        } as any);
       }
       expectWitnessesMatchRoot(seq, [...providers, ...members]);
     }
     expect(seq.getCurrentRegistryRoot().toString()).toBe(ref.roots().reg.toString());
-    expect(seq.getWalletStateForRpc(members[0].toString()).nonce).toBe('7');   // 1 mint + 6 fills
+    expect(seq.getWalletStateForRpc(members[0].toString()).nonce).toBe('7'); // 1 mint + 6 fills
   });
 
   test('the old pattern — editing a private copy and pushing its root — is refused', async () => {
     const seq = newSequencer();
     const ref = new Reference();
     const w = wallet(500);
-    let before = ref.roots(); ref.register(w);
+    let before = ref.roots();
+    ref.register(w);
     await seq.submitProof(mockProof(w, before, ref.roots()));
     const goodRoot = seq.getCurrentRegistryRoot().toString();
 
@@ -175,7 +189,8 @@ describe('Registry consistency — one copy of wallet state', () => {
 
     // The next registration still succeeds (it failed with "Registry slot is not empty" before).
     const w2 = wallet(501);
-    before = ref.roots(); ref.register(w2);
+    before = ref.roots();
+    ref.register(w2);
     await expect(seq.submitProof(mockProof(w2, before, ref.roots()))).resolves.toBeDefined();
     expectWitnessesMatchRoot(seq, [w, w2]);
   });
@@ -184,15 +199,20 @@ describe('Registry consistency — one copy of wallet state', () => {
     const seq = newSequencer();
     const ref = new Reference();
     const w = wallet(600);
-    let before = ref.roots(); ref.register(w);
+    let before = ref.roots();
+    ref.register(w);
     await seq.submitProof(mockProof(w, before, ref.roots()));
     const stable = seq.getCurrentRegistryRoot().toString();
 
-    before = ref.roots(); ref.update(w, credRoot(5));
+    before = ref.roots();
+    ref.update(w, credRoot(5));
     const after = ref.roots();
     await expect(seq.submitProof(mockProof(w, before, after))).rejects.toThrow(/newCredentialInventoryRoot/);
-    await expect(seq.submitProof(mockProof(w, before, { reg: Poseidon.hash([Field(1)]), lc: after.lc }), { newCredentialInventoryRoot: credRoot(5).toString() } as any))
-      .rejects.toThrow(/does not match the sequencer tree/);
+    await expect(
+      seq.submitProof(mockProof(w, before, { reg: Poseidon.hash([Field(1)]), lc: after.lc }), {
+        newCredentialInventoryRoot: credRoot(5).toString(),
+      } as any),
+    ).rejects.toThrow(/does not match the sequencer tree/);
     expect(seq.getCurrentRegistryRoot().toString()).toBe(stable);
     expectWitnessesMatchRoot(seq, [w]);
   });
@@ -200,16 +220,20 @@ describe('Registry consistency — one copy of wallet state', () => {
   test('two registrations prepared against the same root: the second is refused with a root mismatch and succeeds after re-proving', async () => {
     const seq = newSequencer();
     const ref = new Reference();
-    const a = wallet(700), b = wallet(701);
+    const a = wallet(700),
+      b = wallet(701);
     const start = ref.roots();
     // Both members fetched witnesses at the same moment.
-    const refA = new Reference(); refA.register(a);
-    const refB = new Reference(); refB.register(b);
+    const refA = new Reference();
+    refA.register(a);
+    const refB = new Reference();
+    refB.register(b);
     await seq.submitProof(mockProof(a, start, refA.roots()));
     await expect(seq.submitProof(mockProof(b, start, refB.roots()))).rejects.toThrow(/root mismatch/i);
     // Member B fetches fresh witnesses and proves again.
     ref.register(a);
-    const before = ref.roots(); ref.register(b);
+    const before = ref.roots();
+    ref.register(b);
     await expect(seq.submitProof(mockProof(b, before, ref.roots()))).resolves.toBeDefined();
     expectWitnessesMatchRoot(seq, [a, b]);
   });
@@ -218,18 +242,20 @@ describe('Registry consistency — one copy of wallet state', () => {
     const seq = newSequencer();
     const ref = new Reference();
     const w = wallet(800);
-    const before = ref.roots(); ref.register(w);
+    const before = ref.roots();
+    ref.register(w);
     await seq.submitProof(mockProof(w, before, ref.roots()));
     expect(seq.getPendingCount()).toBe(1);
     seq.adminMutate('eligible', ({ setLifecycle }) => setLifecycle(w, LIFECYCLE_ELIGIBLE));
-    expect(seq.getPendingCount()).toBe(1);   // the old code purged it as "admin-settled"
+    expect(seq.getPendingCount()).toBe(1); // the old code purged it as "admin-settled"
   });
 
   test('syncWalletState cannot rewrite the tree to a state that does not reproduce the root', async () => {
     const seq = newSequencer();
     const ref = new Reference();
     const w = wallet(900);
-    const before = ref.roots(); ref.register(w);
+    const before = ref.roots();
+    ref.register(w);
     await seq.submitProof(mockProof(w, before, ref.roots()));
     const forged = new WalletState({ walletId: w, credentialInventoryRoot: credRoot(66), nonce: Field(9) });
     expect(() => seq.syncWalletState(w, forged)).toThrow(/refused/);
@@ -240,11 +266,18 @@ describe('Registry consistency — one copy of wallet state', () => {
 describe("Insurer admin auth — an employer's key is not an insurer credential", () => {
   function insurerServer() {
     return new NautilusAppServer({
-      role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: '.',
-      enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'insurer-secret',
+      role: 'insurer',
+      port: 0,
+      host: '127.0.0.1',
+      sequencerUrl: 'http://127.0.0.1:1',
+      stateDir: '.',
+      enableSSE: false,
+      maxSseConnections: 0,
+      allowedOrigins: [],
+      adminToken: 'insurer-secret',
     } as any);
   }
-  const req = (headers: Record<string, string>) => ({ headers } as any);
+  const req = (headers: Record<string, string>) => ({ headers }) as any;
   const check = (server: NautilusAppServer, headers: Record<string, string>) =>
     (server as any).checkNautilusAdminAuth(req(headers), 'POST', '/plans');
 

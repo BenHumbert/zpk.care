@@ -64,7 +64,19 @@ import { Sniffer, SNIFF_RULES } from './lib/sniff.mjs';
 import { applyMasks } from './lib/masks.mjs';
 import { writeTakeAssets } from './lib/assets.mjs';
 import {
-  PEOPLE, ACTS, SCENES, BEATS, SCRIPT_STATUS, PRICING_STATUS, castOf, storyLines, allLines, withClaim, claimDiffs, storyChecks, screenCards
+  PEOPLE,
+  ACTS,
+  SCENES,
+  BEATS,
+  SCRIPT_STATUS,
+  PRICING_STATUS,
+  castOf,
+  storyLines,
+  allLines,
+  withClaim,
+  claimDiffs,
+  storyChecks,
+  screenCards,
 } from './lib/claim-script.mjs';
 import { EQUATIONS } from './lib/equations.mjs';
 
@@ -81,18 +93,28 @@ const log = (s) => {
   if (logFile) fs.appendFileSync(logFile, line + '\n');
 };
 const short = (h) => (h ? (String(h).length > 16 ? `${String(h).slice(0, 8)}…${String(h).slice(-6)}` : String(h)) : '--');
-const cents = (n) => (n == null ? '--' : `$${(Number(n) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const cents = (n) =>
+  n == null ? '--' : `$${(Number(n) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 // ------------------------------------------------------------------ the cast, the script, the voices
 // every page: a 1920x1080 viewport drawn at html { zoom: 1.5 } (a 1280x720 layout, recorded crisp at 1080p;
 // lib/whiteboard.mjs SCREEN says why a deviceScaleFactor does not work for the recording)
 const VIEW = SCREEN.viewport;
 const VIDEO = SCREEN.video;
-const VOICE_DEFAULT = Object.freeze({ narrator: 'maya:narrator', hr: 'maya:hr', analyst: 'maya:analyst', member: 'turbo:af_heart', prescriber: 'maya:prescriber', pharmacist: 'orpheus:dan' });
+const VOICE_DEFAULT = Object.freeze({
+  narrator: 'maya:narrator',
+  hr: 'maya:hr',
+  analyst: 'maya:analyst',
+  member: 'turbo:af_heart',
+  prescriber: 'maya:prescriber',
+  pharmacist: 'orpheus:dan',
+});
 const voiceArg = parseVoices(args.voices);
 for (const k of Object.keys(voiceArg)) if (!PEOPLE[k]) throw new Error(`--voices: no person "${k}" (${Object.keys(PEOPLE).join(', ')})`);
 const PERSONS = Object.fromEntries(Object.entries(PEOPLE).map(([k, p]) => [k, { ...p, voice: voiceArg[k] || VOICE_DEFAULT[k] }]));
-if (!REHEARSAL) for (const p of Object.values(PERSONS)) if (!knownVoice(p.voice)) throw new Error(`${p.name}: ${p.voice} is not a voice lib/narrate.mjs knows`);
+if (!REHEARSAL)
+  for (const p of Object.values(PERSONS))
+    if (!knownVoice(p.voice)) throw new Error(`${p.name}: ${p.voice} is not a voice lib/narrate.mjs knows`);
 
 /**
  * The cast and its lines. `cast` starts as castOf's prediction and becomes the engine's own claim once the fill proof
@@ -109,7 +131,8 @@ try {
 const c = cast;
 const CARDS = screenCards(cast);
 const stopAfter = args['stop-after'] ? String(args['stop-after']) : null;
-if (stopAfter && !SCENES.some((s) => s.key === stopAfter)) throw new Error(`--stop-after: no scene "${stopAfter}" (${SCENES.map((s) => s.key).join(', ')})`);
+if (stopAfter && !SCENES.some((s) => s.key === stopAfter))
+  throw new Error(`--stop-after: no scene "${stopAfter}" (${SCENES.map((s) => s.key).join(', ')})`);
 const RUN = stopAfter ? SCENES.slice(0, SCENES.findIndex((s) => s.key === stopAfter) + 1) : SCENES.slice();
 
 /** The script's problems that must stop a take before T0, and the gaps that only warrant a warning. */
@@ -118,15 +141,24 @@ function checkScript() {
   const gaps = [];
   for (const sc of SCENES) {
     const beats = S[sc.key];
-    if (!beats) { problems.push(`scene ${sc.key}: no lines`); continue; }
-    if (sc.kind !== 'board' && !BEATS[sc.key]) problems.push(`scene ${sc.key}: no beats in BEATS (the director speaks a ${sc.kind} scene beat by beat)`);
+    if (!beats) {
+      problems.push(`scene ${sc.key}: no lines`);
+      continue;
+    }
+    if (sc.kind !== 'board' && !BEATS[sc.key])
+      problems.push(`scene ${sc.key}: no beats in BEATS (the director speaks a ${sc.kind} scene beat by beat)`);
     for (const [beat, lines] of Object.entries(beats)) {
       for (const l of lines) {
         if (!PEOPLE[l.who]) problems.push(`${sc.key}.${beat}: unknown speaker "${l.who}"`);
         if (!l.text || !String(l.text).trim()) problems.push(`${sc.key}.${beat}: an empty line`);
-        if (l.board && l.board.length && sc.kind !== 'board') problems.push(`${sc.key}.${beat}: board actions in a ${sc.kind} scene (the board is off camera there)`);
+        if (l.board && l.board.length && sc.kind !== 'board')
+          problems.push(`${sc.key}.${beat}: board actions in a ${sc.kind} scene (the board is off camera there)`);
         for (const a of l.board || []) {
-          try { checkBoardAction(a); } catch (e) { problems.push(`${sc.key}.${beat}: ${e.message}`); }
+          try {
+            checkBoardAction(a);
+          } catch (e) {
+            problems.push(`${sc.key}.${beat}: ${e.message}`);
+          }
         }
       }
     }
@@ -139,24 +171,45 @@ function checkScript() {
 if (args.plan) {
   const { problems, gaps } = checkScript();
   const all = allLines(cast);
-  console.log(`zpk.care walkthrough: ${SCENES.length} scenes, script ${SCRIPT_STATUS} (pricing ${PRICING_STATUS}), ${all.length} lines, ${EQUATIONS.length} equation cards`);
+  console.log(
+    `zpk.care walkthrough: ${SCENES.length} scenes, script ${SCRIPT_STATUS} (pricing ${PRICING_STATUS}), ${all.length} lines, ${EQUATIONS.length} equation cards`,
+  );
   let act = null;
   for (const sc of SCENES) {
-    if (sc.act !== act) { act = sc.act; console.log(`\nAct ${act}: ${ACTS[act]}`); }
+    if (sc.act !== act) {
+      act = sc.act;
+      console.log(`\nAct ${act}: ${ACTS[act]}`);
+    }
     const lines = Object.values(S[sc.key] || {}).flat();
     const who = [...new Set(lines.map((l) => l.who))];
     const cards = [...new Set(lines.flatMap((l) => (l.board || []).filter((a) => a.do === 'write').map((a) => a.card)))];
     const priced = lines.filter((l) => l.pricing).length;
-    console.log(`  ${sc.key.padEnd(20)} ${sc.kind.padEnd(7)} ${sc.camera.padEnd(21)} ${String(lines.length).padStart(2)} lines, ${who.length} speaker${who.length === 1 ? ' ' : 's'} (${who.join(', ')})`
-      + `${cards.length ? `; cards ${cards.join(', ')}` : ''}${priced ? `; ${priced} PRICING` : ''}  [script ${sc.script}] ${sc.title}`);
+    console.log(
+      `  ${sc.key.padEnd(20)} ${sc.kind.padEnd(7)} ${sc.camera.padEnd(21)} ${String(lines.length).padStart(2)} lines, ${who.length} speaker${who.length === 1 ? ' ' : 's'} (${who.join(', ')})` +
+        `${cards.length ? `; cards ${cards.join(', ')}` : ''}${priced ? `; ${priced} PRICING` : ''}  [script ${sc.script}] ${sc.title}`,
+    );
   }
-  console.log(`\nVoices: ${Object.values(PERSONS).map((p) => `${p.key}=${p.voice}`).join(', ')}`);
-  console.log(`Cast: ${cast.plan.id} (${cast.say.deductible} deductible, ${cast.say.copay} copay), ${cast.employer.company}, ${cast.drug.name} x${cast.drug.quantity}`);
-  console.log(`Claim (${cast.claim.source}, said from the engine's answer in a take): ingredient ${cast.say.ingredient} + fee ${cast.say.fee} = ${cast.say.total}; patient ${cast.say.patientPay}, plan ${cast.say.planPay}, deductible credit ${cast.say.credit}`);
+  console.log(
+    `\nVoices: ${Object.values(PERSONS)
+      .map((p) => `${p.key}=${p.voice}`)
+      .join(', ')}`,
+  );
+  console.log(
+    `Cast: ${cast.plan.id} (${cast.say.deductible} deductible, ${cast.say.copay} copay), ${cast.employer.company}, ${cast.drug.name} x${cast.drug.quantity}`,
+  );
+  console.log(
+    `Claim (${cast.claim.source}, said from the engine's answer in a take): ingredient ${cast.say.ingredient} + fee ${cast.say.fee} = ${cast.say.total}; patient ${cast.say.patientPay}, plan ${cast.say.planPay}, deductible credit ${cast.say.credit}`,
+  );
   const priced = all.filter((l) => l.pricing);
-  if (priced.length) console.log(`\nLines marked PRICING (recheck whenever pricing changes): ${priced.length}\n  ${priced.map((l) => `${l.scene}.${l.beat} (${l.who}): ${l.text.length > 96 ? l.text.slice(0, 95) + '…' : l.text}`).join('\n  ')}`);
+  if (priced.length)
+    console.log(
+      `\nLines marked PRICING (recheck whenever pricing changes): ${priced.length}\n  ${priced.map((l) => `${l.scene}.${l.beat} (${l.who}): ${l.text.length > 96 ? l.text.slice(0, 95) + '…' : l.text}`).join('\n  ')}`,
+    );
   if (gaps.length) console.log(`\nBeats the director calls that the script leaves out (skipped): ${gaps.join(', ')}`);
-  if (problems.length) { console.log(`\nPROBLEMS:\n  ${problems.join('\n  ')}`); process.exit(1); }
+  if (problems.length) {
+    console.log(`\nPROBLEMS:\n  ${problems.join('\n  ')}`);
+    process.exit(1);
+  }
   console.log('\nThe script checks out.');
   process.exit(0);
 }
@@ -175,7 +228,7 @@ const URLS = Object.freeze({
   insurer: url('ZPK_DEMO_INSURER_URL', 'http://127.0.0.1:4004'),
   member: url('ZPK_DEMO_MEMBER_URL', 'http://127.0.0.1:4001'),
   prescriber: url('ZPK_DEMO_PRESCRIBER_URL', 'http://127.0.0.1:4002'),
-  pharmacy: url('ZPK_DEMO_PHARMACY_URL', 'http://127.0.0.1:4003')
+  pharmacy: url('ZPK_DEMO_PHARMACY_URL', 'http://127.0.0.1:4003'),
 });
 /** In memory only. Never logged, never written. */
 const secrets = {
@@ -188,11 +241,13 @@ const secrets = {
   activationCode: '',
   tenantToken: '',
   code: '',
-  pin: ''
+  pin: '',
 };
-if (!secrets.operator) throw new Error('ZKTRIDENT_ADMIN_TOKEN is not set: source ../../scripts/dev/live-env.sh (the token the network booted with)');
+if (!secrets.operator)
+  throw new Error('ZKTRIDENT_ADMIN_TOKEN is not set: source ../../scripts/dev/live-env.sh (the token the network booted with)');
 if (!secrets.insurer) throw new Error('no insurer admin token: set ZKTRIDENT_INSURER_ADMIN_TOKEN as the network was booted');
-if (!secrets.prescriber) throw new Error('no prescriber admin token: set ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, or the operator token it is derived from');
+if (!secrets.prescriber)
+  throw new Error('no prescriber admin token: set ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN, or the operator token it is derived from');
 /** What the take learns that is not secret (written to take.json). */
 const take = { walletId: null, employerNodeUrl: null, hrToolUrl: null, applicationId: null, claim: null, timings: {} };
 
@@ -207,13 +262,31 @@ const sniffer = new Sniffer({ log });
  * and the wallet update the fill queued for the phone (its status and the credential root the claim is parked against).
  * Amounts, status and that root only; the pharmacy's answer carries no identity.
  */
-const FILL_FIELDS = ['adjudication.ingredientCostCents', 'adjudication.dispensingFeeCents', 'adjudication.totalCostCents', 'adjudication.patientPayCents',
-  'adjudication.planPayCents', 'adjudication.phase', 'accumulator.before', 'accumulator.after', 'quantityDispensed',
-  'walletUpdate.status', 'walletUpdate.newInventoryRoot'];
+const FILL_FIELDS = [
+  'adjudication.ingredientCostCents',
+  'adjudication.dispensingFeeCents',
+  'adjudication.totalCostCents',
+  'adjudication.patientPayCents',
+  'adjudication.planPayCents',
+  'adjudication.phase',
+  'accumulator.before',
+  'accumulator.after',
+  'quantityDispensed',
+  'walletUpdate.status',
+  'walletUpdate.newInventoryRoot',
+];
 const FILL_RULE = Object.freeze({
-  name: 'fill', method: 'GET', path: /\/dispensing\/fill-status$/, secret: false,
+  name: 'fill',
+  method: 'GET',
+  path: /\/dispensing\/fill-status$/,
+  secret: false,
   // the job's result is the engine's fill answer, or (older relays) that answer wrapped once more in { result }
-  fields: ['data.status', 'data.error', ...FILL_FIELDS.map((f) => `data.result.${f}`), ...FILL_FIELDS.map((f) => `data.result.result.${f}`)]
+  fields: [
+    'data.status',
+    'data.error',
+    ...FILL_FIELDS.map((f) => `data.result.${f}`),
+    ...FILL_FIELDS.map((f) => `data.result.result.${f}`),
+  ],
 });
 const WATCH_RULES = Object.freeze([...SNIFF_RULES, FILL_RULE]);
 /** An error that stops an until() at once (a failure the page reports), instead of counting as "not yet". */
@@ -221,19 +294,34 @@ const fatal = (msg) => Object.assign(new Error(msg), { fatal: true });
 const until = async (what, fn, { timeout = 120000, every = 1000 } = {}) => {
   const end = Date.now() + timeout;
   for (;;) {
-    const v = await fn().catch((e) => { if (e && e.fatal) throw e; return null; });
+    const v = await fn().catch((e) => {
+      if (e && e.fatal) throw e;
+      return null;
+    });
     if (v) return v;
     if (Date.now() > end) throw new Error(`${what} did not happen within ${Math.round(timeout / 1000)} s`);
     await sleep(every);
   }
 };
-const visible = (loc) => loc.first().isVisible().catch(() => false);
+const visible = (loc) =>
+  loc
+    .first()
+    .isVisible()
+    .catch(() => false);
 const timed = async (name, fn) => {
   const a = Date.now();
-  try { return await fn(); } finally { take.timings[name] = Date.now() - a; log(`timing: ${name} ${((Date.now() - a) / 1000).toFixed(1)} s`); }
+  try {
+    return await fn();
+  } finally {
+    take.timings[name] = Date.now() - a;
+    log(`timing: ${name} ${((Date.now() - a) / 1000).toFixed(1)} s`);
+  }
 };
 /** A problem a rehearsal only reports and a take must not record past. */
-const mustHold = (msg) => { if (REHEARSAL) log(`WARNING: ${msg}`); else throw fatal(msg); };
+const mustHold = (msg) => {
+  if (REHEARSAL) log(`WARNING: ${msg}`);
+  else throw fatal(msg);
+};
 
 // ------------------------------------------------------------------ pre-roll 1: the script, the voices (before anything records)
 {
@@ -241,17 +329,27 @@ const mustHold = (msg) => { if (REHEARSAL) log(`WARNING: ${msg}`); else throw fa
   if (problems.length) throw new Error(`the script has problems:\n  ${problems.join('\n  ')}`);
   if (gaps.length) log(`script: beats left out (skipped): ${gaps.join(', ')}`);
   if (SCRIPT_STATUS === 'placeholder') log('script: lib/claim-script.mjs still holds PLACEHOLDER lines');
-  if (PRICING_STATUS !== 'final') log(`script: ${allLines(cast).filter((l) => l.pricing).length} lines marked PRICING wait on the pricing commit; the claim is said from the engine's answer`);
+  if (PRICING_STATUS !== 'final')
+    log(
+      `script: ${allLines(cast).filter((l) => l.pricing).length} lines marked PRICING wait on the pricing commit; the claim is said from the engine's answer`,
+    );
 }
 log(`take: ${OUT}${REHEARSAL ? ' (rehearsal: fast stage, no voices)' : ''}; scenes ${RUN[0].key} .. ${RUN[RUN.length - 1].key}`);
 log(`chromium: ${chromiumPath()}`);
 // fail fast if the network is not up at all (the full readiness wait comes after the voices)
-const status0 = await reads.status().catch((e) => { throw new Error(`the sequencer at ${URLS.seq} does not answer (${e.message}): boot the network first (README)`); });
+const status0 = await reads.status().catch((e) => {
+  throw new Error(`the sequencer at ${URLS.seq} does not answer (${e.message}): boot the network first (README)`);
+});
 // what the lines say about this boot must be true of it
 if (status0 && status0.batchIntervalMs && Math.round(status0.batchIntervalMs / 1000) !== c.network.batchSeconds) {
-  mustHold(`the sequencer builds a batch every ${Math.round(status0.batchIntervalMs / 1000)} s; the batch scene says ${c.network.batchSeconds} s (castOf network.batchSeconds)`);
+  mustHold(
+    `the sequencer builds a batch every ${Math.round(status0.batchIntervalMs / 1000)} s; the batch scene says ${c.network.batchSeconds} s (castOf network.batchSeconds)`,
+  );
 }
-if (!process.env.ZKTRIDENT_TRANSITION_VK_HASH) mustHold('ZKTRIDENT_TRANSITION_VK_HASH is not set in this shell, and the gate board says "this take pins one": boot with it set (README)');
+if (!process.env.ZKTRIDENT_TRANSITION_VK_HASH)
+  mustHold(
+    'ZKTRIDENT_TRANSITION_VK_HASH is not set in this shell, and the gate board says "this take pins one": boot with it set (README)',
+  );
 if (!REHEARSAL) {
   log('voices: making sure every line is rendered (voice-check.mjs renders and checks them before a take)');
   const lines = allLines(cast, { upTo: stopAfter });
@@ -269,7 +367,9 @@ if (!REHEARSAL) {
 
 // ------------------------------------------------------------------ pre-roll 2: the network
 log('network: waiting until the engine has compiled every circuit');
-await timed('network-ready', () => until('the network compiling its circuits', async () => (await reads.compiled()).compiled === true, { timeout: 1800000, every: 10000 }));
+await timed('network-ready', () =>
+  until('the network compiling its circuits', async () => (await reads.compiled()).compiled === true, { timeout: 1800000, every: 10000 }),
+);
 // the engine refuses work that makes proofs until its proof pool runs (the pool's workers compile for minutes after
 // boot): no scene starts before GET /interactive/ready says it can prove, and the take does not start at all if the
 // engine is not ready within 15 minutes (waitForEngineReady throws)
@@ -277,10 +377,16 @@ log('network: waiting until the claims engine is ready to prove');
 const provers = await timed('engine-ready', () => waitForEngineReady(reads, { timeoutMs: 15 * 60000, log: (m) => log(`network: ${m}`) }));
 log(`network: the claims engine is ready to prove (prover: ${provers.prover}; waited ${(provers.waitedMs / 1000).toFixed(1)} s)`);
 const phase = await reads.memberPhase();
-if (phase !== 'awaiting_token') throw new Error(`the member device is in phase "${phase}", not awaiting_token: boot from genesis (README: genesis boot) before a take`);
+if (phase !== 'awaiting_token')
+  throw new Error(`the member device is in phase "${phase}", not awaiting_token: boot from genesis (README: genesis boot) before a take`);
 
 // the HR Tool runs on the employer's own machine; the director starts it the way the harness does (run.ts:65-82)
-const portFree = (port) => new Promise((resolve) => { const s = net.createServer(); s.once('error', () => resolve(false)); s.listen(port, '127.0.0.1', () => s.close(() => resolve(true))); });
+const portFree = (port) =>
+  new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
 let hrChild = null;
 let hrErr = '';
 {
@@ -289,19 +395,42 @@ let hrErr = '';
   hrChild = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'tools', 'hr-tool-server.ts')], {
     cwd: REPO,
     // A-109: the HR Tool texts each PIN; in a take the employees' phones are this outbox, in the take folder
-    env: { ...process.env, PORT: String(port), HR_TOOL_DATA_DIR: path.join(OUT, 'hr-tool-data'), HR_TOOL_TEXT_SERVICE: 'outbox', HR_TOOL_TEXT_OUTBOX: path.join(OUT, 'hr-texts.jsonl') },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HR_TOOL_DATA_DIR: path.join(OUT, 'hr-tool-data'),
+      HR_TOOL_TEXT_SERVICE: 'outbox',
+      HR_TOOL_TEXT_OUTBOX: path.join(OUT, 'hr-texts.jsonl'),
+    },
     stdio: ['ignore', 'ignore', 'pipe'],
-    windowsHide: true
+    windowsHide: true,
   });
-  hrChild.stderr.on('data', (d) => { hrErr = (hrErr + d).slice(-2000); });
+  hrChild.stderr.on('data', (d) => {
+    hrErr = (hrErr + d).slice(-2000);
+  });
   take.hrToolUrl = `http://127.0.0.1:${port}`;
-  await until('the HR Tool to start', async () => (await fetch(`${take.hrToolUrl}/api/session`, { signal: AbortSignal.timeout(3000) })).ok, { timeout: 60000, every: 500 })
-    .catch((e) => { throw new Error(`${e.message}: ${hrErr.slice(-400)}`); });
+  await until(
+    'the HR Tool to start',
+    async () => (await fetch(`${take.hrToolUrl}/api/session`, { signal: AbortSignal.timeout(3000) })).ok,
+    { timeout: 60000, every: 500 },
+  ).catch((e) => {
+    throw new Error(`${e.message}: ${hrErr.slice(-400)}`);
+  });
   log(`HR Tool: ${take.hrToolUrl} (data under the take folder)`);
 }
-const stopHrTool = () => { if (hrChild && !hrChild.killed) { try { hrChild.kill(); } catch {} } hrChild = null; };
+const stopHrTool = () => {
+  if (hrChild && !hrChild.killed) {
+    try {
+      hrChild.kill();
+    } catch {}
+  }
+  hrChild = null;
+};
 process.on('exit', stopHrTool);
-process.on('SIGINT', () => { stopHrTool(); process.exit(130); });
+process.on('SIGINT', () => {
+  stopHrTool();
+  process.exit(130);
+});
 
 const assets = writeTakeAssets(cast, path.join(OUT, 'assets'));
 
@@ -321,22 +450,39 @@ log(`whiteboard: ${EQUATIONS.length} equations typeset (MathJax ${board.mathjax}
 const boardRunner = makeBoardRunner({ board, log });
 
 const CONTEXTS = {
-  insurer: { masks: ['insurer'], storage: () => ({ cookies: [], origins: [{ origin: new URL(URLS.insurer).origin, localStorage: [{ name: 'zkt_insurer_admin_token', value: secrets.insurer }] }] }) },
+  insurer: {
+    masks: ['insurer'],
+    storage: () => ({
+      cookies: [],
+      origins: [{ origin: new URL(URLS.insurer).origin, localStorage: [{ name: 'zkt_insurer_admin_token', value: secrets.insurer }] }],
+    }),
+  },
   employer: { masks: ['marketplace', 'employer', 'hrtool'], clipboard: true },
   member: { masks: ['member'], clipboard: true },
   prescriber: { masks: ['prescriber'] },
   pharmacy: { masks: ['pharmacy'], clipboard: true },
-  network: { masks: ['network'], operatorHeader: true }
+  network: { masks: ['network'], operatorHeader: true },
 };
 const SHOTS = {
   insurer: { ctx: 'insurer', url: () => `${URLS.insurer}/`, label: 'Insurer dashboard', persona: 'analyst' },
   'employer:marketplace': { ctx: 'employer', url: () => `${URLS.insurer}/marketplace/`, label: 'Employer marketplace', persona: 'hr' },
-  'employer:node': { ctx: 'employer', url: () => take.employerNodeUrl, label: 'Employer dashboard (tenant node)', persona: 'hr', late: true },
+  'employer:node': {
+    ctx: 'employer',
+    url: () => take.employerNodeUrl,
+    label: 'Employer dashboard (tenant node)',
+    persona: 'hr',
+    late: true,
+  },
   'employer:hrtool': { ctx: 'employer', url: () => take.hrToolUrl, label: 'HR Tool', persona: 'hr' },
   member: { ctx: 'member', url: () => `${URLS.member}/`, label: 'Member app (the phone)', persona: 'member' },
   prescriber: { ctx: 'prescriber', url: () => `${URLS.prescriber}/`, label: 'Prescriber dashboard', persona: 'prescriber' },
   pharmacy: { ctx: 'pharmacy', url: () => `${URLS.pharmacy}/`, label: 'Pharmacy dashboard', persona: 'pharmacist' },
-  network: { ctx: 'network', url: () => `${URLS.seq}/`, label: 'Leviathan sequencer dashboard', badge: { name: 'Sequencer network', role: 'Leviathan dashboard', color: '#a3e635' } }
+  network: {
+    ctx: 'network',
+    url: () => `${URLS.seq}/`,
+    label: 'Leviathan sequencer dashboard',
+    badge: { name: 'Sequencer network', role: 'Leviathan dashboard', color: '#a3e635' },
+  },
 };
 const contexts = new Map();
 const open = new Map(); // shot key -> { page, st, videoStartedAt }
@@ -350,14 +496,16 @@ async function contextFor(name) {
     locale: 'en-US',
     recordVideo: { dir: path.join(RAW, name), size: VIDEO },
     storageState: def.storage ? def.storage() : undefined,
-    permissions: def.clipboard ? ['clipboard-read', 'clipboard-write'] : []
+    permissions: def.clipboard ? ['clipboard-read', 'clipboard-write'] : [],
   });
   await applyMasks(ctx, def.masks, { zoom: SCREEN.zoom });
   if (def.operatorHeader) {
     // the Leviathan dashboard's stream and RPC carry the operator token as a header; it is never typed or shown
     const seqOrigin = new URL(URLS.seq).origin;
-    await ctx.route((u) => u.origin === seqOrigin && (u.pathname.startsWith('/events') || u.pathname === '/rpc' || u.pathname.startsWith('/viz/')),
-      (route) => route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${secrets.operator}` } }));
+    await ctx.route(
+      (u) => u.origin === seqOrigin && (u.pathname.startsWith('/events') || u.pathname === '/rpc' || u.pathname.startsWith('/viz/')),
+      (route) => route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${secrets.operator}` } }),
+    );
   }
   contexts.set(name, ctx);
   return ctx;
@@ -370,9 +518,13 @@ async function contextFor(name) {
  */
 async function onDialog(dialog) {
   const msg = dialog.message();
-  const code = msg.split(/\r?\n/).map((l) => l.trim()).find((l) => /^\S+\.\S+$/.test(l) && !/\s/.test(l));
+  const code = msg
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => /^\S+\.\S+$/.test(l) && !/\s/.test(l));
   if (code) secrets.activationCode = code;
-  if (dialog.type() === 'prompt' && /activation code/i.test(msg) && secrets.activationCode) await dialog.accept(secrets.activationCode).catch(() => {});
+  if (dialog.type() === 'prompt' && /activation code/i.test(msg) && secrets.activationCode)
+    await dialog.accept(secrets.activationCode).catch(() => {});
   else if (dialog.type() === 'prompt' && /device PIN/i.test(msg)) await dialog.accept(secrets.devicePin).catch(() => {});
   else await dialog.accept().catch(() => {});
   log(`dialog (${dialog.type()}) accepted${code ? '; the activation code is kept in memory only' : ''}`);
@@ -423,7 +575,9 @@ const shot = (key) => {
  */
 async function holdRequest(page, pathname, { maxMs = 15 * 60000 } = {}) {
   let letGo;
-  const gate = new Promise((r) => { letGo = r; });
+  const gate = new Promise((r) => {
+    letGo = r;
+  });
   const timer = setTimeout(() => letGo(), maxMs);
   let held = null;
   const match = (u) => u.pathname === pathname;
@@ -439,7 +593,7 @@ async function holdRequest(page, pathname, { maxMs = 15 * 60000 } = {}) {
       letGo();
       if (held) await held;
       await page.unroute(match, handler).catch(() => {});
-    }
+    },
   };
 }
 /** The onboarding requests held in the member's browser: generate-key and redeem in 'enroll', enroll until 'enrolling'. */
@@ -450,7 +604,10 @@ const warned = new Set();
 function linesOf(scene, beat) {
   const b = S[scene] && S[scene][beat];
   if (!b) {
-    if (!warned.has(`${scene}.${beat}`)) { warned.add(`${scene}.${beat}`); log(`script: no beat ${scene}.${beat}; skipped`); }
+    if (!warned.has(`${scene}.${beat}`)) {
+      warned.add(`${scene}.${beat}`);
+      log(`script: no beat ${scene}.${beat}; skipped`);
+    }
     return [];
   }
   return b;
@@ -468,8 +625,12 @@ async function speakAll(scene) {
 const show = (key, def, ms = 10000) => shot(key).st.card(def.title, def.lines, { ms, color: def.color });
 /** The same lower-third on the director's status page (its overlay draws the same card). */
 async function showOnStatus(def, ms = 12000) {
-  await status.page.evaluate(([t, l, col]) => window.__demoCard && window.__demoCard(t, l, col), [def.title, def.lines, def.color || null]).catch(() => {});
-  setTimeout(() => { status.page.evaluate(() => window.__demoCard && window.__demoCard(null)).catch(() => {}); }, ms);
+  await status.page
+    .evaluate(([t, l, col]) => window.__demoCard && window.__demoCard(t, l, col), [def.title, def.lines, def.color || null])
+    .catch(() => {});
+  setTimeout(() => {
+    status.page.evaluate(() => window.__demoCard && window.__demoCard(null)).catch(() => {});
+  }, ms);
 }
 const toast = (pg, text) => pg.locator('#toast-container .toast', { hasText: text });
 async function closeDetail(pg) {
@@ -487,9 +648,13 @@ async function closeBatchDetail(pg, st) {
   const modal = pg.locator('#batch-modal');
   const close = pg.locator('#bm-close');
   const box = await close.boundingBox({ timeout: 2000 }).catch(() => null);
-  if (box && box.x >= 0 && box.y >= 0 && box.x + box.width <= VIEW.width && box.y + box.height <= VIEW.height) await close.click({ timeout: 3000 }).catch(() => {});
+  if (box && box.x >= 0 && box.y >= 0 && box.x + box.width <= VIEW.width && box.y + box.height <= VIEW.height)
+    await close.click({ timeout: 3000 }).catch(() => {});
   if (await visible(modal)) {
-    const panel = await modal.locator('.batch-modal').boundingBox({ timeout: 2000 }).catch(() => null);
+    const panel = await modal
+      .locator('.batch-modal')
+      .boundingBox({ timeout: 2000 })
+      .catch(() => null);
     await st.clickAt({ x: Math.max(24, Math.round((panel ? panel.x : VIEW.width * 0.2) / 2)), y: Math.round(VIEW.height / 2) });
   }
   await modal.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => log('batch: the detail window did not close'));
@@ -497,7 +662,8 @@ async function closeBatchDetail(pg, st) {
 /** Moves the pointer off a card into the empty margin at its right, as a hand leaves the mouse after a click. */
 async function parkBeside(st, loc) {
   const box = await loc.boundingBox({ timeout: 3000 }).catch(() => null);
-  if (box) await st.glideTo({ x: Math.min(VIEW.width - 80, box.x + box.width + 160), y: Math.min(box.y + box.height / 2, VIEW.height * 0.45) });
+  if (box)
+    await st.glideTo({ x: Math.min(VIEW.width - 80, box.x + box.width + 160), y: Math.min(box.y + box.height / 2, VIEW.height * 0.45) });
 }
 /**
  * Scrolls a form until the row holding `field` sits just under the page's sticky top bar (.header), its labels in
@@ -505,15 +671,22 @@ async function parkBeside(st, loc) {
  * getBoundingClientRect and scrollBy both count screen pixels, so the margins are layout pixels times the zoom.
  */
 async function clearOfTopBar(pg, field, { keep = null } = {}) {
-  await pg.locator(field).evaluate((el, keepSel) => {
-    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
-    const row = el.closest('.form-row') || el.parentElement;
-    const bar = document.querySelector('.header');
-    let dy = row.getBoundingClientRect().top - ((bar ? bar.getBoundingClientRect().bottom : 0) + 12 * z);
-    const k = keepSel && document.querySelector(keepSel);
-    if (k) dy = Math.max(dy, k.getBoundingClientRect().bottom - (innerHeight - 170 * z));
-    if (Math.abs(dy) >= 1) window.scrollBy({ top: dy, behavior: 'smooth' });
-  }, keep, { timeout: 5000 }).catch(() => {});
+  await pg
+    .locator(field)
+    .evaluate(
+      (el, keepSel) => {
+        const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+        const row = el.closest('.form-row') || el.parentElement;
+        const bar = document.querySelector('.header');
+        let dy = row.getBoundingClientRect().top - ((bar ? bar.getBoundingClientRect().bottom : 0) + 12 * z);
+        const k = keepSel && document.querySelector(keepSel);
+        if (k) dy = Math.max(dy, k.getBoundingClientRect().bottom - (innerHeight - 170 * z));
+        if (Math.abs(dy) >= 1) window.scrollBy({ top: dy, behavior: 'smooth' });
+      },
+      keep,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
 }
 async function selectByText(select, re) {
   const value = await select.evaluate((el, src) => {
@@ -531,7 +704,14 @@ let enrollRetries = 0;
 async function retryIfFailed(pg) {
   const retry = pg.locator('#ob-retry');
   if (!(await visible(retry))) return false;
-  const why = (await pg.locator('#onboard-body').innerText({ timeout: 5000 }).catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
+  const why = (
+    await pg
+      .locator('#onboard-body')
+      .innerText({ timeout: 5000 })
+      .catch(() => '')
+  )
+    .replace(/\s+/g, ' ')
+    .slice(0, 300);
   if (++enrollRetries > 2) throw fatal(`enrollment failed on the phone after ${enrollRetries - 1} retries: ${why}`);
   log(`enrollment: the phone reports a failure (${why}); Retry ${enrollRetries} resumes from the device's phase`);
   await retry.click({ timeout: 5000 }).catch(() => {});
@@ -544,7 +724,10 @@ async function retryIfFailed(pg) {
  * TODO(selector): confirm in a rehearsal that headless Chromium 143 draws the PDF (document.contentType check below).
  */
 async function reviewLetter(pg, row) {
-  const opened = pg.waitForEvent('popup', { timeout: 10000 }).then((tab) => ({ tab, at: Date.now() })).catch(() => null);
+  const opened = pg
+    .waitForEvent('popup', { timeout: 10000 })
+    .then((tab) => ({ tab, at: Date.now() }))
+    .catch(() => null);
   await row.locator('button', { hasText: 'Review PDF' }).click();
   const o = await opened;
   if (!o) {
@@ -557,14 +740,21 @@ async function reviewLetter(pg, row) {
   let filmed = false;
   if (loaded) {
     await tab.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
-    const drawn = await tab.evaluate(() => document.contentType === 'application/pdf' || !!document.querySelector('embed[type="application/pdf"]')).catch(() => false);
+    const drawn = await tab
+      .evaluate(() => document.contentType === 'application/pdf' || !!document.querySelector('embed[type="application/pdf"]'))
+      .catch(() => false);
     if (drawn) {
       camera.register('insurer:letter', { page: tab, videoStartedAt: at, label: 'The CP 575 (insurer tab)' });
-      await stage(tab, { viewport: VIEW, badge: { name: PEOPLE.analyst.name, role: PEOPLE.analyst.role, color: PEOPLE.analyst.color }, fast: REHEARSAL, now: true }).catch(() => {});
+      await stage(tab, {
+        viewport: VIEW,
+        badge: { name: PEOPLE.analyst.name, role: PEOPLE.analyst.role, color: PEOPLE.analyst.color },
+        fast: REHEARSAL,
+        now: true,
+      }).catch(() => {});
       await camera.cut('insurer:letter');
       filmed = true;
     } else log('Review PDF: the letter loaded but the browser drew no PDF viewer; not filmed');
-  } else log(`Review PDF: the letter did not load${await visible(toast(pg, 'Could not open')) ? ' (the page says why)' : ''}`);
+  } else log(`Review PDF: the letter did not load${(await visible(toast(pg, 'Could not open'))) ? ' (the page says why)' : ''}`);
   await speak('approve', 'pdf');
   if (filmed) await camera.cut('insurer');
   await tab.close().catch(() => {});
@@ -578,7 +768,12 @@ function unrenderedAfter(sceneKey) {
     for (const [beat, lines] of Object.entries(S[sc.key] || {})) {
       for (const l of lines) {
         const p = PERSONS[l.who];
-        const { file } = clipPath(l.text, { voice: p.voice, mood: l.mood || p.mood, lengthScale: p.lengthScale ?? 1, cacheDir: VOICE_CACHE });
+        const { file } = clipPath(l.text, {
+          voice: p.voice,
+          mood: l.mood || p.mood,
+          lengthScale: p.lengthScale ?? 1,
+          cacheDir: VOICE_CACHE,
+        });
         if (!fs.existsSync(file)) out.push(`${sc.key}.${beat}`);
       }
     }
@@ -597,17 +792,31 @@ function unrenderedAfter(sceneKey) {
 async function learnClaim(since) {
   const { page: pg } = shot('pharmacy');
   const dispensed = pg.locator('#ws-dispensed-list .script-card', { hasText: c.drug.match }).first();
-  const answer = await timed('fill-proof', () => camera.speedWhile(() => until('the fill proof', async () => {
-    const heard = (sniffer.captures.get('fill') || []).filter((x) => x.at >= since);
-    const done = heard.find((x) => x.value?.data?.status === 'complete');
-    if (done) return done;
-    const failed = heard.find((x) => x.value?.data?.status === 'error');
-    if (failed) throw fatal(`the fill failed: ${failed.value.data.error || 'no reason given'}`);
-    if (await visible(pg.locator('.script-issue-badge', { hasText: 'Proof Failed' }))) throw fatal('the pharmacy shows Proof Failed');
-    return null;
-  }, { timeout: 900000, every: 1000 }), { factor: 6 }));
+  const answer = await timed('fill-proof', () =>
+    camera.speedWhile(
+      () =>
+        until(
+          'the fill proof',
+          async () => {
+            const heard = (sniffer.captures.get('fill') || []).filter((x) => x.at >= since);
+            const done = heard.find((x) => x.value?.data?.status === 'complete');
+            if (done) return done;
+            const failed = heard.find((x) => x.value?.data?.status === 'error');
+            if (failed) throw fatal(`the fill failed: ${failed.value.data.error || 'no reason given'}`);
+            if (await visible(pg.locator('.script-issue-badge', { hasText: 'Proof Failed' })))
+              throw fatal('the pharmacy shows Proof Failed');
+            return null;
+          },
+          { timeout: 900000, every: 1000 },
+        ),
+      { factor: 6 },
+    ),
+  );
   take.timings['dispense-to-proved'] = Date.now() - (take.dispenseAt || Date.now());
-  await dispensed.locator('.script-issue-badge', { hasText: 'ZK Proved' }).waitFor({ timeout: 15000 }).catch(() => {});
+  await dispensed
+    .locator('.script-issue-badge', { hasText: 'ZK Proved' })
+    .waitFor({ timeout: 15000 })
+    .catch(() => {});
   const predicted = cast;
   const res = answer.value?.data?.result;
   const fillAnswer = res && res.adjudication ? res : res?.result;
@@ -622,19 +831,31 @@ async function learnClaim(since) {
   }
   const problems = storyChecks(real);
   const differs = claimDiffs(predicted, real);
-  const onScreen = (await dispensed.locator('.script-price-tag.patient-pay').innerText({ timeout: 5000 }).catch(() => '')).trim();
+  const onScreen = (
+    await dispensed
+      .locator('.script-price-tag.patient-pay')
+      .innerText({ timeout: 5000 })
+      .catch(() => '')
+  ).trim();
   const shownCents = Math.round(parseFloat(onScreen.replace(/[$,\s]/g, '')) * 100);
   if (onScreen && shownCents !== real.claim.P) problems.push(`the pharmacy shows ${onScreen}, the engine answered ${real.say.patientPay}`);
   cast = real;
   S = storyLines(cast);
   take.claim = { source: real.claim.source, ...real.pricing, say: real.say, predicted: differs.length ? predicted.say : undefined };
-  log(`claim (engine): ${real.say.ingredient} + ${real.say.fee} = ${real.say.total}; patient ${real.say.patientPay}, plan ${real.say.planPay}, deductible credit ${real.say.credit}`
-    + (differs.length ? `; castOf predicted ${predicted.say.total} and ${predicted.say.patientPay}` : ' (as castOf predicted)'));
+  log(
+    `claim (engine): ${real.say.ingredient} + ${real.say.fee} = ${real.say.total}; patient ${real.say.patientPay}, plan ${real.say.planPay}, deductible credit ${real.say.credit}` +
+      (differs.length ? `; castOf predicted ${predicted.say.total} and ${predicted.say.patientPay}` : ' (as castOf predicted)'),
+  );
   if (problems.length) mustHold(`the claim breaks what the lines say: ${problems.join('; ')}`);
   if (differs.length) {
     const missing = REHEARSAL ? [] : unrenderedAfter(camera.sceneKey);
-    if (missing.length) throw fatal(`the engine priced the claim differently from castOf (${differs.join(', ')}), and ${missing.length} line(s) still to come were never rendered (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}): update predictPrice/castOf in lib/claim-script.mjs (lines marked PRICING), rerun voice-check.mjs, boot again`);
-    log(`claim: castOf's prediction differs (${differs.join(', ')}); update predictPrice/castOf (lines marked PRICING) and rerun voice-check.mjs before a take`);
+    if (missing.length)
+      throw fatal(
+        `the engine priced the claim differently from castOf (${differs.join(', ')}), and ${missing.length} line(s) still to come were never rendered (${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ', …' : ''}): update predictPrice/castOf in lib/claim-script.mjs (lines marked PRICING), rerun voice-check.mjs, boot again`,
+      );
+    log(
+      `claim: castOf's prediction differs (${differs.join(', ')}); update predictPrice/castOf (lines marked PRICING) and rerun voice-check.mjs before a take`,
+    );
   }
 }
 
@@ -648,18 +869,24 @@ const SCENE_RUN = {
     await pg.locator('.nav-tab[data-tab="plans"]').click();
     await pg.locator('#plan-create-toggle').click();
     await pg.locator('#plan-create-body:not(.hidden)').waitFor({ timeout: 10000 });
-    await Promise.all([speak('plan', 'name'), (async () => {
-      await pg.locator('#plan-name').fill(c.plan.name);
-      await pg.locator('#plan-id').fill(c.plan.id);
-    })()]);
+    await Promise.all([
+      speak('plan', 'name'),
+      (async () => {
+        await pg.locator('#plan-name').fill(c.plan.name);
+        await pg.locator('#plan-id').fill(c.plan.id);
+      })(),
+    ]);
     await Promise.all([speak('plan', 'cents'), pg.locator('#plan-copay').fill(String(c.plan.copayCents))]);
-    await Promise.all([speak('plan', 'limits'), (async () => {
-      await pg.locator('#plan-deductible').fill(String(c.plan.deductibleCents));
-      await pg.locator('#plan-oop').fill(String(c.plan.oopCents));
-      await pg.locator('#plan-annual').fill(String(c.plan.annualCents)); // the form's own default; a typed 0 becomes 10,000,000 anyway
-      await pg.locator('#plan-fam-ded').fill(String(c.plan.famDedCents));
-      await pg.locator('#plan-fam-oop').fill(String(c.plan.famOopCents));
-    })()]);
+    await Promise.all([
+      speak('plan', 'limits'),
+      (async () => {
+        await pg.locator('#plan-deductible').fill(String(c.plan.deductibleCents));
+        await pg.locator('#plan-oop').fill(String(c.plan.oopCents));
+        await pg.locator('#plan-annual').fill(String(c.plan.annualCents)); // the form's own default; a typed 0 becomes 10,000,000 anyway
+        await pg.locator('#plan-fam-ded').fill(String(c.plan.famDedCents));
+        await pg.locator('#plan-fam-oop').fill(String(c.plan.famOopCents));
+      })(),
+    ]);
     // the plan's dispensing fee (e2f0864): the insurer form's #plan-dispensing-fee; a blank field means the network default
     const fee = pg.locator('#plan-dispensing-fee');
     if (await fee.count()) await fee.fill(String(c.plan.dispensingFeeCents));
@@ -677,15 +904,23 @@ const SCENE_RUN = {
     // the page was opened before the plan existed; read the plans again while the camera is still on the insurer
     // (safe now: the marketplace's signing key is made only when the application is submitted)
     const chosen = pg.locator(`.plan-card[data-plan="${c.plan.id}"]`);
-    await until('the new plan in the marketplace', async () => {
-      if (await chosen.count()) return true;
-      await pg.reload({ waitUntil: 'domcontentloaded' });
-      await chosen.waitFor({ timeout: 8000 }).catch(() => {});
-      return (await chosen.count()) > 0;
-    }, { timeout: 120000, every: 2000 });
+    await until(
+      'the new plan in the marketplace',
+      async () => {
+        if (await chosen.count()) return true;
+        await pg.reload({ waitUntil: 'domcontentloaded' });
+        await chosen.waitFor({ timeout: 8000 }).catch(() => {});
+        return (await chosen.count()) > 0;
+      },
+      { timeout: 120000, every: 2000 },
+    );
     await camera.cut('employer:marketplace');
     await speak('apply', 'plans');
-    if (c.altPlan) await pg.locator(`.plan-card[data-plan="${c.altPlan.id}"]`).hover({ timeout: 5000 }).catch(() => {});
+    if (c.altPlan)
+      await pg
+        .locator(`.plan-card[data-plan="${c.altPlan.id}"]`)
+        .hover({ timeout: 5000 })
+        .catch(() => {});
     await chosen.hover();
     await speak('apply', 'choose');
     await chosen.click();
@@ -699,10 +934,13 @@ const SCENE_RUN = {
     await pg.locator('#app-ein').fill(c.employer.ein);
     await pg.locator('#app-state').fill(c.employer.state);
     await pg.locator('#app-industry').fill(c.employer.industry);
-    await Promise.all([speak('apply', 'details'), (async () => {
-      await pg.locator('#app-effective').fill(c.employer.effective);
-      await pg.locator('#app-cap').fill(String(c.employer.cap));
-    })()]);
+    await Promise.all([
+      speak('apply', 'details'),
+      (async () => {
+        await pg.locator('#app-effective').fill(c.employer.effective);
+        await pg.locator('#app-cap').fill(String(c.employer.cap));
+      })(),
+    ]);
     await pg.locator('#app-plan-type').selectOption(c.employer.planType);
     await speak('apply', 'submit');
     const since = Date.now();
@@ -722,9 +960,15 @@ const SCENE_RUN = {
     // #activation-code); the director already holds it from the apply answer
     if (await visible(pg.locator('#activation-code-card'))) {
       await show('employer:marketplace', CARDS.activationCode, 10000);
-      await pg.locator('#btn-copy-code').click({ timeout: 5000 }).catch(() => {});
+      await pg
+        .locator('#btn-copy-code')
+        .click({ timeout: 5000 })
+        .catch(() => {});
       await speak('docs', 'code');
-      await pg.locator('#btn-code-saved').click({ timeout: 5000 }).catch(() => {});
+      await pg
+        .locator('#btn-code-saved')
+        .click({ timeout: 5000 })
+        .catch(() => {});
       // that click removes the code panel; the card about it goes with it
       await st.hideCard();
     } else log('docs: no activation code card on the Agreement screen');
@@ -752,7 +996,10 @@ const SCENE_RUN = {
     await reviewLetter(pg, row);
     await speak('approve', 'approve');
     await approve.click();
-    await row.locator('.badge', { hasText: 'Approved' }).waitFor({ timeout: 10000 }).catch(() => {});
+    await row
+      .locator('.badge', { hasText: 'Approved' })
+      .waitFor({ timeout: 10000 })
+      .catch(() => {});
   },
 
   async sign() {
@@ -772,10 +1019,13 @@ const SCENE_RUN = {
     // activation runs by itself: POST activate, activate-status every 2 s, then activate-credentials; the banner
     // reads "Provisioning your employer node..." (no HR Tool is started here since A7)
     await speak('sign', 'activation');
-    const creds = await timed('activation', () => camera.speedWhile(() => sniffer.waitFor('credentials', { since, timeout: 180000 }), { factor: 4 }));
+    const creds = await timed('activation', () =>
+      camera.speedWhile(() => sniffer.waitFor('credentials', { since, timeout: 180000 }), { factor: 4 }),
+    );
     secrets.tenantToken = creds.value?.data?.adminToken || '';
     take.employerNodeUrl = creds.value?.data?.employerNodeUrl || null;
-    if (!secrets.tenantToken || !take.employerNodeUrl) throw new Error('activation did not hand over the employer node URL and admin token');
+    if (!secrets.tenantToken || !take.employerNodeUrl)
+      throw new Error('activation did not hand over the employer node URL and admin token');
     const copy = pg.locator('#btn-copy-token');
     await copy.waitFor({ timeout: 30000 });
     await speak('sign', 'token');
@@ -786,7 +1036,10 @@ const SCENE_RUN = {
     // the employer dashboard opens in a new tab of the HR admin's browser; the marketplace tab stays open
     const { page: pg } = await openShot('employer:node');
     // the tenant token goes in from Node memory (the Admin field shows it masked); it is never typed
-    await pg.evaluate((t) => { if (typeof API !== 'undefined') API.setAdminToken(t); else localStorage.setItem('zkt_employer_admin_token', t); }, secrets.tenantToken);
+    await pg.evaluate((t) => {
+      if (typeof API !== 'undefined') API.setAdminToken(t);
+      else localStorage.setItem('zkt_employer_admin_token', t);
+    }, secrets.tenantToken);
     await camera.cut('employer:node');
     await pg.locator('a.nav-link[data-tab="admin"]').click();
     await pg.locator('#admin-token-input').waitFor({ timeout: 15000 });
@@ -795,12 +1048,15 @@ const SCENE_RUN = {
     await pg.locator('a.nav-link[data-tab="groups"]').click();
     await pg.locator('#btn-show-create-group').click();
     await pg.locator('#cg-groupId').waitFor({ timeout: 15000 });
-    await Promise.all([speak('group', 'form'), (async () => {
-      await pg.locator('#cg-groupId').fill(c.group.id);
-      await pg.locator('#cg-planId').selectOption(c.plan.id); // only a plan the employer bought is accepted (else 409)
-      await pg.locator('#cg-effectiveDate').fill(c.group.effectiveDate);
-      await pg.locator('#cg-enrollmentCap').fill(String(c.group.cap));
-    })()]);
+    await Promise.all([
+      speak('group', 'form'),
+      (async () => {
+        await pg.locator('#cg-groupId').fill(c.group.id);
+        await pg.locator('#cg-planId').selectOption(c.plan.id); // only a plan the employer bought is accepted (else 409)
+        await pg.locator('#cg-effectiveDate').fill(c.group.effectiveDate);
+        await pg.locator('#cg-enrollmentCap').fill(String(c.group.cap));
+      })(),
+    ]);
     await pg.locator('#btn-create-group').click();
     await pg.locator('#groups-table', { hasText: c.group.id }).waitFor({ timeout: 30000 });
     // the Roster tab sends its token and shows no wallet column (9f5099d); the story does not need it
@@ -810,14 +1066,23 @@ const SCENE_RUN = {
   async codes() {
     const { page: pg, st } = shot('employer:hrtool');
     await camera.cut('employer:hrtool');
-    if (!(await pg.locator('#setup-form:not(.hidden)').isVisible().catch(() => false))) await pg.locator('#link-to-setup').click();
+    if (
+      !(await pg
+        .locator('#setup-form:not(.hidden)')
+        .isVisible()
+        .catch(() => false))
+    )
+      await pg.locator('#link-to-setup').click();
     await pg.locator('#setup-url').waitFor({ timeout: 15000 });
-    await Promise.all([speak('codes', 'setup'), (async () => {
-      await pg.locator('#setup-url').fill(take.employerNodeUrl, { paste: true });
-      await st.fillSecret(pg.locator('#setup-token'), secrets.tenantToken);
-      await st.fillSecret(pg.locator('#setup-passphrase'), secrets.hrPassphrase);
-      await st.fillSecret(pg.locator('#setup-confirm'), secrets.hrPassphrase);
-    })()]);
+    await Promise.all([
+      speak('codes', 'setup'),
+      (async () => {
+        await pg.locator('#setup-url').fill(take.employerNodeUrl, { paste: true });
+        await st.fillSecret(pg.locator('#setup-token'), secrets.tenantToken);
+        await st.fillSecret(pg.locator('#setup-passphrase'), secrets.hrPassphrase);
+        await st.fillSecret(pg.locator('#setup-confirm'), secrets.hrPassphrase);
+      })(),
+    ]);
     await pg.locator('#btn-setup').click();
     await pg.locator('#unlock-overlay.hidden').waitFor({ state: 'attached', timeout: 60000 });
     const select = pg.locator(`.btn-select-group[data-gid="${c.group.id}"]`);
@@ -846,7 +1111,9 @@ const SCENE_RUN = {
     // A-109: the PIN is nowhere in the import's answer; it was texted to her phone, which in a take is the outbox
     const outbox = path.join(OUT, 'hr-texts.jsonl');
     const texted = (fs.existsSync(outbox) ? fs.readFileSync(outbox, 'utf8').trim().split('\n').filter(Boolean) : [])
-      .map((l) => JSON.parse(l)).filter((t) => t.to === c.member.mobile.replace(/[\s().-]/g, '')).pop();
+      .map((l) => JSON.parse(l))
+      .filter((t) => t.to === c.member.mobile.replace(/[\s().-]/g, ''))
+      .pop();
     const pin = /\b(\d{8})\b/.exec(texted?.body || '')?.[1];
     if (!pin) throw new Error('no PIN was texted to the member');
     secrets.code = mine.tokenId;
@@ -868,29 +1135,38 @@ const SCENE_RUN = {
     await speak('enroll', 'new');
     await pg.locator('#landing-enroll-btn').click();
     await pg.locator('#ob-pin').waitFor({ timeout: 15000 });
-    await Promise.all([speak('enroll', 'pin'), (async () => {
-      await st.fillSecret(pg.locator('#ob-pin'), secrets.devicePin);
-      await st.fillSecret(pg.locator('#ob-pin-confirm'), secrets.devicePin);
-    })()]);
+    await Promise.all([
+      speak('enroll', 'pin'),
+      (async () => {
+        await st.fillSecret(pg.locator('#ob-pin'), secrets.devicePin);
+        await st.fillSecret(pg.locator('#ob-pin-confirm'), secrets.devicePin);
+      })(),
+    ]);
     await pg.locator('#ob-next').click();
     await pg.locator('#ob-token').waitFor({ timeout: 30000 });
-    await Promise.all([speak('enroll', 'code'), (async () => {
-      await st.fillSecret(pg.locator('#ob-token'), secrets.code);
-      await st.fillSecret(pg.locator('#ob-enroll-pin'), secrets.pin);
-    })()]);
+    await Promise.all([
+      speak('enroll', 'code'),
+      (async () => {
+        await st.fillSecret(pg.locator('#ob-token'), secrets.code);
+        await st.fillSecret(pg.locator('#ob-enroll-pin'), secrets.pin);
+      })(),
+    ]);
     await Promise.all([speak('enroll', 'recovery'), st.fillSecret(pg.locator('#ob-recovery-pin'), secrets.recoveryPin)]);
     await pg.locator('#ob-next').click();
     await pg.locator('#ob-cid').waitFor({ timeout: 30000 });
     await show('member', CARDS.blurred, 16000);
-    await Promise.all([speak('enroll', 'identity'), (async () => {
-      // fictional values, blurred on screen (lib/masks.mjs); nobody reads them aloud
-      await pg.locator('#ob-cid').fill(c.member.cardholderId);
-      await pg.locator('#ob-fn').fill(c.member.firstName);
-      await pg.locator('#ob-next').click();
-      await pg.locator('#ob-ln').waitFor({ timeout: 15000 });
-      await pg.locator('#ob-ln').fill(c.member.lastName);
-      await pg.locator('#ob-dob').fill(c.member.dob);
-    })()]);
+    await Promise.all([
+      speak('enroll', 'identity'),
+      (async () => {
+        // fictional values, blurred on screen (lib/masks.mjs); nobody reads them aloud
+        await pg.locator('#ob-cid').fill(c.member.cardholderId);
+        await pg.locator('#ob-fn').fill(c.member.firstName);
+        await pg.locator('#ob-next').click();
+        await pg.locator('#ob-ln').waitFor({ timeout: 15000 });
+        await pg.locator('#ob-ln').fill(c.member.lastName);
+        await pg.locator('#ob-dob').fill(c.member.dob);
+      })(),
+    ]);
     // step 4 runs by itself: generate-key, redeem (phone -> insurer -> employer), derive-wallet; then step 5 calls
     // enroll. Three of those requests are held in the browser (delayed, never changed) so each status line stays on
     // screen while it is explained; the enroll call waits through the wallet board and goes out in 'enrolling'.
@@ -905,11 +1181,16 @@ const SCENE_RUN = {
     await st.hideCard();
     await parkBeside(st, pg.locator('#onboard-body'));
     const keyMsg = pg.locator('#ob-keygen-msg');
-    const showing = (re) => until(`"${re.source}" on the phone`, async () => {
-      const t = await keyMsg.innerText({ timeout: 2000 }).catch(() => '');
-      if (/^Error:/.test(t)) throw fatal(`step 4 failed on the phone: ${t.slice(0, 300)}`);
-      return re.test(t);
-    }, { timeout: 120000, every: 200 });
+    const showing = (re) =>
+      until(
+        `"${re.source}" on the phone`,
+        async () => {
+          const t = await keyMsg.innerText({ timeout: 2000 }).catch(() => '');
+          if (/^Error:/.test(t)) throw fatal(`step 4 failed on the phone: ${t.slice(0, 300)}`);
+          return re.test(t);
+        },
+        { timeout: 120000, every: 200 },
+      );
     await showing(/enrollment key on device/i);
     await speak('enroll', 'keygen');
     await holds.keygen.release();
@@ -931,19 +1212,33 @@ const SCENE_RUN = {
     const { page: pg } = shot('member');
     await camera.cut('member');
     const msg = pg.locator('#ob-enroll-msg');
-    await until('the enroll step on the phone', async () => /Enrolling with insurer/i.test(await msg.innerText({ timeout: 2000 }).catch(() => '')), { timeout: 60000, every: 300 });
+    await until(
+      'the enroll step on the phone',
+      async () => /Enrolling with insurer/i.test(await msg.innerText({ timeout: 2000 }).catch(() => '')),
+      { timeout: 60000, every: 300 },
+    );
     await show('member', CARDS.enrollBehind, 15000);
     await speak('enrolling', 'enroll');
     await show('member', CARDS.learnsInsurer, 20000);
     await speak('enrolling', 'shares');
     if (holds.enroll) await holds.enroll.release();
     // compile (~27 s, on the proving budget since 9f5099d) runs next: speed up the wait, never a voice
-    await timed('enrollment-compile', () => camera.speedWhile(() => until('the registration proof to start', async () => {
-      if (/registration proof/i.test(await msg.innerText({ timeout: 2000 }).catch(() => ''))) return true;
-      if (await visible(pg.locator('#ob-enter'))) return true;
-      await retryIfFailed(pg);
-      return false;
-    }, { timeout: 900000, every: 1000 }), { factor: 6 }));
+    await timed('enrollment-compile', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'the registration proof to start',
+            async () => {
+              if (/registration proof/i.test(await msg.innerText({ timeout: 2000 }).catch(() => ''))) return true;
+              if (await visible(pg.locator('#ob-enter'))) return true;
+              await retryIfFailed(pg);
+              return false;
+            },
+            { timeout: 900000, every: 1000 },
+          ),
+        { factor: 6 },
+      ),
+    );
     await speak('enrolling', 'compile');
     // the registration proof (~40 s) carries on while the film is at the whiteboard
   },
@@ -953,11 +1248,21 @@ const SCENE_RUN = {
     await camera.cut('member');
     const enter = pg.locator('#ob-enter');
     // the registration proof may still be running: speed up the wait, never a voice; Retry resumes from the phase
-    await timed('enrollment-step-5', () => camera.speedWhile(() => until('enrollment to complete on the phone', async () => {
-      if (await visible(enter)) return true;
-      await retryIfFailed(pg);
-      return false;
-    }, { timeout: 900000, every: 1000 }), { factor: 6 }));
+    await timed('enrollment-step-5', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'enrollment to complete on the phone',
+            async () => {
+              if (await visible(enter)) return true;
+              await retryIfFailed(pg);
+              return false;
+            },
+            { timeout: 900000, every: 1000 },
+          ),
+        { factor: 6 },
+      ),
+    );
     take.timings['enrollment-total'] = Date.now() - (take.enrollStartedAt || Date.now());
     // the completion text reads "Your wallet is registered on the network. Your name and birth date stayed on this phone."
     await speak('enrolled', 'cards'); // the two recovery cards are redacted on screen (lib/masks.mjs)
@@ -970,22 +1275,60 @@ const SCENE_RUN = {
   async 'status-registration'() {
     await camera.cut('status');
     await status.update('clear');
-    await status.update('setTitle', { title: 'Registration, behind the screen', subtitle: `${PEOPLE.member.name}'s phone, the engine and the sequencer` });
+    await status.update('setTitle', {
+      title: 'Registration, behind the screen',
+      subtitle: `${PEOPLE.member.name}'s phone, the engine and the sequencer`,
+    });
     const receipts = await reads.receiptsByWallet(take.walletId).catch(() => []);
     const reg = receipts.find((r) => r.isRegistration) || receipts[0];
-    await status.update('upsertRow', { id: 'reg', label: 'Registration proof', value: reg ? `accepted · ${short(reg.receiptId)}` : 'not read', tone: reg ? 'ok' : 'wait', source: 'l2_getReceiptsByWallet (operator read)', note: reg && reg.auditEventHash ? `audit event ${short(reg.auditEventHash)}` : undefined });
+    await status.update('upsertRow', {
+      id: 'reg',
+      label: 'Registration proof',
+      value: reg ? `accepted · ${short(reg.receiptId)}` : 'not read',
+      tone: reg ? 'ok' : 'wait',
+      source: 'l2_getReceiptsByWallet (operator read)',
+      note: reg && reg.auditEventHash ? `audit event ${short(reg.auditEventHash)}` : undefined,
+    });
     const m = await reads.member(take.walletId).catch(() => null);
-    await status.update('upsertRow', { id: 'record', label: 'Engine record', value: m ? `${m.lifecycle} · ${m.planId}` : 'not read', tone: m ? 'ok' : 'wait', source: '/interactive/state (allowlisted fields)', note: m ? `pending wallet updates: ${m.pendingWalletUpdates ?? '?'}` : undefined });
+    await status.update('upsertRow', {
+      id: 'record',
+      label: 'Engine record',
+      value: m ? `${m.lifecycle} · ${m.planId}` : 'not read',
+      tone: m ? 'ok' : 'wait',
+      source: '/interactive/state (allowlisted fields)',
+      note: m ? `pending wallet updates: ${m.pendingWalletUpdates ?? '?'}` : undefined,
+    });
     const talk = speak('status-registration', 'accepted');
     await showOnStatus(CARDS.learnsEngine, 14000);
     if (m && m.accumulator) {
       const lim = m.accumulator.limits || {};
-      await status.update('upsertRow', { id: 'limits', label: 'Her plan limits', value: `${cents(lim.deductibleAmountCents)} · ${cents(lim.oopMaxCents)} · ${cents(lim.annualBenefitMaxCents)}`, tone: 'info', source: '/interactive/state accumulator.limits', note: 'deductible · out-of-pocket maximum · annual benefit maximum' });
-      await status.update('upsertRow', { id: 'paid', label: 'Paid so far', value: `${cents(m.accumulator.deductiblePaidCents)} · ${cents(m.accumulator.oopPaidCents)} · ${cents(m.accumulator.benefitUsedCents)}`, tone: 'info', source: '/interactive/state accumulator', note: 'toward the deductible · out of pocket · by the plan' });
+      await status.update('upsertRow', {
+        id: 'limits',
+        label: 'Her plan limits',
+        value: `${cents(lim.deductibleAmountCents)} · ${cents(lim.oopMaxCents)} · ${cents(lim.annualBenefitMaxCents)}`,
+        tone: 'info',
+        source: '/interactive/state accumulator.limits',
+        note: 'deductible · out-of-pocket maximum · annual benefit maximum',
+      });
+      await status.update('upsertRow', {
+        id: 'paid',
+        label: 'Paid so far',
+        value: `${cents(m.accumulator.deductiblePaidCents)} · ${cents(m.accumulator.oopPaidCents)} · ${cents(m.accumulator.benefitUsedCents)}`,
+        tone: 'info',
+        source: '/interactive/state accumulator',
+        note: 'toward the deductible · out of pocket · by the plan',
+      });
     }
     await sleep(1800);
     const ws = await reads.walletState(take.walletId).catch(() => null);
-    await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root', value: ws ? `${short(ws.credentialInventoryRoot)} · nonce ${ws.nonce}` : 'not read', tone: ws ? 'ok' : 'wait', source: 'l2_getWalletState (operator read)', note: 'changed by the first credential update (the mint)' });
+    await status.update('upsertRow', {
+      id: 'inventory',
+      label: 'Credential inventory root',
+      value: ws ? `${short(ws.credentialInventoryRoot)} · nonce ${ws.nonce}` : 'not read',
+      tone: ws ? 'ok' : 'wait',
+      source: 'l2_getWalletState (operator read)',
+      note: 'changed by the first credential update (the mint)',
+    });
     await talk;
     await speak('status-registration', 'record');
   },
@@ -1003,11 +1346,27 @@ const SCENE_RUN = {
     await doc.locator('button', { hasText: 'Set PCP' }).click(); // never 'Remove' (it sends no device session)
     await speak('pcp', 'set');
     // two toasts follow: 'PCP assigned — generating ZK proof...' then 'PCP proof submitted to sequencer' (~13.5 s)
-    await timed('pcp-proof', () => camera.speedWhile(() => until('the PCP proof', async () => {
-      if (await visible(toast(pg, 'PCP proof submitted'))) return true;
-      if (await visible(toast(pg, 'failed'))) throw fatal(`PCP assignment failed: ${await toast(pg, 'failed').first().innerText({ timeout: 2000 }).catch(() => '')}`);
-      return false;
-    }, { timeout: 300000, every: 500 }), { factor: 4 }));
+    await timed('pcp-proof', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'the PCP proof',
+            async () => {
+              if (await visible(toast(pg, 'PCP proof submitted'))) return true;
+              if (await visible(toast(pg, 'failed')))
+                throw fatal(
+                  `PCP assignment failed: ${await toast(pg, 'failed')
+                    .first()
+                    .innerText({ timeout: 2000 })
+                    .catch(() => '')}`,
+                );
+              return false;
+            },
+            { timeout: 300000, every: 500 },
+          ),
+        { factor: 4 },
+      ),
+    );
     await show('member', CARDS.learnsPrescriber, 16000);
     await speak('pcp', 'after');
   },
@@ -1016,17 +1375,24 @@ const SCENE_RUN = {
     const { page: pg, st } = shot('prescriber');
     // the node's token lives in page memory only (never browser storage); it opens the member quote and the
     // prior-authorization routes until provider sign-in (B4)
-    await pg.evaluate((t) => { if (typeof API !== 'undefined' && API.setAdminToken) API.setAdminToken(t); }, secrets.prescriber);
+    await pg.evaluate((t) => {
+      if (typeof API !== 'undefined' && API.setAdminToken) API.setAdminToken(t);
+    }, secrets.prescriber);
     await camera.cut('prescriber');
     await pg.locator('.nav-tab[data-tab="prescriptions"]').click();
     await pg.locator('#rx-write-toggle').click(); // opening the form loads the patient, pharmacy and drug lists
     const patient = pg.locator('#rx-patient-select');
     // the PCP link puts the member on this list as a short wallet hash, never a name; the option's value is the wallet ID
-    const patientValue = await until('the patient list to show the member', async () => patient.evaluate((el, w) => {
-      const opts = [...el.options].filter((o) => o.value);
-      const mine = opts.find((o) => o.value === w);
-      return mine ? mine.value : (opts.length === 1 ? opts[0].value : null);
-    }, take.walletId), { timeout: 90000, every: 2000 });
+    const patientValue = await until(
+      'the patient list to show the member',
+      async () =>
+        patient.evaluate((el, w) => {
+          const opts = [...el.options].filter((o) => o.value);
+          const mine = opts.find((o) => o.value === w);
+          return mine ? mine.value : opts.length === 1 ? opts[0].value : null;
+        }, take.walletId),
+      { timeout: 90000, every: 2000 },
+    );
     await speak('prescribe', 'patient');
     await patient.selectOption(patientValue);
     await speak('prescribe', 'pharmacy');
@@ -1041,8 +1407,18 @@ const SCENE_RUN = {
     // the card shows Avery's own price and the drug's coverage before the script is written (owner decision 2026-10-19):
     // she may read it because Avery named her as primary care. The line says the amount, so the card must agree.
     const quote = pg.locator('#rx-cost-estimate[data-state="member"]');
-    await camera.speedWhile(() => until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }), { factor: 4 }).catch(() => {});
-    const quoted = Number(await pg.locator('#rx-est-member-pays').getAttribute('data-cents', { timeout: 5000 }).catch(() => null));
+    await camera
+      .speedWhile(
+        () => until('the member quote on the prescriber card', async () => (await quote.count()) > 0, { timeout: 60000, every: 500 }),
+        { factor: 4 },
+      )
+      .catch(() => {});
+    const quoted = Number(
+      await pg
+        .locator('#rx-est-member-pays')
+        .getAttribute('data-cents', { timeout: 5000 })
+        .catch(() => null),
+    );
     if (quoted !== c.claim.P) mustHold(`the prescriber card shows the member paying ${quoted} cents; the claim says ${c.claim.P}`);
     // the card opens under Send Prescription, below the fold of the 1280x720 layout: scroll until the quantity row sits
     // just under the sticky top bar. The card is then on screen above the caption, and so are the quantity, days-supply
@@ -1063,11 +1439,27 @@ const SCENE_RUN = {
     await speak('prescribe', 'sent');
     await st.card(CARDS.prescribeProofs.title, CARDS.prescribeProofs.lines, { ms: 20000 });
     await speak('prescribe', 'proofs');
-    await timed('prescribe-proof', () => camera.speedWhile(() => until('the prescription proof', async () => {
-      const cls = await badge.getAttribute('class');
-      if (/badge-failed|badge-error/.test(cls || '')) throw fatal(`prescription proof failed: ${await pg.locator('#rx-proof-detail').innerText({ timeout: 2000 }).catch(() => '')}`);
-      return /badge-settled/.test(cls || '');
-    }, { timeout: 600000, every: 1000 }), { factor: 6 }));
+    await timed('prescribe-proof', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'the prescription proof',
+            async () => {
+              const cls = await badge.getAttribute('class');
+              if (/badge-failed|badge-error/.test(cls || ''))
+                throw fatal(
+                  `prescription proof failed: ${await pg
+                    .locator('#rx-proof-detail')
+                    .innerText({ timeout: 2000 })
+                    .catch(() => '')}`,
+                );
+              return /badge-settled/.test(cls || '');
+            },
+            { timeout: 600000, every: 1000 },
+          ),
+        { factor: 6 },
+      ),
+    );
     // the badge reads "ZK Proofs: Generated" and its detail lists the proofs the engine made, not kept and not verified (9f5099d)
     await speak('prescribe', 'ledger');
     await st.hideCard();
@@ -1079,11 +1471,22 @@ const SCENE_RUN = {
     await pg.locator('.nav-tab[data-tab="workstation"]').click();
     // the card's label is the drug's brandName, "ALLOPURINOL (Generic)", cut to 20 characters
     const script = pg.locator('#ws-adjudicated-list .script-card', { hasText: c.drug.match });
-    await camera.speedWhile(() => until('the prescription in the Adjudicated column', async () => {
-      if (await script.count()) return true;
-      await pg.locator('#ws-refresh-btn').click({ timeout: 5000 }).catch(() => {});
-      return false;
-    }, { timeout: 180000, every: 5000 }), { factor: 4 });
+    await camera.speedWhile(
+      () =>
+        until(
+          'the prescription in the Adjudicated column',
+          async () => {
+            if (await script.count()) return true;
+            await pg
+              .locator('#ws-refresh-btn')
+              .click({ timeout: 5000 })
+              .catch(() => {});
+            return false;
+          },
+          { timeout: 180000, every: 5000 },
+        ),
+      { factor: 4 },
+    );
     // a PENDING script shows "Adjudicating…" and no Fill until the prescriber's proofs finish; a refused fill stays put
     await camera.speedWhile(() => script.first().locator('button', { hasText: 'Fill' }).waitFor({ timeout: 600000 }), { factor: 4 });
     await speak('fill', 'read');
@@ -1112,7 +1515,11 @@ const SCENE_RUN = {
     let json = await pg.evaluate(() => navigator.clipboard.readText()).catch(() => '');
     if (!/credential-attestation/.test(json || '')) {
       const att = await sniffer.waitFor('attestation', { since, timeout: 30000 });
-      json = JSON.stringify({ type: 'credential-attestation', version: 2, walletId: take.walletId, attestation: att.value?.data, exportedAt: Date.now() }, null, 2);
+      json = JSON.stringify(
+        { type: 'credential-attestation', version: 2, walletId: take.walletId, attestation: att.value?.data, exportedAt: Date.now() },
+        null,
+        2,
+      );
     }
     take.attestationJson = json;
     await speak('attest', 'explain');
@@ -1133,11 +1540,15 @@ const SCENE_RUN = {
     // /nfc/scan checks the signature against the pinned key and reads the history once with the tap (A-41, 9f5099d)
     const verified = pg.locator('#ws-verify-status.verified');
     const failed = pg.locator('#ws-verify-status.error');
-    await until('the member to be verified', async () => {
-      if (await visible(verified)) return true;
-      if (await visible(failed)) throw fatal(`Verify Member failed: ${await failed.innerText({ timeout: 2000 }).catch(() => '')}`);
-      return false;
-    }, { timeout: 90000, every: 500 });
+    await until(
+      'the member to be verified',
+      async () => {
+        if (await visible(verified)) return true;
+        if (await visible(failed)) throw fatal(`Verify Member failed: ${await failed.innerText({ timeout: 2000 }).catch(() => '')}`);
+        return false;
+      },
+      { timeout: 90000, every: 500 },
+    );
     await speak('verify-dispense', 'verified');
     const dispense = filled.locator('button', { hasText: 'Dispense' });
     await dispense.hover({ timeout: 5000 }).catch(() => {});
@@ -1171,10 +1582,13 @@ const SCENE_RUN = {
     await speak('pay', 'question');
     await speak('pay', 'answer');
     await speak('pay', 'card');
-    await Promise.all([speak('pay', 'counsel'), (async () => {
-      await dispensed.locator('button', { hasText: 'Payment Received' }).click();
-      await closeDetail(pg);
-    })()]);
+    await Promise.all([
+      speak('pay', 'counsel'),
+      (async () => {
+        await dispensed.locator('button', { hasText: 'Payment Received' }).click();
+        await closeDetail(pg);
+      })(),
+    ]);
     await show('pharmacy', CARDS.learnsPharmacy, 18000);
     await speak('pay', 'after');
   },
@@ -1182,39 +1596,105 @@ const SCENE_RUN = {
   async 'status-update'() {
     await camera.cut('status');
     await status.update('clear');
-    await status.update('setTitle', { title: 'Meanwhile, on Avery’s phone', subtitle: 'When the pharmacy dispensed, the claim waited for one more proof, made on her phone' });
+    await status.update('setTitle', {
+      title: 'Meanwhile, on Avery’s phone',
+      subtitle: 'When the pharmacy dispensed, the claim waited for one more proof, made on her phone',
+    });
     // the phone proved the fill's update by itself within about half a minute of the fill answer (a minute or more after
     // Dispense, since the engine queues it only once the fill proof is done), minutes before this scene: the
     // card shows the update as the fill left it (the fill answer, the root read before Dispense); status-accepted reads
     // where it stands now
     const queued = take.fillUpdate ? (take.fillUpdate.status === 'pending' ? 1 : 0) : null;
-    await status.update('upsertRow', { id: 'pending', label: 'Wallet updates waiting for the phone', value: queued == null ? 'not read' : String(queued), tone: queued === 0 ? 'ok' : 'wait', source: 'GET /dispensing/fill-status (walletUpdate.status)', note: 'the phone checks for work every 20 seconds' });
-    if (take.inventoryBefore) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: short(take.inventoryBefore), tone: 'info', source: 'l2_getWalletState (operator read, before Dispense)', note: 'before the update' });
+    await status.update('upsertRow', {
+      id: 'pending',
+      label: 'Wallet updates waiting for the phone',
+      value: queued == null ? 'not read' : String(queued),
+      tone: queued === 0 ? 'ok' : 'wait',
+      source: 'GET /dispensing/fill-status (walletUpdate.status)',
+      note: 'the phone checks for work every 20 seconds',
+    });
+    if (take.inventoryBefore)
+      await status.update('upsertRow', {
+        id: 'inventory',
+        label: 'Credential inventory root on the ledger',
+        value: short(take.inventoryBefore),
+        tone: 'info',
+        source: 'l2_getWalletState (operator read, before Dispense)',
+        note: 'before the update',
+      });
     await speak('status-update', 'queued');
   },
 
   async 'status-accepted'() {
     await camera.cut('status');
-    const pendingRow = (m) => ({ id: 'pending', label: 'Wallet updates waiting for the phone', value: String(m?.pendingWalletUpdates ?? '?'), tone: m && m.pendingWalletUpdates === 0 ? 'ok' : 'wait', source: '/interactive/state pendingWalletUpdates (allowlisted)', note: 'the phone checks for work every 20 seconds' });
-    const m1 = await timed('claim-update', () => camera.speedWhile(() => until('the phone to prove the claim update', async () => {
-      const m = await reads.member(take.walletId);
-      await status.update('upsertRow', pendingRow(m));
-      return m && m.pendingWalletUpdates === 0 ? m : null;
-    }, { timeout: 600000, every: 3000 }), { factor: 6 }));
+    const pendingRow = (m) => ({
+      id: 'pending',
+      label: 'Wallet updates waiting for the phone',
+      value: String(m?.pendingWalletUpdates ?? '?'),
+      tone: m && m.pendingWalletUpdates === 0 ? 'ok' : 'wait',
+      source: '/interactive/state pendingWalletUpdates (allowlisted)',
+      note: 'the phone checks for work every 20 seconds',
+    });
+    const m1 = await timed('claim-update', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'the phone to prove the claim update',
+            async () => {
+              const m = await reads.member(take.walletId);
+              await status.update('upsertRow', pendingRow(m));
+              return m && m.pendingWalletUpdates === 0 ? m : null;
+            },
+            { timeout: 600000, every: 3000 },
+          ),
+        { factor: 6 },
+      ),
+    );
     // the header changes only after the wait: while the phone is still proving, status-update's header is still true
-    await status.update('setTitle', { title: 'The update is accepted', subtitle: `${PEOPLE.member.name}'s phone proved the update; the sequencer attached the parked claim` });
+    await status.update('setTitle', {
+      title: 'The update is accepted',
+      subtitle: `${PEOPLE.member.name}'s phone proved the update; the sequencer attached the parked claim`,
+    });
     const receipts = await reads.receiptsByWallet(take.walletId).catch(() => []);
-    const claim = receipts.filter((r) => !r.isRegistration && r.claimLeafIndex != null).pop() || receipts.filter((r) => !r.isRegistration).pop();
-    await status.update('upsertRow', { id: 'receipt', label: 'Wallet-update proof', value: claim ? `accepted · ${short(claim.receiptId)}` : 'not read', tone: claim ? 'ok' : 'wait', source: 'l2_getReceiptsByWallet (operator read)', note: claim && claim.claimLeafIndex != null ? `claim leaf ${claim.claimLeafIndex}` : undefined });
+    const claim =
+      receipts.filter((r) => !r.isRegistration && r.claimLeafIndex != null).pop() || receipts.filter((r) => !r.isRegistration).pop();
+    await status.update('upsertRow', {
+      id: 'receipt',
+      label: 'Wallet-update proof',
+      value: claim ? `accepted · ${short(claim.receiptId)}` : 'not read',
+      tone: claim ? 'ok' : 'wait',
+      source: 'l2_getReceiptsByWallet (operator read)',
+      note: claim && claim.claimLeafIndex != null ? `claim leaf ${claim.claimLeafIndex}` : undefined,
+    });
     const ws1 = await reads.walletState(take.walletId).catch(() => null);
     // green only when the ledger holds the root the fill parked its claim against (the line says "exactly this root")
     const parked = take.fillUpdate ? take.fillUpdate.newInventoryRoot : null;
-    if (ws1) await status.update('upsertRow', { id: 'inventory', label: 'Credential inventory root on the ledger', value: `${short(take.inventoryBefore)} → ${short(ws1.credentialInventoryRoot)}`, tone: ws1.credentialInventoryRoot === parked ? 'ok' : 'bad', source: 'l2_getWalletState (operator read)', note: `nonce ${ws1.nonce}` });
-    if (ws1 && ws1.credentialInventoryRoot !== parked) mustHold(`the ledger holds credential root ${short(ws1.credentialInventoryRoot)}; the fill parked its claim against ${short(parked)}`);
+    if (ws1)
+      await status.update('upsertRow', {
+        id: 'inventory',
+        label: 'Credential inventory root on the ledger',
+        value: `${short(take.inventoryBefore)} → ${short(ws1.credentialInventoryRoot)}`,
+        tone: ws1.credentialInventoryRoot === parked ? 'ok' : 'bad',
+        source: 'l2_getWalletState (operator read)',
+        note: `nonce ${ws1.nonce}`,
+      });
+    if (ws1 && ws1.credentialInventoryRoot !== parked)
+      mustHold(
+        `the ledger holds credential root ${short(ws1.credentialInventoryRoot)}; the fill parked its claim against ${short(parked)}`,
+      );
     await speak('status-accepted', 'accepted');
-    if (m1 && m1.accumulator) await status.update('upsertRow', { id: 'acc', label: 'Her running totals (engine record)', value: `${cents(m1.accumulator.deductiblePaidCents)} · ${cents(m1.accumulator.oopPaidCents)} · ${cents(m1.accumulator.benefitUsedCents)}`, tone: 'info', source: '/interactive/state accumulator', note: 'toward the deductible · out of pocket · by the plan' });
+    if (m1 && m1.accumulator)
+      await status.update('upsertRow', {
+        id: 'acc',
+        label: 'Her running totals (engine record)',
+        value: `${cents(m1.accumulator.deductiblePaidCents)} · ${cents(m1.accumulator.oopPaidCents)} · ${cents(m1.accumulator.benefitUsedCents)}`,
+        tone: 'info',
+        source: '/interactive/state accumulator',
+        note: 'toward the deductible · out of pocket · by the plan',
+      });
     const stt = await reads.status().catch(() => null);
-    if (stt) await status.update('countdown', { id: 'batch', label: 'Next batch', ms: stt.nextBatchInMs, source: 'l2_getStatus nextBatchInMs' });
+    if (stt)
+      await status.update('countdown', { id: 'batch', label: 'Next batch', ms: stt.nextBatchInMs, source: 'l2_getStatus nextBatchInMs' });
     await speak('status-accepted', 'caveat');
   },
 
@@ -1225,11 +1705,21 @@ const SCENE_RUN = {
     await speak('batch', 'intro');
     // the receipt's l1BatchNumber is its batch's number, which that batch's row carries in data-batch;
     // its l2BlockNumber can differ (an empty batch takes a number and no block)
-    const r = await timed('batch-wait', () => camera.speedWhile(() => until('the claim to be batched', async () => {
-      const rs = await reads.receiptsByWallet(take.walletId);
-      const last = rs.filter((x) => !x.isRegistration).pop();
-      return last && last.l1BatchNumber != null ? last : null;
-    }, { timeout: 600000, every: 3000 }), { factor: 6 }));
+    const r = await timed('batch-wait', () =>
+      camera.speedWhile(
+        () =>
+          until(
+            'the claim to be batched',
+            async () => {
+              const rs = await reads.receiptsByWallet(take.walletId);
+              const last = rs.filter((x) => !x.isRegistration).pop();
+              return last && last.l1BatchNumber != null ? last : null;
+            },
+            { timeout: 600000, every: 3000 },
+          ),
+        { factor: 6 },
+      ),
+    );
     // the tab draws its table when it opens, and Refresh redraws it only after two reads: wait for this batch's own
     // row, never another (the table lists the newest first, and a later batch may already sit on top; the next line
     // says this one holds her update)
@@ -1248,9 +1738,23 @@ const SCENE_RUN = {
     await pg.locator('.nav-tab[data-tab="audit"]').click();
     await speak('audit', 'chain');
     await pg.locator('#audit-chain-card').click();
-    const chain = await until('the chain integrity result', async () => { const t = await pg.locator('#audit-chain-val').innerText(); return /PASS|FAIL|Error/.test(t) ? t : null; }, { timeout: 120000 });
+    const chain = await until(
+      'the chain integrity result',
+      async () => {
+        const t = await pg.locator('#audit-chain-val').innerText();
+        return /PASS|FAIL|Error/.test(t) ? t : null;
+      },
+      { timeout: 120000 },
+    );
     await pg.locator('#audit-finance-card').click();
-    const finance = await until('the financial balance result', async () => { const t = await pg.locator('#audit-finance-val').innerText(); return /PASS|FAIL|Error/.test(t) ? t : null; }, { timeout: 120000 });
+    const finance = await until(
+      'the financial balance result',
+      async () => {
+        const t = await pg.locator('#audit-finance-val').innerText();
+        return /PASS|FAIL|Error/.test(t) ? t : null;
+      },
+      { timeout: 120000 },
+    );
     // Theo says "Good." only over two passes
     if (!/PASS/.test(chain) || !/PASS/.test(finance)) mustHold(`the audit cards read "${chain.trim()}" and "${finance.trim()}", not PASS`);
     await speak('audit', 'balance');
@@ -1262,15 +1766,32 @@ const SCENE_RUN = {
     await camera.cut('member');
     await pg.locator('a.nav-link[data-tab="claims"]').click();
     const claim = pg.locator('#claims-list .claim-card');
-    await camera.speedWhile(() => until('the claim on the phone', async () => {
-      // the list reads "Loading..." until the member node answers (within its 30 s request budget); a count before then
-      // misses the card and costs a trip to Dashboard and the 8 s wait
-      await pg.locator('#claims-list .loading').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {});
-      if (await claim.count()) return true;
-      await pg.locator('a.nav-link[data-tab="dashboard"]').click({ timeout: 5000 }).catch(() => {});
-      await pg.locator('a.nav-link[data-tab="claims"]').click({ timeout: 5000 }).catch(() => {}); // the tab reads the claims when it opens
-      return false;
-    }, { timeout: 300000, every: 8000 }), { factor: 6 });
+    await camera.speedWhile(
+      () =>
+        until(
+          'the claim on the phone',
+          async () => {
+            // the list reads "Loading..." until the member node answers (within its 30 s request budget); a count before then
+            // misses the card and costs a trip to Dashboard and the 8 s wait
+            await pg
+              .locator('#claims-list .loading')
+              .waitFor({ state: 'detached', timeout: 30000 })
+              .catch(() => {});
+            if (await claim.count()) return true;
+            await pg
+              .locator('a.nav-link[data-tab="dashboard"]')
+              .click({ timeout: 5000 })
+              .catch(() => {});
+            await pg
+              .locator('a.nav-link[data-tab="claims"]')
+              .click({ timeout: 5000 })
+              .catch(() => {}); // the tab reads the claims when it opens
+            return false;
+          },
+          { timeout: 300000, every: 8000 },
+        ),
+      { factor: 6 },
+    );
     // the card prints "Drug Cost: <total>" with "NADAC <unit price>/<unit> x <quantity> = <ingredient>" and the fee, as the
     // engine priced the fill (e2f0864)
     await claim.first().scrollIntoViewIfNeeded();
@@ -1279,16 +1800,24 @@ const SCENE_RUN = {
     await speak('pickup', 'read');
     await pg.locator('a.nav-link[data-tab="dashboard"]').click();
     // the spend hero shows her own plan limits, read from the device (9f5099d)
-    await pg.locator('#spend-hero .spend-row').waitFor({ timeout: 15000 }).catch(() => {});
+    await pg
+      .locator('#spend-hero .spend-row')
+      .waitFor({ timeout: 15000 })
+      .catch(() => {});
     await speak('pickup', 'deductible');
     await speak('pickup', 'closing');
     await speak('pickup', 'unfinished');
     await show('member', CARDS.endCard, 8000);
     await sleep(4000);
-  }
+  },
 };
 // the board scenes write their cards while their lines play
-for (const sc of SCENES) if (sc.kind === 'board' && !SCENE_RUN[sc.key]) SCENE_RUN[sc.key] = async () => { await camera.cut('board'); await speakAll(sc.key); };
+for (const sc of SCENES)
+  if (sc.kind === 'board' && !SCENE_RUN[sc.key])
+    SCENE_RUN[sc.key] = async () => {
+      await camera.cut('board');
+      await speakAll(sc.key);
+    };
 for (const sc of SCENES) if (!SCENE_RUN[sc.key]) throw new Error(`director: no scene function for "${sc.key}"`);
 
 // ------------------------------------------------------------------ pre-roll 4: open the first screens, the second plan
@@ -1301,10 +1830,20 @@ if (c.altPlan) {
   try {
     await pg.locator('.nav-tab[data-tab="plans"]').click();
     await pg.locator('#plan-create-toggle').click();
-    for (const [sel, v] of [['#plan-name', c.altPlan.name], ['#plan-id', c.altPlan.id], ['#plan-copay', c.altPlan.copayCents], ['#plan-deductible', c.altPlan.deductibleCents],
-      ['#plan-oop', c.altPlan.oopCents], ['#plan-annual', c.altPlan.annualCents], ['#plan-fam-ded', c.altPlan.famDedCents], ['#plan-fam-oop', c.altPlan.famOopCents]]) await pg.locator(sel).fill(String(v));
+    for (const [sel, v] of [
+      ['#plan-name', c.altPlan.name],
+      ['#plan-id', c.altPlan.id],
+      ['#plan-copay', c.altPlan.copayCents],
+      ['#plan-deductible', c.altPlan.deductibleCents],
+      ['#plan-oop', c.altPlan.oopCents],
+      ['#plan-annual', c.altPlan.annualCents],
+      ['#plan-fam-ded', c.altPlan.famDedCents],
+      ['#plan-fam-oop', c.altPlan.famOopCents],
+    ])
+      await pg.locator(sel).fill(String(v));
     // the second plan's dispensing fee, in the same field as the plan scene
-    if (await pg.locator('#plan-dispensing-fee').count()) await pg.locator('#plan-dispensing-fee').fill(String(c.altPlan.dispensingFeeCents));
+    if (await pg.locator('#plan-dispensing-fee').count())
+      await pg.locator('#plan-dispensing-fee').fill(String(c.altPlan.dispensingFeeCents));
     await pg.locator('#plan-create-btn').click();
     await pg.locator('#plan-create-result .form-result').waitFor({ timeout: 60000 });
     log(`pre-roll: second plan: ${(await pg.locator('#plan-create-result').innerText()).trim()}`);
@@ -1341,7 +1880,9 @@ try {
   scenes.catch(() => {}); // after a watchdog stop, a late failure of the abandoned scene must not crash the wrap-up
   await Promise.race([
     scenes,
-    new Promise((_, reject) => { watchdog = setTimeout(() => reject(new Error('watchdog: the take ran over 60 minutes')), 60 * 60000); })
+    new Promise((_, reject) => {
+      watchdog = setTimeout(() => reject(new Error('watchdog: the take ran over 60 minutes')), 60 * 60000);
+    }),
   ]);
 } catch (e) {
   stopped = true;
@@ -1358,22 +1899,56 @@ take.T1 = T1;
 log(`T1: ${((T1 - T0) / 1000).toFixed(0)} s recorded${failure ? ' (FAILED)' : ''}`);
 
 // ------------------------------------------------------------------ wrap: videos, take.json, the film
-for (const s of camera.shots.values()) s.video = s.page.video() ? await s.page.video().path().catch(() => null) : null;
+for (const s of camera.shots.values())
+  s.video = s.page.video()
+    ? await s.page
+        .video()
+        .path()
+        .catch(() => null)
+    : null;
 for (const ctx of contexts.values()) await ctx.close().catch(() => {});
 await directorCtx.close().catch(() => {});
 await browser.close().catch(() => {});
 stopHrTool();
 const cam = camera.toJSON();
 const takeJson = {
-  T0, T1, failure, rehearsal: REHEARSAL, scriptStatus: SCRIPT_STATUS, pricingStatus: PRICING_STATUS, stopAfter,
+  T0,
+  T1,
+  failure,
+  rehearsal: REHEARSAL,
+  scriptStatus: SCRIPT_STATUS,
+  pricingStatus: PRICING_STATUS,
+  stopAfter,
   acts: ACTS,
   people: Object.fromEntries(Object.values(PERSONS).map((p) => [p.key, { name: p.name, role: p.role, voice: REHEARSAL ? null : p.voice }])),
-  cast: { plan: c.plan, employer: { company: c.employer.company, employerId: c.employer.employerId }, group: c.group, drug: c.drug, pricing: cast.pricing, say: cast.say },
+  cast: {
+    plan: c.plan,
+    employer: { company: c.employer.company, employerId: c.employer.employerId },
+    group: c.group,
+    drug: c.drug,
+    pricing: cast.pricing,
+    say: cast.say,
+  },
   claim: take.claim,
-  shots: cam.shots, cuts: cam.cuts, speedups: cam.speedups, scenes: cam.scenes,
-  lines: narrator.lines.map((l) => ({ at: l.at, ms: l.ms, name: l.name, persona: l.persona, voice: l.voice, mood: l.mood, text: l.text, file: l.file })),
-  walletId: take.walletId, employerNodeUrl: take.employerNodeUrl, hrToolUrl: take.hrToolUrl, applicationId: take.applicationId,
-  timings: take.timings
+  shots: cam.shots,
+  cuts: cam.cuts,
+  speedups: cam.speedups,
+  scenes: cam.scenes,
+  lines: narrator.lines.map((l) => ({
+    at: l.at,
+    ms: l.ms,
+    name: l.name,
+    persona: l.persona,
+    voice: l.voice,
+    mood: l.mood,
+    text: l.text,
+    file: l.file,
+  })),
+  walletId: take.walletId,
+  employerNodeUrl: take.employerNodeUrl,
+  hrToolUrl: take.hrToolUrl,
+  applicationId: take.applicationId,
+  timings: take.timings,
 };
 fs.writeFileSync(path.join(OUT, 'take.json'), JSON.stringify(takeJson, null, 2));
 log(`take.json written (no secrets in it); raw recordings in ${RAW}`);

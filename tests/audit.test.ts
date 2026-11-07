@@ -24,11 +24,7 @@
 import { Field, Poseidon } from 'o1js';
 import { AuditService, DEFAULT_ORPHAN_THRESHOLD_MS } from '../src/audit/audit-service.js';
 import { AuditMerkleIndex } from '../src/audit/audit-merkle-index.js';
-import type {
-  AuditEvent,
-  AuditLog,
-  OnChainState,
-} from '../src/audit/audit-types.js';
+import type { AuditEvent, AuditLog, OnChainState } from '../src/audit/audit-types.js';
 import type { L2Batch } from '../src/l2/l2-types.js';
 import type { ClaimContext } from '../src/reporting/report-types.js';
 
@@ -90,9 +86,7 @@ function makeAuditLog(events: AuditEvent[]): AuditLog {
   return {
     events,
     genesisHash: AuditService.GENESIS_HASH,
-    latestChainHash: events.length > 0
-      ? events[events.length - 1].chainHash
-      : AuditService.GENESIS_HASH,
+    latestChainHash: events.length > 0 ? events[events.length - 1].chainHash : AuditService.GENESIS_HASH,
     eventCount: BigInt(events.length),
   };
 }
@@ -155,9 +149,17 @@ describe('AuditEvent Hash Chain', () => {
     // Verify it matches manual Poseidon computation (11 fields; ndcHash, patientPay, planPay and operationType
     // default to 0 — D5 added the operation type so a reversal cannot pose as a fill)
     const manual = Poseidon.hash([
-      Field(100n), Field(200n), Field(201n),
-      Field(300n), Field(301n), Field(0n), Field(1n), Field(0n),
-      Field(0n), Field(0n), Field(0n),
+      Field(100n),
+      Field(200n),
+      Field(201n),
+      Field(300n),
+      Field(301n),
+      Field(0n),
+      Field(1n),
+      Field(0n),
+      Field(0n),
+      Field(0n),
+      Field(0n),
     ]);
     expect(hash1.toString()).toBe(manual.toString());
   });
@@ -288,12 +290,16 @@ describe('Financial Balance', () => {
     const events = buildValidChain(3);
     // ingredientCost(800) + dispensingFee(200) = 1000
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 300, planPayCents: 700,
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 300,
+      planPayCents: 700,
     });
     attachFinancialData(events[1], {
-      ingredientCostCents: 500, dispensingFeeCents: 100,
-      patientPayCents: 100, planPayCents: 500,
+      ingredientCostCents: 500,
+      dispensingFeeCents: 100,
+      patientPayCents: 100,
+      planPayCents: 500,
     });
     // Event 2 has no context (registration) — should be skipped
 
@@ -308,8 +314,10 @@ describe('Financial Balance', () => {
   test('imbalanced claim detected and reported', () => {
     const events = buildValidChain(2);
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 300, planPayCents: 600, // 300+600=900 != 800+200=1000
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 300,
+      planPayCents: 600, // 300+600=900 != 800+200=1000
     });
 
     const result = AuditService.verifyFinancialBalance(events);
@@ -329,12 +337,16 @@ describe('Financial Balance', () => {
   test('mix of balanced and imbalanced correctly categorized', () => {
     const events = buildValidChain(3);
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 300, planPayCents: 700, // balanced
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 300,
+      planPayCents: 700, // balanced
     });
     attachFinancialData(events[1], {
-      ingredientCostCents: 500, dispensingFeeCents: 100,
-      patientPayCents: 100, planPayCents: 400, // 100+400=500 != 500+100=600 — IMBALANCED
+      ingredientCostCents: 500,
+      dispensingFeeCents: 100,
+      patientPayCents: 100,
+      planPayCents: 400, // 100+400=500 != 500+100=600 — IMBALANCED
     });
 
     const result = AuditService.verifyFinancialBalance(events);
@@ -346,13 +358,17 @@ describe('Financial Balance', () => {
   test('reversals included in totals', () => {
     const events = buildValidChain(2);
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 300, planPayCents: 700,
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 300,
+      planPayCents: 700,
     });
     // Reversal: zero cost, zero pay — still balanced
     attachFinancialData(events[1], {
-      ingredientCostCents: 0, dispensingFeeCents: 0,
-      patientPayCents: 0, planPayCents: 0,
+      ingredientCostCents: 0,
+      dispensingFeeCents: 0,
+      patientPayCents: 0,
+      planPayCents: 0,
     });
 
     const result = AuditService.verifyFinancialBalance(events);
@@ -535,9 +551,7 @@ describe('L1 Settlement Verification', () => {
   }
 
   test('all batches settled with matching roots returns isComplete=true', () => {
-    const batches: L2Batch[] = [
-      makeBatch({ batchNumber: 0n, newRegistryRoot: '5000', newLifecycleRoot: '6000' }),
-    ];
+    const batches: L2Batch[] = [makeBatch({ batchNumber: 0n, newRegistryRoot: '5000', newLifecycleRoot: '6000' })];
     const result = AuditService.verifyL1Settlement(batches, baseState);
     expect(result.isComplete).toBe(true);
     expect(result.settledBatches).toBe(1);
@@ -547,10 +561,7 @@ describe('L1 Settlement Verification', () => {
   });
 
   test('pending batches reduce settled count', () => {
-    const batches: L2Batch[] = [
-      makeBatch({ batchNumber: 0n, l1Status: 'settled' }),
-      makeBatch({ batchNumber: 1n, l1Status: 'batched' }),
-    ];
+    const batches: L2Batch[] = [makeBatch({ batchNumber: 0n, l1Status: 'settled' }), makeBatch({ batchNumber: 1n, l1Status: 'batched' })];
     const result = AuditService.verifyL1Settlement(batches, baseState);
     expect(result.isComplete).toBe(false);
     expect(result.settledBatches).toBe(1);
@@ -558,9 +569,7 @@ describe('L1 Settlement Verification', () => {
   });
 
   test('failed batch reported', () => {
-    const batches: L2Batch[] = [
-      makeBatch({ batchNumber: 0n, l1Status: 'failed' }),
-    ];
+    const batches: L2Batch[] = [makeBatch({ batchNumber: 0n, l1Status: 'failed' })];
     const result = AuditService.verifyL1Settlement(batches, baseState);
     expect(result.isComplete).toBe(false);
     expect(result.failedBatches).toBe(1);
@@ -598,11 +607,7 @@ describe('Enrollment Consistency', () => {
     events[1].isRegistration = true;
     events[2].isRegistration = true;
 
-    const roster = [
-      { walletId: events[0].walletId },
-      { walletId: events[1].walletId },
-      { walletId: events[2].walletId },
-    ];
+    const roster = [{ walletId: events[0].walletId }, { walletId: events[1].walletId }, { walletId: events[2].walletId }];
 
     const result = AuditService.verifyEnrollmentConsistency(events, roster);
     expect(result.isConsistent).toBe(true);
@@ -677,32 +682,32 @@ describe('Full Audit Report', () => {
     const events = buildValidChain(3);
     events[0].isRegistration = true;
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 300, planPayCents: 700,
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 300,
+      planPayCents: 700,
     });
 
-    const roster = [
-      { walletId: events[0].walletId },
+    const roster = [{ walletId: events[0].walletId }];
+
+    const batches: L2Batch[] = [
+      {
+        batchNumber: 0n,
+        blockNumbers: [0n],
+        registrationCount: 1,
+        transitionCount: 3,
+        oldRegistryRoot: '4000',
+        newRegistryRoot: '5000',
+        oldLifecycleRoot: '5500',
+        newLifecycleRoot: '6000',
+        batchProofJson: '{}',
+        createdAt: Date.now(),
+        l1Status: 'settled',
+      },
     ];
 
-    const batches: L2Batch[] = [{
-      batchNumber: 0n,
-      blockNumbers: [0n],
-      registrationCount: 1,
-      transitionCount: 3,
-      oldRegistryRoot: '4000',
-      newRegistryRoot: '5000',
-      oldLifecycleRoot: '5500',
-      newLifecycleRoot: '6000',
-      batchProofJson: '{}',
-      createdAt: Date.now(),
-      l1Status: 'settled',
-    }];
-
     const log = makeAuditLog(events);
-    const report = AuditService.runFullAudit(
-      log, batches, baseOnChainState, roster,
-    );
+    const report = AuditService.runFullAudit(log, batches, baseOnChainState, roster);
 
     expect(report.overallHealthy).toBe(true);
     expect(report.chainIntegrity.isValid).toBe(true);
@@ -717,9 +722,7 @@ describe('Full Audit Report', () => {
     events[1] = { ...events[1], chainHash: '9999' };
 
     const log = makeAuditLog(events);
-    const report = AuditService.runFullAudit(
-      log, [], baseOnChainState, [],
-    );
+    const report = AuditService.runFullAudit(log, [], baseOnChainState, []);
 
     expect(report.overallHealthy).toBe(false);
     expect(report.chainIntegrity.isValid).toBe(false);
@@ -728,33 +731,29 @@ describe('Full Audit Report', () => {
   test('financial imbalance makes overallHealthy=false', () => {
     const events = buildValidChain(2);
     attachFinancialData(events[0], {
-      ingredientCostCents: 800, dispensingFeeCents: 200,
-      patientPayCents: 100, planPayCents: 100, // 200 != 1000
+      ingredientCostCents: 800,
+      dispensingFeeCents: 200,
+      patientPayCents: 100,
+      planPayCents: 100, // 200 != 1000
     });
 
     const log = makeAuditLog(events);
-    const report = AuditService.runFullAudit(
-      log, [], baseOnChainState, [],
-    );
+    const report = AuditService.runFullAudit(log, [], baseOnChainState, []);
 
     expect(report.overallHealthy).toBe(false);
     expect(report.financialBalance.isValid).toBe(false);
   });
 
-  test('orphaned receipts DON\'T make overallHealthy=false (expected during normal ops)', () => {
+  test("orphaned receipts DON'T make overallHealthy=false (expected during normal ops)", () => {
     const now = Date.now();
     const events = buildValidChain(3, now - DEFAULT_ORPHAN_THRESHOLD_MS - 60_000);
     events[1].l1Status = 'pending'; // Orphaned
 
     // Provide matching roster entries for the registration event (event 0)
-    const roster = events
-      .filter(e => e.isRegistration)
-      .map(e => ({ walletId: e.walletId }));
+    const roster = events.filter((e) => e.isRegistration).map((e) => ({ walletId: e.walletId }));
 
     const log = makeAuditLog(events);
-    const report = AuditService.runFullAudit(
-      log, [], baseOnChainState, roster, now,
-    );
+    const report = AuditService.runFullAudit(log, [], baseOnChainState, roster, now);
 
     expect(report.orphanedReceipts.hasOrphans).toBe(true);
     // But overallHealthy is still true (orphans don't fail health)
@@ -764,9 +763,7 @@ describe('Full Audit Report', () => {
   test('details array contains summary message for each check', () => {
     const events = buildValidChain(2);
     const log = makeAuditLog(events);
-    const report = AuditService.runFullAudit(
-      log, [], baseOnChainState, [],
-    );
+    const report = AuditService.runFullAudit(log, [], baseOnChainState, []);
 
     expect(report.details).toHaveLength(7);
     expect(report.details[0]).toContain('Chain integrity');
@@ -795,17 +792,11 @@ describe('Claim 7: Selective Merkle Witness', () => {
     const result = index.getSelectiveWitness(2n);
 
     expect(result.eventIndex).toBe(2n);
-    expect(result.eventCommitment.toString()).toBe(
-      AuditService.computeEventCommitment(events[2]).toString(),
-    );
+    expect(result.eventCommitment.toString()).toBe(AuditService.computeEventCommitment(events[2]).toString());
     expect(result.root.toString()).toBe(index.getRoot().toString());
 
     // Verify witness is valid
-    const isValid = AuditMerkleIndex.verifySelectiveWitness(
-      result.witness,
-      result.eventCommitment,
-      result.root,
-    );
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(result.witness, result.eventCommitment, result.root);
     expect(isValid).toBe(true);
   });
 
@@ -822,23 +813,13 @@ describe('Claim 7: Selective Merkle Witness', () => {
     // The witness path contains sibling hashes — NOT the other event commitments.
     // Verifier only sees: witness (sibling path), commitment (leaf), and root.
     // They CANNOT extract commitments of events 0, 1, 2, or 4 from this data.
-    const isValid = AuditMerkleIndex.verifySelectiveWitness(
-      result.witness,
-      result.eventCommitment,
-      result.root,
-    );
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(result.witness, result.eventCommitment, result.root);
     expect(isValid).toBe(true);
 
     // Prove another event with same root (different witness, different commitment)
     const result0 = index.getSelectiveWitness(0n);
-    expect(result0.eventCommitment.toString()).not.toBe(
-      result.eventCommitment.toString(),
-    );
-    const isValid0 = AuditMerkleIndex.verifySelectiveWitness(
-      result0.witness,
-      result0.eventCommitment,
-      result0.root,
-    );
+    expect(result0.eventCommitment.toString()).not.toBe(result.eventCommitment.toString());
+    const isValid0 = AuditMerkleIndex.verifySelectiveWitness(result0.witness, result0.eventCommitment, result0.root);
     expect(isValid0).toBe(true);
 
     // Both witnesses share the same root but reveal different leaves
@@ -860,11 +841,7 @@ describe('Claim 7: Selective Merkle Witness', () => {
       expect(result.root.toString()).toBe(fullRoot.toString());
 
       // Witness also verifies against the full root
-      const isValid = AuditMerkleIndex.verifySelectiveWitness(
-        result.witness,
-        result.eventCommitment,
-        fullRoot,
-      );
+      const isValid = AuditMerkleIndex.verifySelectiveWitness(result.witness, result.eventCommitment, fullRoot);
       expect(isValid).toBe(true);
     }
   });
@@ -881,11 +858,7 @@ describe('Claim 7: Selective Merkle Witness', () => {
     // Tamper with the commitment — use a different hash
     const tamperedCommitment = Poseidon.hash([Field(99999n)]);
 
-    const isValid = AuditMerkleIndex.verifySelectiveWitness(
-      result.witness,
-      tamperedCommitment,
-      result.root,
-    );
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(result.witness, tamperedCommitment, result.root);
     expect(isValid).toBe(false);
   });
 
@@ -941,14 +914,8 @@ describe('Claim 7: Selective Merkle Witness', () => {
 
     // Witness for event 2 still valid
     const witness2After = restored.getSelectiveWitness(2n);
-    expect(witness2After.eventCommitment.toString()).toBe(
-      witness2Before.eventCommitment.toString(),
-    );
-    const isValid = AuditMerkleIndex.verifySelectiveWitness(
-      witness2After.witness,
-      witness2After.eventCommitment,
-      witness2After.root,
-    );
+    expect(witness2After.eventCommitment.toString()).toBe(witness2Before.eventCommitment.toString());
+    const isValid = AuditMerkleIndex.verifySelectiveWitness(witness2After.witness, witness2After.eventCommitment, witness2After.root);
     expect(isValid).toBe(true);
   });
 
@@ -959,9 +926,7 @@ describe('Claim 7: Selective Merkle Witness', () => {
       index.appendEvent(event);
     }
 
-    expect(() => index.getSelectiveWitness(5n)).toThrow(
-      'Event index 5 out of range (2 events stored)',
-    );
+    expect(() => index.getSelectiveWitness(5n)).toThrow('Event index 5 out of range (2 events stored)');
   });
 
   test('root changes after each append (non-trivial tree progression)', () => {
@@ -1011,11 +976,7 @@ describe('Claim 7: Selective Merkle Witness', () => {
     // Witnesses for events 0-2 still valid
     for (let i = 0n; i < 3n; i++) {
       const result = index.getSelectiveWitness(i);
-      const isValid = AuditMerkleIndex.verifySelectiveWitness(
-        result.witness,
-        result.eventCommitment,
-        result.root,
-      );
+      const isValid = AuditMerkleIndex.verifySelectiveWitness(result.witness, result.eventCommitment, result.root);
       expect(isValid).toBe(true);
     }
 

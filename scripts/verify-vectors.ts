@@ -17,12 +17,16 @@
 import { Poseidon, Field } from 'o1js';
 import { Encoding } from 'o1js';
 
-function hashString(s: string) { return Poseidon.hash(Encoding.stringToFields(s)); }
-function hashDate(d: string) { return Poseidon.hash([Field(BigInt(d))]); }
+function hashString(s: string) {
+  return Poseidon.hash(Encoding.stringToFields(s));
+}
+function hashDate(d: string) {
+  return Poseidon.hash([Field(BigInt(d))]);
+}
 
 // With CORRECT domain tag = Field(0)
 const walletId = Poseidon.hash([
-  Field(0),  // DOMAIN_TAG_MEMBER
+  Field(0), // DOMAIN_TAG_MEMBER
   hashString('CH-10001'),
   hashDate('19850315'),
   hashString('Alice'),

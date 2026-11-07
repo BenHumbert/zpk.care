@@ -64,9 +64,7 @@ export class MessageRegistry {
    */
   addMessage(msg: MessageData): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_MESSAGES)) {
-      throw new Error(
-        `Message registry full: cannot exceed ${MAX_MESSAGES} messages`,
-      );
+      throw new Error(`Message registry full: cannot exceed ${MAX_MESSAGES} messages`);
     }
 
     const index = this.nextIndex++;
@@ -138,9 +136,7 @@ export class DelegationRegistry {
    */
   addDelegation(del: DelegationData): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_DELEGATIONS)) {
-      throw new Error(
-        `Delegation registry full: cannot exceed ${MAX_DELEGATIONS} delegations`,
-      );
+      throw new Error(`Delegation registry full: cannot exceed ${MAX_DELEGATIONS} delegations`);
     }
 
     const index = this.nextIndex++;
@@ -170,9 +166,7 @@ export class DelegationRegistry {
    */
   revokeDelegation(index: bigint): { newRoot: Field } {
     if (!this.delegations.has(index)) {
-      throw new Error(
-        `Cannot revoke delegation at index ${index}: slot is empty or already revoked`,
-      );
+      throw new Error(`Cannot revoke delegation at index ${index}: slot is empty or already revoked`);
     }
 
     this.delegations.delete(index);
@@ -187,18 +181,12 @@ export class DelegationRegistry {
    * Scans all active (non-revoked) delegations. Returns the index and
    * DelegationData if found, or undefined if no matching delegation exists.
    */
-  findByWallets(
-    delegatorWalletId: Field,
-    delegateWalletId: Field,
-  ): { index: bigint; delegation: DelegationData } | undefined {
+  findByWallets(delegatorWalletId: Field, delegateWalletId: Field): { index: bigint; delegation: DelegationData } | undefined {
     const delegatorStr = delegatorWalletId.toString();
     const delegateStr = delegateWalletId.toString();
 
     for (const [index, delegation] of this.delegations.entries()) {
-      if (
-        delegation.delegatorWalletId.toString() === delegatorStr &&
-        delegation.delegateWalletId.toString() === delegateStr
-      ) {
+      if (delegation.delegatorWalletId.toString() === delegatorStr && delegation.delegateWalletId.toString() === delegateStr) {
         return { index, delegation };
       }
     }
@@ -264,12 +252,7 @@ export class KeyRegistry {
    * @param pubKeyY — second half of X25519 public key as Field
    * @returns The new key registry root
    */
-  registerKey(
-    walletIndex: bigint,
-    walletId: Field,
-    pubKeyX: Field,
-    pubKeyY: Field,
-  ): { newRoot: Field } {
+  registerKey(walletIndex: bigint, walletId: Field, pubKeyX: Field, pubKeyY: Field): { newRoot: Field } {
     const commitment = Poseidon.hash([walletId, pubKeyX, pubKeyY]);
 
     const isNew = !this.keyCommitments.has(walletIndex);
@@ -312,10 +295,6 @@ export class KeyRegistry {
  * @param keyRoot — key registry Merkle root
  * @returns Packed Field for on-chain storage
  */
-export function computeMessagingRoot(
-  messageRoot: Field,
-  delegationRoot: Field,
-  keyRoot: Field,
-): Field {
+export function computeMessagingRoot(messageRoot: Field, delegationRoot: Field, keyRoot: Field): Field {
   return Poseidon.hash([messageRoot, delegationRoot, keyRoot]);
 }

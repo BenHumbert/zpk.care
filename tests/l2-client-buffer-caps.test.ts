@@ -68,9 +68,17 @@ async function until(done: () => boolean, ms: number): Promise<void> {
 /** How a call ends within `ms`: 'resolved', 'rejected: <message>', or 'still waiting'. */
 async function outcomeWithin(call: Promise<unknown>, ms: number): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const waiting = new Promise<string>((resolve) => { timer = setTimeout(() => resolve('still waiting'), ms); });
+  const waiting = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve('still waiting'), ms);
+  });
   try {
-    return await Promise.race([call.then(() => 'resolved', (e: Error) => `rejected: ${e.message}`), waiting]);
+    return await Promise.race([
+      call.then(
+        () => 'resolved',
+        (e: Error) => `rejected: ${e.message}`,
+      ),
+      waiting,
+    ]);
   } finally {
     clearTimeout(timer);
   }
@@ -81,7 +89,11 @@ async function streamServer(onConnect: (res: http.ServerResponse, index: number)
   let connections = 0;
   const closed: number[] = [];
   const server = http.createServer((req, res) => {
-    if (!req.url?.startsWith('/events')) { res.writeHead(404); res.end(); return; }
+    if (!req.url?.startsWith('/events')) {
+      res.writeHead(404);
+      res.end();
+      return;
+    }
     const index = connections++;
     res.on('close', () => closed.push(index));
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
@@ -116,7 +128,7 @@ describe('the event stream', () => {
     const disconnect = client({ sequencerUrl: s.url, retryBaseDelayMs: 20 }).connectEvents((e) => events.push(e));
     try {
       await until(() => s.connections() >= 2 && events.length >= 2 && s.closed.includes(0), 8_000);
-      expect(s.closed).toContain(0);                                         // before: the first connection stayed open, its buffer growing
+      expect(s.closed).toContain(0); // before: the first connection stayed open, its buffer growing
       expect(s.connections()).toBe(2);
       expect(events.map((e) => (e.data as { connection: number }).connection)).toEqual([0, 1]);
     } finally {
@@ -126,7 +138,7 @@ describe('the event stream', () => {
   });
 
   test('the ceiling is 1 Mi characters, far above any event the sequencer sends', async () => {
-    const { MAX_SSE_FRAME_CHARS } = await import('../src/l2/l2-client.js') as any;
+    const { MAX_SSE_FRAME_CHARS } = (await import('../src/l2/l2-client.js')) as any;
     expect(MAX_SSE_FRAME_CHARS).toBe(MIB);
     // A long event under the ceiling is delivered whole, in many chunks.
     const name = 'n'.repeat(200 * 1024);
@@ -150,7 +162,7 @@ describe('the event stream', () => {
   test('a character split between two chunks arrives whole', async () => {
     const name = 'Zoë 東京 €';
     const bytes = Buffer.from(frame({ type: 'node:tick', timestamp: 1, data: { name } }));
-    const cut = bytes.indexOf(Buffer.from('東')) + 1;                         // inside the three bytes of one character
+    const cut = bytes.indexOf(Buffer.from('東')) + 1; // inside the three bytes of one character
     const s = await streamServer((res) => {
       res.write(bytes.subarray(0, cut));
       setTimeout(() => res.write(bytes.subarray(cut)), 100);
@@ -159,7 +171,7 @@ describe('the event stream', () => {
     const disconnect = client({ sequencerUrl: s.url }).connectEvents((e) => events.push(e));
     try {
       await until(() => events.length >= 1, 8_000);
-      expect((events[0]?.data as { name?: string } | undefined)?.name).toBe(name);   // before: replacement characters where 東 was
+      expect((events[0]?.data as { name?: string } | undefined)?.name).toBe(name); // before: replacement characters where 東 was
     } finally {
       disconnect();
       await shut(s.server);
@@ -186,47 +198,49 @@ describe('the event stream', () => {
 describe('RPC response bodies', () => {
   test('a body over maxResponseBytes is refused as it arrives', async () => {
     const s = await rpcServer((res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });            // chunked: no declared length
+      res.writeHead(200, { 'Content-Type': 'application/json' }); // chunked: no declared length
       res.write('{"jsonrpc":"2.0","id":1,"result":"');
       for (let i = 0; i < 64; i++) res.write('y'.repeat(1024));
       res.end('"}');
     });
     try {
-      await expect(client({ sequencerUrl: s.url, maxResponseBytes: 16 * 1024 }).getStatus())
-        .rejects.toThrow('Response body exceeds 16384 bytes');                 // before: read whole
+      await expect(client({ sequencerUrl: s.url, maxResponseBytes: 16 * 1024 }).getStatus()).rejects.toThrow(
+        'Response body exceeds 16384 bytes',
+      ); // before: read whole
     } finally {
       await shut(s.server);
     }
   });
 
   test('a declared length over the default ceiling of 64 MiB is refused before the body is read', async () => {
-    const { DEFAULT_MAX_RESPONSE_BYTES } = await import('../src/l2/l2-client.js') as any;
+    const { DEFAULT_MAX_RESPONSE_BYTES } = (await import('../src/l2/l2-client.js')) as any;
     expect(DEFAULT_MAX_RESPONSE_BYTES).toBe(64 * MIB);
     const s = await rpcServer((res) => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(100 * MIB) });
-      res.write('{"jsonrpc":"2.0"');                                          // and the rest never comes
+      res.write('{"jsonrpc":"2.0"'); // and the rest never comes
     });
     try {
-      await expect(client({ sequencerUrl: s.url, timeoutMs: 3_000 }).getStatus())
-        .rejects.toThrow(`Response body exceeds ${64 * MIB} bytes`);           // before: waited, then "Request timeout"
+      await expect(client({ sequencerUrl: s.url, timeoutMs: 3_000 }).getStatus()).rejects.toThrow(
+        `Response body exceeds ${64 * MIB} bytes`,
+      ); // before: waited, then "Request timeout"
     } finally {
       await shut(s.server);
     }
   });
 
   test('a state snapshot is held to the larger snapshot ceiling, not the default', async () => {
-    const { MAX_SNAPSHOT_RESPONSE_BYTES } = await import('../src/l2/l2-client.js') as any;
+    const { MAX_SNAPSHOT_RESPONSE_BYTES } = (await import('../src/l2/l2-client.js')) as any;
     expect(MAX_SNAPSHOT_RESPONSE_BYTES).toBe(256 * MIB);
     const s = await rpcServer((res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(100 * MIB) });   // over 64 MiB, under 256
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(100 * MIB) }); // over 64 MiB, under 256
       res.write('{', () => res.socket?.destroy());
     });
     try {
       const c = client({ sequencerUrl: s.url, timeoutMs: 3_000 });
       await expect(c.getStatus()).rejects.toThrow(`Response body exceeds ${64 * MIB} bytes`);
       const outcome = await outcomeWithin(c.requestSnapshot(), 5_000);
-      expect(outcome).toMatch(/^rejected: /);                                  // refused for being cut off ...
-      expect(outcome).not.toMatch(/exceeds/);                                  // ... not for its declared size
+      expect(outcome).toMatch(/^rejected: /); // refused for being cut off ...
+      expect(outcome).not.toMatch(/exceeds/); // ... not for its declared size
     } finally {
       await shut(s.server);
     }
@@ -239,7 +253,7 @@ describe('RPC response bodies', () => {
     });
     try {
       const outcome = await outcomeWithin(client({ sequencerUrl: s.url, timeoutMs: 60_000 }).getStatus(), 5_000);
-      expect(outcome).toMatch(/^rejected: /);                                  // before: still waiting
+      expect(outcome).toMatch(/^rejected: /); // before: still waiting
     } finally {
       await shut(s.server);
     }

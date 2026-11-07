@@ -44,25 +44,40 @@ function partsFor(subject: Field) {
   forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, Field(4001n));
   forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, Field(4002n));
   const credential = new CredentialData({
-    credentialType: CREDENTIAL_TYPE_ELIGIBILITY, forestRoot: forest.getForestRoot(), issuerWalletId: Field(9n),
-    subjectWalletId: subject, issuedAt: Field(20260201n), expiresAt: Field(0), revoked: Field(0),
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
+    forestRoot: forest.getForestRoot(),
+    issuerWalletId: Field(9n),
+    subjectWalletId: subject,
+    issuedAt: Field(20260201n),
+    expiresAt: Field(0),
+    revoked: Field(0),
   });
   const inventory = new CredentialInventory();
   inventory.mint(credential);
-  return { credential: credentialFieldsOf(credential), forestLeaves: forestLeavesOf(forest), inventorySlot: '0', inventoryRoot: inventory.getRoot().toString() };
+  return {
+    credential: credentialFieldsOf(credential),
+    forestLeaves: forestLeavesOf(forest),
+    inventorySlot: '0',
+    inventoryRoot: inventory.getRoot().toString(),
+  };
 }
 
 let node: MemberNode;
 let ownershipProofJson: string;
 
 beforeAll(async () => {
-  node = new MemberNode({ role: 'member', walletId: walletId.toString(), sequencerUrl: 'http://127.0.0.1:1', displayName: 'device under test' });
+  node = new MemberNode({
+    role: 'member',
+    walletId: walletId.toString(),
+    sequencerUrl: 'http://127.0.0.1:1',
+    displayName: 'device under test',
+  });
   const compiled = await node.compilePrograms();
   expect(compiled.map((c) => c.program)).toEqual(['StateTransitionProgram', 'ProofGateProgram', 'CredentialProgram']);
   ownershipProofJson = await node.proveOwnership(walletId, fields);
 });
 
-describe('the device\'s portable credential', () => {
+describe("the device's portable credential", () => {
   test('is proved from the parts, names the wallet, and verifies offline; a tampered one does not', async () => {
     const parts = partsFor(walletId);
     const rebuilt = rebuildCredential(parts);

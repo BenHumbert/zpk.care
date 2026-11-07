@@ -23,7 +23,10 @@ const NODE_ADMIN_TOKEN_LABEL = 'zpk.care/node-admin/v1\n';
 export function deriveNodeAdminToken(operatorToken, nodeId) {
   if (!operatorToken) throw new Error('deriveNodeAdminToken: the operator token is empty');
   if (!nodeId || nodeId.includes('\n')) throw new Error('deriveNodeAdminToken: nodeId is required and may not contain a newline');
-  return crypto.createHmac('sha256', operatorToken).update(NODE_ADMIN_TOKEN_LABEL + nodeId, 'utf8').digest('hex');
+  return crypto
+    .createHmac('sha256', operatorToken)
+    .update(NODE_ADMIN_TOKEN_LABEL + nodeId, 'utf8')
+    .digest('hex');
 }
 
 /** The insurer dashboard's admin token: explicit when the network booted with one, else the launcher's derivation. */
@@ -54,23 +57,64 @@ export function pick(obj, spec) {
 const unBig = (k, v) => (typeof v === 'string' && v.startsWith('__bigint__:') ? v.slice(11) : v);
 
 export const MEMBER_FIELDS = Object.freeze({
-  walletIdDisplay: true, planId: true, groupId: true, lifecycle: true, pendingWalletUpdates: true, nonce: true, pcpAssigned: true,
-  accumulator: { deductiblePaidCents: true, oopPaidCents: true, benefitUsedCents: true, limits: { deductibleAmountCents: true, oopMaxCents: true, annualBenefitMaxCents: true } }
+  walletIdDisplay: true,
+  planId: true,
+  groupId: true,
+  lifecycle: true,
+  pendingWalletUpdates: true,
+  nonce: true,
+  pcpAssigned: true,
+  accumulator: {
+    deductiblePaidCents: true,
+    oopPaidCents: true,
+    benefitUsedCents: true,
+    limits: { deductibleAmountCents: true, oopMaxCents: true, annualBenefitMaxCents: true },
+  },
   // never: displayName, employeeId, familyId, relationship, credentialJson, lastAttestation, credentialInventory
 });
 export const RECEIPT_FIELDS = Object.freeze({
-  receiptId: true, sequenceNumber: true, isRegistration: true, acceptedAt: true, l1Status: true, auditEventHash: true,
-  claimLeafIndex: true, l2BlockNumber: true, l1BatchNumber: true
+  receiptId: true,
+  sequenceNumber: true,
+  isRegistration: true,
+  acceptedAt: true,
+  l1Status: true,
+  auditEventHash: true,
+  claimLeafIndex: true,
+  l2BlockNumber: true,
+  l1BatchNumber: true,
 });
 export const WALLET_STATE_FIELDS = Object.freeze({ credentialInventoryRoot: true, nonce: true });
 export const STATUS_FIELDS = Object.freeze({
-  nextBatchInMs: true, batchIntervalMs: true, pendingProofs: true, totalProofsAccepted: true, totalBatchesBuilt: true,
-  totalBatchesSettled: true, totalBatchesFailed: true, blockHeight: true
+  nextBatchInMs: true,
+  batchIntervalMs: true,
+  pendingProofs: true,
+  totalProofsAccepted: true,
+  totalBatchesBuilt: true,
+  totalBatchesSettled: true,
+  totalBatchesFailed: true,
+  blockHeight: true,
 });
 export const EVENT_FIELDS = Object.freeze({
-  type: true, timestamp: true, ts: true, receiptId: true, sequenceNumber: true, batchIndex: true, batchNumber: true,
-  transitionCount: true, proofCount: true, claimLeafIndex: true,
-  data: { receiptId: true, sequenceNumber: true, batchIndex: true, batchNumber: true, transitionCount: true, proofCount: true, claimLeafIndex: true, status: true }
+  type: true,
+  timestamp: true,
+  ts: true,
+  receiptId: true,
+  sequenceNumber: true,
+  batchIndex: true,
+  batchNumber: true,
+  transitionCount: true,
+  proofCount: true,
+  claimLeafIndex: true,
+  data: {
+    receiptId: true,
+    sequenceNumber: true,
+    batchIndex: true,
+    batchNumber: true,
+    transitionCount: true,
+    proofCount: true,
+    claimLeafIndex: true,
+    status: true,
+  },
 });
 
 /** GET /interactive/ready: whether the engine is ready to prove, whether its circuits are compiled, where proofs go. */
@@ -86,7 +130,10 @@ const READ_METHODS = new Set(['l2_getStatus', 'l2_getReceiptsByWallet', 'l2_getW
  * engine's answer is logged. Throws once `timeoutMs` (15 minutes) has passed without it: a take does not start on an
  * engine that would refuse its proofs.
  */
-export async function waitForEngineReady(reads, { timeoutMs = 15 * 60000, everyMs = 5000, log = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+export async function waitForEngineReady(
+  reads,
+  { timeoutMs = 15 * 60000, everyMs = 5000, log = () => {}, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
   const started = Date.now();
   let last = null;
   let said = '';
@@ -94,23 +141,37 @@ export async function waitForEngineReady(reads, { timeoutMs = 15 * 60000, everyM
     last = await reads.engineReady().catch(() => null);
     if (last && last.ready === true) return { ...last, waitedMs: Date.now() - started };
     const now = last ? `compiled ${last.compiled === true ? 'yes' : 'no'}, prover ${last.prover}` : 'no answer';
-    if (now !== said) { log(`the claims engine is not ready to prove yet (${now})`); said = now; }
+    if (now !== said) {
+      log(`the claims engine is not ready to prove yet (${now})`);
+      said = now;
+    }
     if (Date.now() - started >= timeoutMs) {
       const within = timeoutMs >= 60000 ? `${Math.round(timeoutMs / 60000)} min` : `${Math.round(timeoutMs / 1000)} s`;
-      throw new Error(`the claims engine did not become ready to prove within ${within} (${now}): a take does not start on an engine that would refuse its proofs`);
+      throw new Error(
+        `the claims engine did not become ready to prove within ${within} (${now}): a take does not start on an engine that would refuse its proofs`,
+      );
     }
     await sleep(everyMs);
   }
 }
 
-export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http://127.0.0.1:4001', operatorToken = '', log = () => {}, timeoutMs = 20000 } = {}) {
+export function makeReads({
+  seqUrl = 'http://127.0.0.1:3030',
+  memberUrl = 'http://127.0.0.1:4001',
+  operatorToken = '',
+  log = () => {},
+  timeoutMs = 20000,
+} = {}) {
   const seq = String(seqUrl).replace(/\/+$/, '');
   const mem = String(memberUrl).replace(/\/+$/, '');
   const auth = operatorToken ? { Authorization: `Bearer ${operatorToken}` } : {};
   let rpcId = 0;
 
   async function getJson(url, { authed = false } = {}) {
-    const res = await fetch(url, { headers: { Accept: 'application/json', ...(authed ? auth : {}) }, signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json', ...(authed ? auth : {}) },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     const text = await res.text();
     log(`read GET ${new URL(url).pathname} ${res.status}`);
     if (!res.ok) throw new Error(`GET ${new URL(url).pathname} answered ${res.status}`);
@@ -122,7 +183,7 @@ export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(authed ? auth : {}) },
       body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params }),
-      signal: AbortSignal.timeout(timeoutMs)
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await res.text();
     log(`read ${method} ${res.status}`);
@@ -143,7 +204,10 @@ export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http:
      * once its circuits are compiled and its proof pool runs, 503 while its provers start. Both answers are read.
      */
     async engineReady() {
-      const res = await fetch(`${seq}/interactive/ready`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetch(`${seq}/interactive/ready`, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
       const text = await res.text();
       log(`read GET /interactive/ready ${res.status}`);
       if (res.status !== 200 && res.status !== 503) throw new Error(`GET /interactive/ready answered ${res.status}`);
@@ -170,7 +234,7 @@ export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http:
     /** The member device's onboarding phase (an open route that answers the phase only). */
     async memberPhase() {
       const j = unwrap(await getJson(`${mem}/onboarding/status`));
-      return j && (j.phase || (j.onboarding && j.onboarding.phase)) || null;
+      return (j && (j.phase || (j.onboarding && j.onboarding.phase))) || null;
     },
     /** The sequencer's event stream, read in Node with the token in a header. Returns a stop function. */
     async events(onEvent, { types = null } = {}) {
@@ -191,17 +255,31 @@ export function makeReads({ seqUrl = 'http://127.0.0.1:3030', memberUrl = 'http:
             while ((i = buf.indexOf('\n\n')) >= 0) {
               const chunk = buf.slice(0, i);
               buf = buf.slice(i + 2);
-              const data = chunk.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('\n');
+              const data = chunk
+                .split('\n')
+                .filter((l) => l.startsWith('data:'))
+                .map((l) => l.slice(5).trim())
+                .join('\n');
               if (!data) continue;
               let j;
-              try { j = JSON.parse(data, unBig); } catch { continue; }
+              try {
+                j = JSON.parse(data, unBig);
+              } catch {
+                continue;
+              }
               if (types && !types.includes(j.type)) continue;
-              try { onEvent(pick(j, EVENT_FIELDS)); } catch { /* a listener's problem is not the stream's */ }
+              try {
+                onEvent(pick(j, EVENT_FIELDS));
+              } catch {
+                /* a listener's problem is not the stream's */
+              }
             }
           }
-        } catch { /* aborted */ }
+        } catch {
+          /* aborted */
+        }
       })();
       return () => ac.abort();
-    }
+    },
   };
 }

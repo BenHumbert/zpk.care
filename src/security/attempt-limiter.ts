@@ -43,7 +43,10 @@ export const DEFAULT_ATTEMPT_LIMITS: AttemptLimiterOptions = {
   maxDelayMs: 15 * 60_000,
 };
 
-interface Entry { failures: number; lockedUntil: number }
+interface Entry {
+  failures: number;
+  lockedUntil: number;
+}
 
 export type AttemptVerdict = { allowed: true } | { allowed: false; retryAfterMs: number };
 
@@ -52,7 +55,10 @@ export class PersistedAttemptLimiter {
   private state: Record<string, Entry> = {};
   private loaded = false;
 
-  constructor(private readonly file: string, opts: Partial<AttemptLimiterOptions> = {}) {
+  constructor(
+    private readonly file: string,
+    opts: Partial<AttemptLimiterOptions> = {},
+  ) {
     this.opts = { ...DEFAULT_ATTEMPT_LIMITS, ...opts };
   }
 

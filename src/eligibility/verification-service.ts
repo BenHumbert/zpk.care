@@ -16,12 +16,7 @@
 
 import type { PortableCredential } from '../credentials/portable-credential.js';
 import { CredentialProgram, CredentialOperationProof } from '../credentials/credential-program.js';
-import {
-  EligibilityProgram,
-  EligibilityProof,
-  InNetworkProgram,
-  InNetworkProof,
-} from './eligibility-program.js';
+import { EligibilityProgram, EligibilityProof, InNetworkProgram, InNetworkProof } from './eligibility-program.js';
 
 /**
  * Result of verifying eligibility data.
@@ -96,9 +91,7 @@ export class VerificationService {
    * Checks that the credential contains valid eligibility data:
    * correct type, not revoked, data in forest, plan in registry, dates valid.
    */
-  async verifyEligibilityData(
-    proof: InstanceType<typeof EligibilityProof>,
-  ): Promise<VerificationResult> {
+  async verifyEligibilityData(proof: InstanceType<typeof EligibilityProof>): Promise<VerificationResult> {
     try {
       const ok = await EligibilityProgram.verify(proof);
       if (!ok) {
@@ -125,9 +118,7 @@ export class VerificationService {
    * Checks that a prescriber or pharmacy wallet is in-network
    * (lifecycle state is ELIGIBLE or ACTIVE).
    */
-  async verifyInNetwork(
-    proof: InstanceType<typeof InNetworkProof>,
-  ): Promise<boolean> {
+  async verifyInNetwork(proof: InstanceType<typeof InNetworkProof>): Promise<boolean> {
     try {
       return InNetworkProgram.verify(proof);
     } catch {
@@ -156,11 +147,7 @@ export class VerificationService {
 
     // 1. Verify credential holding
     const holdingValid = await this.verifyHoldingProof(holdingCredential);
-    details.push(
-      holdingValid
-        ? 'Credential holding: verified'
-        : 'Credential holding: FAILED',
-    );
+    details.push(holdingValid ? 'Credential holding: verified' : 'Credential holding: FAILED');
 
     // 2. Verify eligibility data
     const eligResult = await this.verifyEligibilityData(eligibilityProof);
@@ -174,22 +161,14 @@ export class VerificationService {
     let prescriberInNetwork: boolean | undefined;
     if (prescriberInNetworkProof) {
       prescriberInNetwork = await this.verifyInNetwork(prescriberInNetworkProof);
-      details.push(
-        prescriberInNetwork
-          ? 'Prescriber in-network: verified'
-          : 'Prescriber in-network: FAILED',
-      );
+      details.push(prescriberInNetwork ? 'Prescriber in-network: verified' : 'Prescriber in-network: FAILED');
     }
 
     // 4. Verify pharmacy in-network (optional)
     let pharmacyInNetwork: boolean | undefined;
     if (pharmacyInNetworkProof) {
       pharmacyInNetwork = await this.verifyInNetwork(pharmacyInNetworkProof);
-      details.push(
-        pharmacyInNetwork
-          ? 'Pharmacy in-network: verified'
-          : 'Pharmacy in-network: FAILED',
-      );
+      details.push(pharmacyInNetwork ? 'Pharmacy in-network: verified' : 'Pharmacy in-network: FAILED');
     }
 
     // Overall: all required checks must pass

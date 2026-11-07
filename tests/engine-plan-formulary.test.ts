@@ -31,6 +31,7 @@
  * to 100 drugs before anything loads src/data.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 import { Field, MerkleTree } from 'o1js';
 
 jest.setTimeout(300_000);
@@ -45,10 +46,10 @@ let buildPlanFormulary: any;
 let publishedTermsFrom: any;
 let AdjudicationService: any;
 let catalog: any[];
-let onPlan: string[];      // two tier-1 drugs and one tier-2 drug, claimable
-let offPlan: string;       // another claimable drug, not on the plan
-let paDrug: string;        // a prior-auth drug, not on the plan
-let tier2: string;         // the tier-2 drug on the plan
+let onPlan: string[]; // two tier-1 drugs and one tier-2 drug, claimable
+let offPlan: string; // another claimable drug, not on the plan
+let paDrug: string; // a prior-auth drug, not on the plan
+let tier2: string; // the tier-2 drug on the plan
 let P: any;
 let m: any;
 const W = '77000000000000000001';
@@ -57,9 +58,22 @@ const ndcHashOf = (ndc: string) => hashString(ndc).toString();
 
 function publishedPlan(over: Record<string, unknown>): any {
   const base: any = {
-    planId: 'PLAN-PBF-1', name: 'Plan-bound', coverageType: 1, copayAmountCents: 1500, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0,
-    formularyNdcs: onPlan, networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0, ...over,
+    planId: 'PLAN-PBF-1',
+    name: 'Plan-bound',
+    coverageType: 1,
+    copayAmountCents: 1500,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    formularyNdcs: onPlan,
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
+    ...over,
   };
   const root = buildPlanFormulary(base, catalog).root.toString();
   return { ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) };
@@ -68,7 +82,9 @@ function publishedPlan(over: Record<string, unknown>): any {
 /** A wallet the member's own registration proof put at REGISTERED, approved by the insurer into `planId`. */
 function approvedWallet(planId: string, planIdHash = ndcHashOf(planId)): string {
   const w = (nextWallet++).toString();
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED); });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(w)), LC.LIFECYCLE_REGISTERED);
+  });
   svc.approveMember({ walletId: w, groupIdHash: ndcHashOf('GRP-PBF'), planIdHash, planId, employerId: null, familyIdHash: null });
   return w;
 }
@@ -94,22 +110,41 @@ beforeAll(async () => {
   paDrug = catalog.find((d) => d.requiresPriorAuth)!.ndc;
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-formulary' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-plan-formulary' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
-  svc = new AdjudicationService(() => {}, () => {}, node);
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
 
   P = publishedPlan({});
   await node.storePlan(P);
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W, groupIdHash: ndcHashOf('GRP-PBF'), planIdHash: ndcHashOf(P.planId), planId: P.planId, employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W,
+    groupIdHash: ndcHashOf('GRP-PBF'),
+    planIdHash: ndcHashOf(P.planId),
+    planId: P.planId,
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W, ownershipProofJson: '{}', displayName: 'PBF' });
   m = svc.enrolledMembers.get(W);
 });
 
 describe('a member with a device is bound to the plan the insurer published', () => {
-  test('the credential names the approved plan, the approval\'s group, the plan\'s copay and the published root', () => {
+  test("the credential names the approved plan, the approval's group, the plan's copay and the published root", () => {
     expect(m).toBeDefined();
     expect(m.eligibilityData.planIdHash.toString()).toBe(ndcHashOf(P.planId));
     expect(m.eligibilityData.groupIdHash.toString()).toBe(ndcHashOf('GRP-PBF'));
@@ -125,19 +160,32 @@ describe('a member with a device is bound to the plan the insurer published', ()
     expect(mint.forestLeaves).toContainEqual({ domain: ForestDomain.ACCESS_CONTROL, index: '0', leaf: leaf0 });
   });
 
-  test('a covered drug of any tier resolves to the plan entry at the plan copay, and its witness reaches the credential\'s root', () => {
+  test("a covered drug of any tier resolves to the plan entry at the plan copay, and its witness reaches the credential's root", () => {
     const c = svc.formularyEntryFor(m, ndcHashOf(tier2));
     expect(c.copayAmountCents).toBe(1500);
     expect(c.entry.tierLevel.toBigInt()).toBe(2n);
-    expect(c.registry.getEntryWitness(c.leafIndex).calculateRoot(c.entry.commitment()).toString()).toBe(m.eligibilityData.formularyRoot.toString());
+    expect(c.registry.getEntryWitness(c.leafIndex).calculateRoot(c.entry.commitment()).toString()).toBe(
+      m.eligibilityData.formularyRoot.toString(),
+    );
   });
 
   test('a drug the plan does not list is refused at prescribing, before any proof or pending prescription', async () => {
     m.pcpAssignment = { pcpWalletId: svc.prescriberWalletIds.get(0) };
     const r0 = svc.rxCounter;
     const rx0 = svc.prescriptions.size;
-    const refused = svc.createPrescription({ prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: W, ndcHash: ndcHashOf(offPlan), quantity: 30, refills: 0 });
-    await expect(refused).rejects.toMatchObject({ name: 'RegistrationRefused', status: 403, message: expect.stringMatching(/not on the formulary of this member's plan \(PLAN-PBF-1\)/) });
+    const refused = svc.createPrescription({
+      prescriberIndex: 0,
+      pharmacyIndex: 0,
+      memberWalletId: W,
+      ndcHash: ndcHashOf(offPlan),
+      quantity: 30,
+      refills: 0,
+    });
+    await expect(refused).rejects.toMatchObject({
+      name: 'RegistrationRefused',
+      status: 403,
+      message: expect.stringMatching(/not on the formulary of this member's plan \(PLAN-PBF-1\)/),
+    });
     expect(svc.pendingPrescriptions.size).toBe(0);
     expect(svc.prescriptions.size).toBe(rx0);
     expect(svc.rxCounter).toBe(r0);
@@ -151,19 +199,21 @@ describe('a member with a device is bound to the plan the insurer published', ()
     expect(svc.priorAuths.get(paId).status).toBe('PENDING');
   });
 
-  test('the EligibilityProgram witness is the member\'s own registry leaf; the console plan stays at 0', () => {
+  test("the EligibilityProgram witness is the member's own registry leaf; the console plan stays at 0", () => {
     const before = svc.benefitPlanRegistry.count;
     const i = svc.benefitPlanIndexOf(m.eligibilityData);
     expect(i).toBeGreaterThan(0n);
     expect(svc.benefitPlanIndexOf(m.eligibilityData)).toBe(i);
     expect(svc.benefitPlanRegistry.count).toBeLessThanOrEqual(before + 1);
-    expect(svc.benefitPlanRegistry.getPlanWitness(i).calculateRoot(m.eligibilityData.commitment()).toString()).toBe(svc.benefitPlanRegistry.getRoot().toString());
+    expect(svc.benefitPlanRegistry.getPlanWitness(i).calculateRoot(m.eligibilityData.commitment()).toString()).toBe(
+      svc.benefitPlanRegistry.getRoot().toString(),
+    );
     expect(svc.benefitPlanIndexOf(svc.sharedEligibilityData)).toBe(0n);
   });
 
   test('registration refuses a root the engine cannot rebuild, an unpublished plan, and a mismatched plan hash', async () => {
     const Q = { ...publishedPlan({ planId: 'PLAN-PBF-Q' }) };
-    Q.publishedTerms = { ...Q.publishedTerms, formularyRoot: '1' };   // what publishing stored before plan binding
+    Q.publishedTerms = { ...Q.publishedTerms, formularyRoot: '1' }; // what publishing stored before plan binding
     Q.formularyRoot = '1';
     const R = { ...publishedPlan({ planId: 'PLAN-PBF-R' }), published: false, publishedTerms: undefined };
     await node.storePlan(Q);
@@ -174,7 +224,10 @@ describe('a member with a device is bound to the plan the insurer published', ()
       [approvedWallet(P.planId, ndcHashOf('OTHER')), /plan hash/],
     ];
     for (const [w, why] of cases) {
-      await expect(svc.registerMemberFromEnrollment({ walletId: w, ownershipProofJson: '{}', displayName: 'X' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(why) });
+      await expect(svc.registerMemberFromEnrollment({ walletId: w, ownershipProofJson: '{}', displayName: 'X' })).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(why),
+      });
       expect(svc.enrolledMembers.has(w)).toBe(false);
     }
   });
@@ -219,14 +272,18 @@ describe('a member with a device is bound to the plan the insurer published', ()
   test('a member stays served at its published terms while the plan is a draft, also after a restart', async () => {
     // the plan is still the draft from the test above: live copay 3000, published false, published terms at 2500
     expect(seq.getPlan(P.planId).published).toBe(false);
-    const restarted = new AdjudicationService(() => {}, () => {}, node);
+    const restarted = new AdjudicationService(
+      () => {},
+      () => {},
+      node,
+    );
     restarted.compiled = true;
-    const pcp = m.pcpAssignment;   // the stand-in assignment of the prescribing test has no commitment to export
+    const pcp = m.pcpAssignment; // the stand-in assignment of the prescribing test has no commitment to export
     delete m.pcpAssignment;
     const checkpoint = svc.exportState();
     m.pcpAssignment = pcp;
     restarted.restoreState(checkpoint);
-    expect(restarted.planFormularies.size).toBe(0);   // nothing built in memory yet: only the plan record can serve it
+    expect(restarted.planFormularies.size).toBe(0); // nothing built in memory yet: only the plan record can serve it
     const m2 = restarted.enrolledMembers.get(W);
     const c = restarted.formularyEntryFor(m2, ndcHashOf(onPlan[1]));
     expect(c.copayAmountCents).toBe(2500);
@@ -235,7 +292,7 @@ describe('a member with a device is bound to the plan the insurer published', ()
     expect(m2.eligibilityData.commitment().toString()).toBe(commitment);
   });
 
-  test('the console\'s formulary change does not touch a member with a device', async () => {
+  test("the console's formulary change does not touch a member with a device", async () => {
     const commitment = m.eligibilityData.commitment().toString();
     const n0 = svc.walletUpdatesFor(W).length;
     await svc.updateFormularyEntry({ ndcHash: ndcHashOf(onPlan[0]), action: 'MODIFY', newCopayAmountCents: 1234 });
@@ -244,11 +301,17 @@ describe('a member with a device is bound to the plan the insurer published', ()
     expect(svc.benefitPlanIndexOf(svc.sharedEligibilityData)).toBe(0n);
   });
 
-  test('step therapy follows the member\'s plan entry, not the console\'s formulary', async () => {
+  test("step therapy follows the member's plan entry, not the console's formulary", async () => {
     // the console now marks the tier-2 drug as needing step therapy; the member's plan entry does not
     await svc.updateFormularyEntry({ ndcHash: ndcHashOf(tier2), action: 'MODIFY', newStepTherapyRequired: true });
     expect(svc.checkStepTherapy(W, ndcHashOf(tier2)).message).toBe('Step therapy not required');
-    const f: any = { memberIndex: 0, planId: 'PLAN-GOLD-2026', eligibilityData: svc.sharedEligibilityData, lifecycle: 'ELIGIBLE', walletIdStr: 'fixture' };
+    const f: any = {
+      memberIndex: 0,
+      planId: 'PLAN-GOLD-2026',
+      eligibilityData: svc.sharedEligibilityData,
+      lifecycle: 'ELIGIBLE',
+      walletIdStr: 'fixture',
+    };
     svc.enrolledMembers.set('fixture-step', f);
     expect(svc.checkStepTherapy('fixture-step', ndcHashOf(tier2)).message).not.toBe('Step therapy not required');
     svc.enrolledMembers.delete('fixture-step');
@@ -258,12 +321,23 @@ describe('a member with a device is bound to the plan the insurer published', ()
     const dropped = onPlan[1];
     await node.storePlan(publishedPlan({ copayAmountCents: 2500, formularyNdcs: [onPlan[0], tier2] }));
     svc.prescriptions.set('RX-PBF-DROPPED', {
-      id: 'RX-PBF-DROPPED', memberWalletId: W, ndcHash: ndcHashOf(dropped), pharmacyIndex: 0, prescriberIndex: 0,
-      quantity: 30, quantityDispensed: 0, status: 'FILLED', statusHistory: [], formularyEntry: svc.formularyEntryFor(m, ndcHashOf(onPlan[0])).entry,
+      id: 'RX-PBF-DROPPED',
+      memberWalletId: W,
+      ndcHash: ndcHashOf(dropped),
+      pharmacyIndex: 0,
+      prescriberIndex: 0,
+      quantity: 30,
+      quantityDispensed: 0,
+      status: 'FILLED',
+      statusHistory: [],
+      formularyEntry: svc.formularyEntryFor(m, ndcHashOf(onPlan[0])).entry,
     });
     const proofs = jest.fn();
     svc.dispatchProof = proofs;
-    await expect(svc.dispensePrescription({ prescriptionId: 'RX-PBF-DROPPED' })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/not on the formulary of this member's plan/) });
+    await expect(svc.dispensePrescription({ prescriptionId: 'RX-PBF-DROPPED' })).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/not on the formulary of this member's plan/),
+    });
     expect(proofs).not.toHaveBeenCalled();
     expect(svc.prescriptions.get('RX-PBF-DROPPED').status).toBe('FILLED');
     // the member was brought onto the republished plan first
@@ -273,16 +347,27 @@ describe('a member with a device is bound to the plan the insurer published', ()
 
 describe('the engine in source', () => {
   const src = fs.readFileSync('src/adjudication/interactive-service.ts', 'utf8').replace(/\r\n/g, '\n');
-  test('the fill proves the member\'s plan entry with the plan registry\'s witness, and the argument types are unchanged', () => {
-    const dispatch = src.slice(src.indexOf("'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',"), src.indexOf('const elapsedFulf'));
-    expect(dispatch).toContain('fulfillmentData, coverage.entry, rxForestRoots');
-    expect(src).toContain('const fulfFormWitness = coverage.registry.getEntryWitness(coverage.leafIndex);');
-    expect(src).not.toContain('this.formularyRegistry.getEntryWitness(rxState.formularyLeafIndex)');
-    expect(dispatch).toContain("['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field',");
+  test("the fill proves the member's plan entry with the plan registry's witness, and the argument types are unchanged", () => {
+    const code = flat(src);
+    const dispatch = code.slice(
+      code.indexOf(flat("'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',")),
+      code.indexOf('const elapsedFulf'),
+    );
+    expect(dispatch).toContain(flat('fulfillmentData, coverage.entry, rxForestRoots'));
+    expect(code).toContain(flat('const fulfFormWitness = coverage.registry.getEntryWitness(coverage.leafIndex);'));
+    expect(code).not.toContain(flat('this.formularyRegistry.getEntryWitness(rxState.formularyLeafIndex)'));
+    expect(dispatch).toContain(
+      flat(
+        "['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field',",
+      ),
+    );
   });
 
   test('prescribing resolves the entry after the network check and before the pending entry', () => {
-    const fn = src.slice(src.indexOf('  async createPrescription('), src.indexOf('this.pendingPrescriptions.set(pendingRxId', src.indexOf('  async createPrescription(')));
+    const fn = src.slice(
+      src.indexOf('  async createPrescription('),
+      src.indexOf('this.pendingPrescriptions.set(pendingRxId', src.indexOf('  async createPrescription(')),
+    );
     const network = fn.indexOf('inNetworkPharmacyIndices.includes(opts.pharmacyIndex)');
     const coverage = fn.indexOf('const coverage = this.formularyEntryFor(enrolled, opts.ndcHash);');
     expect(network).toBeGreaterThan(0);

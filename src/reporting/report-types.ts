@@ -330,21 +330,10 @@ export interface TimeSeriesReport {
 
 /** Dimensions available for cross-tab pivoting. */
 export type CrossTabDimension =
-  | 'pharmacyWalletId'
-  | 'memberWalletId'
-  | 'prescriberWalletId'
-  | 'tierLevel'
-  | 'therapeuticClass'
-  | 'operationType'
-  | 'ndc'
-  | 'gpi';
+  'pharmacyWalletId' | 'memberWalletId' | 'prescriberWalletId' | 'tierLevel' | 'therapeuticClass' | 'operationType' | 'ndc' | 'gpi';
 
 /** Measures available for cross-tab aggregation. */
-export type CrossTabMeasure =
-  | 'claimCount'
-  | 'totalPatientPayCents'
-  | 'totalPlanPayCents'
-  | 'totalGrossCostCents';
+export type CrossTabMeasure = 'claimCount' | 'totalPatientPayCents' | 'totalPlanPayCents' | 'totalGrossCostCents';
 
 /** A single row in a cross-tab report. */
 export interface CrossTabRow {

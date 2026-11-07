@@ -57,21 +57,19 @@ let eventCount = 0;
 function setConnected(connected) {
   if (statusBadge) {
     statusBadge.textContent = connected ? 'CONNECTED' : 'DISCONNECTED';
-    statusBadge.className = connected
-      ? 'badge inline bg-green fg-white'
-      : 'badge inline bg-red fg-white';
+    statusBadge.className = connected ? 'badge inline bg-green fg-white' : 'badge inline bg-red fg-white';
   }
 }
 
 // ─── Network Status KPIs ──────────────────────────────
 
 const kpiEls = {
-  sequencer:    { kpi: document.getElementById('kpi-sequencer'),    dot: null, val: document.getElementById('kpi-sequencer-val') },
-  contract:     { kpi: document.getElementById('kpi-contract'),     dot: null, val: document.getElementById('kpi-contract-val') },
-  members:      { kpi: document.getElementById('kpi-members'),      dot: null, val: document.getElementById('kpi-members-val') },
-  prescribers:  { kpi: document.getElementById('kpi-prescribers'),  dot: null, val: document.getElementById('kpi-prescribers-val') },
-  pharmacies:   { kpi: document.getElementById('kpi-pharmacies'),   dot: null, val: document.getElementById('kpi-pharmacies-val') },
-  insurer:      { kpi: document.getElementById('kpi-insurer'),      dot: null, val: document.getElementById('kpi-insurer-val') },
+  sequencer: { kpi: document.getElementById('kpi-sequencer'), dot: null, val: document.getElementById('kpi-sequencer-val') },
+  contract: { kpi: document.getElementById('kpi-contract'), dot: null, val: document.getElementById('kpi-contract-val') },
+  members: { kpi: document.getElementById('kpi-members'), dot: null, val: document.getElementById('kpi-members-val') },
+  prescribers: { kpi: document.getElementById('kpi-prescribers'), dot: null, val: document.getElementById('kpi-prescribers-val') },
+  pharmacies: { kpi: document.getElementById('kpi-pharmacies'), dot: null, val: document.getElementById('kpi-pharmacies-val') },
+  insurer: { kpi: document.getElementById('kpi-insurer'), dot: null, val: document.getElementById('kpi-insurer-val') },
 };
 
 // Grab dot elements
@@ -104,11 +102,9 @@ function setKpi(key, online, label) {
 }
 
 function updateNetworkStatus() {
-  setKpi('sequencer', nodeStatus.sequencerOnline,
-    nodeStatus.sequencerOnline ? 'Connected' : 'Offline');
+  setKpi('sequencer', nodeStatus.sequencerOnline, nodeStatus.sequencerOnline ? 'Connected' : 'Offline');
 
-  setKpi('contract', nodeStatus.contractActive,
-    nodeStatus.contractActive ? 'Active' : 'Inactive');
+  setKpi('contract', nodeStatus.contractActive, nodeStatus.contractActive ? 'Active' : 'Inactive');
 
   const mc = nodeStatus.membersActive.size;
   setKpi('members', mc > 0, `${mc} online`);
@@ -119,8 +115,7 @@ function updateNetworkStatus() {
   const phc = nodeStatus.pharmaciesActive.size;
   setKpi('pharmacies', phc > 0, `${phc} online`);
 
-  setKpi('insurer', nodeStatus.insurerOnline,
-    nodeStatus.insurerOnline ? 'Active' : 'Offline');
+  setKpi('insurer', nodeStatus.insurerOnline, nodeStatus.insurerOnline ? 'Active' : 'Offline');
 }
 
 /** Track which node types are active based on viz events */
@@ -159,9 +154,7 @@ function trackNodeActivity(event) {
   }
 
   // Enrollment or fulfillment events imply CareContract is active
-  if (event.type.includes('enrollment:complete') ||
-      event.type.includes('fulfillment:settled') ||
-      event.type.includes('batch:settled')) {
+  if (event.type.includes('enrollment:complete') || event.type.includes('fulfillment:settled') || event.type.includes('batch:settled')) {
     nodeStatus.contractActive = true;
   }
 
@@ -226,7 +219,9 @@ if (clearBtn) {
   clearBtn.addEventListener('click', async () => {
     try {
       await fetch(`${BASE_URL}/viz/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    } catch { /* server may be down */ }
+    } catch {
+      /* server may be down */
+    }
 
     // Reset local state
     eventCount = 0;
@@ -269,10 +264,10 @@ async function init() {
   // Pre-populate node counts from entity registry
   const allEntities = entities.getAll();
   for (const ent of allEntities) {
-    if (ent.type === 'member')     nodeStatus.memberCount++;
+    if (ent.type === 'member') nodeStatus.memberCount++;
     if (ent.type === 'prescriber') nodeStatus.prescriberCount++;
-    if (ent.type === 'pharmacy')   nodeStatus.pharmacyCount++;
-    if (ent.type === 'insurer')    nodeStatus.insurerOnline = true;
+    if (ent.type === 'pharmacy') nodeStatus.pharmacyCount++;
+    if (ent.type === 'insurer') nodeStatus.insurerOnline = true;
   }
   updateNetworkStatus();
 

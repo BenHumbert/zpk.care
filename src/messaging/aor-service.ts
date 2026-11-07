@@ -135,11 +135,7 @@ export class AorService {
     currentTimestamp: number,
   ): AorInitiationResult {
     // Check rate limit: scan for recent AOR_INITIATE from this member
-    const rateLimited = AorService.isRateLimited(
-      memberWalletId,
-      messageRegistry,
-      currentTimestamp,
-    );
+    const rateLimited = AorService.isRateLimited(memberWalletId, messageRegistry, currentTimestamp);
 
     // Validate document (at minimum, Section 1 must be complete)
     const partialAor: AorLocalData = {
@@ -191,12 +187,7 @@ export class AorService {
    * @param aorCommitment — AOR document commitment
    * @param scopeFlags — authorized scope flags
    */
-  static buildConfirmationHash(
-    memberWalletId: Field,
-    repWalletId: Field,
-    aorCommitment: Field,
-    scopeFlags: Field,
-  ): Field {
+  static buildConfirmationHash(memberWalletId: Field, repWalletId: Field, aorCommitment: Field, scopeFlags: Field): Field {
     return buildAorConfirmationHash(memberWalletId, repWalletId, aorCommitment, scopeFlags);
   }
 
@@ -221,10 +212,7 @@ export class AorService {
     aorCommitment: Field,
     validityDays: number = AOR_DEFAULT_VALIDITY_DAYS,
   ): AorDelegationResult {
-    const expirationDate = AorService.computeExpirationDate(
-      effectiveDateStr,
-      validityDays,
-    );
+    const expirationDate = AorService.computeExpirationDate(effectiveDateStr, validityDays);
 
     const delegationData = new DelegationData({
       delegatorWalletId: memberWalletId,
@@ -249,10 +237,7 @@ export class AorService {
    * @param delegationData — the delegation to check
    * @param currentTimestamp — current time in ms
    */
-  static isPickupEligible(
-    delegationData: DelegationData,
-    currentTimestamp: number,
-  ): PickupEligibilityResult {
+  static isPickupEligible(delegationData: DelegationData, currentTimestamp: number): PickupEligibilityResult {
     // Check if delegation has PICKUP scope at all
     const scopeNum = Number(delegationData.scopeFlags.toBigInt());
     const hasPickup = (scopeNum & Number(SCOPE_PICKUP.toBigInt())) !== 0;
@@ -296,11 +281,7 @@ export class AorService {
    * @param scopeRequired — the scope being exercised (single flag)
    * @param currentTimestamp — current time in ms
    */
-  static isOfflineCredentialValid(
-    chainStateTimestamp: number,
-    scopeRequired: number,
-    currentTimestamp: number,
-  ): OfflineValidityResult {
+  static isOfflineCredentialValid(chainStateTimestamp: number, scopeRequired: number, currentTimestamp: number): OfflineValidityResult {
     const stalenessMs = currentTimestamp - chainStateTimestamp;
 
     // Determine TTL based on highest-risk scope requested
@@ -333,22 +314,14 @@ export class AorService {
    * Scans the message registry for the most recent AOR_INITIATE
    * from this member. If within 24h, the member is rate-limited.
    */
-  static isRateLimited(
-    memberWalletId: Field,
-    messageRegistry: MessageRegistry,
-    currentTimestamp: number,
-  ): boolean {
+  static isRateLimited(memberWalletId: Field, messageRegistry: MessageRegistry, currentTimestamp: number): boolean {
     const walletStr = memberWalletId.toString();
     const aorInitiateType = MSG_TYPE_AOR_INITIATE.toString();
 
     // Scan registry for matching messages
     for (let i = 0n; i < BigInt(messageRegistry.count); i++) {
       const msg = messageRegistry.getMessage(i);
-      if (
-        msg &&
-        msg.senderWalletId.toString() === walletStr &&
-        msg.messageType.toString() === aorInitiateType
-      ) {
+      if (msg && msg.senderWalletId.toString() === walletStr && msg.messageType.toString() === aorInitiateType) {
         // Found an AOR_INITIATE from this member
         const msgTimestamp = Number(msg.timestamp.toBigInt());
         if (currentTimestamp - msgTimestamp < AOR_RATE_LIMIT_MS) {
@@ -437,10 +410,7 @@ export class AorService {
    * @param delegationIndex — the delegation's index in the registry
    * @param delegationRegistry — the delegation registry
    */
-  static isDelegationActive(
-    delegationIndex: bigint,
-    delegationRegistry: DelegationRegistry,
-  ): boolean {
+  static isDelegationActive(delegationIndex: bigint, delegationRegistry: DelegationRegistry): boolean {
     return delegationRegistry.getDelegation(delegationIndex) !== undefined;
   }
 
@@ -449,10 +419,7 @@ export class AorService {
   /**
    * Compute expiration date from effective date + validity days.
    */
-  static computeExpirationDate(
-    effectiveDateStr: string,
-    validityDays: number,
-  ): string {
+  static computeExpirationDate(effectiveDateStr: string, validityDays: number): string {
     const year = parseInt(effectiveDateStr.slice(0, 4), 10);
     const month = parseInt(effectiveDateStr.slice(4, 6), 10);
     const day = parseInt(effectiveDateStr.slice(6, 8), 10);

@@ -117,27 +117,14 @@ const TEST_PHARMACY: PharmacyLocalData = {
 const NDC_LISINOPRIL_HASH = Poseidon.hash([Field(BigInt('00378180510'))]).toString();
 
 // Helper: create a wallet ID and export a recovery card
-function makeRecoveryCard(
-  enrollmentKey: string,
-  pin: string,
-  local: MemberLocalData,
-): RecoveryCard {
+function makeRecoveryCard(enrollmentKey: string, pin: string, local: MemberLocalData): RecoveryCard {
   const tokenIdHash = hashString('TOKEN-001').toString();
   const employeeIdHash = hashString('EMP-12345').toString();
   const groupIdHash = hashString('ACME-CORP-001');
   const planIdHash = hashString('PLAN-GOLD-2026').toString();
   const walletId = deriveMemberWalletId(local, enrollmentKey, groupIdHash, TEST_SALT);
 
-  return exportRecoveryCard(
-    enrollmentKey,
-    pin,
-    walletId.toString(),
-    0,
-    tokenIdHash,
-    employeeIdHash,
-    groupIdHash.toString(),
-    planIdHash,
-  );
+  return exportRecoveryCard(enrollmentKey, pin, walletId.toString(), 0, tokenIdHash, employeeIdHash, groupIdHash.toString(), planIdHash);
 }
 
 // ─── Mock Proof Helpers ─────────────────────────────────────
@@ -213,15 +200,11 @@ describe('Recovery Card v2', () => {
 
   test('wrong PIN throws error', () => {
     const card = makeRecoveryCard(TEST_ENROLLMENT_KEY, TEST_PIN, TEST_MEMBER);
-    expect(() => importRecoveryCard(card, '654321')).toThrow(
-      'Decryption failed',
-    );
+    expect(() => importRecoveryCard(card, '654321')).toThrow('Decryption failed');
   });
 
   test('PIN too short throws error', () => {
-    expect(() =>
-      makeRecoveryCard(TEST_ENROLLMENT_KEY, '123', TEST_MEMBER),
-    ).toThrow('PIN must be at least');
+    expect(() => makeRecoveryCard(TEST_ENROLLMENT_KEY, '123', TEST_MEMBER)).toThrow('PIN must be at least');
   });
 
   test('card size under 888 bytes (NFC capacity)', () => {
@@ -377,13 +360,16 @@ describe('Accumulator Reconstruction', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '2000',
-      planPayCents: '8000',
-      operationType: '1',
-      deductibleCreditCents: '1500',
-    }));
+    await sequencer.submitProof(
+      proof,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '2000',
+        planPayCents: '8000',
+        operationType: '1',
+        deductibleCreditCents: '1500',
+      }),
+    );
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
     expect(result).not.toBeNull();
@@ -409,20 +395,26 @@ describe('Accumulator Reconstruction', () => {
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '1000',
-      planPayCents: '5000',
-      deductibleCreditCents: '1000',
-      dateOfService: '20260115',
-    }));
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '2000',
-      planPayCents: '3000',
-      deductibleCreditCents: '500',
-      dateOfService: '20260116',
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '1000',
+        planPayCents: '5000',
+        deductibleCreditCents: '1000',
+        dateOfService: '20260115',
+      }),
+    );
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '2000',
+        planPayCents: '3000',
+        deductibleCreditCents: '500',
+        dateOfService: '20260116',
+      }),
+    );
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
     expect(result!.oopPaidCents).toBe(3000n);
@@ -448,26 +440,32 @@ describe('Accumulator Reconstruction', () => {
     });
 
     // Fulfillment
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '3000',
-      planPayCents: '7000',
-      operationType: '1',
-      deductibleCreditCents: '2000',
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '3000',
+        planPayCents: '7000',
+        operationType: '1',
+        deductibleCreditCents: '2000',
+      }),
+    );
 
     // Reversal
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '1000',
-      planPayCents: '2000',
-      operationType: '2',
-      deductibleCreditCents: '500',
-    }));
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '1000',
+        planPayCents: '2000',
+        operationType: '2',
+        deductibleCreditCents: '500',
+      }),
+    );
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
-    expect(result!.oopPaidCents).toBe(2000n);       // 3000 - 1000
-    expect(result!.benefitUsedCents).toBe(5000n);    // 7000 - 2000
+    expect(result!.oopPaidCents).toBe(2000n); // 3000 - 1000
+    expect(result!.benefitUsedCents).toBe(5000n); // 7000 - 2000
     expect(result!.deductiblePaidCents).toBe(1500n); // 2000 - 500
     expect(result!.claimCount).toBe(2);
   });
@@ -486,30 +484,36 @@ describe('Accumulator Reconstruction', () => {
 
       if (i < 2) {
         // Two fulfillments: 1000/5000/800 each (different dates to avoid dedup)
-        await sequencer.submitProof(proof, makeClaimMetadata({
-          memberWalletId: WALLET_A.toString(),
-          patientPayCents: '1000',
-          planPayCents: '5000',
-          operationType: '1',
-          deductibleCreditCents: '800',
-          dateOfService: `2026011${5 + i}`,
-        }));
+        await sequencer.submitProof(
+          proof,
+          makeClaimMetadata({
+            memberWalletId: WALLET_A.toString(),
+            patientPayCents: '1000',
+            planPayCents: '5000',
+            operationType: '1',
+            deductibleCreditCents: '800',
+            dateOfService: `2026011${5 + i}`,
+          }),
+        );
       } else {
         // One reversal: 500/2000/400
-        await sequencer.submitProof(proof, makeClaimMetadata({
-          memberWalletId: WALLET_A.toString(),
-          patientPayCents: '500',
-          planPayCents: '2000',
-          operationType: '2',
-          deductibleCreditCents: '400',
-        }));
+        await sequencer.submitProof(
+          proof,
+          makeClaimMetadata({
+            memberWalletId: WALLET_A.toString(),
+            patientPayCents: '500',
+            planPayCents: '2000',
+            operationType: '2',
+            deductibleCreditCents: '400',
+          }),
+        );
       }
     }
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
-    expect(result!.oopPaidCents).toBe(1500n);        // 1000+1000-500
-    expect(result!.benefitUsedCents).toBe(8000n);     // 5000+5000-2000
-    expect(result!.deductiblePaidCents).toBe(1200n);  // 800+800-400
+    expect(result!.oopPaidCents).toBe(1500n); // 1000+1000-500
+    expect(result!.benefitUsedCents).toBe(8000n); // 5000+5000-2000
+    expect(result!.deductiblePaidCents).toBe(1200n); // 800+800-400
     expect(result!.claimCount).toBe(3);
   });
 });
@@ -519,14 +523,7 @@ describe('Accumulator Reconstruction', () => {
 describe('TokenAuthority.getTokenByHash', () => {
   test('finds consumed token by hash', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-FIND-001',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-FIND-001');
 
     // Consume the token
     authority.consumeToken('TOKEN-FIND-001', Poseidon.hash([Field(42)]));
@@ -543,14 +540,7 @@ describe('TokenAuthority.getTokenByHash', () => {
 
   test('returns undefined for unknown hash', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-EXISTING',
-    );
+    authority.generateToken('ACME-CORP-001', 'PLAN-GOLD-2026', 'EMP-12345', 'FAM-TEST-001', '20260228', 'TOKEN-EXISTING');
 
     const unknownHash = TokenAuthority.fingerprintOf('TOKEN-NONEXISTENT');
     const found = authority.getTokenByHash(unknownHash);
@@ -635,11 +625,7 @@ describe('WalletMigrationProgram — MigrationOutput + Hash Consistency', () => 
     const prescriberWalletId = derivePrescriberWalletId(TEST_PRESCRIBER, TEST_ENROLLMENT_KEY);
     const pharmacyWalletId = derivePharmacyWalletId(TEST_PHARMACY, TEST_ENROLLMENT_KEY);
 
-    const ids = [
-      memberWalletId.toString(),
-      prescriberWalletId.toString(),
-      pharmacyWalletId.toString(),
-    ];
+    const ids = [memberWalletId.toString(), prescriberWalletId.toString(), pharmacyWalletId.toString()];
     // All unique
     expect(new Set(ids).size).toBe(3);
   });
@@ -713,9 +699,7 @@ describe('WalletMigrationService', () => {
       lastName: 'Smith',
     };
 
-    expect(() =>
-      WalletMigrationService.recoverFromCard(card, TEST_PIN, differentMember, TEST_SALT),
-    ).toThrow('Wallet ID mismatch');
+    expect(() => WalletMigrationService.recoverFromCard(card, TEST_PIN, differentMember, TEST_SALT)).toThrow('Wallet ID mismatch');
   });
 
   test('prepareNewWallet generates different wallet ID', () => {
@@ -742,11 +726,7 @@ describe('WalletMigrationService', () => {
       }),
     } as any;
 
-    const request = WalletMigrationService.buildMigrationRequest(
-      mockProof,
-      card,
-      '222',
-    );
+    const request = WalletMigrationService.buildMigrationRequest(mockProof, card, '222');
 
     expect(request.tokenIdHash).toBe(card.tokenIdHash);
     expect(request.employeeIdHash).toBe(card.employeeIdHash);
@@ -787,10 +767,13 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
       newLifecycleRoot: LC_ROOT,
     });
 
-    const receipt = await sequencer.submitProof(proof, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      deductibleCreditCents: '2500',
-    }));
+    const receipt = await sequencer.submitProof(
+      proof,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        deductibleCreditCents: '2500',
+      }),
+    );
 
     expect(receipt.claimLeafIndex).toBe(0n);
 
@@ -816,26 +799,32 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '1500',
-      planPayCents: '4500',
-      deductibleCreditCents: '1500',
-      dateOfService: '20260115',
-    }));
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '2000',
-      planPayCents: '6000',
-      deductibleCreditCents: '1000',
-      dateOfService: '20260116',
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '1500',
+        planPayCents: '4500',
+        deductibleCreditCents: '1500',
+        dateOfService: '20260115',
+      }),
+    );
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '2000',
+        planPayCents: '6000',
+        deductibleCreditCents: '1000',
+        dateOfService: '20260116',
+      }),
+    );
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
     expect(result).not.toBeNull();
-    expect(result!.deductiblePaidCents).toBe(2500n);  // 1500 + 1000
-    expect(result!.oopPaidCents).toBe(3500n);          // 1500 + 2000
-    expect(result!.benefitUsedCents).toBe(10500n);     // 4500 + 6000
+    expect(result!.deductiblePaidCents).toBe(2500n); // 1500 + 1000
+    expect(result!.oopPaidCents).toBe(3500n); // 1500 + 2000
+    expect(result!.benefitUsedCents).toBe(10500n); // 4500 + 6000
     expect(result!.claimCount).toBe(2);
   });
 
@@ -849,9 +838,12 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
     });
 
     // Submit without deductibleCreditCents
-    await sequencer.submitProof(proof, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-    }));
+    await sequencer.submitProof(
+      proof,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+      }),
+    );
 
     const claims = sequencer.getClaimsByMember(WALLET_A.toString());
     expect(claims.length).toBe(1);
@@ -875,27 +867,33 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
     });
 
     // Fulfillment with deductible credit
-    await sequencer.submitProof(proof1, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '5000',
-      planPayCents: '10000',
-      operationType: '1',
-      deductibleCreditCents: '3000',
-    }));
+    await sequencer.submitProof(
+      proof1,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '5000',
+        planPayCents: '10000',
+        operationType: '1',
+        deductibleCreditCents: '3000',
+      }),
+    );
 
     // Reversal with deductible credit
-    await sequencer.submitProof(proof2, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      patientPayCents: '2000',
-      planPayCents: '4000',
-      operationType: '2',
-      deductibleCreditCents: '1000',
-    }));
+    await sequencer.submitProof(
+      proof2,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        patientPayCents: '2000',
+        planPayCents: '4000',
+        operationType: '2',
+        deductibleCreditCents: '1000',
+      }),
+    );
 
     const result = sequencer.reconstructAccumulator(WALLET_A.toString());
-    expect(result!.deductiblePaidCents).toBe(2000n);  // 3000 - 1000
-    expect(result!.oopPaidCents).toBe(3000n);          // 5000 - 2000
-    expect(result!.benefitUsedCents).toBe(6000n);      // 10000 - 4000
+    expect(result!.deductiblePaidCents).toBe(2000n); // 3000 - 1000
+    expect(result!.oopPaidCents).toBe(3000n); // 5000 - 2000
+    expect(result!.benefitUsedCents).toBe(6000n); // 10000 - 4000
   });
 
   test('checkpoint preserves deductibleCreditCents in claim accumulator', async () => {
@@ -907,10 +905,13 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
       newLifecycleRoot: LC_ROOT,
     });
 
-    await sequencer.submitProof(proof, makeClaimMetadata({
-      memberWalletId: WALLET_A.toString(),
-      deductibleCreditCents: '4200',
-    }));
+    await sequencer.submitProof(
+      proof,
+      makeClaimMetadata({
+        memberWalletId: WALLET_A.toString(),
+        deductibleCreditCents: '4200',
+      }),
+    );
 
     // Export and restore
     const state = sequencer.exportState();
@@ -959,11 +960,7 @@ describe('Migration E2E Flow', () => {
 
     // A migration request built from this card would carry those hashes
     const mockProof = { toJSON: () => ({}) } as any;
-    const request = WalletMigrationService.buildMigrationRequest(
-      mockProof,
-      card,
-      '999',
-    );
+    const request = WalletMigrationService.buildMigrationRequest(mockProof, card, '999');
 
     expect(request.tokenIdHash).toBe(tokenIdHash);
     expect(request.employeeIdHash).toBe(employeeIdHash);

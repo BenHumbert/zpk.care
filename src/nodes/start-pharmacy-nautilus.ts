@@ -59,7 +59,12 @@ import type { NautilusStateData } from './nautilus-local-state.js';
 import { buildPharmacyRoutes } from './routes/pharmacy-routes.js';
 import { PharmacyNode } from './pharmacy-node.js';
 import {
-  resolveBindHost, resolveAllowedOrigins, resolveRpcProxyPolicy, resolvePeerUrl, resolvePublicHosts, isLoopbackBind,
+  resolveBindHost,
+  resolveAllowedOrigins,
+  resolveRpcProxyPolicy,
+  resolvePeerUrl,
+  resolvePublicHosts,
+  isLoopbackBind,
 } from '../security/network-policy.js';
 
 // ─── Environment ─────────────────────────────────────────────
@@ -171,17 +176,14 @@ async function main(): Promise<void> {
     const { derivePharmacyWalletId } = await import('../wallets/wallet-derivation.js');
 
     const idx = parseInt(seedPharmacyId, 10);
-    const pharmacy = !isNaN(idx) && idx >= 0 && idx < PHARMACIES.length
-      ? PHARMACIES[idx]
-      : PHARMACIES.find((p) =>
-          p.storeName.toLowerCase().includes(seedPharmacyId.toLowerCase()) ||
-          p.ncpdpProviderId === seedPharmacyId
-        );
+    const pharmacy =
+      !isNaN(idx) && idx >= 0 && idx < PHARMACIES.length
+        ? PHARMACIES[idx]
+        : PHARMACIES.find((p) => p.storeName.toLowerCase().includes(seedPharmacyId.toLowerCase()) || p.ncpdpProviderId === seedPharmacyId);
 
     if (!pharmacy) {
       console.error('  [FATAL] Seed pharmacy not found: %s', seedPharmacyId);
-      console.error('  Available: %s', PHARMACIES.map((p, i) =>
-        `${i}=${p.storeName}`).join(', '));
+      console.error('  Available: %s', PHARMACIES.map((p, i) => `${i}=${p.storeName}`).join(', '));
       process.exit(1);
     }
 
@@ -222,12 +224,15 @@ async function main(): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
         });
-        const json = await resp.json() as { result?: { credentialState?: number } | null };
-        if (json.result && json.result.credentialState === 2) { // ACTIVE
+        const json = (await resp.json()) as { result?: { credentialState?: number } | null };
+        if (json.result && json.result.credentialState === 2) {
+          // ACTIVE
           credentialed = true;
           break;
         }
-      } catch { /* sequencer not ready yet */ }
+      } catch {
+        /* sequencer not ready yet */
+      }
       await new Promise((r) => setTimeout(r, 1000));
     }
 
@@ -241,9 +246,11 @@ async function main(): Promise<void> {
       pharmacyType: pharmacy.pharmacyTypeDesc,
       enrollmentKey: pharmacy.enrollmentKey,
     });
-    console.log(registration.ok
-      ? '  [seed] Entity registered on sequencer (encryption + signing keys)'
-      : `  [seed] Entity registration refused: ${registration.error}`);
+    console.log(
+      registration.ok
+        ? '  [seed] Entity registered on sequencer (encryption + signing keys)'
+        : `  [seed] Entity registration refused: ${registration.error}`,
+    );
 
     if (credentialed) {
       console.log('  [seed] Credentialed on sequencer — transitioning to ready');
@@ -255,39 +262,38 @@ async function main(): Promise<void> {
   }
 
   // ── State Recovery (recovery mode) ──
-
   else {
-  const stateExists = await localState.exists();
-  if (stateExists && pin) {
-    console.log('  [state] Unlocking encrypted state...');
-    await localState.unlock(pin);
-    const data = await localState.load();
-    if (data?.walletId) {
-      console.log('  [state] Restored wallet: %s...', data.walletId.slice(0, 12));
-      const node = new PharmacyNode({
+    const stateExists = await localState.exists();
+    if (stateExists && pin) {
+      console.log('  [state] Unlocking encrypted state...');
+      await localState.unlock(pin);
+      const data = await localState.load();
+      if (data?.walletId) {
+        console.log('  [state] Restored wallet: %s...', data.walletId.slice(0, 12));
+        const node = new PharmacyNode({
+          role: 'pharmacy',
+          walletId: data.walletId,
+          sequencerUrl: config.sequencerUrl,
+          displayName: config.displayName,
+          clientOptions: server.sequencerClientOptions(),
+        });
+        server.setEntityNode(node);
+        server.setOnboardingPhase((data.onboarding.phase as any) ?? 'ready');
+      }
+    } else if (!stateExists && pin) {
+      await localState.unlock(pin);
+      const initialState: NautilusStateData = {
+        version: 1,
         role: 'pharmacy',
-        walletId: data.walletId,
-        sequencerUrl: config.sequencerUrl,
-        displayName: config.displayName,
-        clientOptions: server.sequencerClientOptions(),
-      });
-      server.setEntityNode(node);
-      server.setOnboardingPhase(data.onboarding.phase as any ?? 'ready');
+        onboarding: { phase: 'awaiting_token' },
+        lastSavedAt: new Date().toISOString(),
+      };
+      await localState.save(initialState);
+      console.log('  [state] Created new encrypted state');
+    } else if (!pin) {
+      console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
+      console.log('  [state] Starting in fresh onboarding mode');
     }
-  } else if (!stateExists && pin) {
-    await localState.unlock(pin);
-    const initialState: NautilusStateData = {
-      version: 1,
-      role: 'pharmacy',
-      onboarding: { phase: 'awaiting_token' },
-      lastSavedAt: new Date().toISOString(),
-    };
-    await localState.save(initialState);
-    console.log('  [state] Created new encrypted state');
-  } else if (!pin) {
-    console.log('  [state] No PIN provided (set ZKTRIDENT_PIN for auto-unlock)');
-    console.log('  [state] Starting in fresh onboarding mode');
-  }
   } // end else (recovery mode)
 
   // ── Start Server (if not already started by seed credentialing path) ──

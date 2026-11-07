@@ -28,6 +28,7 @@
  * runner does not load); where the waits sit, read from the scripts.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 import os from 'os';
 import path from 'path';
 import http from 'http';
@@ -46,21 +47,40 @@ function scriptedSequencer() {
   const server = http.createServer((req, res) => {
     const p = new URL(req.url ?? '/', 'http://localhost').pathname;
     seen.push({ path: p, authorization: req.headers.authorization });
-    if (p === '/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true, running: true })); return; }
+    if (p === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, running: true }));
+      return;
+    }
     if (p === '/interactive/ready') {
       readyAsks++;
       const ready = notReadyFor >= 0 && readyAsks > notReadyFor;
-      res.writeHead(ready ? 200 : 503, ready ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', 'Retry-After': '10' });
+      res.writeHead(
+        ready ? 200 : 503,
+        ready ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', 'Retry-After': '10' },
+      );
       // the extra field stands in for anything a broken engine might add; the readers keep only the summary
-      res.end(JSON.stringify(ready ? { ready: true, compiled: true, prover: 'pool', walletId: '424242' } : { ready: false, compiled: true, prover: 'starting', walletId: '424242' }));
+      res.end(
+        JSON.stringify(
+          ready
+            ? { ready: true, compiled: true, prover: 'pool', walletId: '424242' }
+            : { ready: false, compiled: true, prover: 'starting', walletId: '424242' },
+        ),
+      );
       return;
     }
-    res.writeHead(404); res.end();
+    res.writeHead(404);
+    res.end();
   });
   return {
     seen,
-    reset(times: number) { seen.length = 0; readyAsks = 0; notReadyFor = times; },
-    start: () => new Promise<string>((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${(server.address() as any).port}`))),
+    reset(times: number) {
+      seen.length = 0;
+      readyAsks = 0;
+      notReadyFor = times;
+    },
+    start: () =>
+      new Promise<string>((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${(server.address() as any).port}`))),
     stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
@@ -105,22 +125,34 @@ describe("the harnesses' wait (scripts/e2e-verify/engine-ready.ts)", () => {
 });
 
 describe('where the harnesses wait', () => {
-  const read = (f: string) => fs.readFileSync(f, 'utf-8').replace(/\r\n/g, '\n');
+  const read = (f: string) => flat(fs.readFileSync(f, 'utf-8'));
 
   test.each([
-    ['scripts/e2e-verify/run.ts', 'trace', "trace.check('Adjudication service compiled all 10 circuits'", '── 2. Security probes before anything is set up'],
+    [
+      'scripts/e2e-verify/run.ts',
+      'trace',
+      "trace.check('Adjudication service compiled all 10 circuits'",
+      '── 2. Security probes before anything is set up',
+    ],
     ['scripts/e2e-verify/run-multi.ts', 't', "t.check('All circuits compiled'", "t.begin('insurer', 'Create the plan');"],
-  ])('%s waits for the engine in its readiness step, before anything else, and records the check with the time', (file, tr, compiledCheck, nextStep) => {
-    const src = read(file);
-    expect(src).toContain("import { waitForEngineReady } from './engine-ready.js';");
-    const wait = src.indexOf('const provers = await waitForEngineReady(quiet, SEQ);');
-    const check = src.indexOf(`${tr}.check('Claims engine ready to prove', provers.ready, 'ready within 15 min', provers.readiness, \`waited \${(provers.ms / 1000).toFixed(1)} s\`);`);
-    expect(wait).toBeGreaterThan(src.indexOf(compiledCheck));
-    expect(src.indexOf(compiledCheck)).toBeGreaterThan(0);
-    expect(check).toBeGreaterThan(wait);
-    expect(src.indexOf(nextStep)).toBeGreaterThan(check);
-    expect(src).toContain('results.engineReadyWaitMs = provers.ms;');
-  });
+  ])(
+    '%s waits for the engine in its readiness step, before anything else, and records the check with the time',
+    (file, tr, compiledCheck, nextStep) => {
+      const src = read(file);
+      expect(src).toContain(flat("import { waitForEngineReady } from './engine-ready.js';"));
+      const wait = src.indexOf(flat('const provers = await waitForEngineReady(quiet, SEQ);'));
+      const check = src.indexOf(
+        flat(
+          `${tr}.check('Claims engine ready to prove', provers.ready, 'ready within 15 min', provers.readiness, \`waited \${(provers.ms / 1000).toFixed(1)} s\`);`,
+        ),
+      );
+      expect(wait).toBeGreaterThan(src.indexOf(flat(compiledCheck)));
+      expect(src.indexOf(flat(compiledCheck))).toBeGreaterThan(0);
+      expect(check).toBeGreaterThan(wait);
+      expect(src.indexOf(flat(nextStep))).toBeGreaterThan(check);
+      expect(src).toContain(flat('results.engineReadyWaitMs = provers.ms;'));
+    },
+  );
 });
 
 /** Runs tools/demo/lib/reads.mjs in a child process against the scripted sequencer; prints what the script returns. */
@@ -128,10 +160,19 @@ function runReads(script: string, env: Record<string, string>): Promise<any> {
   const readsUrl = pathToFileURL(path.resolve('tools/demo/lib/reads.mjs')).href;
   const code = `const m = await import(process.env.READS_URL);\nconst out = await (async () => { ${script} })();\nprocess.stdout.write(JSON.stringify(out));`;
   return new Promise((resolve, reject) => {
-    execFile(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, READS_URL: readsUrl, SEQ_URL: seqUrl, ...env }, timeout: 30_000 }, (err, stdout, stderr) => {
-      if (err) return reject(new Error(`${err.message}\n${stderr}`));
-      try { resolve(JSON.parse(stdout)); } catch { reject(new Error(`not JSON: ${stdout}\n${stderr}`)); }
-    });
+    execFile(
+      process.execPath,
+      ['--input-type=module', '-e', code],
+      { env: { ...process.env, READS_URL: readsUrl, SEQ_URL: seqUrl, ...env }, timeout: 30_000 },
+      (err, stdout, stderr) => {
+        if (err) return reject(new Error(`${err.message}\n${stderr}`));
+        try {
+          resolve(JSON.parse(stdout));
+        } catch {
+          reject(new Error(`not JSON: ${stdout}\n${stderr}`));
+        }
+      },
+    );
   });
 }
 
@@ -158,22 +199,34 @@ describe("the director's wait (tools/demo/lib/reads.mjs)", () => {
   test('throws once the timeout passes, so a take does not start on an engine that would refuse its proofs', async () => {
     seq.reset(-1);
     const out = await runReads(script, { TIMEOUT_MS: '1000' });
-    expect(out.waited.refused).toMatch(/^the claims engine did not become ready to prove within 1 s \(compiled yes, prover starting\): a take does not start/);
+    expect(out.waited.refused).toMatch(
+      /^the claims engine did not become ready to prove within 1 s \(compiled yes, prover starting\): a take does not start/,
+    );
   });
 
   test('the director waits for it in its pre-roll, after the circuits compile and before the first scene, for 15 minutes', () => {
-    const src = read('tools/demo/director.mjs');
-    expect(src).toContain("import { makeReads, insurerAdminToken, prescriberAdminToken, waitForEngineReady } from './lib/reads.mjs';");
-    const compiled = src.indexOf("await timed('network-ready', () => until('the network compiling its circuits'");
-    const logged = src.indexOf("log('network: waiting until the claims engine is ready to prove');");
-    const wait = src.indexOf("\nconst provers = await timed('engine-ready', () => waitForEngineReady(reads, { timeoutMs: 15 * 60000, log: (m) => log(`network: ${m}`) }));");
-    const done = src.indexOf('log(`network: the claims engine is ready to prove (prover: ${provers.prover}; waited ${(provers.waitedMs / 1000).toFixed(1)} s)`);');
+    const src = flat(read('tools/demo/director.mjs'));
+    expect(src).toContain(
+      flat("import { makeReads, insurerAdminToken, prescriberAdminToken, waitForEngineReady } from './lib/reads.mjs';"),
+    );
+    const compiled = src.indexOf(flat("await timed('network-ready', () => until('the network compiling its circuits'"));
+    const logged = src.indexOf(flat("log('network: waiting until the claims engine is ready to prove');"));
+    const wait = src.indexOf(
+      flat(
+        "\nconst provers = await timed('engine-ready', () => waitForEngineReady(reads, { timeoutMs: 15 * 60000, log: (m) => log(`network: ${m}`) }));",
+      ),
+    );
+    const done = src.indexOf(
+      flat(
+        'log(`network: the claims engine is ready to prove (prover: ${provers.prover}; waited ${(provers.waitedMs / 1000).toFixed(1)} s)`);',
+      ),
+    );
     expect(compiled).toBeGreaterThan(0);
     expect(logged).toBeGreaterThan(compiled);
     expect(wait).toBeGreaterThan(logged);
     expect(done).toBeGreaterThan(wait);
-    expect(src.indexOf('pre-roll 3: the browser, the cameras')).toBeGreaterThan(done);
-    expect(src.indexOf("log('T0: the film starts');")).toBeGreaterThan(done);
+    expect(src.indexOf(flat('pre-roll 3: the browser, the cameras'))).toBeGreaterThan(done);
+    expect(src.indexOf(flat("log('T0: the film starts');"))).toBeGreaterThan(done);
   });
 });
 

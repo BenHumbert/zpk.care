@@ -29,14 +29,27 @@ import { L2Node } from '../src/l2/l2-node.js';
 import type { ClaimSubmissionMetadata } from '../src/l2/l2-types.js';
 
 const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-const claim = (patientPayCents: string): ClaimSubmissionMetadata => ({
-  ndcHash: '11', memberWalletId: '1001', pharmacyWalletId: '2001', prescriberWalletId: '3001', dateOfService: '20261018',
-  patientPayCents, planPayCents: '4500', operationType: '1',
-} as ClaimSubmissionMetadata);
+const claim = (patientPayCents: string): ClaimSubmissionMetadata =>
+  ({
+    ndcHash: '11',
+    memberWalletId: '1001',
+    pharmacyWalletId: '2001',
+    prescriberWalletId: '3001',
+    dateOfService: '20261018',
+    patientPayCents,
+    planPayCents: '4500',
+    operationType: '1',
+  }) as ClaimSubmissionMetadata;
 
 describe('pending claims on the sequencer', () => {
   test('are keyed by wallet and root, found only for both, cleared once, and survive a checkpoint', () => {
-    const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-under-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const node = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-under-test' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     const seq = node.getSequencer();
     expect(seq.pendingClaimCount()).toBe(0);
     seq.commitPendingClaim('1001', '555', claim('1000'));
@@ -49,7 +62,13 @@ describe('pending claims on the sequencer', () => {
 
     const state = seq.exportState();
     expect(Object.keys(state.pendingClaims ?? {}).sort()).toEqual(['1001:555', '1001:556']);
-    const other = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-restored' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+    const other = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-restored' },
+      new InMemoryStore(),
+      emptyRoot,
+      emptyRoot,
+      Field(0),
+    );
     other.getSequencer().restoreState(state);
     expect(other.getSequencer().pendingClaimFor('1001', '556')?.planPayCents).toBe('4500');
 

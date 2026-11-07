@@ -32,7 +32,15 @@
  *
  * Zero external dependencies — uses L2Client (HTTP) for all communication.
  */
-import { createHmac, createHash, timingSafeEqual, sign as ed25519Sign, verify as ed25519Verify, createPrivateKey, createPublicKey } from 'crypto';
+import {
+  createHmac,
+  createHash,
+  timingSafeEqual,
+  sign as ed25519Sign,
+  verify as ed25519Verify,
+  createPrivateKey,
+  createPublicKey,
+} from 'crypto';
 import { L2Client } from './l2-client.js';
 import type { L2SequencerState } from './l2-checkpoint.js';
 import type {
@@ -45,10 +53,7 @@ import type {
   EquivocationEvidence,
   StateDigest,
 } from './l2-peer-types.js';
-import {
-  DEFAULT_PEER_NETWORK_CONFIG,
-  MAX_SEEN_MESSAGES,
-} from './l2-peer-types.js';
+import { DEFAULT_PEER_NETWORK_CONFIG, MAX_SEEN_MESSAGES } from './l2-peer-types.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -58,12 +63,7 @@ export type GossipHandler = (message: GossipMessage) => void;
 // ─── Utility ────────────────────────────────────────────
 
 /** Generate a unique message ID from content fields using SHA-256 */
-export function generateMessageId(
-  type: GossipMessageType,
-  senderId: string,
-  timestamp: number,
-  ...extraFields: string[]
-): string {
+export function generateMessageId(type: GossipMessageType, senderId: string, timestamp: number, ...extraFields: string[]): string {
   const content = [type, senderId, String(timestamp), ...extraFields].join(':');
   return createHash('sha256').update(content).digest('hex').slice(0, 32);
 }
@@ -100,10 +100,14 @@ export class L2PeerNetwork {
 
     // Warn about asymmetric gossip security configurations
     if (this.config.gossipPeerPublicKeys !== undefined && !this.config.gossipPrivateKeyHex) {
-      console.warn('[peer] WARNING: gossipPeerPublicKeys set without gossipPrivateKeyHex — this node will verify peers but cannot sign its own messages. Other Ed25519-mode peers will reject gossip from this node.');
+      console.warn(
+        '[peer] WARNING: gossipPeerPublicKeys set without gossipPrivateKeyHex — this node will verify peers but cannot sign its own messages. Other Ed25519-mode peers will reject gossip from this node.',
+      );
     }
     if (this.config.gossipPrivateKeyHex && this.config.gossipPeerPublicKeys === undefined) {
-      console.warn('[peer] WARNING: gossipPrivateKeyHex set without gossipPeerPublicKeys — this node signs gossip but does not verify peers. Set gossipPeerPublicKeys for bidirectional security.');
+      console.warn(
+        '[peer] WARNING: gossipPrivateKeyHex set without gossipPeerPublicKeys — this node signs gossip but does not verify peers. Set gossipPeerPublicKeys for bidirectional security.',
+      );
     }
   }
 
@@ -154,7 +158,9 @@ export class L2PeerNetwork {
       // for a network started without keys.
       ...(this.config.nodeKey
         ? { adminPrivateKeyHex: this.config.nodeKey.seedHex, adminNodeId: this.config.nodeKey.nodeId }
-        : this.config.adminToken ? { adminToken: this.config.adminToken } : {}),
+        : this.config.adminToken
+          ? { adminToken: this.config.adminToken }
+          : {}),
     });
 
     // If we have a disconnected peer for this URL, re-verify VK before reconnecting
@@ -205,7 +211,9 @@ export class L2PeerNetwork {
         throw new Error(`VK commitment missing — peer ${peerInfo.peerId} did not provide software identity`);
       }
       if (peerInfo.vkCommitment !== this.config.vkCommitment) {
-        console.warn(`[peer] Rejected ${peerInfo.peerId} — VK commitment mismatch (expected ${this.config.vkCommitment.slice(0, 16)}…, got ${peerInfo.vkCommitment.slice(0, 16)}…)`);
+        console.warn(
+          `[peer] Rejected ${peerInfo.peerId} — VK commitment mismatch (expected ${this.config.vkCommitment.slice(0, 16)}…, got ${peerInfo.vkCommitment.slice(0, 16)}…)`,
+        );
         throw new Error(`VK commitment mismatch — peer ${peerInfo.peerId} is running different software`);
       }
     }
@@ -245,9 +253,7 @@ export class L2PeerNetwork {
 
   /** Get only connected peers */
   getConnectedPeers(): PeerInfo[] {
-    return Array.from(this.peers.values()).filter(
-      (p) => p.status === 'connected',
-    );
+    return Array.from(this.peers.values()).filter((p) => p.status === 'connected');
   }
 
   /** Get all known peer URLs */
@@ -324,10 +330,7 @@ export class L2PeerNetwork {
    * Used for gossip relay: when we receive a message from peer A,
    * we relay to everyone except peer A.
    */
-  async broadcastExcept(
-    message: GossipMessage,
-    exceptPeerId: string,
-  ): Promise<void> {
+  async broadcastExcept(message: GossipMessage, exceptPeerId: string): Promise<void> {
     // Sign outgoing message if gossipSecret is configured
     message.signature = this.signGossip(message);
 
@@ -405,7 +408,9 @@ export class L2PeerNetwork {
     this.relayFailures.set(peer.peerId, entry);
     if (entry.count >= L2PeerNetwork.RELAY_FAILURES_BEFORE_DISCONNECT && peer.status === 'connected') {
       peer.status = 'disconnected';
-      console.warn(`[peer] ${this.config.nodeId}: ${peer.peerId} unreachable after ${entry.count} failed relays (${reason}); will retry on the next announce`);
+      console.warn(
+        `[peer] ${this.config.nodeId}: ${peer.peerId} unreachable after ${entry.count} failed relays (${reason}); will retry on the next announce`,
+      );
     }
   }
 
@@ -469,7 +474,7 @@ export class L2PeerNetwork {
     if (message.type !== 'peer:announce' && message.type !== 'admin:eviction' && message.type !== 'state:snapshot') {
       const contextKey = `${message.senderId}:${message.type}:${message.timestamp}`;
       const payloadHash = createHash('sha256')
-        .update(JSON.stringify(message.payload, (_, v) => typeof v === 'bigint' ? v.toString() : v))
+        .update(JSON.stringify(message.payload, (_, v) => (typeof v === 'bigint' ? v.toString() : v)))
         .digest('hex')
         .slice(0, 32);
 
@@ -489,11 +494,16 @@ export class L2PeerNetwork {
         this.banPeer(message.senderId);
 
         // Notify application layer (wrapped to prevent handler crash from blocking eviction)
-        try { this.evictionHandler?.(evidence); } catch { /* handler crash must not block eviction */ }
+        try {
+          this.evictionHandler?.(evidence);
+        } catch {
+          /* handler crash must not block eviction */
+        }
 
         // Broadcast eviction to all peers (fire-and-forget with error suppression)
-        this.broadcastEviction(message.senderId, 'Equivocation detected — conflicting payloads', evidence)
-          .catch(() => { /* broadcast failure must not crash the process */ });
+        this.broadcastEviction(message.senderId, 'Equivocation detected — conflicting payloads', evidence).catch(() => {
+          /* broadcast failure must not crash the process */
+        });
 
         return false; // Reject the conflicting message
       }
@@ -526,10 +536,7 @@ export class L2PeerNetwork {
    * This is the main entry point for gossip reception.
    * Returns true if the message was new.
    */
-  async handleIncomingAndRelay(
-    message: GossipMessage,
-    fromPeerId?: string,
-  ): Promise<boolean> {
+  async handleIncomingAndRelay(message: GossipMessage, fromPeerId?: string): Promise<boolean> {
     const isNew = this.handleIncoming(message);
 
     // A13: answer the sender now and relay onward in the background. Awaiting the relay here made a
@@ -675,10 +682,7 @@ export class L2PeerNetwork {
     // Ed25519 signing (secure mode)
     if (this.config.gossipPrivateKeyHex) {
       const payload = `${message.messageId}:${message.type}:${message.senderId}:${message.timestamp}`;
-      const pkDer = Buffer.from(
-        '302e020100300506032b657004220420' + this.config.gossipPrivateKeyHex,
-        'hex',
-      );
+      const pkDer = Buffer.from('302e020100300506032b657004220420' + this.config.gossipPrivateKeyHex, 'hex');
       const privateKey = createPrivateKey({ key: pkDer, format: 'der', type: 'pkcs8' });
       return ed25519Sign(null, Buffer.from(payload), privateKey).toString('hex');
     }
@@ -700,8 +704,7 @@ export class L2PeerNetwork {
     // Ed25519 verification (secure mode — active when gossipPeerPublicKeys Map exists, even if empty)
     if (this.config.gossipPeerPublicKeys !== undefined) {
       if (!message.signature) return false; // Signature required in secure mode
-      const senderPubKeyHex = this.config.gossipPeerPublicKeys.get(message.senderId)
-        ?? this.config.gossipPublicKeyHex; // Accept own messages (sender is self)
+      const senderPubKeyHex = this.config.gossipPeerPublicKeys.get(message.senderId) ?? this.config.gossipPublicKeyHex; // Accept own messages (sender is self)
       if (!senderPubKeyHex) {
         // Unknown sender — check if this is our own node ID (self-originated messages after relay)
         if (message.senderId === this.config.nodeId && this.config.gossipPublicKeyHex) {
@@ -797,11 +800,7 @@ export class L2PeerNetwork {
     };
 
     const message: GossipMessage = {
-      messageId: generateMessageId(
-        'peer:announce',
-        this.config.nodeId,
-        Date.now(),
-      ),
+      messageId: generateMessageId('peer:announce', this.config.nodeId, Date.now()),
       type: 'peer:announce',
       senderId: this.config.nodeId,
       timestamp: Date.now(),

@@ -46,10 +46,7 @@ export function readFormularyTreeCache(dir: string): FormularyTreeCache | null {
     if (!fs.existsSync(file)) return null;
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as FormularyTreeCache;
   } catch (err: unknown) {
-    console.warn(
-      '  [formulary] could not read the tree cache (%s); rebuilding.',
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn('  [formulary] could not read the tree cache (%s); rebuilding.', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -77,7 +74,11 @@ export function writeFormularyTreeCache(dir: string, cache: FormularyTreeCache):
       '  [formulary] could not save the tree cache (%s); the next boot will rebuild.',
       err instanceof Error ? err.message : String(err),
     );
-    try { fs.rmSync(temp, { force: true }); } catch { /* nothing to clean up */ }
+    try {
+      fs.rmSync(temp, { force: true });
+    } catch {
+      /* nothing to clean up */
+    }
     return false;
   }
 }

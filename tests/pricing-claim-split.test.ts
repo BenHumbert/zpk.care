@@ -27,11 +27,21 @@
  * family, copay and total states, including limits already met or lowered below what is paid.
  */
 import { Field, Poseidon } from 'o1js';
-import { splitClaimCost, AccumulatorQueryService, type AccumulatorAmounts, type FamilyAmounts } from '../src/access-control/accumulator-query-service.js';
+import {
+  splitClaimCost,
+  AccumulatorQueryService,
+  type AccumulatorAmounts,
+  type FamilyAmounts,
+} from '../src/access-control/accumulator-query-service.js';
 import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import { AccumulatorFulfillmentProgram } from '../src/fulfillment/accumulator-fulfillment-program.js';
 import { FulfillmentData } from '../src/fulfillment/fulfillment-data.js';
-import { PrescriptionData, PrescriptionStatusData, RX_STATUS_ADJUDICATED, RX_STATUS_FILLED } from '../src/prescription/prescription-data.js';
+import {
+  PrescriptionData,
+  PrescriptionStatusData,
+  RX_STATUS_ADJUDICATED,
+  RX_STATUS_FILLED,
+} from '../src/prescription/prescription-data.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
@@ -44,10 +54,22 @@ jest.setTimeout(120_000);
 
 const PLAN = { copay: 1500, fee: 1250, deductible: 50000, oopMax: 780000 };
 const acc = (o: Partial<AccumulatorAmounts> = {}): AccumulatorAmounts => ({
-  deductibleAmountCents: 0, deductiblePaidCents: 0, oopMaxCents: 0, oopPaidCents: 0, annualBenefitMaxCents: 0, annualBenefitUsedCents: 0, ...o,
+  deductibleAmountCents: 0,
+  deductiblePaidCents: 0,
+  oopMaxCents: 0,
+  oopPaidCents: 0,
+  annualBenefitMaxCents: 0,
+  annualBenefitUsedCents: 0,
+  ...o,
 });
 const fam = (o: Partial<FamilyAmounts> = {}): FamilyAmounts => ({
-  deductiblePaidCents: 0, oopPaidCents: 0, annualBenefitUsedCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, ...o,
+  deductiblePaidCents: 0,
+  oopPaidCents: 0,
+  annualBenefitUsedCents: 0,
+  familyDeductibleAmountCents: 0,
+  familyOopMaxCents: 0,
+  familyAnnualBenefitMaxCents: 0,
+  ...o,
 });
 
 describe('the run.ts claims: plan copay $15, fee $12.50, $500 deductible', () => {
@@ -60,9 +82,18 @@ describe('the run.ts claims: plan copay $15, fee $12.50, $500 deductible', () =>
     for (const total of totals) {
       const s = splitClaimCost({ totalCostCents: total, copayCents: PLAN.copay, accumulator: a });
       out.push([s.patientPayCents, s.planPayCents, s.phase]);
-      a = { ...a, deductiblePaidCents: a.deductiblePaidCents + s.deductibleCreditCents, oopPaidCents: a.oopPaidCents + s.patientPayCents, annualBenefitUsedCents: a.annualBenefitUsedCents + s.planPayCents };
+      a = {
+        ...a,
+        deductiblePaidCents: a.deductiblePaidCents + s.deductibleCreditCents,
+        oopPaidCents: a.oopPaidCents + s.patientPayCents,
+        annualBenefitUsedCents: a.annualBenefitUsedCents + s.planPayCents,
+      };
     }
-    expect(out).toEqual([[3051, 0, 'deductible'], [48449, 23896, 'deductible'], [1500, 55813, 'copay']]);
+    expect(out).toEqual([
+      [3051, 0, 'deductible'],
+      [48449, 23896, 'deductible'],
+      [1500, 55813, 'copay'],
+    ]);
     expect(a.deductiblePaidCents).toBe(50000);
   });
 });
@@ -76,37 +107,86 @@ describe('the family rules (B8), as the circuit applies them after the individua
     expect(split(fam())).toMatchObject({ patientPayCents: 1500, planPayCents: 4000, familyRule: 0, phase: 'copay' });
   });
   test('family OOP max met: the member pays nothing (rule 1)', () => {
-    expect(split(fam({ oopPaidCents: 1600000, familyOopMaxCents: 1600000 }))).toMatchObject({ patientPayCents: 0, planPayCents: 5500, familyRule: 1, phase: 'oop-max-reached' });
+    expect(split(fam({ oopPaidCents: 1600000, familyOopMaxCents: 1600000 }))).toMatchObject({
+      patientPayCents: 0,
+      planPayCents: 5500,
+      familyRule: 1,
+      phase: 'oop-max-reached',
+    });
   });
   test('family benefit exhausted: the member pays everything (rule 2)', () => {
-    expect(split(fam({ annualBenefitUsedCents: 100000, familyAnnualBenefitMaxCents: 100000 }))).toMatchObject({ patientPayCents: 5500, planPayCents: 0, familyRule: 2, phase: 'benefit-max-reached' });
+    expect(split(fam({ annualBenefitUsedCents: 100000, familyAnnualBenefitMaxCents: 100000 }))).toMatchObject({
+      patientPayCents: 5500,
+      planPayCents: 0,
+      familyRule: 2,
+      phase: 'benefit-max-reached',
+    });
   });
   test('the member pays only what is left of the family OOP max (rule 3)', () => {
-    expect(split(fam({ oopPaidCents: 1599500, familyOopMaxCents: 1600000 }))).toMatchObject({ patientPayCents: 500, planPayCents: 5000, familyRule: 3, phase: 'oop-max-reached' });
+    expect(split(fam({ oopPaidCents: 1599500, familyOopMaxCents: 1600000 }))).toMatchObject({
+      patientPayCents: 500,
+      planPayCents: 5000,
+      familyRule: 3,
+      phase: 'oop-max-reached',
+    });
   });
   test('the plan pays only what is left of the family benefit max (rule 4)', () => {
-    expect(split(fam({ annualBenefitUsedCents: 97000, familyAnnualBenefitMaxCents: 100000 }))).toMatchObject({ patientPayCents: 2500, planPayCents: 3000, familyRule: 4, phase: 'benefit-max-reached' });
+    expect(split(fam({ annualBenefitUsedCents: 97000, familyAnnualBenefitMaxCents: 100000 }))).toMatchObject({
+      patientPayCents: 2500,
+      planPayCents: 3000,
+      familyRule: 4,
+      phase: 'benefit-max-reached',
+    });
   });
 });
 
 describe('limits at or below what is already paid count as met', () => {
   test('a deductible lowered below the deductible paid: the copay phase, and no deductible credit', () => {
-    expect(splitClaimCost({ totalCostCents: 3051, copayCents: 1500, accumulator: acc({ deductibleAmountCents: 25000, deductiblePaidCents: 30000, oopMaxCents: 780000, oopPaidCents: 30000 }) }))
-      .toEqual({ patientPayCents: 1500, planPayCents: 1551, deductibleCreditCents: 0, familyRule: 0, phase: 'copay' });
+    expect(
+      splitClaimCost({
+        totalCostCents: 3051,
+        copayCents: 1500,
+        accumulator: acc({ deductibleAmountCents: 25000, deductiblePaidCents: 30000, oopMaxCents: 780000, oopPaidCents: 30000 }),
+      }),
+    ).toEqual({ patientPayCents: 1500, planPayCents: 1551, deductibleCreditCents: 0, familyRule: 0, phase: 'copay' });
   });
   test('an OOP maximum lowered below the OOP paid: the member pays nothing', () => {
-    expect(splitClaimCost({ totalCostCents: 3051, copayCents: 1500, accumulator: acc({ deductibleAmountCents: 50000, deductiblePaidCents: 50000, oopMaxCents: 500000, oopPaidCents: 600000 }) }))
-      .toEqual({ patientPayCents: 0, planPayCents: 3051, deductibleCreditCents: 0, familyRule: 0, phase: 'oop-max-reached' });
+    expect(
+      splitClaimCost({
+        totalCostCents: 3051,
+        copayCents: 1500,
+        accumulator: acc({ deductibleAmountCents: 50000, deductiblePaidCents: 50000, oopMaxCents: 500000, oopPaidCents: 600000 }),
+      }),
+    ).toEqual({ patientPayCents: 0, planPayCents: 3051, deductibleCreditCents: 0, familyRule: 0, phase: 'oop-max-reached' });
   });
 });
 
 test('estimatePatientCost is the same rule: splitClaimCost with no family', () => {
   const a = new AccumulatorData({
-    planYear: dateToField('20260101'), deductibleAmountCents: Field(50000), deductiblePaidCents: Field(48000),
-    oopMaxCents: Field(60000), oopPaidCents: Field(59000), annualBenefitMaxCents: Field(0), annualBenefitUsedCents: Field(0),
+    planYear: dateToField('20260101'),
+    deductibleAmountCents: Field(50000),
+    deductiblePaidCents: Field(48000),
+    oopMaxCents: Field(60000),
+    oopPaidCents: Field(59000),
+    annualBenefitMaxCents: Field(0),
+    annualBenefitUsedCents: Field(0),
   });
-  const s = splitClaimCost({ totalCostCents: 5500, copayCents: 1000, accumulator: { deductibleAmountCents: 50000, deductiblePaidCents: 48000, oopMaxCents: 60000, oopPaidCents: 59000, annualBenefitMaxCents: 0, annualBenefitUsedCents: 0 } });
-  expect(AccumulatorQueryService.estimatePatientCost(a, 5500, 1000)).toEqual({ patientPayCents: s.patientPayCents, planPayCents: s.planPayCents });
+  const s = splitClaimCost({
+    totalCostCents: 5500,
+    copayCents: 1000,
+    accumulator: {
+      deductibleAmountCents: 50000,
+      deductiblePaidCents: 48000,
+      oopMaxCents: 60000,
+      oopPaidCents: 59000,
+      annualBenefitMaxCents: 0,
+      annualBenefitUsedCents: 0,
+    },
+  });
+  expect(AccumulatorQueryService.estimatePatientCost(a, 5500, 1000)).toEqual({
+    patientPayCents: s.patientPayCents,
+    planPayCents: s.planPayCents,
+  });
   expect(s).toMatchObject({ patientPayCents: 1000, phase: 'oop-max-reached' });
 });
 
@@ -121,57 +201,122 @@ const memberWalletId = Field(999888777666555444n);
 const ndcHash = hashString('00378410591');
 
 /** The fill circuit's amounts for one claim, from AccumulatorFulfillmentProgram's own method run on constants. */
-async function circuitSplit(total: number, copay: number, a: AccumulatorAmounts, f: FamilyAmounts): Promise<{ patientPayCents: number; planPayCents: number; deductibleCreditCents: number; familyRule: number }> {
+async function circuitSplit(
+  total: number,
+  copay: number,
+  a: AccumulatorAmounts,
+  f: FamilyAmounts,
+): Promise<{ patientPayCents: number; planPayCents: number; deductibleCreditCents: number; familyRule: number }> {
   const rxData = new PrescriptionData({
-    ndcHash, prescriberWalletId, memberWalletId, writtenDate: dateToField('20260201'), expirationDate: dateToField('20270201'),
-    quantityPrescribed: quantityToField(30), refillsAuthorized: Field(0),
+    ndcHash,
+    prescriberWalletId,
+    memberWalletId,
+    writtenDate: dateToField('20260201'),
+    expirationDate: dateToField('20270201'),
+    quantityPrescribed: quantityToField(30),
+    refillsAuthorized: Field(0),
   });
   const rxForest = new MerkleForest();
   rxForest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
-  rxForest.setLeaf(ForestDomain.TRANSACTION, 0n, new PrescriptionStatusData({
-    prescriptionHash: rxData.commitment(), status: RX_STATUS_ADJUDICATED, updatedByWalletId: prescriberWalletId, updatedAt: dateToField('20260201'),
-    pharmacyWalletId, fillQuantity: Field(0), notesHash: Field(0),
-  }).commitment());
+  rxForest.setLeaf(
+    ForestDomain.TRANSACTION,
+    0n,
+    new PrescriptionStatusData({
+      prescriptionHash: rxData.commitment(),
+      status: RX_STATUS_ADJUDICATED,
+      updatedByWalletId: prescriberWalletId,
+      updatedAt: dateToField('20260201'),
+      pharmacyWalletId,
+      fillQuantity: Field(0),
+      notesHash: Field(0),
+    }).commitment(),
+  );
   const filled = new PrescriptionStatusData({
-    prescriptionHash: rxData.commitment(), status: RX_STATUS_FILLED, updatedByWalletId: pharmacyWalletId, updatedAt: dateToField('20260215'),
-    pharmacyWalletId, fillQuantity: Field(0), notesHash: Field(0),
+    prescriptionHash: rxData.commitment(),
+    status: RX_STATUS_FILLED,
+    updatedByWalletId: pharmacyWalletId,
+    updatedAt: dateToField('20260215'),
+    pharmacyWalletId,
+    fillQuantity: Field(0),
+    notesHash: Field(0),
   });
   rxForest.setLeaf(ForestDomain.TRANSACTION, 1n, filled.commitment());
   const rxCredential = new CredentialData({
-    credentialType: CREDENTIAL_TYPE_PRESCRIPTION, forestRoot: rxForest.getForestRoot(), issuerWalletId: prescriberWalletId,
-    subjectWalletId: pharmacyWalletId, issuedAt: dateToField('20260201'), expiresAt: Field(0), revoked: Field(0),
+    credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+    forestRoot: rxForest.getForestRoot(),
+    issuerWalletId: prescriberWalletId,
+    subjectWalletId: pharmacyWalletId,
+    issuedAt: dateToField('20260201'),
+    expiresAt: Field(0),
+    revoked: Field(0),
   });
   const entry = new FormularyEntry({
-    ndcHash, tierLevel: Field(1), copayAmountCents: centsToField(copay), requiresPriorAuth: Field(0),
-    maxQuantityPerFill: quantityToField(90), maxDaySupply: Field(90), stepTherapyRequired: Field(0),
+    ndcHash,
+    tierLevel: Field(1),
+    copayAmountCents: centsToField(copay),
+    requiresPriorAuth: Field(0),
+    maxQuantityPerFill: quantityToField(90),
+    maxDaySupply: Field(90),
+    stepTherapyRequired: Field(0),
   });
   const registry = new FormularyRegistry();
   registry.addEntry(entry);
   const fee = Math.min(total, 1250);
   const fulfillment = new FulfillmentData({
-    prescriptionHash: rxData.commitment(), pharmacyWalletId, ndcHash, quantityDispensed: quantityToField(30),
-    ingredientCostCents: centsToField(total - fee), dispensingFeeCents: centsToField(fee), dateOfService: dateToField('20260215'),
+    prescriptionHash: rxData.commitment(),
+    pharmacyWalletId,
+    ndcHash,
+    quantityDispensed: quantityToField(30),
+    ingredientCostCents: centsToField(total - fee),
+    dispensingFeeCents: centsToField(fee),
+    dateOfService: dateToField('20260215'),
   });
   const accumulator = new AccumulatorData({
     planYear: dateToField('20260101'),
-    deductibleAmountCents: Field(a.deductibleAmountCents), deductiblePaidCents: Field(a.deductiblePaidCents),
-    oopMaxCents: Field(a.oopMaxCents), oopPaidCents: Field(a.oopPaidCents),
-    annualBenefitMaxCents: Field(a.annualBenefitMaxCents), annualBenefitUsedCents: Field(a.annualBenefitUsedCents),
+    deductibleAmountCents: Field(a.deductibleAmountCents),
+    deductiblePaidCents: Field(a.deductiblePaidCents),
+    oopMaxCents: Field(a.oopMaxCents),
+    oopPaidCents: Field(a.oopPaidCents),
+    annualBenefitMaxCents: Field(a.annualBenefitMaxCents),
+    annualBenefitUsedCents: Field(a.annualBenefitUsedCents),
   });
   const eligForest = new MerkleForest();
   eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, accumulator.commitment());
   const eligCredential = new CredentialData({
-    credentialType: CREDENTIAL_TYPE_ELIGIBILITY, forestRoot: eligForest.getForestRoot(), issuerWalletId: Field(100200300400500600n),
-    subjectWalletId: memberWalletId, issuedAt: dateToField('20260101'), expiresAt: Field(0), revoked: Field(0),
+    credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
+    forestRoot: eligForest.getForestRoot(),
+    issuerWalletId: Field(100200300400500600n),
+    subjectWalletId: memberWalletId,
+    issuedAt: dateToField('20260101'),
+    expiresAt: Field(0),
+    revoked: Field(0),
   });
   const raw = (AccumulatorFulfillmentProgram as unknown as { rawMethods: Record<string, (...args: unknown[]) => Promise<any>> }).rawMethods;
   const result = await raw.proveFulfillmentWithAccumulator(
-    rxCredential, rxData, filled, fulfillment, entry, ForestRoots.fromForest(rxForest),
-    rxForest.getWitness(ForestDomain.MEDICATION, 0n), rxForest.getWitness(ForestDomain.TRANSACTION, 1n), rxForest.getWitness(ForestDomain.TRANSACTION, 2n),
-    registry.getEntryWitness(0n), registry.getRoot(), eligCredential, ForestRoots.fromForest(eligForest), accumulator,
-    eligForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX), PHARM_QUAL, PHARM_ID_HASH, PHARM_EK_HASH,
-    Field(f.deductiblePaidCents), Field(f.oopPaidCents), Field(f.annualBenefitUsedCents),
-    Field(f.familyDeductibleAmountCents), Field(f.familyOopMaxCents), Field(f.familyAnnualBenefitMaxCents),
+    rxCredential,
+    rxData,
+    filled,
+    fulfillment,
+    entry,
+    ForestRoots.fromForest(rxForest),
+    rxForest.getWitness(ForestDomain.MEDICATION, 0n),
+    rxForest.getWitness(ForestDomain.TRANSACTION, 1n),
+    rxForest.getWitness(ForestDomain.TRANSACTION, 2n),
+    registry.getEntryWitness(0n),
+    registry.getRoot(),
+    eligCredential,
+    ForestRoots.fromForest(eligForest),
+    accumulator,
+    eligForest.getWitness(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX),
+    PHARM_QUAL,
+    PHARM_ID_HASH,
+    PHARM_EK_HASH,
+    Field(f.deductiblePaidCents),
+    Field(f.oopPaidCents),
+    Field(f.annualBenefitUsedCents),
+    Field(f.familyDeductibleAmountCents),
+    Field(f.familyOopMaxCents),
+    Field(f.familyAnnualBenefitMaxCents),
   );
   const out = result.publicOutput ?? result;
   return {
@@ -188,7 +333,18 @@ describe('splitClaimCost equals the fill circuit', () => {
     const cases: Array<[number, number, AccumulatorAmounts, FamilyAmounts]> = [
       [3051, 1500, acc({ deductibleAmountCents: 50000, oopMaxCents: 780000 }), fam()],
       [72345, 1500, acc({ deductibleAmountCents: 50000, deductiblePaidCents: 3051, oopMaxCents: 780000, oopPaidCents: 3051 }), fam()],
-      [57313, 1500, acc({ deductibleAmountCents: 50000, deductiblePaidCents: 50000, oopMaxCents: 780000, oopPaidCents: 51500, annualBenefitUsedCents: 23896 }), fam()],
+      [
+        57313,
+        1500,
+        acc({
+          deductibleAmountCents: 50000,
+          deductiblePaidCents: 50000,
+          oopMaxCents: 780000,
+          oopPaidCents: 51500,
+          annualBenefitUsedCents: 23896,
+        }),
+        fam(),
+      ],
       [5500, 1500, met, fam({ oopPaidCents: 1600000, familyOopMaxCents: 1600000 })],
       [5500, 1500, met, fam({ annualBenefitUsedCents: 100000, familyAnnualBenefitMaxCents: 100000 })],
       [5500, 1500, met, fam({ oopPaidCents: 1599500, familyOopMaxCents: 1600000 })],
@@ -197,30 +353,52 @@ describe('splitClaimCost equals the fill circuit', () => {
     for (const [total, copay, a, f] of cases) {
       const s = splitClaimCost({ totalCostCents: total, copayCents: copay, accumulator: a, family: f });
       const c = await circuitSplit(total, copay, a, f);
-      expect([total, s.patientPayCents, s.planPayCents, s.deductibleCreditCents, s.familyRule]).toEqual([total, c.patientPayCents, c.planPayCents, c.deductibleCreditCents, c.familyRule]);
+      expect([total, s.patientPayCents, s.planPayCents, s.deductibleCreditCents, s.familyRule]).toEqual([
+        total,
+        c.patientPayCents,
+        c.planPayCents,
+        c.deductibleCreditCents,
+        c.familyRule,
+      ]);
     }
   });
 
   test('over a grid of states, limits met and lowered below what is paid among them', async () => {
     let seed = 20261019;
-    const rnd = (n: number): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    const rnd = (n: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
     const pick = <T>(xs: readonly T[]): T => xs[rnd(xs.length)];
     for (let i = 0; i < 48; i++) {
       const total = pick([0, 1, 1500, 3051, 9999, 57313, 72345, 150000]);
       const copay = pick([0, 1000, 1500, 3500, 15000]);
       const a = acc({
-        deductibleAmountCents: pick([0, 25000, 50000]), deductiblePaidCents: pick([0, 3051, 24999, 25000, 30000, 50000, 60000]),
-        oopMaxCents: pick([0, 5000, 60000, 780000]), oopPaidCents: pick([0, 4999, 5000, 6000, 59000, 600000]),
-        annualBenefitMaxCents: pick([0, 50000, 100000]), annualBenefitUsedCents: pick([0, 49000, 100000, 120000]),
+        deductibleAmountCents: pick([0, 25000, 50000]),
+        deductiblePaidCents: pick([0, 3051, 24999, 25000, 30000, 50000, 60000]),
+        oopMaxCents: pick([0, 5000, 60000, 780000]),
+        oopPaidCents: pick([0, 4999, 5000, 6000, 59000, 600000]),
+        annualBenefitMaxCents: pick([0, 50000, 100000]),
+        annualBenefitUsedCents: pick([0, 49000, 100000, 120000]),
       });
       const f = fam({
-        deductiblePaidCents: pick([0, 100000]), oopPaidCents: pick([0, 1500, 59900, 1600000]), annualBenefitUsedCents: pick([0, 97000, 100000]),
-        familyDeductibleAmountCents: pick([0, 100000]), familyOopMaxCents: pick([0, 60000, 1600000]), familyAnnualBenefitMaxCents: pick([0, 100000]),
+        deductiblePaidCents: pick([0, 100000]),
+        oopPaidCents: pick([0, 1500, 59900, 1600000]),
+        annualBenefitUsedCents: pick([0, 97000, 100000]),
+        familyDeductibleAmountCents: pick([0, 100000]),
+        familyOopMaxCents: pick([0, 60000, 1600000]),
+        familyAnnualBenefitMaxCents: pick([0, 100000]),
       });
       const s = splitClaimCost({ totalCostCents: total, copayCents: copay, accumulator: a, family: f });
       const c = await circuitSplit(total, copay, a, f);
-      expect({ i, total, copay, a, f, split: [s.patientPayCents, s.planPayCents, s.deductibleCreditCents, s.familyRule] })
-        .toEqual({ i, total, copay, a, f, split: [c.patientPayCents, c.planPayCents, c.deductibleCreditCents, c.familyRule] });
+      expect({ i, total, copay, a, f, split: [s.patientPayCents, s.planPayCents, s.deductibleCreditCents, s.familyRule] }).toEqual({
+        i,
+        total,
+        copay,
+        a,
+        f,
+        split: [c.patientPayCents, c.planPayCents, c.deductibleCreditCents, c.familyRule],
+      });
       expect(s.patientPayCents + s.planPayCents).toBe(total);
     }
   });

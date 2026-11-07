@@ -45,13 +45,16 @@ async function waitForSequencer(port: number, maxRetries = 30): Promise<void> {
           else reject(new Error(`Health check returned ${res.statusCode}`));
         });
         req.on('error', reject);
-        req.setTimeout(2000, () => { req.destroy(); reject(new Error('timeout')); });
+        req.setTimeout(2000, () => {
+          req.destroy();
+          reject(new Error('timeout'));
+        });
       });
       return;
     } catch {
       if (i < maxRetries - 1) {
         process.stdout.write(`[Runner] Waiting for sequencer on port ${port}... (${i + 1}/${maxRetries})\r`);
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
   }
@@ -72,7 +75,10 @@ async function main() {
   await new Promise<void>((resolve) => {
     const req = http.request(
       { hostname: '127.0.0.1', port: PORT, path: '/viz/clear', method: 'POST', headers: { 'Content-Type': 'application/json' } },
-      (res) => { res.resume(); res.on('end', resolve); },
+      (res) => {
+        res.resume();
+        res.on('end', resolve);
+      },
     );
     req.on('error', () => resolve());
     req.end();

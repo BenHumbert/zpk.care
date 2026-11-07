@@ -38,12 +38,7 @@ function makeAuthority(seed?: string): QuorumKeyAuthority {
   return new QuorumKeyAuthority(seed ? Buffer.from(seed) : undefined);
 }
 
-function makeConfig(
-  nodeId: string,
-  authority: QuorumKeyAuthority,
-  peerKeys?: Map<string, string>,
-  quorumThreshold = 2,
-): QuorumConfig {
+function makeConfig(nodeId: string, authority: QuorumKeyAuthority, peerKeys?: Map<string, string>, quorumThreshold = 2): QuorumConfig {
   const keys = peerKeys ?? new Map();
   keys.set(nodeId, authority.publicKeyHex);
   return {
@@ -124,13 +119,9 @@ describe('L2QuorumService', () => {
     peerKeys.set('leader-1', leaderAuth.publicKeyHex);
     peerKeys.set('peer-1', peerAuth.publicKeyHex);
 
-    leaderService = new L2QuorumService(
-      makeConfig('leader-1', leaderAuth, new Map(peerKeys), 2),
-    );
+    leaderService = new L2QuorumService(makeConfig('leader-1', leaderAuth, new Map(peerKeys), 2));
 
-    peerService = new L2QuorumService(
-      makeConfig('peer-1', peerAuth, new Map(peerKeys), 2),
-    );
+    peerService = new L2QuorumService(makeConfig('peer-1', peerAuth, new Map(peerKeys), 2));
   });
 
   afterEach(() => {
@@ -201,8 +192,7 @@ describe('L2QuorumService', () => {
     const proposal = makeProposal('proposal-timeout', 'leader-1');
 
     // Don't send any peer votes — only self-vote (1 < quorum of 2)
-    await expect(leaderService.proposeAndWait(proposal))
-      .rejects.toThrow(/Quorum timeout/);
+    await expect(leaderService.proposeAndWait(proposal)).rejects.toThrow(/Quorum timeout/);
   });
 
   test('duplicate votes from same voter are ignored', async () => {

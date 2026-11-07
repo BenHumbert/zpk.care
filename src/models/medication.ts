@@ -94,24 +94,24 @@ export class MedicationPricingData extends Struct({
  * Raw medication data — lives locally, never on-chain.
  */
 export interface MedicationLocalData {
-  rxServiceRefNumQualifier: number;  // 455-EM
-  rxServiceRefNumber: string;        // 402-D2
+  rxServiceRefNumQualifier: number; // 455-EM
+  rxServiceRefNumber: string; // 402-D2
   productServiceIdQualifier: number; // 436-E1
-  productServiceId: string;          // 407-D7 (NDC)
-  quantityDispensed: number;         // 442-E7
-  fillNumber: number;                // 403-D3
-  daysSupply: number;                // 405-D5
-  compoundCode: number;              // 406-D6
-  dawProductSelectionCode: number;   // 408-D8
+  productServiceId: string; // 407-D7 (NDC)
+  quantityDispensed: number; // 442-E7
+  fillNumber: number; // 403-D3
+  daysSupply: number; // 405-D5
+  compoundCode: number; // 406-D6
+  dawProductSelectionCode: number; // 408-D8
 }
 
 /**
  * Raw pricing data — lives locally, never on-chain.
  */
 export interface MedicationPricingLocalData {
-  usualAndCustomaryCharge: number;   // 426-DQ (in cents)
-  quantityPrescribed: number;        // 460-ET
-  ingredientCostSubmitted: number;   // 409-D9 (in cents)
-  dispensingFeeSubmitted: number;    // 412-DC (in cents)
-  basisOfCostDetermination: number;  // 423-DN
+  usualAndCustomaryCharge: number; // 426-DQ (in cents)
+  quantityPrescribed: number; // 460-ET
+  ingredientCostSubmitted: number; // 409-D9 (in cents)
+  dispensingFeeSubmitted: number; // 412-DC (in cents)
+  basisOfCostDetermination: number; // 423-DN
 }

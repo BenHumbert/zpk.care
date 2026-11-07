@@ -54,7 +54,11 @@ export class OutboxTextService implements TextService {
   async send(message: TextMessage): Promise<void> {
     mkdirSync(dirname(this.file), { recursive: true });
     appendFileSync(this.file, JSON.stringify({ at: new Date().toISOString(), to: message.to, body: message.body }) + '\n', { mode: 0o600 });
-    try { chmodSync(this.file, 0o600); } catch { /* a file system without modes */ }
+    try {
+      chmodSync(this.file, 0o600);
+    } catch {
+      /* a file system without modes */
+    }
   }
 }
 

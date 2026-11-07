@@ -48,41 +48,75 @@ jest.setTimeout(60_000);
 const OPERATOR = 'operator-token-for-prototype-method-names';
 const WALLET = '79000000000000000123';
 /** Every member Object.prototype gives a plain object, the ones named by the review first. */
-const PROTOTYPE_NAMES = ['toString', 'constructor', '__proto__', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'];
+const PROTOTYPE_NAMES = [
+  'toString',
+  'constructor',
+  '__proto__',
+  'valueOf',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+  'toLocaleString',
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+];
 
 let node: L2Node;
 let server: L2RpcServer;
 let url: string;
 let rpcId = 0;
 
-interface Reply { status: number; text: string; error?: { code: number; message: string }; result?: any }
+interface Reply {
+  status: number;
+  text: string;
+  error?: { code: number; message: string };
+  result?: any;
+}
 async function post(body: string, headers: Record<string, string> = {}): Promise<Reply> {
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
   const text = await r.text();
   let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { parsed = null; }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
   return { status: r.status, text, error: parsed?.error, result: parsed?.result };
 }
 const envelope = (method: unknown, params: unknown = {}) => JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method, params });
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-prototype-names' }, new InMemoryStore(), Field(1000), Field(2000), Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-prototype-names' },
+    new InMemoryStore(),
+    Field(1000),
+    Field(2000),
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
-describe('the wallet gate\'s lookup', () => {
-  test('reads only the table\'s own methods: a name Object.prototype carries is no method that speaks for a wallet', () => {
+describe("the wallet gate's lookup", () => {
+  test("reads only the table's own methods: a name Object.prototype carries is no method that speaks for a wallet", () => {
     for (const name of PROTOTYPE_NAMES) {
       let thrown = '';
       let spoken: string | undefined = 'not read';
-      try { spoken = L2RpcServer.walletSpokenFor(name, { walletId: WALLET }); } catch (err) { thrown = (err as Error).message; }
-      expect([name, thrown]).toEqual([name, '']);              // before: "where.split is not a function or its return value is not iterable"
-      expect([name, spoken]).toEqual([name, undefined]);       // before: nothing; the lookup threw
+      try {
+        spoken = L2RpcServer.walletSpokenFor(name, { walletId: WALLET });
+      } catch (err) {
+        thrown = (err as Error).message;
+      }
+      expect([name, thrown]).toEqual([name, '']); // before: "where.split is not a function or its return value is not iterable"
+      expect([name, spoken]).toEqual([name, undefined]); // before: nothing; the lookup threw
     }
   });
 
@@ -94,19 +128,19 @@ describe('the wallet gate\'s lookup', () => {
   });
 });
 
-describe('the sequencer\'s /rpc', () => {
+describe("the sequencer's /rpc", () => {
   test('answers a method named after an Object.prototype member as it answers any unknown method, not with an HTTP 500', async () => {
     const unknown = await post(envelope('l2_noSuchMethod'));
     expect(unknown.status).toBe(200);
     expect(unknown.error).toEqual({ code: RPC_METHOD_NOT_FOUND, message: 'Unknown method: l2_noSuchMethod' });
     for (const name of PROTOTYPE_NAMES) {
       const r = await post(envelope(name));
-      expect([name, r.status]).toEqual([name, 200]);   // before: 500, the body the text "Internal Server Error"
+      expect([name, r.status]).toEqual([name, 200]); // before: 500, the body the text "Internal Server Error"
       expect([name, r.error]).toEqual([name, { code: RPC_METHOD_NOT_FOUND, message: `Unknown method: ${name}` }]); // before: no JSON-RPC error
     }
   });
 
-  test('still holds a method that speaks for a wallet to that wallet\'s signature', async () => {
+  test("still holds a method that speaks for a wallet to that wallet's signature", async () => {
     const r = await post(envelope('l2_requestAttestation', { walletId: WALLET }));
     expect(r.status).toBe(200);
     expect(r.error?.code).toBe(RPC_UNAUTHORIZED);
@@ -115,26 +149,28 @@ describe('the sequencer\'s /rpc', () => {
   test('answers an envelope that is not an object, a method that is not a string and params that are not an object or a list with the invalid-request answer', async () => {
     const invalid = { code: RPC_INVALID_REQUEST, message: 'Invalid JSON-RPC 2.0 request' };
     const nullBody = await post('null');
-    expect(nullBody.status).toBe(200);                 // before: 500; the structure check read null's jsonrpc
-    expect(nullBody.error).toEqual(invalid);           // before: no JSON-RPC error
+    expect(nullBody.status).toBe(200); // before: 500; the structure check read null's jsonrpc
+    expect(nullBody.error).toEqual(invalid); // before: no JSON-RPC error
     const listMethod = await post(envelope(['toString']));
-    expect(listMethod.status).toBe(200);               // before: 500; ["toString"] found Object.prototype's toString in the wallet gate's table
-    expect(listMethod.error).toEqual(invalid);         // before: no JSON-RPC error
+    expect(listMethod.status).toBe(200); // before: 500; ["toString"] found Object.prototype's toString in the wallet gate's table
+    expect(listMethod.error).toEqual(invalid); // before: no JSON-RPC error
     const numberMethod = await post(envelope(7));
-    expect(numberMethod.error).toEqual(invalid);       // before: { code: -32601, message: 'Unknown method: 7' }
+    expect(numberMethod.error).toEqual(invalid); // before: { code: -32601, message: 'Unknown method: 7' }
     // params the gates write the verified caller onto: the admin gate's and the read gate's
     const adminParams = await post(envelope('l2_forceBatch', 'abc'), bearer);
-    expect(adminParams.status).toBe(200);              // before: 500; the admin gate wrote _verifiedRole onto a string
-    expect(adminParams.error).toEqual(invalid);        // before: no JSON-RPC error
+    expect(adminParams.status).toBe(200); // before: 500; the admin gate wrote _verifiedRole onto a string
+    expect(adminParams.error).toEqual(invalid); // before: no JSON-RPC error
     const readParams = await post(envelope('l2_getAuditLog', 'abc'), bearer);
-    expect(readParams.status).toBe(200);               // before: 500; the read gate wrote _reader onto a string
-    expect(readParams.error).toEqual(invalid);         // before: no JSON-RPC error
+    expect(readParams.status).toBe(200); // before: 500; the read gate wrote _reader onto a string
+    expect(readParams.error).toEqual(invalid); // before: no JSON-RPC error
     expect((await post(envelope('l2_getStatus', 42))).error).toEqual(invalid); // before: the status; the params went unread
   });
 
   test('still reads params sent as a list or as null, and an envelope that leaves them out', async () => {
     for (const params of [[], null, undefined]) {
-      const r = await post(JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'l2_getStatus', ...(params === undefined ? {} : { params }) }));
+      const r = await post(
+        JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'l2_getStatus', ...(params === undefined ? {} : { params }) }),
+      );
       expect([params, r.status, r.error]).toEqual([params, 200, undefined]);
       expect(r.result).toHaveProperty('totalProofsAccepted');
     }

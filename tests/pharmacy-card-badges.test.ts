@@ -32,18 +32,30 @@
  * Read from source: the stylesheet's rules and the card markup in app.js.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 
 const NL = '\n';
 const read = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n/g, NL);
 const CSS = read('dashboard-pharmacy/style.css').replace(/\/\*[\s\S]*?\*\//g, '');
 const APP = read('dashboard-pharmacy/app.js');
 
-interface Rule { selectors: string[]; decl: Record<string, string> }
+interface Rule {
+  selectors: string[];
+  decl: Record<string, string>;
+}
 /** Innermost `selector { declarations }` blocks; an @media or @keyframes wrapper is dropped, its rules kept. */
 const RULES: Rule[] = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-  selectors: m[1].split(',').map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean),
-  decl: Object.fromEntries(m[2].split(';').map((d) => d.split(':')).filter((kv) => kv.length >= 2)
-    .map(([k, ...v]) => [k.trim(), v.join(':').trim()])),
+  selectors: m[1]
+    .split(',')
+    .map((x) => x.trim().replace(/\s+/g, ' '))
+    .filter(Boolean),
+  decl: Object.fromEntries(
+    m[2]
+      .split(';')
+      .map((d) => d.split(':'))
+      .filter((kv) => kv.length >= 2)
+      .map(([k, ...v]) => [k.trim(), v.join(':').trim()]),
+  ),
 }));
 /** The declarations of the rules naming exactly this selector, merged in source order. */
 function decl(selector: string): Record<string, string> {
@@ -55,23 +67,41 @@ function decl(selector: string): Record<string, string> {
 describe('the pharmacy cards show every badge they render', () => {
   test('no rule hides a badge; the badge rule shows it', () => {
     const hiding = RULES.filter((r) => r.selectors.some((s) => /\.script-issue-badge\b/.test(s)) && /^none\b/.test(r.decl.display || ''));
-    expect(hiding.map((r) => r.selectors.join(', '))).toEqual([]);          // before: '.script-issue-badge' { display: none }
+    expect(hiding.map((r) => r.selectors.join(', '))).toEqual([]); // before: '.script-issue-badge' { display: none }
     expect(decl('.script-issue-badge').display).toBe('inline-block');
     expect(decl('.script-issue-badge')['white-space']).toBe('nowrap');
   });
 
   test('the status badges are the ones that class carries, so each of them is now on screen', () => {
-    const top = APP.slice(APP.indexOf("'<div class=\"script-card-top\">'"), APP.indexOf("'<div class=\"script-card-meta\">'"));
+    const top = APP.slice(APP.indexOf('\'<div class="script-card-top">\''), APP.indexOf('\'<div class="script-card-meta">\''));
     expect(top.length).toBeGreaterThan(0);
-    for (const label of ['eRx', 'Filling...', 'Dispensing...', 'Proving...', 'ZK Proved', 'Proof Failed', 'Proof Timeout', 'Member Verified', 'Settlement Complete', 'Reversed', 'Rejected', 'Transferred', 'Cancelled', 'Not Recorded']) {
-      expect([label, new RegExp(`<span class="script-issue-badge"[^>]*>${label.replace(/\./g, '\\.')}</span>`).test(top)]).toEqual([label, true]);
+    for (const label of [
+      'eRx',
+      'Filling...',
+      'Dispensing...',
+      'Proving...',
+      'ZK Proved',
+      'Proof Failed',
+      'Proof Timeout',
+      'Member Verified',
+      'Settlement Complete',
+      'Reversed',
+      'Rejected',
+      'Transferred',
+      'Cancelled',
+      'Not Recorded',
+    ]) {
+      expect([label, new RegExp(`<span class="script-issue-badge"[^>]*>${label.replace(/\./g, '\\.')}</span>`).test(top)]).toEqual([
+        label,
+        true,
+      ]);
     }
   });
 
   test('the top row wraps: the drug name shortens, and the badges move under it in a narrow column', () => {
-    expect(decl('.script-card-top')['flex-wrap']).toBe('wrap');            // before: one line, badges pushed out
+    expect(decl('.script-card-top')['flex-wrap']).toBe('wrap'); // before: one line, badges pushed out
     expect(decl('.script-med')['min-width']).toBe('0');
-    expect(decl('.script-med')['max-width']).toBe('100%');                 // before: 70%
+    expect(decl('.script-med')['max-width']).toBe('100%'); // before: 70%
     expect(decl('.script-med')['text-overflow']).toBe('ellipsis');
   });
 
@@ -80,12 +110,12 @@ describe('the pharmacy cards show every badge they render', () => {
     for (const s of ['.script-card-meta > .script-patient', '.script-card-meta > .script-prescriber']) {
       expect([s, decl(s).overflow, decl(s)['text-overflow'], decl(s)['min-width']]).toEqual([s, 'hidden', 'ellipsis', '0']);
     }
-    expect(APP).toContain(`'<span class="script-prescriber" title="Prescriber">' + escapeHtml(prescriber) + '</span>'`);
+    expect(flat(APP)).toContain(flat(`'<span class="script-prescriber" title="Prescriber">' + escapeHtml(prescriber) + '</span>'`));
   });
 
   test('the actions keep their labels on one line and move under the prices when the column is narrow', () => {
     expect(decl('.script-card-bottom')['flex-wrap']).toBe('wrap');
-    expect(decl('.script-actions .btn')['white-space']).toBe('nowrap');    // before: Payment / Received over the price
+    expect(decl('.script-actions .btn')['white-space']).toBe('nowrap'); // before: Payment / Received over the price
     expect(decl('.script-actions')['margin-left']).toBe('auto');
     expect(decl('.script-price-tag')['white-space']).toBe('nowrap');
   });

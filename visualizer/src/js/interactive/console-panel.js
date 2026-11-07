@@ -42,9 +42,9 @@ export class ConsolePanel {
 
   init() {
     // Filter buttons
-    this.filters.forEach(btn => {
+    this.filters.forEach((btn) => {
       btn.addEventListener('click', () => {
-        this.filters.forEach(b => b.classList.remove('active'));
+        this.filters.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.activeFilter = btn.dataset.filter;
         this.applyFilter();

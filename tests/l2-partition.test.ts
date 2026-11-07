@@ -22,11 +22,7 @@
  * Run: npx jest tests/l2-partition.test.ts --verbose
  */
 import { Field, Poseidon } from 'o1js';
-import {
-  getPartition,
-  isMyPartition,
-  PartitionRouter,
-} from '../src/l2/l2-partition.js';
+import { getPartition, isMyPartition, PartitionRouter } from '../src/l2/l2-partition.js';
 import type { PartitionConfig } from '../src/l2/l2-partition.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -137,10 +133,8 @@ describe('PartitionRouter', () => {
 
   test('setPartition rejects out-of-range index', () => {
     const router = new PartitionRouter(3);
-    expect(() => router.setPartition(3, 'http://seq3:3030'))
-      .toThrow('partitionIndex 3 out of range [0, 3)');
-    expect(() => router.setPartition(-1, 'http://neg:3030'))
-      .toThrow('partitionIndex -1 out of range [0, 3)');
+    expect(() => router.setPartition(3, 'http://seq3:3030')).toThrow('partitionIndex 3 out of range [0, 3)');
+    expect(() => router.setPartition(-1, 'http://neg:3030')).toThrow('partitionIndex -1 out of range [0, 3)');
   });
 
   test('getSequencerUrl routes walletId to correct partition URL', () => {

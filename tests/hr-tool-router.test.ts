@@ -53,7 +53,11 @@ function liftHashListener(): string {
 }
 const flush = () => new Promise<void>((r) => setImmediate(r));
 
-interface Session { groupSelected: boolean; groupId?: string; planId?: string }
+interface Session {
+  groupSelected: boolean;
+  groupId?: string;
+  planId?: string;
+}
 
 function tool(session: Session = { groupSelected: false }) {
   const location = { hash: '' };
@@ -61,32 +65,64 @@ function tool(session: Session = { groupSelected: false }) {
   const rendered: string[] = [];
   const toasts: string[] = [];
   let replaced = 0;
-  const history = { replaceState: (_state: unknown, _title: string, url: string) => { replaced++; location.hash = url; } };
+  const history = {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      replaced++;
+      location.hash = url;
+    },
+  };
   const window = {
-    addEventListener: (event: string, fn: () => void) => { if (event === 'hashchange') listeners.push(fn); },
+    addEventListener: (event: string, fn: () => void) => {
+      if (event === 'hashchange') listeners.push(fn);
+    },
     scrollTo: () => {},
   };
   const navLinks = ['groups', 'dashboard', 'import', 'employees', 'tokens', 'reconcile', 'settings'].map((tab) => {
-    const link = { dataset: { tab }, active: false, classList: { toggle: (_c: string, on?: boolean) => { link.active = !!on; return !!on; } } };
+    const link = {
+      dataset: { tab },
+      active: false,
+      classList: {
+        toggle: (_c: string, on?: boolean) => {
+          link.active = !!on;
+          return !!on;
+        },
+      },
+    };
     return link;
   });
-  const page = (name: string) => () => { rendered.push(name); };
+  const page = (name: string) => () => {
+    rendered.push(name);
+  };
   const scope: Record<string, unknown> = {
-    location, history, window, navLinks,
+    location,
+    history,
+    window,
+    navLinks,
     API: { getSession: async () => session },
-    toast: (m: string) => { toasts.push(m); },
+    toast: (m: string) => {
+      toasts.push(m);
+    },
     hydrateActiveGroupStats: async () => {},
-    renderGroupSelection: page('groups'), renderDashboard: page('dashboard'), renderImport: page('import'),
-    renderEmployees: page('employees'), renderTokens: page('tokens'), renderReconcile: page('reconcile'),
+    renderGroupSelection: page('groups'),
+    renderDashboard: page('dashboard'),
+    renderImport: page('import'),
+    renderEmployees: page('employees'),
+    renderTokens: page('tokens'),
+    renderReconcile: page('reconcile'),
     renderSettings: page('settings'),
   };
   const body = [
-    "let currentPage = 'dashboard';", 'let activeGroup = null;', 'let _rehydrating = false;',
-    lift('navigate'), liftHashListener(), lift('renderPage'),
+    "let currentPage = 'dashboard';",
+    'let activeGroup = null;',
+    'let _rehydrating = false;',
+    lift('navigate'),
+    liftHashListener(),
+    lift('renderPage'),
   ].join(NL);
   const names = Object.keys(scope);
   const api = new Function(...names, `'use strict';\n${body}\nreturn { navigate, selectGroup: (g) => { activeGroup = g; } };`)(
-    ...names.map((n) => scope[n])) as { navigate: (p: string) => void; selectGroup: (g: object) => void };
+    ...names.map((n) => scope[n]),
+  ) as { navigate: (p: string) => void; selectGroup: (g: object) => void };
   /** A click on a tab: the browser sets the hash, and fires hashchange only if the hash changed. */
   const click = (tab: string): boolean => {
     if (location.hash === '#' + tab) return false;
@@ -102,15 +138,16 @@ const GROUP = { groupId: 'GRP-FERNHILL-LAB', planId: 'PLAN-STD-RX-2026' };
 describe('the HR Tool keeps its tabs live when it changes page by itself', () => {
   test('the rehearsal: Import clicked during "Initialize & Select" works once the group is selected', async () => {
     const t = tool();
-    t.navigate('groups');                              // enterApp: after unlock, the Group Selection Screen
+    t.navigate('groups'); // enterApp: after unlock, the Group Selection Screen
     expect(t.location.hash).toBe('#groups');
 
     // Initialize & Select is in flight (the server is making the group's seed), and Import is clicked
     expect(t.click('import')).toBe(true);
-    await flush(); await flush();
+    await flush();
+    await flush();
     expect(t.toasts).toEqual(['Select a group first']);
     expect(t.rendered.at(-1)).toBe('groups');
-    expect(t.location.hash).toBe('#groups');           // before: #import stayed in the address bar
+    expect(t.location.hash).toBe('#groups'); // before: #import stayed in the address bar
 
     // the selection lands and opens the Dashboard
     t.selectGroup(GROUP);
@@ -119,16 +156,17 @@ describe('the HR Tool keeps its tabs live when it changes page by itself', () =>
     expect(t.location.hash).toBe('#dashboard');
 
     // Import now opens Import
-    expect(t.click('import')).toBe(true);              // before: false, the hash was already #import
-    expect(t.rendered.at(-1)).toBe('import');          // before: still the Dashboard
+    expect(t.click('import')).toBe(true); // before: false, the hash was already #import
+    expect(t.rendered.at(-1)).toBe('import'); // before: still the Dashboard
     expect(t.navLinks.filter((l) => l.active).map((l) => l.dataset.tab)).toEqual(['import']);
   });
 
   test('a bookmark to #import with no group selected leaves Import live after the group is chosen', async () => {
     const t = tool();
-    t.location.hash = '#import';                      // the page opens on a bookmark
-    t.navigate('import');                             // and routes the hash it found
-    await flush(); await flush();
+    t.location.hash = '#import'; // the page opens on a bookmark
+    t.navigate('import'); // and routes the hash it found
+    await flush();
+    await flush();
     expect(t.rendered).toEqual(['groups']);
     expect(t.location.hash).toBe('#groups');
     t.selectGroup(GROUP);
@@ -139,11 +177,12 @@ describe('the HR Tool keeps its tabs live when it changes page by itself', () =>
 
   test('a page restored from the server session keeps its tab; the address bar changes only when it differs', async () => {
     const t = tool({ groupSelected: true, ...GROUP });
-    expect(t.click('employees')).toBe(true);           // a refresh lost the local group; the server still has it
-    await flush(); await flush();
+    expect(t.click('employees')).toBe(true); // a refresh lost the local group; the server still has it
+    await flush();
+    await flush();
     expect(t.rendered).toEqual(['employees']);
     expect(t.location.hash).toBe('#employees');
-    expect(t.replacedCount()).toBe(0);                 // the hash already named the page: no replaceState
+    expect(t.replacedCount()).toBe(0); // the hash already named the page: no replaceState
     t.navigate('dashboard');
     expect(t.replacedCount()).toBe(1);
   });
@@ -157,6 +196,6 @@ describe('the HR Tool keeps its tabs live when it changes page by itself', () =>
     expect(t.rendered).toEqual(['dashboard', 'import', 'tokens']);
     const nav = lift('navigate');
     expect(nav).toContain('history.replaceState(');
-    expect(nav).not.toMatch(/location\.hash\s*=[^=]|pushState/);   // either would render twice or add a history entry
+    expect(nav).not.toMatch(/location\.hash\s*=[^=]|pushState/); // either would render twice or add a history entry
   });
 });

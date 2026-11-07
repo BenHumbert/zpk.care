@@ -226,12 +226,7 @@ export interface ReconciliationResult {
  * Build the canonical message for a quorum vote signature.
  * Pipe-delimited, deterministic, no JSON ambiguity.
  */
-export function buildQuorumVoteMessage(vote: {
-  proposalId: string;
-  walEntryHash: string;
-  voterId: string;
-  timestamp: number;
-}): string {
+export function buildQuorumVoteMessage(vote: { proposalId: string; walEntryHash: string; voterId: string; timestamp: number }): string {
   return `zkpcare-quorum-vote-v1|${vote.proposalId}|${vote.walEntryHash}|${vote.voterId}|${vote.timestamp}`;
 }
 

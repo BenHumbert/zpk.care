@@ -77,7 +77,8 @@ const THREAD = '424242';
 const RECEIPTS = ['rcpt-claim-routes-1', 'rcpt-claim-routes-2'];
 
 /** The L2Client read each gated route makes, signed with the insurer node's key. */
-type ClientRead = 'getClaimsByPrescriber' | 'getClaimsByPharmacy' | 'getClaimsByNdc' | 'getAuditLog' | 'getMessagesByWallet' | 'getMessagesByThread';
+type ClientRead =
+  'getClaimsByPrescriber' | 'getClaimsByPharmacy' | 'getClaimsByNdc' | 'getAuditLog' | 'getMessagesByWallet' | 'getMessagesByThread';
 
 /** The routes this fix gates: each route, the request made of it here, and the sequencer read behind it. */
 const GATED: Array<[string, string, ClientRead]> = [
@@ -133,7 +134,13 @@ function dashboard(token: string): { API: any; sent: Array<{ path: string; autho
 
 beforeAll(async () => {
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-insurer-claim-routes' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-insurer-claim-routes' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   const insurerKey = generateNodeKey('insurer-node');
   rpcServer.registerNodeKey(insurerKey.nodeId, insurerKey.publicKeyHex, 'insurer');
@@ -143,7 +150,17 @@ beforeAll(async () => {
   const seq = node.getSequencer();
   // One fill in the claim accumulator, as the engine records it.
   seq.getClaimAccumulator().appendClaim(
-    { memberWalletId: W.member, ndcHash: NDC_HASH, pharmacyWalletId: W.pharmacy, prescriberWalletId: W.prescriber, dateOfService: '20261020', patientPayCents: '1500', planPayCents: '50000', operationType: '1', deductibleCreditCents: '0' },
+    {
+      memberWalletId: W.member,
+      ndcHash: NDC_HASH,
+      pharmacyWalletId: W.pharmacy,
+      prescriberWalletId: W.prescriber,
+      dateOfService: '20261020',
+      patientPayCents: '1500',
+      planPayCents: '50000',
+      operationType: '1',
+      deductibleCreditCents: '0',
+    },
     { receiptId: RECEIPTS[0], timestamp: Date.now(), dateOfService: '20261020', ndc: NDC, brandName: 'Abacavir', tierLevel: 1 },
   );
   // The same fill twice in the audit log, chained as the sequencer chains its events, so the duplicate check names it.
@@ -151,19 +168,50 @@ beforeAll(async () => {
     const sequenceNumber = BigInt(i + 1);
     const registryRoot = seq.getCurrentRegistryRoot().toString();
     const lifecycleRoot = seq.getCurrentLifecycleRoot().toString();
-    const roots = { oldRegistryRoot: registryRoot, newRegistryRoot: registryRoot, oldLifecycleRoot: lifecycleRoot, newLifecycleRoot: lifecycleRoot };
+    const roots = {
+      oldRegistryRoot: registryRoot,
+      newRegistryRoot: registryRoot,
+      oldLifecycleRoot: lifecycleRoot,
+      newLifecycleRoot: lifecycleRoot,
+    };
     const event: AuditEvent = {
-      sequenceNumber, receiptId, walletId: W.member, isRegistration: false, ...roots, eventCommitment: '', chainHash: '',
-      timestamp: Date.now(), l1Status: 'pending', patientPayCents: 1500, planPayCents: 50000, ndcHash: NDC_HASH, operationType: 1,
+      sequenceNumber,
+      receiptId,
+      walletId: W.member,
+      isRegistration: false,
+      ...roots,
+      eventCommitment: '',
+      chainHash: '',
+      timestamp: Date.now(),
+      l1Status: 'pending',
+      patientPayCents: 1500,
+      planPayCents: 50000,
+      ndcHash: NDC_HASH,
+      operationType: 1,
       claimContext: {
-        pharmacyWalletId: W.pharmacy, memberWalletId: W.member, prescriberWalletId: W.prescriber, ndcHash: NDC_HASH,
-        ingredientCostCents: 50250, dispensingFeeCents: 1250, quantityDispensed: '30000', dateOfService: 20261020, fillNumber: 0,
+        pharmacyWalletId: W.pharmacy,
+        memberWalletId: W.member,
+        prescriberWalletId: W.prescriber,
+        ndcHash: NDC_HASH,
+        ingredientCostCents: 50250,
+        dispensingFeeCents: 1250,
+        quantityDispensed: '30000',
+        dateOfService: 20261020,
+        fillNumber: 0,
       },
     };
     const commitment = AuditService.computeEventCommitment(event);
     event.eventCommitment = commitment.toString();
     event.chainHash = AuditService.computeChainHash(Field(BigInt(seq.getAuditLog().latestChainHash)), commitment).toString();
-    const receipt: L2Receipt = { receiptId, walletId: W.member, sequenceNumber, ...roots, isRegistration: false, acceptedAt: Date.now(), l1Status: 'pending' };
+    const receipt: L2Receipt = {
+      receiptId,
+      walletId: W.member,
+      sequenceNumber,
+      ...roots,
+      isRegistration: false,
+      acceptedAt: Date.now(),
+      l1Status: 'pending',
+    };
     seq.applyReplicatedReceipt(receipt, event);
   }
   // One message from the member to the prescriber.
@@ -175,13 +223,26 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insurer-claim-routes-'));
   dirs.push(dir);
   insurerServer = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: seqUrl, stateDir: dir, enableSSE: false, maxSseConnections: 0,
-    allowedOrigins: [], adminToken: ADMIN, nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: seqUrl,
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: ADMIN,
+    nodeKey: { nodeId: insurerKey.nodeId, seedHex: insurerKey.seedHex },
     rpcProxy: resolveRpcProxyPolicy({}, 'insurer node'),
   });
   routes = buildInsurerRoutes(insurerServer);
   insurerServer.registerRoutes(routes);
-  const insurerNode = new InsurerNode({ role: 'insurer', sequencerUrl: seqUrl, displayName: 'Insurer', clientOptions: insurerServer.sequencerClientOptions() });
+  const insurerNode = new InsurerNode({
+    role: 'insurer',
+    sequencerUrl: seqUrl,
+    displayName: 'Insurer',
+    clientOptions: insurerServer.sequencerClientOptions(),
+  });
   client = (insurerNode as unknown as { client: L2Client }).client;
   insurerServer.setEntityNode(insurerNode);
   await insurerServer.start();
@@ -191,29 +252,50 @@ beforeAll(async () => {
 afterAll(async () => {
   await insurerServer?.stop();
   await rpcServer?.stop();
-  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of dirs) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
-afterEach(() => { jest.restoreAllMocks(); });
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('the claim, audit and messaging reads', () => {
-  test.each(GATED)('%s refuses a caller without the node\'s admin credential, and the sequencer is not asked', async (_route, target, sequencerRead) => {
-    const asked = jest.spyOn(client, sequencerRead);
-    for (const headers of [{}, { Authorization: 'Bearer not-the-token' }] as Array<Record<string, string>>) {
-      const r = await get(target, headers);
-      expect([r.status, r.json.data]).toEqual([401, undefined]);  // before: 200, read as the plan for anyone
-    }
-    expect(asked).not.toHaveBeenCalled();                          // before: asked, signed with the plan's key
-  });
+  test.each(GATED)(
+    "%s refuses a caller without the node's admin credential, and the sequencer is not asked",
+    async (_route, target, sequencerRead) => {
+      const asked = jest.spyOn(client, sequencerRead);
+      for (const headers of [{}, { Authorization: 'Bearer not-the-token' }] as Array<Record<string, string>>) {
+        const r = await get(target, headers);
+        expect([r.status, r.json.data]).toEqual([401, undefined]); // before: 200, read as the plan for anyone
+      }
+      expect(asked).not.toHaveBeenCalled(); // before: asked, signed with the plan's key
+    },
+  );
 
   test('with the credential, the prescriber, pharmacy and drug reads answer the claim as before, its member named', async () => {
     for (const target of [`/claims/prescriber/${W.prescriber}`, `/claims/pharmacy/${W.pharmacy}`, `/claims/drug/${NDC_HASH}`]) {
       const r = await get(target, AS_ADMIN);
       expect([target, r.status]).toEqual([target, 200]);
-      expect(r.json.data).toEqual([expect.objectContaining({
-        memberWalletId: W.member, prescriberWalletId: W.prescriber, pharmacyWalletId: W.pharmacy, ndcHash: NDC_HASH, ndc: NDC,
-        brandName: 'Abacavir', dateOfService: '20261020', patientPayCents: '1500', planPayCents: '50000', receiptId: RECEIPTS[0],
-      })]);
+      expect(r.json.data).toEqual([
+        expect.objectContaining({
+          memberWalletId: W.member,
+          prescriberWalletId: W.prescriber,
+          pharmacyWalletId: W.pharmacy,
+          ndcHash: NDC_HASH,
+          ndc: NDC,
+          brandName: 'Abacavir',
+          dateOfService: '20261020',
+          patientPayCents: '1500',
+          planPayCents: '50000',
+          receiptId: RECEIPTS[0],
+        }),
+      ]);
     }
   });
 
@@ -221,26 +303,42 @@ describe('the claim, audit and messaging reads', () => {
     const duplicates = await get('/audit/duplicate-claims', AS_ADMIN);
     expect(duplicates.status).toBe(200);
     expect(duplicates.json.data).toEqual({
-      hasDuplicates: true, totalDuplicates: 2, duplicateGroups: [{ key: `${W.member}|${NDC_HASH}|20261020|0`, receiptIds: RECEIPTS }],
+      hasDuplicates: true,
+      totalDuplicates: 2,
+      duplicateGroups: [{ key: `${W.member}|${NDC_HASH}|20261020|0`, receiptIds: RECEIPTS }],
     });
     const balance = await get('/audit/financial-balance', AS_ADMIN);
     expect(balance.status).toBe(200);
     expect(balance.json.data).toEqual({
-      isValid: true, totalClaims: 2, reversals: 0, imbalancedClaims: [], totalPatientPayCents: 3000, totalPlanPayCents: 100000,
-      totalIngredientCostCents: 100500, totalDispensingFeeCents: 2500,
+      isValid: true,
+      totalClaims: 2,
+      reversals: 0,
+      imbalancedClaims: [],
+      totalPatientPayCents: 3000,
+      totalPlanPayCents: 100000,
+      totalIngredientCostCents: 100500,
+      totalDispensingFeeCents: 2500,
     });
     const chain = await get('/audit/chain-integrity', AS_ADMIN);
     expect(chain.status).toBe(200);
     expect(chain.json.data).toEqual({ isValid: true, totalEvents: 2, brokenLinks: [] });
   });
 
-  test('with the credential, a wallet\'s messages and its thread answer as before', async () => {
+  test("with the credential, a wallet's messages and its thread answer as before", async () => {
     for (const target of [`/messaging/wallet/${W.member}`, `/messaging/thread/${THREAD}`]) {
       const r = await get(target, AS_ADMIN);
       expect([target, r.status]).toEqual([target, 200]);
-      expect(r.json.data).toEqual([expect.objectContaining({
-        message: { messageCommitment: '77', senderWalletId: W.member, recipientWalletId: W.prescriber, messageType: '1', threadIdHash: THREAD },
-      })]);
+      expect(r.json.data).toEqual([
+        expect.objectContaining({
+          message: {
+            messageCommitment: '77',
+            senderWalletId: W.member,
+            recipientWalletId: W.prescriber,
+            messageType: '1',
+            threadIdHash: THREAD,
+          },
+        }),
+      ]);
     }
   });
 });

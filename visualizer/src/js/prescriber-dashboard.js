@@ -89,10 +89,12 @@ function renderPrescriberSelector() {
     return;
   }
 
-  const options = state.prescribers.map((p, i) => {
-    const sel = i === selectedPrescriberIndex ? ' selected' : '';
-    return `<option value="${i}"${sel}>${p.firstName} ${p.lastName}, ${p.credential} - ${p.specialty}</option>`;
-  }).join('');
+  const options = state.prescribers
+    .map((p, i) => {
+      const sel = i === selectedPrescriberIndex ? ' selected' : '';
+      return `<option value="${i}"${sel}>${p.firstName} ${p.lastName}, ${p.credential} - ${p.specialty}</option>`;
+    })
+    .join('');
 
   container.innerHTML = `
     <label style="font-size: 12px; color: var(--text-secondary); margin-right: 8px;">Prescriber:</label>
@@ -117,21 +119,15 @@ function getSelectedPrescriber() {
 }
 
 function getPrescriberPrescriptions() {
-  return (state.prescriptions || []).filter(
-    (rx) => rx.prescriberIndex === selectedPrescriberIndex,
-  );
+  return (state.prescriptions || []).filter((rx) => rx.prescriberIndex === selectedPrescriberIndex);
 }
 
 function getPrescriberPriorAuths() {
-  return (state.priorAuths || []).filter(
-    (pa) => pa.prescriberIndex === selectedPrescriberIndex,
-  );
+  return (state.priorAuths || []).filter((pa) => pa.prescriberIndex === selectedPrescriberIndex);
 }
 
 function getMemberDisplayName(walletId) {
-  const member = (state.enrolledMembers || []).find(
-    (m) => m.walletId === walletId || m.walletIdDisplay === walletId,
-  );
+  const member = (state.enrolledMembers || []).find((m) => m.walletId === walletId || m.walletIdDisplay === walletId);
   return member ? member.displayName : truncHash(walletId, 6);
 }
 
@@ -247,15 +243,16 @@ function renderPrescriptionForm() {
   const pharmacies = state.pharmacies || [];
 
   if (enrolled.length === 0) {
-    container.innerHTML = renderSectionCard('Write Prescription', COLOR,
-      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No enrolled members — enroll patients from the landing page first</div>');
+    container.innerHTML = renderSectionCard(
+      'Write Prescription',
+      COLOR,
+      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No enrolled members — enroll patients from the landing page first</div>',
+    );
     return;
   }
 
   // Build patient options
-  const patientOptions = enrolled.map((m) =>
-    `<option value="${m.walletId}">${m.displayName} (${m.groupId || 'N/A'})</option>`
-  ).join('');
+  const patientOptions = enrolled.map((m) => `<option value="${m.walletId}">${m.displayName} (${m.groupId || 'N/A'})</option>`).join('');
 
   // Build medication options grouped by tier
   const tiers = [
@@ -277,9 +274,9 @@ function renderPrescriptionForm() {
   }
 
   // Build pharmacy options
-  const pharmacyOptions = pharmacies.map((p) =>
-    `<option value="${p.index}">${p.storeName} — ${p.pharmacyType} (${p.city}, ${p.state})</option>`
-  ).join('');
+  const pharmacyOptions = pharmacies
+    .map((p) => `<option value="${p.index}">${p.storeName} — ${p.pharmacyType} (${p.city}, ${p.state})</option>`)
+    .join('');
 
   const content = `
     <div class="rx-form">
@@ -412,13 +409,14 @@ function renderPcpPatients() {
   const enrolled = state.enrolledMembers || [];
 
   // Find members who have this prescriber as their PCP
-  const pcpPatients = enrolled.filter(
-    (m) => m.pcpAssignment && m.pcpAssignment.prescriberIndex === selectedPrescriberIndex,
-  );
+  const pcpPatients = enrolled.filter((m) => m.pcpAssignment && m.pcpAssignment.prescriberIndex === selectedPrescriberIndex);
 
   if (pcpPatients.length === 0) {
-    container.innerHTML = renderSectionCard('My PCP Patients', COLOR,
-      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No patients have assigned this prescriber as their PCP</div>');
+    container.innerHTML = renderSectionCard(
+      'My PCP Patients',
+      COLOR,
+      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No patients have assigned this prescriber as their PCP</div>',
+    );
     return;
   }
 
@@ -428,11 +426,15 @@ function renderPcpPatients() {
     { key: 'groupId', label: 'Group' },
     { key: 'familyId', label: 'Family' },
     { key: 'relationship', label: 'Relationship' },
-    { key: 'lifecycle', label: 'Status', format: (v) => {
-      const labels = { 1: 'REGISTERED', 2: 'ELIGIBLE', 3: 'ACTIVE', 4: 'REVOKED' };
-      const classes = { 1: 'pending', 2: 'pending', 3: 'fill', 4: 'reversal' };
-      return renderBadge(labels[v] || 'UNKNOWN', classes[v] || 'pending');
-    }},
+    {
+      key: 'lifecycle',
+      label: 'Status',
+      format: (v) => {
+        const labels = { 1: 'REGISTERED', 2: 'ELIGIBLE', 3: 'ACTIVE', 4: 'REVOKED' };
+        const classes = { 1: 'pending', 2: 'pending', 3: 'fill', 4: 'reversal' };
+        return renderBadge(labels[v] || 'UNKNOWN', classes[v] || 'pending');
+      },
+    },
     { key: 'deductible', label: 'Deductible Used', align: 'right', format: (v) => formatCents(v) },
   ];
 
@@ -447,11 +449,7 @@ function renderPcpPatients() {
   }));
 
   const table = renderSortableTable('pcp-patients-table', columns, rows, 'displayName');
-  container.innerHTML = renderSectionCard(
-    `My PCP Patients (${pcpPatients.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`My PCP Patients (${pcpPatients.length})`, COLOR, table);
 }
 
 // ============================================================================
@@ -471,8 +469,8 @@ function renderHistory() {
     { key: 'quantity', label: 'Qty', align: 'right' },
     { key: 'refillInfo', label: 'Refills' },
     { key: 'status', label: 'Status', format: (v) => rxStatusBadge(v) },
-    { key: 'patientPayCents', label: 'Patient Pay', align: 'right', format: (v) => v ? formatCents(v) : '--' },
-    { key: 'planPayCents', label: 'Plan Pay', align: 'right', format: (v) => v ? formatCents(v) : '--' },
+    { key: 'patientPayCents', label: 'Patient Pay', align: 'right', format: (v) => (v ? formatCents(v) : '--') },
+    { key: 'planPayCents', label: 'Plan Pay', align: 'right', format: (v) => (v ? formatCents(v) : '--') },
   ];
 
   const rows = prescriptions.map((rx) => ({
@@ -489,11 +487,7 @@ function renderHistory() {
   }));
 
   const table = renderSortableTable('history-table', columns, rows, 'id');
-  container.innerHTML = renderSectionCard(
-    `Prescribing History (${prescriptions.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`Prescribing History (${prescriptions.length})`, COLOR, table);
 }
 
 // ============================================================================
@@ -506,15 +500,9 @@ function renderActivity() {
   const priorAuths = getPrescriberPriorAuths();
 
   const totalScripts = prescriptions.length;
-  const activeScripts = prescriptions.filter(
-    (rx) => rx.status !== 'CANCELLED' && rx.status !== 'REJECTED',
-  ).length;
-  const filledScripts = prescriptions.filter(
-    (rx) => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED',
-  ).length;
-  const cancelledScripts = prescriptions.filter(
-    (rx) => rx.status === 'CANCELLED' || rx.status === 'REJECTED',
-  ).length;
+  const activeScripts = prescriptions.filter((rx) => rx.status !== 'CANCELLED' && rx.status !== 'REJECTED').length;
+  const filledScripts = prescriptions.filter((rx) => rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED').length;
+  const cancelledScripts = prescriptions.filter((rx) => rx.status === 'CANCELLED' || rx.status === 'REJECTED').length;
 
   const pendingPA = priorAuths.filter((pa) => pa.status === 'PENDING').length;
   const approvedPA = priorAuths.filter((pa) => pa.status === 'APPROVED').length;
@@ -552,7 +540,10 @@ function renderActivity() {
     statusCounts[rx.status] = (statusCounts[rx.status] || 0) + 1;
   }
   const statusBreakdown = Object.entries(statusCounts)
-    .map(([status, count]) => `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-subtle);"><span>${rxStatusBadge(status)}</span><span style="font-weight: 600;">${count}</span></div>`)
+    .map(
+      ([status, count]) =>
+        `<div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border-subtle);"><span>${rxStatusBadge(status)}</span><span style="font-weight: 600;">${count}</span></div>`,
+    )
     .join('');
 
   const content = `
@@ -600,17 +591,15 @@ function renderPatientBreakdown() {
     { key: 'totalPlanPay', label: 'Plan Pay', align: 'right', format: (v) => formatCents(v) },
   ];
 
-  const rows = Array.from(patientMap.values()).map((p) => ({
-    ...p,
-    uniqueMeds: p.medications.size,
-  })).sort((a, b) => b.scriptCount - a.scriptCount);
+  const rows = Array.from(patientMap.values())
+    .map((p) => ({
+      ...p,
+      uniqueMeds: p.medications.size,
+    }))
+    .sort((a, b) => b.scriptCount - a.scriptCount);
 
   const table = renderSortableTable('patients-table', columns, rows, 'scriptCount');
-  container.innerHTML = renderSectionCard(
-    `Patient Breakdown (${rows.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`Patient Breakdown (${rows.length})`, COLOR, table);
 }
 
 // ============================================================================
@@ -646,24 +635,22 @@ function renderMedicationBreakdown() {
 
   const columns = [
     { key: 'name', label: 'Medication' },
-    { key: 'tier', label: 'Tier', format: (v) => v !== null ? tierBadge(v) : '--' },
+    { key: 'tier', label: 'Tier', format: (v) => (v !== null ? tierBadge(v) : '--') },
     { key: 'scriptCount', label: 'Scripts', align: 'right' },
     { key: 'uniquePatients', label: 'Patients', align: 'right' },
     { key: 'totalPatientPay', label: 'Patient Pay', align: 'right', format: (v) => formatCents(v) },
     { key: 'totalPlanPay', label: 'Plan Pay', align: 'right', format: (v) => formatCents(v) },
   ];
 
-  const rows = Array.from(medMap.values()).map((m) => ({
-    ...m,
-    uniquePatients: m.patients.size,
-  })).sort((a, b) => b.scriptCount - a.scriptCount);
+  const rows = Array.from(medMap.values())
+    .map((m) => ({
+      ...m,
+      uniquePatients: m.patients.size,
+    }))
+    .sort((a, b) => b.scriptCount - a.scriptCount);
 
   const table = renderSortableTable('medications-table', columns, rows, 'scriptCount');
-  container.innerHTML = renderSectionCard(
-    `Medication Breakdown (${rows.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`Medication Breakdown (${rows.length})`, COLOR, table);
 }
 
 // ============================================================================
@@ -697,18 +684,16 @@ function renderPharmacyBreakdown() {
     { key: 'uniqueMeds', label: 'Unique Meds', align: 'right' },
   ];
 
-  const rows = Array.from(pharmMap.values()).map((p) => ({
-    ...p,
-    uniquePatients: p.patients.size,
-    uniqueMeds: p.medications.size,
-  })).sort((a, b) => b.scriptCount - a.scriptCount);
+  const rows = Array.from(pharmMap.values())
+    .map((p) => ({
+      ...p,
+      uniquePatients: p.patients.size,
+      uniqueMeds: p.medications.size,
+    }))
+    .sort((a, b) => b.scriptCount - a.scriptCount);
 
   const table = renderSortableTable('pharmacies-table', columns, rows, 'scriptCount');
-  container.innerHTML = renderSectionCard(
-    `Pharmacy Breakdown (${rows.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`Pharmacy Breakdown (${rows.length})`, COLOR, table);
 }
 
 // ============================================================================
@@ -720,9 +705,12 @@ function renderFormulary() {
   const medications = state.medications || [];
 
   if (medications.length === 0) {
-    container.innerHTML = renderSectionCard('Formulary', COLOR,
+    container.innerHTML = renderSectionCard(
+      'Formulary',
+      COLOR,
       '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No formulary data available</div>',
-      { collapsed: true });
+      { collapsed: true },
+    );
     return;
   }
 
@@ -743,12 +731,7 @@ function renderFormulary() {
   }));
 
   const table = renderSortableTable('formulary-table', columns, rows, 'brandName');
-  container.innerHTML = renderSectionCard(
-    `Formulary (${medications.length} medications)`,
-    COLOR,
-    table,
-    { collapsed: true },
-  );
+  container.innerHTML = renderSectionCard(`Formulary (${medications.length} medications)`, COLOR, table, { collapsed: true });
 }
 
 // ============================================================================
@@ -760,8 +743,11 @@ function renderReceipts() {
   const priorAuths = getPrescriberPriorAuths();
 
   if (priorAuths.length === 0) {
-    container.innerHTML = renderSectionCard('Prior Authorization Requests', COLOR,
-      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No prior authorization requests</div>');
+    container.innerHTML = renderSectionCard(
+      'Prior Authorization Requests',
+      COLOR,
+      '<div style="color: var(--text-secondary); text-align: center; padding: 16px;">No prior authorization requests</div>',
+    );
     return;
   }
 
@@ -778,15 +764,11 @@ function renderReceipts() {
     { key: 'medicationTier', label: 'Tier', format: (v) => tierBadge(v) },
     { key: 'status', label: 'Status', format: (v) => paStatusBadge(v) },
     { key: 'requestedAt', label: 'Requested', format: (v) => formatTimestamp(v) },
-    { key: 'resolvedAt', label: 'Resolved', format: (v) => v ? formatTimestamp(v) : '--' },
+    { key: 'resolvedAt', label: 'Resolved', format: (v) => (v ? formatTimestamp(v) : '--') },
   ];
 
   const table = renderSortableTable('pa-table', columns, priorAuths, 'id');
-  container.innerHTML = renderSectionCard(
-    `Prior Authorization Requests (${priorAuths.length})`,
-    COLOR,
-    table,
-  );
+  container.innerHTML = renderSectionCard(`Prior Authorization Requests (${priorAuths.length})`, COLOR, table);
 }
 
 // ============================================================================

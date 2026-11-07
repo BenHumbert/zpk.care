@@ -45,11 +45,35 @@ export function pickPaths(obj, paths) {
 
 /** The responses the director learns from, and the only fields it keeps. */
 export const SNIFF_RULES = Object.freeze([
-  { name: 'apply', method: 'POST', path: /\/marketplace\/api\/apply$/, fields: ['data.applicationId', 'data.activationCode'], secret: true },
-  { name: 'credentials', method: 'POST', path: /\/marketplace\/api\/activate-credentials\//, fields: ['data.adminToken', 'data.employerNodeUrl'], secret: true },
-  { name: 'import', method: 'POST', path: /^\/api\/import$/, fields: ['data.results[].employeeId', 'data.results[].tokenId', 'data.results[].tokenPIN', 'data.results[].status', 'data.success'], secret: true },
+  {
+    name: 'apply',
+    method: 'POST',
+    path: /\/marketplace\/api\/apply$/,
+    fields: ['data.applicationId', 'data.activationCode'],
+    secret: true,
+  },
+  {
+    name: 'credentials',
+    method: 'POST',
+    path: /\/marketplace\/api\/activate-credentials\//,
+    fields: ['data.adminToken', 'data.employerNodeUrl'],
+    secret: true,
+  },
+  {
+    name: 'import',
+    method: 'POST',
+    path: /^\/api\/import$/,
+    fields: ['data.results[].employeeId', 'data.results[].tokenId', 'data.results[].tokenPIN', 'data.results[].status', 'data.success'],
+    secret: true,
+  },
   { name: 'wallet', method: 'POST', path: /\/onboarding\/derive-wallet$/, fields: ['data.walletId'], secret: false },
-  { name: 'attestation', method: 'POST', path: /\/attestation\/request$/, fields: ['data.v', 'data.t', 'data.w', 'data.cc', 'data.ls', 'data.fr', 'data.ts', 'data.exp', 'data.n', 'data.pk', 'data.sig'], secret: false }
+  {
+    name: 'attestation',
+    method: 'POST',
+    path: /\/attestation\/request$/,
+    fields: ['data.v', 'data.t', 'data.w', 'data.cc', 'data.ls', 'data.fr', 'data.ts', 'data.exp', 'data.n', 'data.pk', 'data.sig'],
+    secret: false,
+  },
 ]);
 
 export class Sniffer {
@@ -62,14 +86,22 @@ export class Sniffer {
   watch(page, rules = SNIFF_RULES) {
     page.on('response', async (res) => {
       let url;
-      try { url = new URL(res.url()); } catch { return; }
+      try {
+        url = new URL(res.url());
+      } catch {
+        return;
+      }
       const req = res.request();
       const rule = rules.find((r) => (!r.method || r.method === req.method()) && r.path.test(url.pathname));
       if (!rule) return;
       const ct = String(res.headers()['content-type'] || '');
       if (!ct.includes('json')) return;
       let body = null;
-      try { body = await res.json(); } catch { return; }
+      try {
+        body = await res.json();
+      } catch {
+        return;
+      }
       const value = pickPaths(body, rule.fields);
       const cap = { at: Date.now(), status: res.status(), value };
       if (!this.captures.has(rule.name)) this.captures.set(rule.name, []);

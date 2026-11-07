@@ -21,7 +21,12 @@
 // severity: 'critical' | 'major' | 'moderate' | 'minor'
 export const DRUG_INTERACTIONS = [
   // Critical
-  ['Factor Xa Inhibitor Anticoagulant', 'TNF-alpha Inhibitor', 'critical', 'Increased bleeding risk with concurrent anticoagulant and TNF inhibitor use'],
+  [
+    'Factor Xa Inhibitor Anticoagulant',
+    'TNF-alpha Inhibitor',
+    'critical',
+    'Increased bleeding risk with concurrent anticoagulant and TNF inhibitor use',
+  ],
   ['Factor Xa Inhibitor Anticoagulant', 'JAK Inhibitor', 'critical', 'Significantly increased bleeding and thrombotic event risk'],
   ['PD-1 Inhibitor (Immunotherapy)', 'TNF-alpha Inhibitor', 'critical', 'Severe immunosuppression/immune dysregulation risk'],
   ['PD-1 Inhibitor (Immunotherapy)', 'JAK Inhibitor', 'critical', 'Conflicting immune modulation — increased infection risk'],
@@ -30,7 +35,12 @@ export const DRUG_INTERACTIONS = [
   // Major
   ['ACE Inhibitor', 'ARNI (Heart Failure)', 'major', 'Contraindicated: dual RAAS blockade increases angioedema risk. 36h washout required'],
   ['Biguanide Antidiabetic', 'SGLT2 Inhibitor', 'major', 'Increased risk of diabetic ketoacidosis and lactic acidosis'],
-  ['DPP-4 Inhibitor', 'GLP-1 Receptor Agonist', 'major', 'Overlapping incretin mechanism — no additional benefit, increased GI adverse effects'],
+  [
+    'DPP-4 Inhibitor',
+    'GLP-1 Receptor Agonist',
+    'major',
+    'Overlapping incretin mechanism — no additional benefit, increased GI adverse effects',
+  ],
   ['JAK Inhibitor', 'TNF-alpha Inhibitor', 'major', 'Dual immunosuppression — significantly increased serious infection risk'],
   ['JAK Inhibitor', 'IL-12/23 Inhibitor', 'major', 'Combined immunosuppression increases opportunistic infection risk'],
   ['TNF-alpha Inhibitor', 'IL-12/23 Inhibitor', 'major', 'Dual biologic immunosuppression — increased infection and malignancy risk'],
@@ -38,17 +48,37 @@ export const DRUG_INTERACTIONS = [
   ['Immunomodulatory Agent (Oncology)', 'TNF-alpha Inhibitor', 'major', 'Overlapping immunosuppression — increased infection risk'],
 
   // Moderate
-  ['HMG-CoA Reductase Inhibitor (Statin)', 'Immunomodulatory Agent (Oncology)', 'moderate', 'Increased risk of myopathy/rhabdomyolysis with concurrent use'],
+  [
+    'HMG-CoA Reductase Inhibitor (Statin)',
+    'Immunomodulatory Agent (Oncology)',
+    'moderate',
+    'Increased risk of myopathy/rhabdomyolysis with concurrent use',
+  ],
   ['ACE Inhibitor', 'SGLT2 Inhibitor', 'moderate', 'Additive hypotensive effect — monitor blood pressure'],
   ['Proton Pump Inhibitor', 'Thyroid Hormone', 'moderate', 'PPI reduces absorption of levothyroxine — separate dosing by 4+ hours'],
   ['Proton Pump Inhibitor', 'Biguanide Antidiabetic', 'moderate', 'PPI may increase metformin absorption — monitor blood glucose'],
-  ['Factor Xa Inhibitor Anticoagulant', 'Proton Pump Inhibitor', 'moderate', 'PPI may alter anticoagulant absorption — monitor INR equivalent'],
+  [
+    'Factor Xa Inhibitor Anticoagulant',
+    'Proton Pump Inhibitor',
+    'moderate',
+    'PPI may alter anticoagulant absorption — monitor INR equivalent',
+  ],
   ['CNS Stimulant', 'Short-Acting Beta-2 Agonist (SABA)', 'moderate', 'Additive cardiovascular stimulation — monitor heart rate'],
   ['GLP-1 Receptor Agonist', 'SGLT2 Inhibitor', 'moderate', 'Combined use increases hypoglycemia risk — monitor closely'],
 
   // Minor
-  ['Aminopenicillin Antibiotic', 'Proton Pump Inhibitor', 'minor', 'PPI may slightly reduce amoxicillin absorption — generally not clinically significant'],
-  ['Thyroid Hormone', 'HMG-CoA Reductase Inhibitor (Statin)', 'minor', 'Hypothyroidism may increase statin sensitivity — monitor CK levels'],
+  [
+    'Aminopenicillin Antibiotic',
+    'Proton Pump Inhibitor',
+    'minor',
+    'PPI may slightly reduce amoxicillin absorption — generally not clinically significant',
+  ],
+  [
+    'Thyroid Hormone',
+    'HMG-CoA Reductase Inhibitor (Statin)',
+    'minor',
+    'Hypothyroidism may increase statin sensitivity — monitor CK levels',
+  ],
 ];
 
 // Check interactions between a list of active medications
@@ -67,7 +97,8 @@ export function checkInteractions(activeMeds) {
           alerts.push({
             medA: activeMeds[i].brandName || activeMeds[i].ndcHash,
             medB: activeMeds[j].brandName || activeMeds[j].ndcHash,
-            classA, classB,
+            classA,
+            classB,
             severity,
             description,
           });
@@ -83,10 +114,10 @@ export function checkInteractions(activeMeds) {
 
 // Get overall DUR status from interaction alerts
 export function getDurStatus(alerts) {
-  if (alerts.some(a => a.severity === 'critical')) return 'red';
-  if (alerts.some(a => a.severity === 'major')) return 'red';
-  if (alerts.some(a => a.severity === 'moderate')) return 'amber';
-  if (alerts.some(a => a.severity === 'minor')) return 'amber';
+  if (alerts.some((a) => a.severity === 'critical')) return 'red';
+  if (alerts.some((a) => a.severity === 'major')) return 'red';
+  if (alerts.some((a) => a.severity === 'moderate')) return 'amber';
+  if (alerts.some((a) => a.severity === 'minor')) return 'amber';
   return 'green';
 }
 
@@ -101,7 +132,9 @@ export function renderInteractionAlerts(alerts) {
   if (alerts.length === 0) {
     return `<div style="color: var(--accent-green); padding: 12px; text-align: center;">No drug interactions detected</div>`;
   }
-  return alerts.map(a => `
+  return alerts
+    .map(
+      (a) => `
     <div class="dur-alert-card dur-alert-${a.severity}">
       <div class="dur-alert-header">
         <span class="badge badge-${a.severity === 'critical' || a.severity === 'major' ? 'reversal' : 'pending'}">${a.severity.toUpperCase()}</span>
@@ -109,5 +142,7 @@ export function renderInteractionAlerts(alerts) {
       </div>
       <div class="dur-alert-body">${a.description}</div>
     </div>
-  `).join('');
+  `,
+    )
+    .join('');
 }

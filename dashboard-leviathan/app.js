@@ -23,11 +23,11 @@
 
   // ── State ────────────────────────────────────────────────────
   let currentTab = 'overview';
-  let levStatus = null;       // cached leviathan status
-  let topoNodes = [];         // { id, type, x, y, role, partition, state, ... }
-  let topoLinks = [];         // { source, target, el }
-  let eventLog = [];          // max 200
-  let gossipLog = [];         // max 200
+  let levStatus = null; // cached leviathan status
+  let topoNodes = []; // { id, type, x, y, role, partition, state, ... }
+  let topoLinks = []; // { source, target, el }
+  let eventLog = []; // max 200
+  let gossipLog = []; // max 200
   let pollTimer = null;
 
   const MAX_LOG = 200;
@@ -39,20 +39,24 @@
     if (typeof e.message === 'string') return e.message;
     if (typeof e.error === 'string') return e.error;
     if (e.error && typeof e.error.message === 'string') return e.error.message;
-    try { return JSON.stringify(e); } catch (_) { return String(e); }
+    try {
+      return JSON.stringify(e);
+    } catch (_) {
+      return String(e);
+    }
   }
 
   // ── Pipeline State ──────────────────────────────────────────
-  var entityCache = [];       // from /viz/entities
+  var entityCache = []; // from /viz/entities
   var entityCacheTime = 0;
-  var batchCache = [];        // last 5 batches for pipeline view
-  var nodePositions = {};     // { id: { x, y } } for animation targeting
+  var batchCache = []; // last 5 batches for pipeline view
+  var nodePositions = {}; // { id: { x, y } } for animation targeting
   var animFrameId = null;
   var metrics = {
-    proofTimestamps: [],      // timestamps of recent proof:accepted (60s window)
-    proveTimes: [],           // last 20 prove durations (ms)
+    proofTimestamps: [], // timestamps of recent proof:accepted (60s window)
+    proveTimes: [], // last 20 prove durations (ms)
     queueDepth: 0,
-    batchFillRate: 0
+    batchFillRate: 0,
   };
   var metricsFrameCount = 0;
 
@@ -63,13 +67,13 @@
   // via marketplace activation and appear dynamically in the Tenants panel
   // (loaded via l2_listEmployerNodes). See Phase C orchestrator.
   var NETWORK_NODES = [
-    { id: 'leviathan',  label: 'Leviathan',  port: 3030, url: 'http://' + _baseHost + ':3030',  healthPath: '/health' },
-    { id: 'member',     label: 'Member',     port: 4001, url: 'http://' + _baseHost + ':4001',  healthPath: '/health' },
-    { id: 'prescriber', label: 'Prescriber', port: 4002, url: 'http://' + _baseHost + ':4002',  healthPath: '/health' },
-    { id: 'pharmacy',   label: 'Pharmacy',   port: 4003, url: 'http://' + _baseHost + ':4003',  healthPath: '/health' },
-    { id: 'insurer',    label: 'Insurer',    port: 4004, url: 'http://' + _baseHost + ':4004',  healthPath: '/health' },
-    { id: 'replica-1',  label: 'Replica-1',  port: 3031, url: 'http://' + _baseHost + ':3031',  healthPath: '/health' },
-    { id: 'replica-2',  label: 'Replica-2',  port: 3032, url: 'http://' + _baseHost + ':3032',  healthPath: '/health' },
+    { id: 'leviathan', label: 'Leviathan', port: 3030, url: 'http://' + _baseHost + ':3030', healthPath: '/health' },
+    { id: 'member', label: 'Member', port: 4001, url: 'http://' + _baseHost + ':4001', healthPath: '/health' },
+    { id: 'prescriber', label: 'Prescriber', port: 4002, url: 'http://' + _baseHost + ':4002', healthPath: '/health' },
+    { id: 'pharmacy', label: 'Pharmacy', port: 4003, url: 'http://' + _baseHost + ':4003', healthPath: '/health' },
+    { id: 'insurer', label: 'Insurer', port: 4004, url: 'http://' + _baseHost + ':4004', healthPath: '/health' },
+    { id: 'replica-1', label: 'Replica-1', port: 3031, url: 'http://' + _baseHost + ':3031', healthPath: '/health' },
+    { id: 'replica-2', label: 'Replica-2', port: 3032, url: 'http://' + _baseHost + ':3032', healthPath: '/health' },
   ];
   var nodeHealthState = {}; // { nodeId: { alive, lastCheck, latencyMs, phase, error, detail } }
 
@@ -81,21 +85,31 @@
     // Skip the HTTP probe which can false-timeout under browser connection limits.
     if (node.id === 'leviathan') {
       nodeHealthState[node.id] = {
-        alive: true, lastCheck: Date.now(), latencyMs: 0,
-        phase: 'running', error: null, detail: 'self'
+        alive: true,
+        lastCheck: Date.now(),
+        latencyMs: 0,
+        phase: 'running',
+        error: null,
+        detail: 'self',
       };
       return;
     }
 
     try {
       var controller = new AbortController();
-      var timeout = setTimeout(function () { controller.abort(); }, 8000);
+      var timeout = setTimeout(function () {
+        controller.abort();
+      }, 8000);
       var res = await fetch(node.url + node.healthPath, { signal: controller.signal });
       clearTimeout(timeout);
       var latency = Date.now() - t0;
       var text = await res.text();
       var data;
-      try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        data = { raw: text };
+      }
 
       var phase = 'unknown';
       if (data && data.data && data.data.phase) phase = data.data.phase;
@@ -117,13 +131,21 @@
       }
 
       nodeHealthState[node.id] = {
-        alive: true, lastCheck: Date.now(), latencyMs: latency,
-        phase: phase, error: null, detail: detail
+        alive: true,
+        lastCheck: Date.now(),
+        latencyMs: latency,
+        phase: phase,
+        error: null,
+        detail: detail,
       };
     } catch (e) {
       nodeHealthState[node.id] = {
-        alive: false, lastCheck: Date.now(), latencyMs: Date.now() - t0,
-        phase: 'dead', error: e.name === 'AbortError' ? 'timeout (3s)' : e.message, detail: ''
+        alive: false,
+        lastCheck: Date.now(),
+        latencyMs: Date.now() - t0,
+        phase: 'dead',
+        error: e.name === 'AbortError' ? 'timeout (3s)' : e.message,
+        detail: '',
       };
     }
   }
@@ -143,7 +165,9 @@
     renderHealthBar();
 
     // Log results to feed
-    var alive = 0, dead = 0, errors = [];
+    var alive = 0,
+      dead = 0,
+      errors = [];
     NETWORK_NODES.forEach(function (n) {
       var s = nodeHealthState[n.id];
       if (s && s.alive) {
@@ -157,11 +181,13 @@
     addFeedItem({
       type: 'health-check',
       typeClass: dead === 0 ? 'proof' : 'error',
-      from: 'Dashboard', fromColor: '#26c6da',
-      to: alive + '/' + NETWORK_NODES.length + ' alive', toColor: dead === 0 ? '#3fb950' : '#f85149',
+      from: 'Dashboard',
+      fromColor: '#26c6da',
+      to: alive + '/' + NETWORK_NODES.length + ' alive',
+      toColor: dead === 0 ? '#3fb950' : '#f85149',
       detail: dead > 0 ? 'DEAD: ' + errors.join(' | ') : 'All nodes responding',
       timestamp: Date.now(),
-      _diagClass: dead === 0 ? 'diag-ok' : 'diag-error'
+      _diagClass: dead === 0 ? 'diag-ok' : 'diag-error',
     });
   }
 
@@ -172,13 +198,21 @@
     var html = '';
     NETWORK_NODES.forEach(function (n) {
       var s = nodeHealthState[n.id] || {};
-      var cls = s.alive ? 'alive' : (s.phase === 'checking' ? 'checking' : 'dead');
-      var statusText = s.alive ? s.latencyMs + 'ms' : (s.phase === 'checking' ? '...' : 'DOWN');
-      html += '<div class="node-health-chip ' + cls + '" title="' +
-        escHtml(n.url + ' — ' + (s.error || s.phase || '')) + '">' +
+      var cls = s.alive ? 'alive' : s.phase === 'checking' ? 'checking' : 'dead';
+      var statusText = s.alive ? s.latencyMs + 'ms' : s.phase === 'checking' ? '...' : 'DOWN';
+      html +=
+        '<div class="node-health-chip ' +
+        cls +
+        '" title="' +
+        escHtml(n.url + ' — ' + (s.error || s.phase || '')) +
+        '">' +
         '<span class="nh-dot"></span>' +
-        '<span class="nh-label">' + escHtml(n.label) + '</span>' +
-        '<span class="nh-status">' + statusText + '</span>' +
+        '<span class="nh-label">' +
+        escHtml(n.label) +
+        '</span>' +
+        '<span class="nh-status">' +
+        statusText +
+        '</span>' +
         (s.detail ? '<span class="nh-detail">' + escHtml(s.detail) + '</span>' : '') +
         '</div>';
     });
@@ -196,18 +230,26 @@
     addFeedItem({
       type: isError ? 'DIAG-ERROR' : 'DIAG',
       typeClass: isError ? 'error' : 'worker',
-      from: 'Dashboard', fromColor: isError ? '#f85149' : '#ffc107',
-      to: null, toColor: null,
+      from: 'Dashboard',
+      fromColor: isError ? '#f85149' : '#ffc107',
+      to: null,
+      toColor: null,
       detail: msg,
       timestamp: Date.now(),
-      _diagClass: isError ? 'diag-error' : 'diag'
+      _diagClass: isError ? 'diag-error' : 'diag',
     });
   }
 
   // ── Helpers ──────────────────────────────────────────────────
-  function $(id) { return document.getElementById(id); }
-  function qs(sel) { return document.querySelector(sel); }
-  function qsa(sel) { return document.querySelectorAll(sel); }
+  function $(id) {
+    return document.getElementById(id);
+  }
+  function qs(sel) {
+    return document.querySelector(sel);
+  }
+  function qsa(sel) {
+    return document.querySelectorAll(sel);
+  }
 
   function shortHash(h) {
     if (!h) return '--';
@@ -233,7 +275,9 @@
     el.className = 'toast toast-' + (type || 'info');
     el.textContent = msg;
     $('toast-container').appendChild(el);
-    setTimeout(function () { el.remove(); }, 4000);
+    setTimeout(function () {
+      el.remove();
+    }, 4000);
   }
 
   function setConnDot(state) {
@@ -245,8 +289,12 @@
   // ── Router ───────────────────────────────────────────────────
   function navigate(tab) {
     currentTab = tab;
-    qsa('.page').forEach(function (p) { p.classList.remove('active'); });
-    qsa('.nav-tab').forEach(function (t) { t.classList.remove('active'); });
+    qsa('.page').forEach(function (p) {
+      p.classList.remove('active');
+    });
+    qsa('.nav-tab').forEach(function (t) {
+      t.classList.remove('active');
+    });
     var page = $('page-' + tab);
     if (page) page.classList.add('active');
     var btn = qs('.nav-tab[data-tab="' + tab + '"]');
@@ -257,14 +305,30 @@
 
   function loadTab(tab) {
     switch (tab) {
-      case 'overview': loadOverview(); break;
-      case 'partitions': loadPartitions(); break;
-      case 'workers': loadWorkers(); break;
-      case 'gossip': loadGossip(); break;
-      case 'wal': loadWal(); break;
-      case 'batches': loadBatches(); break;
-      case 'audit': loadAudit(); break;
-      case 'admin': loadAdmin(); break;
+      case 'overview':
+        loadOverview();
+        break;
+      case 'partitions':
+        loadPartitions();
+        break;
+      case 'workers':
+        loadWorkers();
+        break;
+      case 'gossip':
+        loadGossip();
+        break;
+      case 'wal':
+        loadWal();
+        break;
+      case 'batches':
+        loadBatches();
+        break;
+      case 'audit':
+        loadAudit();
+        break;
+      case 'admin':
+        loadAdmin();
+        break;
     }
   }
 
@@ -272,9 +336,11 @@
   // 6-panel grid: Throughput | Workers | Feed | Batches | Network | Entities
 
   var ENTITY_COLORS = {
-    member: '#3fb950', prescriber: '#58a6ff',
-    pharmacy: '#bc8cff', insurer: '#db6d28',
-    employer: '#ec4899'
+    member: '#3fb950',
+    prescriber: '#58a6ff',
+    pharmacy: '#bc8cff',
+    insurer: '#db6d28',
+    employer: '#ec4899',
   };
   var ENTITY_ORDER = ['member', 'prescriber', 'pharmacy', 'insurer'];
 
@@ -322,7 +388,9 @@
   function updateThroughputPanel() {
     if (!$('cc-rate')) return; // Throughput tile removed — no-op
     var now = Date.now();
-    metrics.proofTimestamps = metrics.proofTimestamps.filter(function (t) { return now - t < 60000; });
+    metrics.proofTimestamps = metrics.proofTimestamps.filter(function (t) {
+      return now - t < 60000;
+    });
     var rate = metrics.proofTimestamps.length / 60;
     $('cc-rate').innerHTML = rate.toFixed(1) + '<small>/s</small>';
     $('cc-peak').textContent = sparkPeak.toFixed(1);
@@ -337,7 +405,9 @@
   /** Tick the sparkline — called every 1s */
   function tickSparkline() {
     var now = Date.now();
-    var count = metrics.proofTimestamps.filter(function (t) { return now - t < 1000; }).length;
+    var count = metrics.proofTimestamps.filter(function (t) {
+      return now - t < 1000;
+    }).length;
     sparkIdx = (sparkIdx + 1) % 60;
     sparkBars[sparkIdx] = count;
     if (count > sparkPeak) sparkPeak = count;
@@ -358,13 +428,16 @@
       return;
     }
 
-    var alive = 0, proving = 0;
+    var alive = 0,
+      proving = 0;
     var html = '';
     workers.forEach(function (w, i) {
       var s = (w.state || w.status || 'idle').toLowerCase();
       if (s === 'idle' || s === 'ready') s = 'idle';
-      else if (s === 'proving' || s === 'busy') { s = 'proving'; proving++; }
-      else if (s === 'compiling') s = 'compiling';
+      else if (s === 'proving' || s === 'busy') {
+        s = 'proving';
+        proving++;
+      } else if (s === 'compiling') s = 'compiling';
       else s = 'dead';
       if (s !== 'dead') alive++;
 
@@ -378,7 +451,9 @@
       var barWidth = '0';
       if (s === 'proving') {
         var avgProve = metrics.proveTimes.length
-          ? metrics.proveTimes.reduce(function (a, b) { return a + b; }, 0) / metrics.proveTimes.length
+          ? metrics.proveTimes.reduce(function (a, b) {
+              return a + b;
+            }, 0) / metrics.proveTimes.length
           : 30000;
         var elapsedMs = workerStartTimes[wId] ? Date.now() - workerStartTimes[wId] : 0;
         barWidth = Math.min(95, (elapsedMs / avgProve) * 100).toFixed(0);
@@ -389,10 +464,21 @@
       }
 
       var jobDesc = w.currentJobDescription || '';
-      html += '<div class="cc-worker-row">' +
-        '<span class="cc-worker-id">' + escHtml(wId) + '</span>' +
-        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' + s + '" style="width:' + barWidth + '%"></div></div>' +
-        '<span class="cc-worker-state ' + s + '">' + s + '</span>' +
+      html +=
+        '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">' +
+        escHtml(wId) +
+        '</span>' +
+        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' +
+        s +
+        '" style="width:' +
+        barWidth +
+        '%"></div></div>' +
+        '<span class="cc-worker-state ' +
+        s +
+        '">' +
+        s +
+        '</span>' +
         (jobDesc ? '<span class="cc-worker-job">' + escHtml(jobDesc) + '</span>' : '') +
         (elapsed ? '<span class="cc-worker-elapsed">' + elapsed + '</span>' : '') +
         '</div>';
@@ -402,7 +488,9 @@
 
     // Stats
     if (metrics.proveTimes.length) {
-      var sum = metrics.proveTimes.reduce(function (a, b) { return a + b; }, 0);
+      var sum = metrics.proveTimes.reduce(function (a, b) {
+        return a + b;
+      }, 0);
       var avg = sum / metrics.proveTimes.length;
       $('cc-avg-prove').textContent = avg < 1000 ? avg.toFixed(0) + 'ms' : (avg / 1000).toFixed(1) + 's';
     }
@@ -429,15 +517,21 @@
     // Show pending count as visual queue items
     var html = '';
     for (var i = 0; i < Math.min(pending, 10); i++) {
-      html += '<div class="cc-worker-row">' +
-        '<span class="cc-worker-id">P' + (i + 1) + '</span>' +
+      html +=
+        '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">P' +
+        (i + 1) +
+        '</span>' +
         '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill proving" style="width:100%"></div></div>' +
         '<span class="cc-worker-state proving">awaiting batch</span>' +
         '</div>';
     }
     if (pending > 10) {
-      html += '<div class="cc-worker-row"><span class="cc-worker-id">...</span>' +
-        '<span class="cc-worker-state idle">+ ' + (pending - 10) + ' more</span></div>';
+      html +=
+        '<div class="cc-worker-row"><span class="cc-worker-id">...</span>' +
+        '<span class="cc-worker-state idle">+ ' +
+        (pending - 10) +
+        ' more</span></div>';
     }
     el.innerHTML = html;
   }
@@ -460,25 +554,42 @@
     var html = '';
     feedLog.slice(0, 40).forEach(function (item) {
       var extraClass = item._diagClass ? ' ' + item._diagClass : '';
-      html += '<div class="cc-feed-item' + extraClass + '">' +
+      html +=
+        '<div class="cc-feed-item' +
+        extraClass +
+        '">' +
         '<div class="cc-feed-top">' +
-        '<span class="cc-feed-type ' + (item.typeClass || '') + '">' + escHtml(item.type) + '</span>' +
-        '<span class="cc-feed-time">' + fmtTime(item.timestamp) + '</span>' +
+        '<span class="cc-feed-type ' +
+        (item.typeClass || '') +
+        '">' +
+        escHtml(item.type) +
+        '</span>' +
+        '<span class="cc-feed-time">' +
+        fmtTime(item.timestamp) +
+        '</span>' +
         '</div>';
       if (item.from || item.to) {
         html += '<div class="cc-feed-flow">';
         if (item.from) {
-          html += '<span class="cc-feed-entity">' +
-            '<span class="cc-dot" style="background:' + (item.fromColor || '#8b949e') + '"></span>' +
-            escHtml(item.from) + '</span>';
+          html +=
+            '<span class="cc-feed-entity">' +
+            '<span class="cc-dot" style="background:' +
+            (item.fromColor || '#8b949e') +
+            '"></span>' +
+            escHtml(item.from) +
+            '</span>';
         }
         if (item.from && item.to) {
           html += '<span class="cc-feed-arrow">\u2192</span>';
         }
         if (item.to) {
-          html += '<span class="cc-feed-entity">' +
-            '<span class="cc-dot" style="background:' + (item.toColor || '#26c6da') + '"></span>' +
-            escHtml(item.to) + '</span>';
+          html +=
+            '<span class="cc-feed-entity">' +
+            '<span class="cc-dot" style="background:' +
+            (item.toColor || '#26c6da') +
+            '"></span>' +
+            escHtml(item.to) +
+            '</span>';
         }
         html += '</div>';
       }
@@ -505,17 +616,36 @@
       var maxProofs = 2;
       var fillPct = Math.min(proofs / Math.max(maxProofs, 1), 1) * 100;
       if (status === 'settled') fillPct = 100;
-      var idx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || '?');
+      var idx = b.index !== undefined ? b.index : b.batchIndex || b.batchNumber || '?';
       var cls = statusClass(status);
 
-      html += '<div class="cc-batch-item ' + cls + '" data-batch="' + escHtml(String(idx)) + '">' +
-        '<span class="cc-batch-num">#' + escHtml(String(idx)) + '</span>' +
+      html +=
+        '<div class="cc-batch-item ' +
+        cls +
+        '" data-batch="' +
+        escHtml(String(idx)) +
+        '">' +
+        '<span class="cc-batch-num">#' +
+        escHtml(String(idx)) +
+        '</span>' +
         '<div class="cc-batch-bar-wrap">' +
-        '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' + cls + '" style="width:' + fillPct + '%"></div></div>' +
-        '<span class="cc-batch-info">' + escHtml(String(proofs)) + ' proof' + (proofs !== 1 ? 's' : '') +
-        (b.timestamp ? ' \u00B7 ' + fmtTime(b.timestamp || b.createdAt) : '') + '</span>' +
+        '<div class="cc-batch-bar-bg"><div class="cc-batch-bar-fill ' +
+        cls +
+        '" style="width:' +
+        fillPct +
+        '%"></div></div>' +
+        '<span class="cc-batch-info">' +
+        escHtml(String(proofs)) +
+        ' proof' +
+        (proofs !== 1 ? 's' : '') +
+        (b.timestamp ? ' \u00B7 ' + fmtTime(b.timestamp || b.createdAt) : '') +
+        '</span>' +
         '</div>' +
-        '<span class="cc-batch-status ' + cls + '">' + escHtml(status) + '</span>' +
+        '<span class="cc-batch-status ' +
+        cls +
+        '">' +
+        escHtml(status) +
+        '</span>' +
         '</div>';
     });
     el.innerHTML = html;
@@ -531,27 +661,39 @@
     body.innerHTML = '<div class="loading">Loading batch details...</div>';
 
     // Close on overlay click
-    modal.onclick = function (e) { if (e.target === modal) modal.style.display = 'none'; };
+    modal.onclick = function (e) {
+      if (e.target === modal) modal.style.display = 'none';
+    };
 
     try {
       // Fetch batch and all receipts
       var batch = null;
       var allReceipts = [];
       var receiptsRefused = false;
-      try { batch = await RPC.getBatch(batchIdx); } catch (_) {}
+      try {
+        batch = await RPC.getBatch(batchIdx);
+      } catch (_) {}
       if (!batch) {
         // Fallback: find in cache
         batch = batchCache.find(function (b) {
-          return (b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber)) == batchIdx;
+          return (b.index !== undefined ? b.index : b.batchIndex || b.batchNumber) == batchIdx;
         });
       }
-      try { allReceipts = await RPC.getRecentReceipts(); } catch (e) { receiptsRefused = isRefusal(e); }
+      try {
+        allReceipts = await RPC.getRecentReceipts();
+      } catch (e) {
+        receiptsRefused = isRefusal(e);
+      }
       if (!Array.isArray(allReceipts)) allReceipts = [];
 
       // Filter receipts belonging to this batch
-      var batchReceipts = allReceipts.filter(function (r) {
-        return r.l1BatchNumber != null && String(r.l1BatchNumber) === String(batchIdx);
-      }).sort(function (a, b) { return Number(a.sequenceNumber) - Number(b.sequenceNumber); }); // in the batch's own order
+      var batchReceipts = allReceipts
+        .filter(function (r) {
+          return r.l1BatchNumber != null && String(r.l1BatchNumber) === String(batchIdx);
+        })
+        .sort(function (a, b) {
+          return Number(a.sequenceNumber) - Number(b.sequenceNumber);
+        }); // in the batch's own order
 
       if (!batch) {
         body.innerHTML = '<div class="empty-state">Batch not found</div>';
@@ -569,14 +711,10 @@
       html += bmRow('Batch Number', '#' + escHtml(String(batchIdx)));
       html += bmRow('Transitions', escHtml(String(proofs)));
       html += bmRow('Registrations', escHtml(String(batch.registrationCount || 0)));
-      if (batch.timestamp || batch.createdAt)
-        html += bmRow('Created', new Date(batch.timestamp || batch.createdAt).toLocaleString());
-      if (batch.workerId !== undefined)
-        html += bmRow('Proved By', 'Worker ' + escHtml(String(batch.workerId)));
-      if (batch.proveTimeMs)
-        html += bmRow('Prove Time', (batch.proveTimeMs / 1000).toFixed(1) + 's');
-      if (batch.blockHeight !== undefined)
-        html += bmRow('Block Height', escHtml(String(batch.blockHeight)));
+      if (batch.timestamp || batch.createdAt) html += bmRow('Created', new Date(batch.timestamp || batch.createdAt).toLocaleString());
+      if (batch.workerId !== undefined) html += bmRow('Proved By', 'Worker ' + escHtml(String(batch.workerId)));
+      if (batch.proveTimeMs) html += bmRow('Prove Time', (batch.proveTimeMs / 1000).toFixed(1) + 's');
+      if (batch.blockHeight !== undefined) html += bmRow('Block Height', escHtml(String(batch.blockHeight)));
       html += '</div>';
 
       // ── State Transitions ──
@@ -634,7 +772,12 @@
           html += '<span>Type: <b>' + (r.isRegistration ? 'Registration' : 'Transition') + '</b></span>';
           html += '</div>';
           html += '<div class="bm-receipt-row">';
-          html += '<span>Registry: <b class="bm-hash">' + escHtml(shortHash(r.oldRegistryRoot)) + '</b><span class="bm-arrow">\u2192</span><b class="bm-hash">' + escHtml(shortHash(r.newRegistryRoot)) + '</b></span>';
+          html +=
+            '<span>Registry: <b class="bm-hash">' +
+            escHtml(shortHash(r.oldRegistryRoot)) +
+            '</b><span class="bm-arrow">\u2192</span><b class="bm-hash">' +
+            escHtml(shortHash(r.newRegistryRoot)) +
+            '</b></span>';
           html += '</div>';
           if (r.auditEventHash) {
             html += '<div class="bm-receipt-row">';
@@ -663,8 +806,7 @@
         html += '<div class="bm-section-title">Proof Data</div>';
         var proofSize = batch.batchProofJson.length;
         html += bmRow('Batch Proof', (proofSize / 1024).toFixed(1) + ' KB');
-        if (batch.chainProofJson)
-          html += bmRow('Chain Proof', (batch.chainProofJson.length / 1024).toFixed(1) + ' KB');
+        if (batch.chainProofJson) html += bmRow('Chain Proof', (batch.chainProofJson.length / 1024).toFixed(1) + ' KB');
         html += '</div>';
       }
 
@@ -679,10 +821,18 @@
   }
   function bmRootRow(label, oldRoot, newRoot) {
     if (!oldRoot && !newRoot) return '';
-    return '<div class="bm-row"><span class="bm-label">' + label + '</span>' +
-      '<span class="bm-value"><span class="bm-hash">' + escHtml(shortHash(oldRoot)) + '</span>' +
+    return (
+      '<div class="bm-row"><span class="bm-label">' +
+      label +
+      '</span>' +
+      '<span class="bm-value"><span class="bm-hash">' +
+      escHtml(shortHash(oldRoot)) +
+      '</span>' +
       '<span class="bm-arrow">\u2192</span>' +
-      '<span class="bm-hash">' + escHtml(shortHash(newRoot)) + '</span></span></div>';
+      '<span class="bm-hash">' +
+      escHtml(shortHash(newRoot)) +
+      '</span></span></div>'
+    );
   }
 
   // The page is served with script-src 'self', which refuses inline event handlers: a batch row carries data-batch,
@@ -694,7 +844,9 @@
         if (row) showBatchDetail(Number(row.dataset.batch));
       });
     });
-    $('bm-close').addEventListener('click', function () { $('batch-modal').style.display = 'none'; });
+    $('bm-close').addEventListener('click', function () {
+      $('batch-modal').style.display = 'none';
+    });
   }
 
   // Also reachable from script
@@ -703,7 +855,10 @@
   /** Render network nodes panel — shows sequencer + known replicas */
   function renderNetworkPanel(status) {
     var el = $('cc-network-nodes');
-    if (!status) { el.innerHTML = '<div class="cc-empty">Loading...</div>'; return; }
+    if (!status) {
+      el.innerHTML = '<div class="cc-empty">Loading...</div>';
+      return;
+    }
 
     // Build node list: self (sequencer) + replicas from NETWORK_NODES
     var nodes = [];
@@ -769,16 +924,24 @@
     var html = '';
     nodes.forEach(function (n) {
       var cls = n.alive ? n.role : 'dead';
-      html += '<div class="cc-node-item">' +
-        '<div class="cc-node-icon ' + cls + '">' +
+      html +=
+        '<div class="cc-node-item">' +
+        '<div class="cc-node-icon ' +
+        cls +
+        '">' +
         (n.role === 'sequencer' ? 'S' : 'R') +
         '<div class="cc-heartbeat-ring"></div>' +
         '</div>' +
         '<div class="cc-node-info">' +
-        '<div class="cc-node-name">' + escHtml(n.id) +
+        '<div class="cc-node-name">' +
+        escHtml(n.id) +
         (n.isSelf ? ' (self)' : '') +
-        ' <span style="color:var(--text-secondary);font-size:11px">' + escHtml(n.url) + '</span></div>' +
-        '<div class="cc-node-meta">' + escHtml(n.detail) + '</div>' +
+        ' <span style="color:var(--text-secondary);font-size:11px">' +
+        escHtml(n.url) +
+        '</span></div>' +
+        '<div class="cc-node-meta">' +
+        escHtml(n.detail) +
+        '</div>' +
         '</div>' +
         '</div>';
     });
@@ -793,7 +956,9 @@
 
     // Count by type
     var counts = {};
-    ENTITY_ORDER.forEach(function (t) { counts[t] = 0; });
+    ENTITY_ORDER.forEach(function (t) {
+      counts[t] = 0;
+    });
     entities.forEach(function (e) {
       var t = (e.type || 'member').toLowerCase();
       if (counts[t] !== undefined) counts[t]++;
@@ -805,12 +970,22 @@
       var active = entityActivity[type] ? entityActivity[type].size : 0;
       var color = ENTITY_COLORS[type] || '#8b949e';
 
-      html += '<div class="cc-entity-row">' +
-        '<span class="cc-entity-icon ' + type + '"></span>' +
-        '<span class="cc-entity-type">' + type + '</span>' +
-        '<span class="cc-entity-count">' + count + '</span>' +
-        '<span class="cc-entity-active' + (active ? ' has-activity' : '') + '">' +
-        (active ? active + ' active' : 'idle') + '</span>' +
+      html +=
+        '<div class="cc-entity-row">' +
+        '<span class="cc-entity-icon ' +
+        type +
+        '"></span>' +
+        '<span class="cc-entity-type">' +
+        type +
+        '</span>' +
+        '<span class="cc-entity-count">' +
+        count +
+        '</span>' +
+        '<span class="cc-entity-active' +
+        (active ? ' has-activity' : '') +
+        '">' +
+        (active ? active + ' active' : 'idle') +
+        '</span>' +
         '</div>';
     });
 
@@ -821,7 +996,9 @@
   function trackEntityActivity(walletId, type) {
     if (!type) {
       // Try to resolve type from entity cache
-      var ent = entityCache.find(function (e) { return e.walletId === walletId; });
+      var ent = entityCache.find(function (e) {
+        return e.walletId === walletId;
+      });
       type = ent ? (ent.type || 'member').toLowerCase() : 'member';
     }
     if (!entityActivity[type]) entityActivity[type] = new Set();
@@ -837,7 +1014,9 @@
   /** Resolve entity display name from wallet ID */
   function resolveEntity(walletId) {
     if (!walletId) return null;
-    var ent = entityCache.find(function (e) { return e.walletId === walletId; });
+    var ent = entityCache.find(function (e) {
+      return e.walletId === walletId;
+    });
     if (ent) return { name: ent.displayName || shortHash(walletId), type: (ent.type || 'member').toLowerCase() };
     return { name: shortHash(walletId), type: 'member' };
   }
@@ -859,7 +1038,9 @@
       var resp = await fetch(location.origin + '/viz/entities', { headers: RPC.headers(true) });
       var text = await resp.text();
       var data;
-      try { data = JSON.parse(text); } catch (e) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
         diagLog('viz/entities returned non-JSON: ' + text.slice(0, 100), true);
         return;
       }
@@ -867,11 +1048,27 @@
         entityCache = data;
         entityCacheTime = Date.now();
         if (data.length > 0) {
-          diagLog('Entity cache loaded: ' + data.length + ' entities (' +
-            data.filter(function (e) { return e.type === 'member'; }).length + ' members, ' +
-            data.filter(function (e) { return e.type === 'prescriber'; }).length + ' prescribers, ' +
-            data.filter(function (e) { return e.type === 'pharmacy'; }).length + ' pharmacies, ' +
-            data.filter(function (e) { return e.type === 'insurer'; }).length + ' insurers)');
+          diagLog(
+            'Entity cache loaded: ' +
+              data.length +
+              ' entities (' +
+              data.filter(function (e) {
+                return e.type === 'member';
+              }).length +
+              ' members, ' +
+              data.filter(function (e) {
+                return e.type === 'prescriber';
+              }).length +
+              ' prescribers, ' +
+              data.filter(function (e) {
+                return e.type === 'pharmacy';
+              }).length +
+              ' pharmacies, ' +
+              data.filter(function (e) {
+                return e.type === 'insurer';
+              }).length +
+              ' insurers)',
+          );
         }
       } else {
         diagLog('viz/entities returned non-array: ' + JSON.stringify(data).slice(0, 100), true);
@@ -889,9 +1086,15 @@
       if (Array.isArray(batches)) {
         batchCache = batches;
         if (batches.length > 0) {
-          diagLog('Batch cache: ' + batches.length + ' batches, latest #' +
-            (batches[0].batchNumber || batches[0].index || '?') + ' (' +
-            (batches[0].status || batches[0].l1Status || '?') + ')');
+          diagLog(
+            'Batch cache: ' +
+              batches.length +
+              ' batches, latest #' +
+              (batches[0].batchNumber || batches[0].index || '?') +
+              ' (' +
+              (batches[0].status || batches[0].l1Status || '?') +
+              ')',
+          );
         }
       }
     } catch (e) {
@@ -919,12 +1122,24 @@
 
       // Log sequencer state to feed on first load or state changes
       if (!loadOverview._lastLoggedProofs || loadOverview._lastLoggedProofs !== gt.totalProofsAccepted) {
-        diagLog('Sequencer status (' + rpcMs + 'ms): node=' + (status.nodeId || '?') +
-          ' uptime=' + fmtAgo(status.uptime) +
-          ' proofs=' + (gt.totalProofsAccepted || 0) +
-          ' batches=' + (gt.totalBatchesBuilt || 0) + '/' + (gt.totalBatchesSettled || 0) +
-          ' pending=' + (gt.pendingProofs || 0) +
-          ' wallets=' + (status.chain ? status.chain.walletCount : '?'));
+        diagLog(
+          'Sequencer status (' +
+            rpcMs +
+            'ms): node=' +
+            (status.nodeId || '?') +
+            ' uptime=' +
+            fmtAgo(status.uptime) +
+            ' proofs=' +
+            (gt.totalProofsAccepted || 0) +
+            ' batches=' +
+            (gt.totalBatchesBuilt || 0) +
+            '/' +
+            (gt.totalBatchesSettled || 0) +
+            ' pending=' +
+            (gt.pendingProofs || 0) +
+            ' wallets=' +
+            (status.chain ? status.chain.walletCount : '?'),
+        );
         loadOverview._lastLoggedProofs = gt.totalProofsAccepted;
       }
 
@@ -947,7 +1162,9 @@
       try {
         var health = await RPC.getHealth();
         renderEntityProofPool(health);
-      } catch (_) { /* health fetch optional */ }
+      } catch (_) {
+        /* health fetch optional */
+      }
     } catch (e) {
       setConnDot('disconnected');
       diagLog('loadOverview FAILED: ' + e.message + ' — is leviathan running on :3030?', true);
@@ -965,14 +1182,21 @@
     var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px">';
     partitions.forEach(function (p, i) {
       var isLeader = p.leader === status.nodeId;
-      html += '<div style="text-align:center;padding:8px 4px;background:var(--bg-primary);border-radius:var(--radius-sm);border:1px solid ' +
-        (isLeader ? 'var(--accent)' : 'var(--border)') + '">' +
+      html +=
+        '<div style="text-align:center;padding:8px 4px;background:var(--bg-primary);border-radius:var(--radius-sm);border:1px solid ' +
+        (isLeader ? 'var(--accent)' : 'var(--border)') +
+        '">' +
         '<div style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:' +
-        (isLeader ? 'var(--accent)' : 'var(--text-secondary)') + '">P' + i + '</div>' +
+        (isLeader ? 'var(--accent)' : 'var(--text-secondary)') +
+        '">P' +
+        i +
+        '</div>' +
         '<div style="font-size:10px;color:var(--text-muted);margin-top:2px">' +
-        (isLeader ? 'LEADER' : 'REPLICA') + '</div>' +
+        (isLeader ? 'LEADER' : 'REPLICA') +
+        '</div>' +
         '<div style="font-size:10px;color:var(--text-secondary);margin-top:2px">' +
-        (p.receiptCount || 0) + ' rcpt</div></div>';
+        (p.receiptCount || 0) +
+        ' rcpt</div></div>';
     });
     html += '</div>';
     el.innerHTML = html;
@@ -987,7 +1211,10 @@
       return;
     }
     badge.textContent = workers.length + ' workers';
-    var idle = 0, proving = 0, compiling = 0, dead = 0;
+    var idle = 0,
+      proving = 0,
+      compiling = 0,
+      dead = 0;
     workers.forEach(function (w) {
       var s = (w.state || w.status || 'idle').toLowerCase();
       if (s === 'idle' || s === 'ready') idle++;
@@ -1023,13 +1250,16 @@
       return;
     }
 
-    var alive = 0, proving = 0;
+    var alive = 0,
+      proving = 0;
     var html = '';
     workers.forEach(function (w, i) {
       var s = (w.state || w.status || 'idle').toLowerCase();
       if (s === 'idle' || s === 'ready') s = 'idle';
-      else if (s === 'proving' || s === 'busy') { s = 'proving'; proving++; }
-      else if (s === 'compiling') s = 'compiling';
+      else if (s === 'proving' || s === 'busy') {
+        s = 'proving';
+        proving++;
+      } else if (s === 'compiling') s = 'compiling';
       else s = 'dead';
       if (s !== 'dead') alive++;
 
@@ -1047,13 +1277,29 @@
 
       var jobLabel = w.currentJobId || '';
       var recycleTag = w.pendingRecycle ? ' <span style="color:var(--amber);font-size:10px">[recycle]</span>' : '';
-      html += '<div class="cc-worker-row">' +
-        '<span class="cc-worker-id">' + escHtml(wId) + '</span>' +
-        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' + s + '" style="width:' + barWidth + '%"></div></div>' +
-        '<span class="cc-worker-state ' + s + '">' + s + recycleTag + '</span>' +
+      html +=
+        '<div class="cc-worker-row">' +
+        '<span class="cc-worker-id">' +
+        escHtml(wId) +
+        '</span>' +
+        '<div class="cc-worker-bar-bg"><div class="cc-worker-bar-fill ' +
+        s +
+        '" style="width:' +
+        barWidth +
+        '%"></div></div>' +
+        '<span class="cc-worker-state ' +
+        s +
+        '">' +
+        s +
+        recycleTag +
+        '</span>' +
         (jobLabel ? '<span class="cc-worker-job">' + escHtml(jobLabel) + '</span>' : '') +
-        '<span class="cc-worker-elapsed">' + (w.jobsProcessed || 0) + ' jobs' +
-        (w.lastJobDescription && !w.busy ? ' \u00B7 ' + escHtml(w.lastJobDescription) + ' (' + (w.lastJobTimeMs / 1000).toFixed(1) + 's)' : '') +
+        '<span class="cc-worker-elapsed">' +
+        (w.jobsProcessed || 0) +
+        ' jobs' +
+        (w.lastJobDescription && !w.busy
+          ? ' \u00B7 ' + escHtml(w.lastJobDescription) + ' (' + (w.lastJobTimeMs / 1000).toFixed(1) + 's)'
+          : '') +
         '</span></div>';
     });
     el.innerHTML = html;
@@ -1074,13 +1320,27 @@
         var cardsHtml = '<div class="worker-card-grid">';
         workers.forEach(function (w) {
           var ws = (w.state || w.status || 'idle').toLowerCase();
-          var cls = ws === 'proving' || ws === 'busy' ? 'worker-card proving' :
-                    ws === 'compiling' ? 'worker-card compiling' :
-                    ws === 'dead' ? 'worker-card dead' : 'worker-card idle';
-          cardsHtml += '<div class="' + cls + '">' +
-            '<div class="worker-card-header">Worker E' + w.id + '</div>' +
-            '<div class="worker-card-status">' + ws + '</div>' +
-            '<div class="worker-card-stat">Jobs: ' + (w.jobsProcessed || 0) + '</div>' +
+          var cls =
+            ws === 'proving' || ws === 'busy'
+              ? 'worker-card proving'
+              : ws === 'compiling'
+                ? 'worker-card compiling'
+                : ws === 'dead'
+                  ? 'worker-card dead'
+                  : 'worker-card idle';
+          cardsHtml +=
+            '<div class="' +
+            cls +
+            '">' +
+            '<div class="worker-card-header">Worker E' +
+            w.id +
+            '</div>' +
+            '<div class="worker-card-status">' +
+            ws +
+            '</div>' +
+            '<div class="worker-card-stat">Jobs: ' +
+            (w.jobsProcessed || 0) +
+            '</div>' +
             (w.currentJobId ? '<div class="worker-card-stat" style="color:var(--accent)">Job: ' + w.currentJobId + '</div>' : '') +
             (w.pendingRecycle ? '<div class="worker-card-stat" style="color:var(--amber)">Pending recycle</div>' : '') +
             '</div>';
@@ -1109,10 +1369,17 @@
     eventLog.slice(0, 50).forEach(function (ev) {
       var type = ev.type || ev.event || 'unknown';
       var data = ev.data ? (typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data).slice(0, 80)) : '';
-      html += '<div class="event-item">' +
-        '<span class="event-time">' + fmtTime(ev.timestamp || Date.now()) + '</span>' +
-        '<span class="event-type">' + escHtml(type) + '</span>' +
-        '<span class="event-data">' + escHtml(data) + '</span></div>';
+      html +=
+        '<div class="event-item">' +
+        '<span class="event-time">' +
+        fmtTime(ev.timestamp || Date.now()) +
+        '</span>' +
+        '<span class="event-type">' +
+        escHtml(type) +
+        '</span>' +
+        '<span class="event-data">' +
+        escHtml(data) +
+        '</span></div>';
     });
     el.innerHTML = html;
   }
@@ -1120,15 +1387,14 @@
   function handleVizEvent(ev) {
     var type = ev.type || ev.event || '';
     var data = ev.data || {};
-    var selfId = levStatus && levStatus.nodeId || 'Leviathan';
+    var selfId = (levStatus && levStatus.nodeId) || 'Leviathan';
 
     // ── Proof pipeline events ──
     if (type === 'proof:accepted') {
       metrics.proofTimestamps.push(Date.now());
       sparkTotal++;
-      metrics.queueDepth = (levStatus && levStatus.globalTotals)
-        ? (levStatus.globalTotals.pendingProofs || 0)
-        : Math.max(0, metrics.queueDepth + 1);
+      metrics.queueDepth =
+        levStatus && levStatus.globalTotals ? levStatus.globalTotals.pendingProofs || 0 : Math.max(0, metrics.queueDepth + 1);
 
       var ent = resolveEntity(data.walletId);
       trackEntityActivity(data.walletId, ent ? ent.type : null);
@@ -1140,11 +1406,10 @@
         to: selfId,
         toColor: '#26c6da',
         detail: 'queued for proving \u00B7 partition ' + (data.partition !== undefined ? data.partition : '?'),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'pool:worker:dispatched' || type.indexOf('worker:assigned') >= 0) {
-      var wId = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+    } else if (type === 'pool:worker:dispatched' || type.indexOf('worker:assigned') >= 0) {
+      var wId = typeof data.workerId === 'number' ? 'W' + data.workerId : data.workerId || 'W0';
       workerStartTimes[wId] = Date.now();
       addFeedItem({
         type: 'worker:dispatched',
@@ -1154,15 +1419,14 @@
         to: wId,
         toColor: '#ffc107',
         detail: 'proving job dispatched',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'pool:worker:completed' || type.indexOf('worker:completed') >= 0) {
+    } else if (type === 'pool:worker:completed' || type.indexOf('worker:completed') >= 0) {
       if (data.proveTimeMs) {
         metrics.proveTimes.push(data.proveTimeMs);
         if (metrics.proveTimes.length > 20) metrics.proveTimes.shift();
       }
-      var wId2 = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+      var wId2 = typeof data.workerId === 'number' ? 'W' + data.workerId : data.workerId || 'W0';
       delete workerStartTimes[wId2];
       addFeedItem({
         type: 'worker:completed',
@@ -1172,74 +1436,82 @@
         to: selfId,
         toColor: '#26c6da',
         detail: 'proved in ' + (data.proveTimeMs ? fmtAgo(data.proveTimeMs) : '--'),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'pool:worker:compiling' || type.indexOf('worker:compiling') >= 0) {
-      var wIdC = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+    } else if (type === 'pool:worker:compiling' || type.indexOf('worker:compiling') >= 0) {
+      var wIdC = typeof data.workerId === 'number' ? 'W' + data.workerId : data.workerId || 'W0';
       addFeedItem({
         type: 'worker:compiling',
         typeClass: 'worker',
-        from: wIdC, fromColor: '#ffc107',
-        to: null, toColor: null,
+        from: wIdC,
+        fromColor: '#ffc107',
+        to: null,
+        toColor: null,
         detail: 'compiling circuits...',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'pool:worker:crashed' || type.indexOf('worker:crashed') >= 0) {
-      var wIdD = typeof data.workerId === 'number' ? 'W' + data.workerId : (data.workerId || 'W0');
+    } else if (type === 'pool:worker:crashed' || type.indexOf('worker:crashed') >= 0) {
+      var wIdD = typeof data.workerId === 'number' ? 'W' + data.workerId : data.workerId || 'W0';
       delete workerStartTimes[wIdD];
       addFeedItem({
         type: 'worker:crashed',
         typeClass: 'error',
-        from: wIdD, fromColor: '#f85149',
-        to: null, toColor: null,
+        from: wIdD,
+        fromColor: '#f85149',
+        to: null,
+        toColor: null,
         detail: errMsg(data.error) || 'worker process crashed',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'pool:worker:ready' || type.indexOf('worker:ready') >= 0) {
+    } else if (type === 'pool:worker:ready' || type.indexOf('worker:ready') >= 0) {
       // silent — just update panel on next render
     }
     // ── Batch events ──
     else if (type === 'batch:built' || type.indexOf('batch:built') >= 0) {
       metrics.queueDepth = 0;
-      loadBatchCache().then(function () { if (currentTab === 'overview') renderBatchPanel(); });
+      loadBatchCache().then(function () {
+        if (currentTab === 'overview') renderBatchPanel();
+      });
       addFeedItem({
         type: 'batch:built',
         typeClass: 'batch',
-        from: selfId, fromColor: '#26c6da',
-        to: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'), toColor: '#26c6da',
+        from: selfId,
+        fromColor: '#26c6da',
+        to: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'),
+        toColor: '#26c6da',
         detail: (data.proofCount || '?') + ' proofs batched',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'batch:settled' || type.indexOf('batch:settled') >= 0) {
-      loadBatchCache().then(function () { if (currentTab === 'overview') renderBatchPanel(); });
+    } else if (type === 'batch:settled' || type.indexOf('batch:settled') >= 0) {
+      loadBatchCache().then(function () {
+        if (currentTab === 'overview') renderBatchPanel();
+      });
       addFeedItem({
         type: 'batch:settled',
         typeClass: 'batch',
-        from: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'), fromColor: '#3fb950',
-        to: 'Chain', toColor: '#3fb950',
+        from: 'Batch #' + (data.batchNumber || data.batchIndex || data.index || '?'),
+        fromColor: '#3fb950',
+        to: 'Chain',
+        toColor: '#3fb950',
         detail: 'settlement finalized',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
-    }
-    else if (type === 'batch:building' || type.indexOf('batch:building') >= 0) {
+    } else if (type === 'batch:building' || type.indexOf('batch:building') >= 0) {
       // silent
     }
     // ── Gossip/heartbeat events ──
     else if (type.indexOf('heartbeat') >= 0) {
       triggerHeartbeat(ev.from || ev.nodeId || selfId);
-    }
-    else if (type.indexOf('gossip') >= 0) {
+    } else if (type.indexOf('gossip') >= 0) {
       addFeedItem({
         type: 'gossip',
         typeClass: 'gossip',
-        from: ev.from || selfId, fromColor: '#26c6da',
-        to: ev.to || 'peers', toColor: '#26c6da',
+        from: ev.from || selfId,
+        fromColor: '#26c6da',
+        to: ev.to || 'peers',
+        toColor: '#26c6da',
         detail: type,
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Messaging events ──
@@ -1252,7 +1524,7 @@
         to: ev.target || data.recipientWalletId || '?',
         toColor: '#e040fb',
         detail: 'encrypted ' + (data.messageType || 'text') + ' message stored',
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Entity registration events ──
@@ -1266,7 +1538,7 @@
         to: 'Entity Registry',
         toColor: '#26c6da',
         detail: entType + ' registered' + (data.specialty ? ' (' + data.specialty + ')' : ''),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Provider credentialing events ──
@@ -1279,7 +1551,7 @@
         to: 'Provider Registry',
         toColor: '#26c6da',
         detail: (data.providerType || 'provider') + ' credentialed — leaf #' + (data.leafIndex || '?'),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Provider status change events ──
@@ -1293,7 +1565,7 @@
         to: data.stateName || '?',
         toColor: stateColor,
         detail: (data.providerType || 'provider') + ' status → ' + (data.stateName || 'unknown'),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Pharmacy dispensing events ──
@@ -1306,15 +1578,14 @@
         to: ev.target || '?',
         toColor: ENTITY_COLORS.member || '#3fb950',
         detail: (data.brandName || 'medication') + ' dispensed — leaf #' + (data.leafIndex || '?'),
-        timestamp: ev.timestamp || Date.now()
+        timestamp: ev.timestamp || Date.now(),
       });
     }
     // ── Fallback ──
     else if (type.indexOf('proof') >= 0) {
       metrics.proofTimestamps.push(Date.now());
       sparkTotal++;
-    }
-    else if (type.indexOf('batch') >= 0) {
+    } else if (type.indexOf('batch') >= 0) {
       loadBatchCache();
     }
 
@@ -1327,27 +1598,42 @@
   // ── Partitions Tab ──────────────────────────────────────────
   async function loadPartitions() {
     try {
-      var status = levStatus || await RPC.getLeviathanStatus();
+      var status = levStatus || (await RPC.getLeviathanStatus());
       levStatus = status;
       var partitions = status.partitions || [];
 
       // Stats
-      var leaders = partitions.filter(function (p) { return p.leader === status.nodeId; }).length;
+      var leaders = partitions.filter(function (p) {
+        return p.leader === status.nodeId;
+      }).length;
       $('part-stats').innerHTML =
         statCard('Total Partitions', partitions.length) +
         statCard('Leading', leaders) +
         statCard('Replicating', partitions.length - leaders) +
-        statCard('Total Receipts', partitions.reduce(function (a, p) { return a + (p.receiptCount || 0); }, 0));
+        statCard(
+          'Total Receipts',
+          partitions.reduce(function (a, p) {
+            return a + (p.receiptCount || 0);
+          }, 0),
+        );
 
       // Cards
       var html = '<div class="partition-grid">';
       partitions.forEach(function (p, i) {
         var isLeader = p.leader === status.nodeId;
-        html += '<div class="partition-card' + (isLeader ? ' is-leader' : '') + '">' +
+        html +=
+          '<div class="partition-card' +
+          (isLeader ? ' is-leader' : '') +
+          '">' +
           '<div class="partition-card-header">' +
-          '<span class="partition-card-title">Partition ' + i + '</span>' +
-          '<span class="badge ' + (isLeader ? 'badge-accent' : 'badge-info') + '">' +
-          (isLeader ? 'LEADER' : 'REPLICA') + '</span></div>' +
+          '<span class="partition-card-title">Partition ' +
+          i +
+          '</span>' +
+          '<span class="badge ' +
+          (isLeader ? 'badge-accent' : 'badge-info') +
+          '">' +
+          (isLeader ? 'LEADER' : 'REPLICA') +
+          '</span></div>' +
           '<div class="detail-grid">' +
           detailRow('Leader', p.leader || '--') +
           detailRow('Receipts', p.receiptCount || 0) +
@@ -1367,26 +1653,29 @@
     $('part-route-btn').addEventListener('click', function () {
       var walletId = $('part-wallet-input').value.trim();
       if (!walletId) return;
-      var partCount = (levStatus && levStatus.partitions) ? levStatus.partitions.length : 1;
+      var partCount = levStatus && levStatus.partitions ? levStatus.partitions.length : 1;
       // Match L2 partition routing: BigInt(walletId) % partitionCount
       // walletId is a Poseidon hash decimal string; use BigInt mod for exact parity
       var n = BigInt(walletId);
       var absN = n < 0n ? -n : n;
       var partition = Number(absN % BigInt(partCount));
-      $('part-route-result').innerHTML =
-        '<div class="form-result success">Wallet routes to <b>Partition ' + partition + '</b></div>';
+      $('part-route-result').innerHTML = '<div class="form-result success">Wallet routes to <b>Partition ' + partition + '</b></div>';
     });
   }
 
   // ── Workers Tab ─────────────────────────────────────────────
   async function loadWorkers() {
     try {
-      var status = levStatus || await RPC.getLeviathanStatus();
+      var status = levStatus || (await RPC.getLeviathanStatus());
       levStatus = status;
       var workers = status.workers || (Array.isArray(status.provingPool) ? status.provingPool : []);
       if (!Array.isArray(workers)) workers = [];
 
-      var idle = 0, proving = 0, compiling = 0, dead = 0, totalJobs = 0;
+      var idle = 0,
+        proving = 0,
+        compiling = 0,
+        dead = 0,
+        totalJobs = 0;
       workers.forEach(function (w) {
         var s = (w.state || w.status || 'idle').toLowerCase();
         if (s === 'idle' || s === 'ready') idle++;
@@ -1410,13 +1699,28 @@
       var html = '<div class="worker-card-grid">';
       workers.forEach(function (w, i) {
         var s = (w.state || w.status || 'idle').toLowerCase();
-        html += '<div class="worker-card state-' + s + '">' +
+        html +=
+          '<div class="worker-card state-' +
+          s +
+          '">' +
           '<div class="worker-card-header">' +
-          '<span class="worker-card-id">W' + (w.id !== undefined ? w.id : i) + '</span>' +
-          '<span class="badge ' + workerBadge(s) + '">' + s.toUpperCase() + '</span></div>' +
-          '<div class="worker-card-stat">PID: ' + (w.pid || '--') + '</div>' +
-          '<div class="worker-card-stat">Jobs: ' + (w.jobsCompleted || w.jobs || 0) + '</div>' +
-          '<div class="worker-card-stat">Restarts: ' + (w.restarts || 0) + '</div>' +
+          '<span class="worker-card-id">W' +
+          (w.id !== undefined ? w.id : i) +
+          '</span>' +
+          '<span class="badge ' +
+          workerBadge(s) +
+          '">' +
+          s.toUpperCase() +
+          '</span></div>' +
+          '<div class="worker-card-stat">PID: ' +
+          (w.pid || '--') +
+          '</div>' +
+          '<div class="worker-card-stat">Jobs: ' +
+          (w.jobsCompleted || w.jobs || 0) +
+          '</div>' +
+          '<div class="worker-card-stat">Restarts: ' +
+          (w.restarts || 0) +
+          '</div>' +
           (w.currentJob ? '<div class="worker-card-stat" style="color:var(--accent)">Job: ' + shortHash(w.currentJob) + '</div>' : '') +
           (w.elapsed ? '<div class="worker-card-stat">Elapsed: ' + fmtAgo(w.elapsed) + '</div>' : '') +
           '</div>';
@@ -1430,11 +1734,19 @@
 
   function workerBadge(state) {
     switch (state) {
-      case 'idle': case 'ready': return 'badge-info';
-      case 'proving': case 'busy': return 'badge-ready';
-      case 'compiling': return 'badge-amber';
-      case 'dead': case 'crashed': return 'badge-error';
-      default: return 'badge-info';
+      case 'idle':
+      case 'ready':
+        return 'badge-info';
+      case 'proving':
+      case 'busy':
+        return 'badge-ready';
+      case 'compiling':
+        return 'badge-amber';
+      case 'dead':
+      case 'crashed':
+        return 'badge-error';
+      default:
+        return 'badge-info';
     }
   }
 
@@ -1443,27 +1755,43 @@
     try {
       var peerInfo = await RPC.getPeerInfo();
       var peerList = [];
-      try { peerList = await RPC.getPeerList(); } catch (e) { /* optional */ }
+      try {
+        peerList = await RPC.getPeerList();
+      } catch (e) {
+        /* optional */
+      }
 
       // Peer list
       var el = $('gossip-peers');
       if (!peerInfo && !peerList.length) {
         el.innerHTML = '<div class="empty-state">No peer data</div>';
       } else {
-        var peers = peerList.length ? peerList : (peerInfo.peers || []);
+        var peers = peerList.length ? peerList : peerInfo.peers || [];
         if (!Array.isArray(peers)) peers = [];
         var html = '';
         peers.forEach(function (p) {
           var status = p.status || 'active';
-          var avatarClass = status === 'stale' ? 'stale' : (status === 'dead' ? 'dead' : '');
-          html += '<div class="peer-item">' +
-            '<div class="peer-avatar ' + avatarClass + '">' + (p.nodeId || p.id || '?').slice(0, 2).toUpperCase() + '</div>' +
-            '<div class="peer-info">' +
-            '<div class="peer-name">' + escHtml(p.nodeId || p.id || '--') + '</div>' +
-            '<div class="peer-sub">' + escHtml(p.url || p.address || '--') + '</div>' +
+          var avatarClass = status === 'stale' ? 'stale' : status === 'dead' ? 'dead' : '';
+          html +=
+            '<div class="peer-item">' +
+            '<div class="peer-avatar ' +
+            avatarClass +
+            '">' +
+            (p.nodeId || p.id || '?').slice(0, 2).toUpperCase() +
             '</div>' +
-            '<span class="badge ' + (status === 'active' ? 'badge-ready' : status === 'stale' ? 'badge-pending' : 'badge-error') + '">' +
-            status.toUpperCase() + '</span></div>';
+            '<div class="peer-info">' +
+            '<div class="peer-name">' +
+            escHtml(p.nodeId || p.id || '--') +
+            '</div>' +
+            '<div class="peer-sub">' +
+            escHtml(p.url || p.address || '--') +
+            '</div>' +
+            '</div>' +
+            '<span class="badge ' +
+            (status === 'active' ? 'badge-ready' : status === 'stale' ? 'badge-pending' : 'badge-error') +
+            '">' +
+            status.toUpperCase() +
+            '</span></div>';
         });
         el.innerHTML = html || '<div class="empty-state">No peers connected</div>';
       }
@@ -1488,13 +1816,22 @@
     var html = '';
     Object.keys(lags).forEach(function (peerId) {
       var lagMs = lags[peerId] || 0;
-      var pct = Math.min(lagMs / 5000 * 100, 100);
+      var pct = Math.min((lagMs / 5000) * 100, 100);
       var cls = lagMs < 1000 ? 'ok' : lagMs < 3000 ? 'warn' : 'crit';
-      html += '<div style="margin-bottom:10px">' +
+      html +=
+        '<div style="margin-bottom:10px">' +
         '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">' +
-        '<span style="color:var(--text-secondary)">' + escHtml(peerId) + '</span>' +
-        '<span style="color:var(--text-muted)">' + fmtAgo(lagMs) + '</span></div>' +
-        '<div class="lag-bar-bg"><div class="lag-bar-fill ' + cls + '" style="width:' + pct + '%"></div></div></div>';
+        '<span style="color:var(--text-secondary)">' +
+        escHtml(peerId) +
+        '</span>' +
+        '<span style="color:var(--text-muted)">' +
+        fmtAgo(lagMs) +
+        '</span></div>' +
+        '<div class="lag-bar-bg"><div class="lag-bar-fill ' +
+        cls +
+        '" style="width:' +
+        pct +
+        '%"></div></div></div>';
     });
     el.innerHTML = html || '<div class="empty-state">No lag data</div>';
   }
@@ -1515,16 +1852,21 @@
       });
     }
     if (!filtered.length) {
-      el.innerHTML = '<div class="empty-state">No gossip messages' +
-        (filter !== 'all' ? ' matching "' + filter + '"' : '') + '</div>';
+      el.innerHTML = '<div class="empty-state">No gossip messages' + (filter !== 'all' ? ' matching "' + filter + '"' : '') + '</div>';
       return;
     }
     var html = '';
     filtered.slice(0, 50).forEach(function (ev) {
-      html += '<div class="event-item">' +
-        '<span class="event-time">' + fmtTime(ev.timestamp) + '</span>' +
-        '<span class="event-type">' + escHtml(ev.type || '--') + '</span>' +
-        '<span class="event-data">' + escHtml(ev.from || '') +
+      html +=
+        '<div class="event-item">' +
+        '<span class="event-time">' +
+        fmtTime(ev.timestamp) +
+        '</span>' +
+        '<span class="event-type">' +
+        escHtml(ev.type || '--') +
+        '</span>' +
+        '<span class="event-data">' +
+        escHtml(ev.from || '') +
         (ev.to ? ' → ' + escHtml(ev.to) : '') +
         (ev.data ? ' | ' + escHtml((typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data)).slice(0, 60)) : '') +
         '</span></div>';
@@ -1536,7 +1878,7 @@
   async function loadWal() {
     // WAL status
     try {
-      var status = levStatus || await RPC.getLeviathanStatus();
+      var status = levStatus || (await RPC.getLeviathanStatus());
       levStatus = status;
       var wal = status.wal || {};
       $('wal-status').innerHTML =
@@ -1574,8 +1916,11 @@
         try {
           var cert = await RPC.getStateCertificate(i);
           if (cert) {
-            certHtml += '<div style="margin-bottom:12px;padding:10px;background:var(--bg-primary);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
-              '<div style="font-weight:600;font-size:12px;margin-bottom:6px;color:var(--accent)">Partition ' + i + '</div>' +
+            certHtml +=
+              '<div style="margin-bottom:12px;padding:10px;background:var(--bg-primary);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
+              '<div style="font-weight:600;font-size:12px;margin-bottom:6px;color:var(--accent)">Partition ' +
+              i +
+              '</div>' +
               '<div class="detail-grid">' +
               detailRow('Batch #', cert.batchIndex !== undefined ? cert.batchIndex : '--') +
               detailRow('State Root', shortHash(cert.stateRoot)) +
@@ -1583,7 +1928,9 @@
               detailRow('Timestamp', fmtTime(cert.timestamp)) +
               '</div></div>';
           }
-        } catch (e) { /* skip partition */ }
+        } catch (e) {
+          /* skip partition */
+        }
       }
       $('quorum-certs').innerHTML = certHtml || '<div class="empty-state">No state certificates</div>';
     } catch (e) {
@@ -1608,8 +1955,8 @@
   }
 
   function settlementBadge(status) {
-    var cls = status === 'settled' ? 'badge-ready' : status === 'batched' ? 'badge-info' :
-      status === 'failed' ? 'badge-error' : 'badge-pending';
+    var cls =
+      status === 'settled' ? 'badge-ready' : status === 'batched' ? 'badge-info' : status === 'failed' ? 'badge-error' : 'badge-pending';
     return '<span class="badge ' + cls + '">' + escHtml(status || '--') + '</span>';
   }
 
@@ -1618,8 +1965,16 @@
       var batches = [];
       var receipts = [];
       var receiptsRefused = false;
-      try { batches = await RPC.getLatestBatches(50); } catch (e) { /* ok */ }
-      try { receipts = await RPC.getRecentReceipts(); } catch (e) { receiptsRefused = isRefusal(e); }
+      try {
+        batches = await RPC.getLatestBatches(50);
+      } catch (e) {
+        /* ok */
+      }
+      try {
+        receipts = await RPC.getRecentReceipts();
+      } catch (e) {
+        receiptsRefused = isRefusal(e);
+      }
 
       if (!Array.isArray(batches)) batches = batches ? [batches] : [];
       if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
@@ -1631,35 +1986,64 @@
         statCard('Latest Batch', batches.length ? '#' + batches[0].batchNumber : '--');
 
       // Batch table
-      var bHtml = '<table class="data-table"><thead><tr>' +
+      var bHtml =
+        '<table class="data-table"><thead><tr>' +
         '<th>#</th><th>Status</th><th>Proofs</th><th>Registry Root</th><th>Time</th></tr></thead><tbody>';
       // L2Batch as l2_getAllBatches sends it. The root is the registry root the batch settles to, which every
       // batch carries; globalStateRoot is set only when a chain proof runs.
       batches.slice(0, 30).forEach(function (b) {
-        var bIdx = b.index !== undefined ? b.index : (b.batchIndex || b.batchNumber || 0);
-        bHtml += '<tr data-batch="' + escHtml(String(bIdx)) + '" style="cursor:pointer"><td>' + escHtml(String(bIdx)) + '</td>' +
-          '<td>' + settlementBadge(b.l1Status) + '</td>' +
-          '<td>' + (b.transitionCount != null ? escHtml(String(b.transitionCount)) : '--') + '</td>' +
-          '<td><span class="hash">' + escHtml(shortHash(b.newRegistryRoot)) + '</span></td>' +
-          '<td>' + fmtTime(b.createdAt) + '</td></tr>';
+        var bIdx = b.index !== undefined ? b.index : b.batchIndex || b.batchNumber || 0;
+        bHtml +=
+          '<tr data-batch="' +
+          escHtml(String(bIdx)) +
+          '" style="cursor:pointer"><td>' +
+          escHtml(String(bIdx)) +
+          '</td>' +
+          '<td>' +
+          settlementBadge(b.l1Status) +
+          '</td>' +
+          '<td>' +
+          (b.transitionCount != null ? escHtml(String(b.transitionCount)) : '--') +
+          '</td>' +
+          '<td><span class="hash">' +
+          escHtml(shortHash(b.newRegistryRoot)) +
+          '</span></td>' +
+          '<td>' +
+          fmtTime(b.createdAt) +
+          '</td></tr>';
       });
       bHtml += '</tbody></table>';
       $('batch-table').innerHTML = batches.length ? bHtml : '<div class="empty-state">No batches</div>';
 
       // Receipt table
-      var rHtml = '<table class="data-table"><thead><tr>' +
+      var rHtml =
+        '<table class="data-table"><thead><tr>' +
         '<th>ID</th><th>Status</th><th>Wallet</th><th>Batch</th><th>Time</th></tr></thead><tbody>';
       // L2Receipt as l2_getAllReceipts sends it, newest first; l1BatchNumber is set once the receipt is batched
       receipts.slice(0, 30).forEach(function (r) {
-        rHtml += '<tr><td>' + (escHtml(r.receiptId) || '--') + '</td>' +
-          '<td>' + settlementBadge(r.l1Status) + '</td>' +
-          '<td><span class="hash">' + escHtml(shortHash(r.walletId)) + '</span></td>' +
-          '<td>' + (r.l1BatchNumber != null ? '#' + escHtml(String(r.l1BatchNumber)) : '--') + '</td>' +
-          '<td>' + fmtTime(r.acceptedAt) + '</td></tr>';
+        rHtml +=
+          '<tr><td>' +
+          (escHtml(r.receiptId) || '--') +
+          '</td>' +
+          '<td>' +
+          settlementBadge(r.l1Status) +
+          '</td>' +
+          '<td><span class="hash">' +
+          escHtml(shortHash(r.walletId)) +
+          '</span></td>' +
+          '<td>' +
+          (r.l1BatchNumber != null ? '#' + escHtml(String(r.l1BatchNumber)) : '--') +
+          '</td>' +
+          '<td>' +
+          fmtTime(r.acceptedAt) +
+          '</td></tr>';
       });
       rHtml += '</tbody></table>';
-      $('receipt-table').innerHTML = receiptsRefused ? '<div class="empty-state">' + receiptsRefusedNote() + '</div>'
-        : receipts.length ? rHtml : '<div class="empty-state">No receipts</div>';
+      $('receipt-table').innerHTML = receiptsRefused
+        ? '<div class="empty-state">' + receiptsRefusedNote() + '</div>'
+        : receipts.length
+          ? rHtml
+          : '<div class="empty-state">No receipts</div>';
     } catch (e) {
       toast('Batches load failed: ' + e.message, 'error');
     }
@@ -1677,14 +2061,26 @@
     try {
       var log = await RPC.getAuditLog(100);
       if (!Array.isArray(log)) log = log ? [log] : [];
-      var html = '<table class="data-table"><thead><tr>' +
+      var html =
+        '<table class="data-table"><thead><tr>' +
         '<th>Seq</th><th>Type</th><th>Wallet</th><th>Chain Hash</th><th>Time</th></tr></thead><tbody>';
       log.slice(0, 50).forEach(function (ev) {
-        html += '<tr><td>' + (ev.sequenceNumber || ev.seqNum || '--') + '</td>' +
-          '<td>' + escHtml(ev.type || ev.eventType || '--') + '</td>' +
-          '<td><span class="hash">' + shortHash(ev.walletId) + '</span></td>' +
-          '<td><span class="hash">' + shortHash(ev.chainHash) + '</span></td>' +
-          '<td>' + fmtTime(ev.timestamp) + '</td></tr>';
+        html +=
+          '<tr><td>' +
+          (ev.sequenceNumber || ev.seqNum || '--') +
+          '</td>' +
+          '<td>' +
+          escHtml(ev.type || ev.eventType || '--') +
+          '</td>' +
+          '<td><span class="hash">' +
+          shortHash(ev.walletId) +
+          '</span></td>' +
+          '<td><span class="hash">' +
+          shortHash(ev.chainHash) +
+          '</span></td>' +
+          '<td>' +
+          fmtTime(ev.timestamp) +
+          '</td></tr>';
       });
       html += '</tbody></table>';
       $('audit-log-container').innerHTML = log.length ? html : '<div class="empty-state">No audit events</div>';
@@ -1753,7 +2149,7 @@
       val.textContent = '...';
       try {
         var res = await RPC.detectDuplicateClaims();
-        var dups = Array.isArray(res) ? res.length : (res && res.duplicates ? res.duplicates.length : 0);
+        var dups = Array.isArray(res) ? res.length : res && res.duplicates ? res.duplicates.length : 0;
         card.className = 'stat-card stat-clickable ' + (dups === 0 ? 'check-pass' : 'check-fail');
         val.textContent = dups === 0 ? 'CLEAN' : dups + ' found';
       } catch (e) {
@@ -1767,7 +2163,7 @@
   async function loadAdmin() {
     // Node config
     try {
-      var status = levStatus || await RPC.getLeviathanStatus();
+      var status = levStatus || (await RPC.getLeviathanStatus());
       levStatus = status;
       $('admin-config').innerHTML =
         '<div class="detail-grid">' +
@@ -1821,11 +2217,11 @@
         $('admin-action-result').innerHTML =
           '<div class="form-result success">Batch forced' +
           (partIdx !== undefined ? ' on partition ' + partIdx : '') +
-          (res ? ': ' + JSON.stringify(res).slice(0, 100) : '') + '</div>';
+          (res ? ': ' + JSON.stringify(res).slice(0, 100) : '') +
+          '</div>';
         toast('Batch forced successfully', 'success');
       } catch (e) {
-        $('admin-action-result').innerHTML =
-          '<div class="form-result error">' + escHtml(e.message) + '</div>';
+        $('admin-action-result').innerHTML = '<div class="form-result error">' + escHtml(e.message) + '</div>';
         toast('Force batch failed', 'error');
       }
     });
@@ -1833,8 +2229,12 @@
     $('admin-health-refresh').addEventListener('click', refreshAdminHealth);
 
     // ── Setup Buttons ──
-    $('setup-setup-btn').addEventListener('click', function () { runSetup(false); });
-    $('setup-token-only-btn').addEventListener('click', function () { runSetup(true); });
+    $('setup-setup-btn').addEventListener('click', function () {
+      runSetup(false);
+    });
+    $('setup-token-only-btn').addEventListener('click', function () {
+      runSetup(true);
+    });
     $('setup-token-value').addEventListener('click', function () {
       var text = this.textContent;
       if (text && navigator.clipboard) {
@@ -1864,7 +2264,11 @@
     var res = await fetch(baseUrl + path, opts);
     var text = await res.text();
     var data;
-    try { data = JSON.parse(text); } catch (e) { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      data = text;
+    }
     if (data && data.ok === false && data.error) throw new Error(errMsg(data.error) || 'Unknown error');
     if (data && data.ok !== undefined && data.data !== undefined) return data.data;
     return data;
@@ -1886,7 +2290,11 @@
     // so this wizard requires the operator to manually enter the active tenant URL.
     var empUrl = $('setup-employer-url').value.trim();
     if (!empUrl) {
-      demoLogStep(log, 'No employer URL provided. After Phase A, employer nodes are spawned on-demand by marketplace activation. Complete the marketplace flow first at http://localhost:4004/marketplace/, then paste the activated employer node URL here.', false);
+      demoLogStep(
+        log,
+        'No employer URL provided. After Phase A, employer nodes are spawned on-demand by marketplace activation. Complete the marketplace flow first at http://localhost:4004/marketplace/, then paste the activated employer node URL here.',
+        false,
+      );
       fullBtn.disabled = false;
       tokenBtn.disabled = false;
       fullBtn.textContent = 'Run Full Ceremony';
@@ -1897,9 +2305,15 @@
     var groupId = $('setup-group-id').value.trim() || 'GRP-001';
     var employeeId = $('setup-employee-id').value.trim() || 'EMP-001';
 
-    function L(msg, ok) { demoLogStep(log, msg, ok); }
-    function empReq(m, p, b) { return demoRequest(empUrl, m, p, b, adminToken); }
-    function memReq(m, p, b) { return demoRequest(memUrl, m, p, b); }
+    function L(msg, ok) {
+      demoLogStep(log, msg, ok);
+    }
+    function empReq(m, p, b) {
+      return demoRequest(empUrl, m, p, b, adminToken);
+    }
+    function memReq(m, p, b) {
+      return demoRequest(memUrl, m, p, b);
+    }
 
     try {
       // ═══ PRE-FLIGHT: Check required nodes ═══
@@ -1923,11 +2337,13 @@
       // Also check optional nodes
       ['prescriber', 'pharmacy'].forEach(function (nid) {
         var s = nodeHealthState[nid];
-        var n = NETWORK_NODES.find(function (x) { return x.id === nid; });
+        var n = NETWORK_NODES.find(function (x) {
+          return x.id === nid;
+        });
         if (s && s.alive) {
           L((n ? n.label : nid) + ' — ALIVE (optional)', true);
         } else {
-          L((n ? n.label : nid) + ' — DOWN (optional, won\'t block enrollment)', null);
+          L((n ? n.label : nid) + " — DOWN (optional, won't block enrollment)", null);
         }
       });
       if (prefightFailed) {
@@ -1952,8 +2368,10 @@
       L('Creating group ' + groupId + '...');
       try {
         await empReq('POST', '/groups', {
-          groupId: groupId, planId: 'standard-plan',
-          effectiveDate: '20260101', enrollmentCap: 100
+          groupId: groupId,
+          planId: 'standard-plan',
+          effectiveDate: '20260101',
+          enrollmentCap: 100,
         });
         L('Group ' + groupId + ' created', true);
       } catch (e) {
@@ -1963,21 +2381,45 @@
       L('Checking in-network providers...');
       try {
         var entities = await (await fetch(location.origin + '/viz/entities', { headers: RPC.headers(true) })).json();
-        var prescribers = entities.filter(function (e) { return e.type === 'prescriber'; });
-        var pharmacies = entities.filter(function (e) { return e.type === 'pharmacy'; });
-        L(prescribers.length + ' prescribers: ' +
-          prescribers.slice(0, 3).map(function (p) { return p.displayName; }).join(', ') +
-          (prescribers.length > 3 ? ' +' + (prescribers.length - 3) + ' more' : ''), true);
-        L(pharmacies.length + ' pharmacies: ' +
-          pharmacies.slice(0, 3).map(function (p) { return p.displayName; }).join(', ') +
-          (pharmacies.length > 3 ? ' +' + (pharmacies.length - 3) + ' more' : ''), true);
+        var prescribers = entities.filter(function (e) {
+          return e.type === 'prescriber';
+        });
+        var pharmacies = entities.filter(function (e) {
+          return e.type === 'pharmacy';
+        });
+        L(
+          prescribers.length +
+            ' prescribers: ' +
+            prescribers
+              .slice(0, 3)
+              .map(function (p) {
+                return p.displayName;
+              })
+              .join(', ') +
+            (prescribers.length > 3 ? ' +' + (prescribers.length - 3) + ' more' : ''),
+          true,
+        );
+        L(
+          pharmacies.length +
+            ' pharmacies: ' +
+            pharmacies
+              .slice(0, 3)
+              .map(function (p) {
+                return p.displayName;
+              })
+              .join(', ') +
+            (pharmacies.length > 3 ? ' +' + (pharmacies.length - 3) + ' more' : ''),
+          true,
+        );
       } catch (e) {
         L('Provider check skipped: ' + e.message, false);
       }
 
       L('Generating enrollment token...');
       var tokenResult = await empReq('POST', '/tokens/generate', {
-        groupId: groupId, employeeId: employeeId, validUntil: '20271231'
+        groupId: groupId,
+        employeeId: employeeId,
+        validUntil: '20271231',
       });
       var tokenId = tokenResult.tokenId || tokenResult;
       L('Token: ' + tokenId, true);
@@ -2016,7 +2458,9 @@
       log.appendChild(waitEl);
 
       while (waited < maxWaitMs) {
-        await new Promise(function (r) { setTimeout(r, pollIntervalMs); });
+        await new Promise(function (r) {
+          setTimeout(r, pollIntervalMs);
+        });
         waited += pollIntervalMs;
         dots = (dots + 1) % 4;
 
@@ -2025,8 +2469,16 @@
           var curWallets = parseInt(curStatus.currentWalletCount || '0', 10);
           var curProofs = curStatus.totalProofsAccepted || 0;
 
-          waitEl.textContent = 'Waiting for phone' + '....'.slice(0, dots + 1) +
-            ' (' + Math.floor(waited / 1000) + 's, wallets: ' + curWallets + ', proofs: ' + curProofs + ')';
+          waitEl.textContent =
+            'Waiting for phone' +
+            '....'.slice(0, dots + 1) +
+            ' (' +
+            Math.floor(waited / 1000) +
+            's, wallets: ' +
+            curWallets +
+            ', proofs: ' +
+            curProofs +
+            ')';
 
           if (curProofs > baseProofs) {
             detected = true;
@@ -2059,7 +2511,9 @@
       L('═══ PHASE 3: BATCH SETTLEMENT ═══');
 
       // Wait a moment for the proof to be fully processed
-      await new Promise(function (r) { setTimeout(r, 2000); });
+      await new Promise(function (r) {
+        setTimeout(r, 2000);
+      });
 
       L('Forcing batch build (triggers proving pool workers)...');
       try {
@@ -2077,7 +2531,9 @@
       L('═══ PHASE 4: VERIFICATION ═══');
 
       // Re-check status after batch
-      await new Promise(function (r) { setTimeout(r, 3000); });
+      await new Promise(function (r) {
+        setTimeout(r, 3000);
+      });
       try {
         var finalStatus = await RPC.getStatus();
         L('Wallets registered: ' + (finalStatus.currentWalletCount || '0'), true);
@@ -2094,7 +2550,10 @@
       L('Member enrolled from phone. Wallet registered on-chain.');
       L('Proof accepted by sequencer. Batch settling in proving pool.');
       var peerCount = 0;
-      try { var pList = await RPC.getPeerList(); peerCount = pList.length; } catch (e) {}
+      try {
+        var pList = await RPC.getPeerList();
+        peerCount = pList.length;
+      } catch (e) {}
       L('Gossip replicating to ' + peerCount + ' peer(s).');
       toast('Full ceremony complete', 'success');
     } catch (e) {
@@ -2109,14 +2568,21 @@
 
   // ── Shared Rendering Helpers ────────────────────────────────
   function statCard(label, value, style) {
-    return '<div class="stat-card">' +
-      '<span class="stat-label">' + escHtml(label) + '</span>' +
-      '<span class="stat-value"' + (style ? ' style="' + style + '"' : '') + '>' + escHtml(String(value)) + '</span></div>';
+    return (
+      '<div class="stat-card">' +
+      '<span class="stat-label">' +
+      escHtml(label) +
+      '</span>' +
+      '<span class="stat-value"' +
+      (style ? ' style="' + style + '"' : '') +
+      '>' +
+      escHtml(String(value)) +
+      '</span></div>'
+    );
   }
 
   function detailRow(key, val) {
-    return '<div class="detail-key">' + escHtml(key) + '</div>' +
-      '<div class="detail-val">' + escHtml(String(val)) + '</div>';
+    return '<div class="detail-key">' + escHtml(key) + '</div>' + '<div class="detail-val">' + escHtml(String(val)) + '</div>';
   }
 
   // Escapes for text and for attribute values, in double or single quotes: batch numbers go into data-batch.
@@ -2134,15 +2600,19 @@
     RPC.connectVizSSE(function (ev) {
       var type = ev.type || ev.event || '';
       // Route gossip/heartbeat/failover events to gossip log
-      if (type.indexOf('gossip') >= 0 || type.indexOf('heartbeat') >= 0 ||
-          type.indexOf('leader:') >= 0 || type.indexOf('quorum:') >= 0 ||
-          type.indexOf('peer:') >= 0) {
+      if (
+        type.indexOf('gossip') >= 0 ||
+        type.indexOf('heartbeat') >= 0 ||
+        type.indexOf('leader:') >= 0 ||
+        type.indexOf('quorum:') >= 0 ||
+        type.indexOf('peer:') >= 0
+      ) {
         addGossipEntry({
           type: type,
           from: ev.from || ev.nodeId,
           to: ev.to,
           data: ev.data,
-          timestamp: ev.timestamp || Date.now()
+          timestamp: ev.timestamp || Date.now(),
         });
       }
       handleVizEvent(ev);
@@ -2172,7 +2642,9 @@
           try {
             var health = await RPC.getHealth();
             renderEntityProofPool(health);
-          } catch (_) { /* health fetch optional */ }
+          } catch (_) {
+            /* health fetch optional */
+          }
           setConnDot('connected');
         } catch (e) {
           setConnDot('disconnected');
@@ -2188,15 +2660,33 @@
   // ── Refresh Buttons ─────────────────────────────────────────
   function setupRefreshButtons() {
     var map = {
-      'part-refresh-btn': function () { loadPartitions(); },
-      'worker-refresh-btn': function () { loadWorkers(); },
-      'gossip-refresh-btn': function () { loadGossip(); },
-      'wal-refresh-btn': function () { loadWal(); },
-      'quorum-refresh-btn': function () { loadWal(); },
-      'batch-refresh-btn': function () { loadBatches(); },
-      'receipt-refresh-btn': function () { loadBatches(); },
-      'audit-log-refresh': function () { loadAudit(); },
-      'audit-proof-refresh': function () { loadAudit(); }
+      'part-refresh-btn': function () {
+        loadPartitions();
+      },
+      'worker-refresh-btn': function () {
+        loadWorkers();
+      },
+      'gossip-refresh-btn': function () {
+        loadGossip();
+      },
+      'wal-refresh-btn': function () {
+        loadWal();
+      },
+      'quorum-refresh-btn': function () {
+        loadWal();
+      },
+      'batch-refresh-btn': function () {
+        loadBatches();
+      },
+      'receipt-refresh-btn': function () {
+        loadBatches();
+      },
+      'audit-log-refresh': function () {
+        loadAudit();
+      },
+      'audit-proof-refresh': function () {
+        loadAudit();
+      },
     };
     Object.keys(map).forEach(function (id) {
       var btn = $(id);
@@ -2268,7 +2758,9 @@
       try {
         var health = await RPC.getHealth();
         renderEntityProofPool(health);
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
     }, 1500);
   }
 

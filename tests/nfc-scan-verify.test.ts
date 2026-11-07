@@ -59,27 +59,48 @@ async function rpcWith(headers: Record<string, string>, body: string) {
 }
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-nfc-scan-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-nfc-scan-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   seq = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: 'operator-token-for-tests', enableSSE: false });
   seq.registerNodeKey(memberNodeKey.nodeId, memberNodeKey.publicKeyHex, 'member');
   seq.registerNodeKey(pharmacyNodeKey.nodeId, pharmacyNodeKey.publicKeyHex, 'pharmacy');
   await seq.start();
   url = `http://127.0.0.1:${seq.getPort()}`;
-  const fixtures = [[memberNodeKey, 'alice', 'member'], [pharmacyNodeKey, 'rx', 'pharmacy']] as const;
+  const fixtures = [
+    [memberNodeKey, 'alice', 'member'],
+    [pharmacyNodeKey, 'rx', 'pharmacy'],
+  ] as const;
   for (const [key, who, type] of fixtures) {
-    const body = envelope('l2_registerEntity', { walletId: W[who], displayName: who, type, signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex });
-    const j = await rpcWith(signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body }), body);
+    const body = envelope('l2_registerEntity', {
+      walletId: W[who],
+      displayName: who,
+      type,
+      signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex,
+    });
+    const j = await rpcWith(
+      signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body }),
+      body,
+    );
     if (j.error) throw new Error(`fixture registration of ${who} failed: ${j.error.message}`);
   }
   // Alice exists on the ledger, so the sequencer issues her an attestation, signed with its attestation key.
-  node.getSequencer().adminMutate('test: provision alice', ({ provision }) => { provision(Field(BigInt(W.alice)), LIFECYCLE_ELIGIBLE); });
+  node.getSequencer().adminMutate('test: provision alice', ({ provision }) => {
+    provision(Field(BigInt(W.alice)), LIFECYCLE_ELIGIBLE);
+  });
   const ask = envelope('l2_requestAttestation', { walletId: W.alice });
   att = (await rpcWith(signRequest({ ...walletSigner(EK.alice, W.alice), method: 'POST', path: '/rpc', body: ask }), ask)).result;
   if (att?.w !== W.alice) throw new Error('the fixture attestation was not issued');
 });
 
-afterAll(async () => { await seq.stop(); });
+afterAll(async () => {
+  await seq.stop();
+});
 
 /** The pharmacy node's /nfc/scan over a real PharmacyNode that signs as the pharmacy's wallet. */
 function counter() {
@@ -90,7 +111,9 @@ function counter() {
   const server = {
     getEntityNode: () => pharmacy,
     getConfig: () => ({ sequencerUrl: url }),
-    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) { sent.push({ status, ok, data, error }); },
+    sendResponse(_res: unknown, status: number, ok: boolean, data?: unknown, error?: string) {
+      sent.push({ status, ok, data, error });
+    },
   };
   const route = buildPharmacyRoutes(server as any).find((r) => r.method === 'POST' && r.path === '/nfc/scan')!;
   const scan = (body: unknown) => route.handler({ headers: {} } as any, {} as any, {}, new URLSearchParams(), body);
@@ -104,8 +127,13 @@ test('a pasted attestation verifies the member: 200 with the drug history, from 
   expect(c.sent[0]).toMatchObject({ status: 200, ok: true });
   // The fields the dashboard's verifyMember checks before it enables Dispense.
   expect(c.sent[0].data).toMatchObject({
-    walletId: W.alice, attestationVerified: true, attestationExpired: false,
-    totalClaims: 0, fullHistory: [], activeMedications: [], activeMedicationCount: 0,
+    walletId: W.alice,
+    attestationVerified: true,
+    attestationExpired: false,
+    totalClaims: 0,
+    fullHistory: [],
+    activeMedications: [],
+    activeMedicationCount: 0,
   });
   expect(c.reads).toHaveBeenCalledTimes(1);
   expect(c.reads).toHaveBeenCalledWith(W.alice, att);

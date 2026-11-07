@@ -31,9 +31,15 @@
   var MAX_LOG = 150;
 
   // ── Helpers ───────────────────────────────────────────
-  function $(id) { return document.getElementById(id); }
-  function qs(sel) { return document.querySelector(sel); }
-  function qsa(sel) { return document.querySelectorAll(sel); }
+  function $(id) {
+    return document.getElementById(id);
+  }
+  function qs(sel) {
+    return document.querySelector(sel);
+  }
+  function qsa(sel) {
+    return document.querySelectorAll(sel);
+  }
 
   function shortHash(h) {
     if (!h) return '--';
@@ -77,7 +83,9 @@
     el.className = 'toast toast-' + (type || 'info');
     el.textContent = msg;
     $('toast-container').appendChild(el);
-    setTimeout(function () { el.remove(); }, 4000);
+    setTimeout(function () {
+      el.remove();
+    }, 4000);
   }
 
   function setConn(state) {
@@ -96,33 +104,44 @@
   }
 
   function typeBadge(isReg) {
-    return isReg ? '<span class="badge badge-purple">Registration</span>'
-                 : '<span class="badge badge-info">Transition</span>';
+    return isReg ? '<span class="badge badge-purple">Registration</span>' : '<span class="badge badge-info">Transition</span>';
   }
 
   function msgTypeBadge(t) {
-    var labels = { '1': 'Clinical', '2': 'Admin', '3': 'eScript' };
+    var labels = { 1: 'Clinical', 2: 'Admin', 3: 'eScript' };
     var label = labels[String(t)] || 'Type ' + t;
     return '<span class="badge msg-type-' + t + '">' + esc(label) + '</span>';
   }
 
   function statCard(label, value, detail, accent) {
-    return '<div class="stat-card' + (accent ? ' stat-accent' : '') + '">' +
-      '<div class="stat-label">' + esc(label) + '</div>' +
-      '<div class="stat-value">' + esc(String(value)) + '</div>' +
-      (detail ? '<div class="stat-detail">' + esc(detail) + '</div>' : '') + '</div>';
+    return (
+      '<div class="stat-card' +
+      (accent ? ' stat-accent' : '') +
+      '">' +
+      '<div class="stat-label">' +
+      esc(label) +
+      '</div>' +
+      '<div class="stat-value">' +
+      esc(String(value)) +
+      '</div>' +
+      (detail ? '<div class="stat-detail">' + esc(detail) + '</div>' : '') +
+      '</div>'
+    );
   }
 
   function detailRow(key, val) {
-    return '<div class="detail-key">' + esc(key) + '</div>' +
-      '<div class="detail-val">' + esc(String(val)) + '</div>';
+    return '<div class="detail-key">' + esc(key) + '</div>' + '<div class="detail-val">' + esc(String(val)) + '</div>';
   }
 
   // ── Router ────────────────────────────────────────────
   function navigate(tab) {
     currentTab = tab;
-    qsa('.page').forEach(function (p) { p.classList.add('hidden'); });
-    qsa('.nav-link').forEach(function (l) { l.classList.remove('active'); });
+    qsa('.page').forEach(function (p) {
+      p.classList.add('hidden');
+    });
+    qsa('.nav-link').forEach(function (l) {
+      l.classList.remove('active');
+    });
     var page = $('page-' + tab);
     if (page) page.classList.remove('hidden');
     var link = qs('.nav-link[data-tab="' + tab + '"]');
@@ -132,14 +151,29 @@
 
   function loadTab(tab) {
     switch (tab) {
-      case 'overview': loadOverview(); break;
-      case 'batches': loadBatches(); break;
-      case 'receipts': loadReceipts(); break;
-      case 'wallets': break; // on-demand lookup
-      case 'claims': loadClaimsStats(); break;
-      case 'messages': loadMessageStats(); break;
-      case 'audit': loadAudit(); break;
-      case 'network': loadNetwork(); break;
+      case 'overview':
+        loadOverview();
+        break;
+      case 'batches':
+        loadBatches();
+        break;
+      case 'receipts':
+        loadReceipts();
+        break;
+      case 'wallets':
+        break; // on-demand lookup
+      case 'claims':
+        loadClaimsStats();
+        break;
+      case 'messages':
+        loadMessageStats();
+        break;
+      case 'audit':
+        loadAudit();
+        break;
+      case 'network':
+        loadNetwork();
+        break;
     }
   }
 
@@ -151,14 +185,22 @@
       if (!q) return;
       if (q.startsWith('rcpt-') || q.startsWith('rcpt_')) {
         navigate('receipts');
-        setTimeout(function () { $('receipt-search').value = q; searchReceipts(); }, 100);
+        setTimeout(function () {
+          $('receipt-search').value = q;
+          searchReceipts();
+        }, 100);
       } else if (q.match(/^#?\d+$/)) {
         navigate('batches');
-        setTimeout(function () { showBatchDetail(parseInt(q.replace('#', ''), 10)); }, 100);
+        setTimeout(function () {
+          showBatchDetail(parseInt(q.replace('#', ''), 10));
+        }, 100);
       } else {
         // Assume wallet ID
         navigate('wallets');
-        setTimeout(function () { $('wallet-search').value = q; lookupWallet(); }, 100);
+        setTimeout(function () {
+          $('wallet-search').value = q;
+          lookupWallet();
+        }, 100);
       }
     });
   }
@@ -175,7 +217,10 @@
       // Footer
       $('footer-node').textContent = status.nodeId || 'sequencer';
       $('footer-height').textContent = status.blockHeight !== undefined ? status.blockHeight : '--';
-      try { var pi = await RPC.getPeerInfo(); $('footer-peers').textContent = (pi.connectedPeers || pi.peers || []).length || 0; } catch {}
+      try {
+        var pi = await RPC.getPeerInfo();
+        $('footer-peers').textContent = (pi.connectedPeers || pi.peers || []).length || 0;
+      } catch {}
 
       // Stats
       var pending = status.pendingProofs || status.pending || 0;
@@ -201,11 +246,21 @@
       // Throughput strip
       var avgProve = status.avgProveMs ? (status.avgProveMs / 1000).toFixed(1) + 's' : '--';
       $('throughput-strip').innerHTML =
-        '<div class="tp-stat"><span class="tp-val">' + totalR + '</span><span class="tp-label">Processed</span></div>' +
-        '<div class="tp-stat"><span class="tp-val">' + totalB + '</span><span class="tp-label">Batches</span></div>' +
-        '<div class="tp-stat"><span class="tp-val">' + (status.proofsPerSec || '0.0') + '</span><span class="tp-label">Proofs/sec</span></div>' +
-        '<div class="tp-stat"><span class="tp-val">' + avgProve + '</span><span class="tp-label">Avg Prove</span></div>' +
-        '<div class="tp-stat"><span class="tp-val">' + (status.workerCount || status.poolSize || '--') + '</span><span class="tp-label">Workers</span></div>';
+        '<div class="tp-stat"><span class="tp-val">' +
+        totalR +
+        '</span><span class="tp-label">Processed</span></div>' +
+        '<div class="tp-stat"><span class="tp-val">' +
+        totalB +
+        '</span><span class="tp-label">Batches</span></div>' +
+        '<div class="tp-stat"><span class="tp-val">' +
+        (status.proofsPerSec || '0.0') +
+        '</span><span class="tp-label">Proofs/sec</span></div>' +
+        '<div class="tp-stat"><span class="tp-val">' +
+        avgProve +
+        '</span><span class="tp-label">Avg Prove</span></div>' +
+        '<div class="tp-stat"><span class="tp-val">' +
+        (status.workerCount || status.poolSize || '--') +
+        '</span><span class="tp-label">Workers</span></div>';
 
       // Recent batches
       try {
@@ -213,14 +268,18 @@
         if (!Array.isArray(batches)) batches = batches ? [batches] : [];
         allBatches = batches;
         $('ov-batches').innerHTML = batches.length ? renderBatchTable(batches, true) : '<div class="empty-state">No batches</div>';
-      } catch { $('ov-batches').innerHTML = '<div class="empty-state">--</div>'; }
+      } catch {
+        $('ov-batches').innerHTML = '<div class="empty-state">--</div>';
+      }
 
       // Recent receipts
       try {
         var receipts = await RPC.getAllReceipts(5);
         if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
         $('ov-receipts').innerHTML = receipts.length ? renderReceiptTable(receipts, true) : '<div class="empty-state">No receipts</div>';
-      } catch { $('ov-receipts').innerHTML = '<div class="empty-state">--</div>'; }
+      } catch {
+        $('ov-receipts').innerHTML = '<div class="empty-state">--</div>';
+      }
     } catch (e) {
       setConn('disconnected');
       toast('Failed to load: ' + e.message, 'error');
@@ -236,7 +295,9 @@
       if (!Array.isArray(batches)) batches = batches ? [batches] : [];
       allBatches = batches;
 
-      var settled = batches.filter(function (b) { return (b.l1Status || b.status) === 'settled'; }).length;
+      var settled = batches.filter(function (b) {
+        return (b.l1Status || b.status) === 'settled';
+      }).length;
       var totalTxns = batches.reduce(function (a, b) {
         return a + (b.registrationCount || 0) + (b.transitionCount || 0);
       }, 0);
@@ -246,31 +307,55 @@
         statCard('Total Txns', totalTxns) +
         statCard('Latest', batches.length ? '#' + (batches[0].batchNumber || batches[0].index || 0) : '--');
 
-      $('batch-table-wrap').innerHTML = batches.length ? '<div class="table-wrap">' + renderBatchTable(batches, false) + '</div>' : '<div class="empty-state">No batches</div>';
+      $('batch-table-wrap').innerHTML = batches.length
+        ? '<div class="table-wrap">' + renderBatchTable(batches, false) + '</div>'
+        : '<div class="empty-state">No batches</div>';
     } catch (e) {
       toast('Batches failed: ' + e.message, 'error');
     }
   }
 
   function renderBatchTable(batches, compact) {
-    var html = '<table class="data-table"><thead><tr>' +
+    var html =
+      '<table class="data-table"><thead><tr>' +
       '<th>Batch</th><th>Regs</th><th>Txns</th><th>Status</th>' +
       (compact ? '' : '<th>Prove</th><th>Chain Root</th>') +
       '<th>Height</th><th>Time</th></tr></thead><tbody>';
     batches.forEach(function (b) {
-      var num = b.batchNumber !== undefined ? b.batchNumber : (b.index || '--');
+      var num = b.batchNumber !== undefined ? b.batchNumber : b.index || '--';
       var st = b.l1Status || b.status || '--';
       // A-88: a batch comes from the sequencer, and a replica's from its peers, so each value is escaped, and the batch
       // number rides in data-batch for onRowClick, never inside an inline handler
-      html += '<tr data-batch="' + esc(String(num)) + '">' +
-        '<td class="mono">#' + esc(String(num)) + '</td>' +
-        '<td>' + esc(String(b.registrationCount || 0)) + '</td>' +
-        '<td>' + esc(String(b.transitionCount || 0)) + '</td>' +
-        '<td>' + statusBadge(st) + '</td>' +
-        (compact ? '' : '<td class="mono">' + esc(b.proveTimeMs ? (b.proveTimeMs / 1000).toFixed(1) + 's' : '--') + '</td>' +
-          '<td><span class="hash">' + esc(shortHash(b.globalStateRoot || b.stateRoot)) + '</span></td>') +
-        '<td class="mono">' + esc(String(b.blockHeight || '--')) + '</td>' +
-        '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(b.createdAt || b.timestamp) + '</td></tr>';
+      html +=
+        '<tr data-batch="' +
+        esc(String(num)) +
+        '">' +
+        '<td class="mono">#' +
+        esc(String(num)) +
+        '</td>' +
+        '<td>' +
+        esc(String(b.registrationCount || 0)) +
+        '</td>' +
+        '<td>' +
+        esc(String(b.transitionCount || 0)) +
+        '</td>' +
+        '<td>' +
+        statusBadge(st) +
+        '</td>' +
+        (compact
+          ? ''
+          : '<td class="mono">' +
+            esc(b.proveTimeMs ? (b.proveTimeMs / 1000).toFixed(1) + 's' : '--') +
+            '</td>' +
+            '<td><span class="hash">' +
+            esc(shortHash(b.globalStateRoot || b.stateRoot)) +
+            '</span></td>') +
+        '<td class="mono">' +
+        esc(String(b.blockHeight || '--')) +
+        '</td>' +
+        '<td class="text-muted" style="color:var(--text-muted)">' +
+        fmtTime(b.createdAt || b.timestamp) +
+        '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
@@ -300,7 +385,10 @@
     $('batch-detail').innerHTML = '<div class="loading">Loading batch #' + esc(String(batchNum)) + '...</div>';
     try {
       var b = await RPC.getBatch(batchNum);
-      if (!b) { $('batch-detail').innerHTML = '<div class="empty-state">Batch not found</div>'; return; }
+      if (!b) {
+        $('batch-detail').innerHTML = '<div class="empty-state">Batch not found</div>';
+        return;
+      }
       $('batch-detail').innerHTML =
         '<div class="detail-grid">' +
         detailRow('Batch Number', b.batchNumber || b.index) +
@@ -335,25 +423,43 @@
       var receipts = await RPC.getAllReceipts(200);
       if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
       allReceipts = receipts;
-      $('receipt-table-wrap').innerHTML = receipts.length ? '<div class="table-wrap">' + renderReceiptTable(receipts, false) + '</div>' : '<div class="empty-state">No receipts</div>';
+      $('receipt-table-wrap').innerHTML = receipts.length
+        ? '<div class="table-wrap">' + renderReceiptTable(receipts, false) + '</div>'
+        : '<div class="empty-state">No receipts</div>';
     } catch (e) {
       toast('Receipts failed: ' + e.message, 'error');
     }
   }
 
   function renderReceiptTable(receipts, compact) {
-    var html = '<table class="data-table"><thead><tr>' +
+    var html =
+      '<table class="data-table"><thead><tr>' +
       '<th>Receipt ID</th><th>Wallet</th><th>Type</th><th>Status</th><th>Batch</th><th>Time</th></tr></thead><tbody>';
     receipts.forEach(function (r) {
       var rid = r.receiptId || r.id || '--';
       var st = r.l1Status || r.status || '--';
-      html += '<tr data-receipt="' + esc(rid) + '">' +
-        '<td><span class="mono truncate">' + esc(rid) + '</span></td>' +
-        '<td><span class="hash">' + esc(shortHash(r.walletId)) + '</span></td>' +
-        '<td>' + typeBadge(r.isRegistration) + '</td>' +
-        '<td>' + statusBadge(st) + '</td>' +
-        '<td class="mono">' + (r.l1BatchNumber !== undefined && r.l1BatchNumber !== null ? '#' + esc(String(r.l1BatchNumber)) : '--') + '</td>' +
-        '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(r.acceptedAt || r.timestamp) + '</td></tr>';
+      html +=
+        '<tr data-receipt="' +
+        esc(rid) +
+        '">' +
+        '<td><span class="mono truncate">' +
+        esc(rid) +
+        '</span></td>' +
+        '<td><span class="hash">' +
+        esc(shortHash(r.walletId)) +
+        '</span></td>' +
+        '<td>' +
+        typeBadge(r.isRegistration) +
+        '</td>' +
+        '<td>' +
+        statusBadge(st) +
+        '</td>' +
+        '<td class="mono">' +
+        (r.l1BatchNumber !== undefined && r.l1BatchNumber !== null ? '#' + esc(String(r.l1BatchNumber)) : '--') +
+        '</td>' +
+        '<td class="text-muted" style="color:var(--text-muted)">' +
+        fmtTime(r.acceptedAt || r.timestamp) +
+        '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
@@ -365,7 +471,10 @@
     $('receipt-detail').innerHTML = '<div class="loading">Loading...</div>';
     try {
       var r = await RPC.getReceipt(receiptId);
-      if (!r) { $('receipt-detail').innerHTML = '<div class="empty-state">Receipt not found</div>'; return; }
+      if (!r) {
+        $('receipt-detail').innerHTML = '<div class="empty-state">Receipt not found</div>';
+        return;
+      }
       $('receipt-detail').innerHTML =
         '<div class="detail-grid">' +
         detailRow('Receipt ID', r.receiptId || r.id) +
@@ -391,22 +500,30 @@
 
   function searchReceipts() {
     var q = $('receipt-search').value.trim().toLowerCase();
-    if (!q) { loadReceipts(); return; }
+    if (!q) {
+      loadReceipts();
+      return;
+    }
     // Filter locally if we have data, else try wallet lookup
     if (allReceipts.length) {
       var filtered = allReceipts.filter(function (r) {
-        return (r.receiptId || '').toLowerCase().indexOf(q) >= 0 ||
-               (r.walletId || '').toLowerCase().indexOf(q) >= 0;
+        return (r.receiptId || '').toLowerCase().indexOf(q) >= 0 || (r.walletId || '').toLowerCase().indexOf(q) >= 0;
       });
-      $('receipt-table-wrap').innerHTML = filtered.length ? '<div class="table-wrap">' + renderReceiptTable(filtered, false) + '</div>' : '<div class="empty-state">No matching receipts</div>';
+      $('receipt-table-wrap').innerHTML = filtered.length
+        ? '<div class="table-wrap">' + renderReceiptTable(filtered, false) + '</div>'
+        : '<div class="empty-state">No matching receipts</div>';
     } else {
       // Try wallet-specific query
-      RPC.getReceiptsByWallet(q).then(function (receipts) {
-        if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
-        $('receipt-table-wrap').innerHTML = receipts.length ? '<div class="table-wrap">' + renderReceiptTable(receipts, false) + '</div>' : '<div class="empty-state">No receipts for this wallet</div>';
-      }).catch(function () {
-        $('receipt-table-wrap').innerHTML = '<div class="empty-state">Search failed</div>';
-      });
+      RPC.getReceiptsByWallet(q)
+        .then(function (receipts) {
+          if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
+          $('receipt-table-wrap').innerHTML = receipts.length
+            ? '<div class="table-wrap">' + renderReceiptTable(receipts, false) + '</div>'
+            : '<div class="empty-state">No receipts for this wallet</div>';
+        })
+        .catch(function () {
+          $('receipt-table-wrap').innerHTML = '<div class="empty-state">Search failed</div>';
+        });
     }
   }
 
@@ -429,12 +546,16 @@
     try {
       var receipts = await RPC.getReceiptsByWallet(walletId);
       if (!Array.isArray(receipts)) receipts = receipts ? [receipts] : [];
-      var regs = receipts.filter(function (r) { return r.isRegistration; }).length;
+      var regs = receipts.filter(function (r) {
+        return r.isRegistration;
+      }).length;
       var txns = receipts.length - regs;
 
       // Accumulator
       var accum = null;
-      try { accum = await RPC.reconstructAccumulator(walletId); } catch {}
+      try {
+        accum = await RPC.reconstructAccumulator(walletId);
+      } catch {}
 
       $('wallet-detail').innerHTML =
         '<div class="detail-grid">' +
@@ -444,10 +565,14 @@
         detailRow('Transitions', txns) +
         (accum ? detailRow('Patient Pay (total)', fmtCents(accum.oopPaidCents || accum.patientPayCents || accum.totalPatientPay)) : '') +
         (accum ? detailRow('Plan Pay (total)', fmtCents(accum.benefitUsedCents || accum.planPayCents || accum.totalPlanPay)) : '') +
-        (accum ? detailRow('Deductible Used', fmtCents(accum.deductiblePaidCents || accum.deductibleCreditCents || accum.totalDeductibleCredit)) : '') +
+        (accum
+          ? detailRow('Deductible Used', fmtCents(accum.deductiblePaidCents || accum.deductibleCreditCents || accum.totalDeductibleCredit))
+          : '') +
         '</div>';
 
-      $('wallet-receipts').innerHTML = receipts.length ? '<div class="table-wrap">' + renderReceiptTable(receipts, true) + '</div>' : '<div class="empty-state">No receipts</div>';
+      $('wallet-receipts').innerHTML = receipts.length
+        ? '<div class="table-wrap">' + renderReceiptTable(receipts, true) + '</div>'
+        : '<div class="empty-state">No receipts</div>';
     } catch (e) {
       $('wallet-detail').innerHTML = '<div class="empty-state">Wallet not found or error: ' + esc(e.message) + '</div>';
       $('wallet-receipts').innerHTML = '<div class="empty-state">--</div>';
@@ -458,14 +583,18 @@
       var claims = await RPC.getClaimsByMember(walletId);
       if (!Array.isArray(claims)) claims = claims ? [claims] : [];
       $('wallet-claims').innerHTML = claims.length ? renderClaimTable(claims) : '<div class="empty-state">No claims</div>';
-    } catch { $('wallet-claims').innerHTML = '<div class="empty-state">--</div>'; }
+    } catch {
+      $('wallet-claims').innerHTML = '<div class="empty-state">--</div>';
+    }
 
     // Messages
     try {
       var msgs = await RPC.getMessagesByWallet(walletId);
       if (!Array.isArray(msgs)) msgs = msgs ? [msgs] : [];
       $('wallet-messages').innerHTML = msgs.length ? renderMessageTable(msgs) : '<div class="empty-state">No messages</div>';
-    } catch { $('wallet-messages').innerHTML = '<div class="empty-state">--</div>'; }
+    } catch {
+      $('wallet-messages').innerHTML = '<div class="empty-state">--</div>';
+    }
   }
 
   // ══════════════════════════════════════════════════════
@@ -499,7 +628,9 @@
           claims = c ? [c] : [];
         }
         if (!Array.isArray(claims)) claims = claims ? [claims] : [];
-        $('claim-results').innerHTML = claims.length ? '<div class="table-wrap">' + renderClaimTable(claims) + '</div>' : '<div class="empty-state">No claims found</div>';
+        $('claim-results').innerHTML = claims.length
+          ? '<div class="table-wrap">' + renderClaimTable(claims) + '</div>'
+          : '<div class="empty-state">No claims found</div>';
       } catch (e) {
         $('claim-results').innerHTML = '<div class="empty-state">Error: ' + esc(e.message) + '</div>';
       }
@@ -507,23 +638,41 @@
   }
 
   function renderClaimTable(claims) {
-    var html = '<table class="data-table"><thead><tr>' +
+    var html =
+      '<table class="data-table"><thead><tr>' +
       '<th>Member</th><th>NDC Hash</th><th>Pharmacy</th><th>Prescriber</th>' +
       '<th>Date</th><th>Patient Pay</th><th>Plan Pay</th><th>Type</th></tr></thead><tbody>';
     claims.forEach(function (c) {
       var leaf = c.leaf || c.claimLeaf || c;
       var meta = c.metadata || {};
-      html += '<tr>' +
-        '<td><span class="hash">' + shortHash(leaf.memberWalletId) + '</span></td>' +
-        '<td><span class="hash">' + shortHash(leaf.ndcHash) + '</span></td>' +
-        '<td><span class="hash">' + shortHash(leaf.pharmacyWalletId) + '</span></td>' +
-        '<td><span class="hash">' + shortHash(leaf.prescriberWalletId) + '</span></td>' +
-        '<td class="mono">' + esc(leaf.dateOfService || '--') + '</td>' +
-        '<td class="mono">' + fmtCents(leaf.patientPayCents) + '</td>' +
-        '<td class="mono">' + fmtCents(leaf.planPayCents) + '</td>' +
-        '<td>' + (leaf.operationType === '2' || leaf.operationType === 2 ?
-          '<span class="badge badge-error">Reversal</span>' :
-          '<span class="badge badge-success">Fill</span>') + '</td></tr>';
+      html +=
+        '<tr>' +
+        '<td><span class="hash">' +
+        shortHash(leaf.memberWalletId) +
+        '</span></td>' +
+        '<td><span class="hash">' +
+        shortHash(leaf.ndcHash) +
+        '</span></td>' +
+        '<td><span class="hash">' +
+        shortHash(leaf.pharmacyWalletId) +
+        '</span></td>' +
+        '<td><span class="hash">' +
+        shortHash(leaf.prescriberWalletId) +
+        '</span></td>' +
+        '<td class="mono">' +
+        esc(leaf.dateOfService || '--') +
+        '</td>' +
+        '<td class="mono">' +
+        fmtCents(leaf.patientPayCents) +
+        '</td>' +
+        '<td class="mono">' +
+        fmtCents(leaf.planPayCents) +
+        '</td>' +
+        '<td>' +
+        (leaf.operationType === '2' || leaf.operationType === 2
+          ? '<span class="badge badge-error">Reversal</span>'
+          : '<span class="badge badge-success">Fill</span>') +
+        '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
@@ -556,7 +705,9 @@
         else if (type === 'recipient') msgs = await RPC.getMessagesByRecipient(val);
         else if (type === 'thread') msgs = await RPC.getMessagesByThread(val);
         if (!Array.isArray(msgs)) msgs = msgs ? [msgs] : [];
-        $('msg-results').innerHTML = msgs.length ? '<div class="table-wrap">' + renderMessageTable(msgs) + '</div>' : '<div class="empty-state">No messages found</div>';
+        $('msg-results').innerHTML = msgs.length
+          ? '<div class="table-wrap">' + renderMessageTable(msgs) + '</div>'
+          : '<div class="empty-state">No messages found</div>';
       } catch (e) {
         $('msg-results').innerHTML = '<div class="empty-state">Error: ' + esc(e.message) + '</div>';
       }
@@ -564,21 +715,33 @@
   }
 
   function renderMessageTable(msgs) {
-    var html = '<table class="data-table"><thead><tr>' +
+    var html =
+      '<table class="data-table"><thead><tr>' +
       '<th>Sender</th><th>Recipient</th><th>Type</th><th>Thread</th>' +
       '<th>Content</th><th>Time</th></tr></thead><tbody>';
     msgs.forEach(function (m) {
       var msg = m.message || m;
       var payload = m.payload || {};
-      html += '<tr>' +
-        '<td><span class="hash">' + shortHash(msg.senderWalletId) + '</span></td>' +
-        '<td><span class="hash">' + shortHash(msg.recipientWalletId) + '</span></td>' +
-        '<td>' + msgTypeBadge(msg.messageType || '--') + '</td>' +
-        '<td><span class="hash">' + shortHash(msg.threadIdHash) + '</span></td>' +
-        '<td style="color:var(--text-muted);font-style:italic;font-size:11px">' +
-          (payload.ciphertext ? esc(payload.ciphertext.slice(0, 24)) + '... (encrypted)' : 'encrypted') +
+      html +=
+        '<tr>' +
+        '<td><span class="hash">' +
+        shortHash(msg.senderWalletId) +
+        '</span></td>' +
+        '<td><span class="hash">' +
+        shortHash(msg.recipientWalletId) +
+        '</span></td>' +
+        '<td>' +
+        msgTypeBadge(msg.messageType || '--') +
         '</td>' +
-        '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(payload.timestamp || m.timestamp) + '</td></tr>';
+        '<td><span class="hash">' +
+        shortHash(msg.threadIdHash) +
+        '</span></td>' +
+        '<td style="color:var(--text-muted);font-style:italic;font-size:11px">' +
+        (payload.ciphertext ? esc(payload.ciphertext.slice(0, 24)) + '... (encrypted)' : 'encrypted') +
+        '</td>' +
+        '<td class="text-muted" style="color:var(--text-muted)">' +
+        fmtTime(payload.timestamp || m.timestamp) +
+        '</td></tr>';
     });
     html += '</tbody></table>';
     return html;
@@ -616,23 +779,44 @@
     try {
       var log = await RPC.getAuditLog(100);
       if (!Array.isArray(log)) log = log ? [log] : [];
-      var html = '<div class="table-wrap"><table class="data-table"><thead><tr>' +
+      var html =
+        '<div class="table-wrap"><table class="data-table"><thead><tr>' +
         '<th>Seq</th><th>Wallet</th><th>Type</th><th>Patient</th><th>Plan</th><th>Chain Hash</th><th>Time</th></tr></thead><tbody>';
       log.slice(0, 50).forEach(function (ev) {
-        html += '<tr><td class="mono">' + (ev.sequenceNumber || ev.seqNum || '--') + '</td>' +
-          '<td><span class="hash">' + shortHash(ev.walletId) + '</span></td>' +
-          '<td>' + typeBadge(ev.isRegistration) + '</td>' +
-          '<td class="mono">' + fmtCents(ev.patientPayCents) + '</td>' +
-          '<td class="mono">' + fmtCents(ev.planPayCents) + '</td>' +
-          '<td><span class="hash">' + shortHash(ev.chainHash) + '</span></td>' +
-          '<td class="text-muted" style="color:var(--text-muted)">' + fmtTime(ev.timestamp) + '</td></tr>';
+        html +=
+          '<tr><td class="mono">' +
+          (ev.sequenceNumber || ev.seqNum || '--') +
+          '</td>' +
+          '<td><span class="hash">' +
+          shortHash(ev.walletId) +
+          '</span></td>' +
+          '<td>' +
+          typeBadge(ev.isRegistration) +
+          '</td>' +
+          '<td class="mono">' +
+          fmtCents(ev.patientPayCents) +
+          '</td>' +
+          '<td class="mono">' +
+          fmtCents(ev.planPayCents) +
+          '</td>' +
+          '<td><span class="hash">' +
+          shortHash(ev.chainHash) +
+          '</span></td>' +
+          '<td class="text-muted" style="color:var(--text-muted)">' +
+          fmtTime(ev.timestamp) +
+          '</td></tr>';
       });
       html += '</tbody></table></div>';
       $('audit-log-container').innerHTML = log.length ? html : '<div class="empty-state">No audit events</div>';
     } catch (e) {
-      $('audit-log-container').innerHTML = '<div class="empty-state">' + (refusedForCredential(e)
-        ? esc('The audit log holds every member\'s claims, so the sequencer gives it to the plan and the operator only: the plan reads it on its Audit tab, the operator on its network screen, under Audit & Chain.')
-        : 'Audit log unavailable') + '</div>';
+      $('audit-log-container').innerHTML =
+        '<div class="empty-state">' +
+        (refusedForCredential(e)
+          ? esc(
+              "The audit log holds every member's claims, so the sequencer gives it to the plan and the operator only: the plan reads it on its Audit tab, the operator on its network screen, under Audit & Chain.",
+            )
+          : 'Audit log unavailable') +
+        '</div>';
     }
 
     // Chain proof
@@ -656,25 +840,34 @@
       } else {
         $('audit-proof-container').innerHTML = '<div class="empty-state">No chain proof</div>';
       }
-    } catch { $('audit-proof-container').innerHTML = '<div class="empty-state">Chain proof unavailable</div>'; }
+    } catch {
+      $('audit-proof-container').innerHTML = '<div class="empty-state">Chain proof unavailable</div>';
+    }
   }
 
   function setupAuditChecks() {
     $('audit-chain-card').addEventListener('click', async function () {
-      runAuditCheck(this, $('audit-chain-val'), RPC.verifyChainIntegrity, function (r) { return r && (r.valid || r.integrity === true); });
+      runAuditCheck(this, $('audit-chain-val'), RPC.verifyChainIntegrity, function (r) {
+        return r && (r.valid || r.integrity === true);
+      });
     });
     $('audit-finance-card').addEventListener('click', async function () {
-      runAuditCheck(this, $('audit-finance-val'), RPC.verifyFinancialBalance, function (r) { return r && (r.balanced || r.valid); });
+      runAuditCheck(this, $('audit-finance-val'), RPC.verifyFinancialBalance, function (r) {
+        return r && (r.balanced || r.valid);
+      });
     });
     $('audit-dup-card').addEventListener('click', async function () {
-      var card = this, val = $('audit-dup-val');
+      var card = this,
+        val = $('audit-dup-val');
       startCheck(card, val);
       try {
         var res = await RPC.detectDuplicateClaims();
-        var dups = Array.isArray(res) ? res.length : (res && res.duplicates ? res.duplicates.length : 0);
+        var dups = Array.isArray(res) ? res.length : res && res.duplicates ? res.duplicates.length : 0;
         card.className = 'stat-card stat-clickable ' + (dups === 0 ? 'check-pass' : 'check-fail');
         val.textContent = dups === 0 ? 'CLEAN' : dups + ' found';
-      } catch (e) { showCheckFailure(card, val, e); }
+      } catch (e) {
+        showCheckFailure(card, val, e);
+      }
     });
   }
 
@@ -701,7 +894,8 @@
     valEl.textContent = 'Plan & operator';
     var note = card.querySelector('.plan-and-operator') || card.appendChild(document.createElement('div'));
     note.className = 'stat-detail plan-and-operator';
-    note.textContent = 'It reads every member\'s claims, so the sequencer answers it to the plan and the operator only: the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain.';
+    note.textContent =
+      "It reads every member's claims, so the sequencer answers it to the plan and the operator only: the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain.";
   }
 
   async function runAuditCheck(card, valEl, rpcFn, checkFn) {
@@ -725,7 +919,9 @@
       var health = await RPC.getHealth();
       var info = typeof health === 'object' ? health : {};
       var digest = {};
-      try { digest = await RPC.getStateDigest(); } catch {}
+      try {
+        digest = await RPC.getStateDigest();
+      } catch {}
 
       $('net-stats').innerHTML =
         statCard('Node', info.nodeId || '--', '', true) +
@@ -741,13 +937,17 @@
       });
       infoHtml += '</div>';
       $('net-info').innerHTML = infoHtml;
-    } catch { $('net-info').innerHTML = '<div class="empty-state">Node info unavailable</div>'; }
+    } catch {
+      $('net-info').innerHTML = '<div class="empty-state">Node info unavailable</div>';
+    }
 
     // Peers
     try {
       var peerInfo = await RPC.getPeerInfo();
       var peers = [];
-      try { peers = await RPC.getPeerList(); } catch {}
+      try {
+        peers = await RPC.getPeerList();
+      } catch {}
       if (!Array.isArray(peers)) peers = peerInfo.peers || [];
 
       $('footer-peers').textContent = peers.length;
@@ -760,17 +960,31 @@
           var nid = p.nodeId || p.id || p;
           var status = p.status || 'active';
           var avatarClass = status === 'stale' ? 'stale' : status === 'dead' ? 'dead' : '';
-          html += '<div class="peer-item">' +
-            '<div class="peer-avatar ' + avatarClass + '">' + String(nid).slice(0, 2).toUpperCase() + '</div>' +
+          html +=
+            '<div class="peer-item">' +
+            '<div class="peer-avatar ' +
+            avatarClass +
+            '">' +
+            String(nid).slice(0, 2).toUpperCase() +
+            '</div>' +
             '<div class="peer-info">' +
-            '<div class="peer-name">' + esc(nid) + '</div>' +
-            '<div class="peer-sub">' + esc(p.url || p.address || '--') + '</div></div>' +
-            '<span class="badge ' + (status === 'active' ? 'badge-success' : status === 'stale' ? 'badge-warning' : 'badge-error') + '">' +
-            esc(status.toUpperCase()) + '</span></div>';
+            '<div class="peer-name">' +
+            esc(nid) +
+            '</div>' +
+            '<div class="peer-sub">' +
+            esc(p.url || p.address || '--') +
+            '</div></div>' +
+            '<span class="badge ' +
+            (status === 'active' ? 'badge-success' : status === 'stale' ? 'badge-warning' : 'badge-error') +
+            '">' +
+            esc(status.toUpperCase()) +
+            '</span></div>';
         });
         $('net-peers').innerHTML = html;
       }
-    } catch { $('net-peers').innerHTML = '<div class="empty-state">Peer info unavailable</div>'; }
+    } catch {
+      $('net-peers').innerHTML = '<div class="empty-state">Peer info unavailable</div>';
+    }
 
     // Leviathan status (if available)
     try {
@@ -782,7 +996,14 @@
           detailRow('Node ID', lev.nodeId) +
           detailRow('Partition Count', lev.partitionCount || '--') +
           detailRow('Primary Partition', lev.primaryPartition !== undefined ? lev.primaryPartition : '--') +
-          detailRow('Leader Partitions', (lev.activeLeaderPartitions || []).map(function (p) { return 'P' + p; }).join(', ') || '--') +
+          detailRow(
+            'Leader Partitions',
+            (lev.activeLeaderPartitions || [])
+              .map(function (p) {
+                return 'P' + p;
+              })
+              .join(', ') || '--',
+          ) +
           detailRow('Total Proofs Accepted', lev.globalTotals ? lev.globalTotals.totalProofsAccepted : '--') +
           detailRow('Total Batches Built', lev.globalTotals ? lev.globalTotals.totalBatchesBuilt : '--') +
           detailRow('Pending Proofs', lev.globalTotals ? lev.globalTotals.pendingProofs : '--') +
@@ -809,15 +1030,25 @@
 
   function renderEventLog() {
     var el = $('ov-events');
-    if (!eventLog.length) { el.innerHTML = '<div class="empty-state">Waiting for events...</div>'; return; }
+    if (!eventLog.length) {
+      el.innerHTML = '<div class="empty-state">Waiting for events...</div>';
+      return;
+    }
     var html = '';
     eventLog.slice(0, 40).forEach(function (ev) {
       var type = ev.type || ev.event || 'unknown';
       var data = ev.data ? (typeof ev.data === 'string' ? ev.data : JSON.stringify(ev.data).slice(0, 80)) : '';
-      html += '<div class="event-item">' +
-        '<span class="event-time">' + fmtTime(ev.timestamp || Date.now()) + '</span>' +
-        '<span class="event-type">' + esc(type) + '</span>' +
-        '<span class="event-data">' + esc(data) + '</span></div>';
+      html +=
+        '<div class="event-item">' +
+        '<span class="event-time">' +
+        fmtTime(ev.timestamp || Date.now()) +
+        '</span>' +
+        '<span class="event-type">' +
+        esc(type) +
+        '</span>' +
+        '<span class="event-data">' +
+        esc(data) +
+        '</span></div>';
     });
     el.innerHTML = html;
   }
@@ -843,7 +1074,9 @@
     var stage = qs('.' + cls);
     if (!stage) return;
     stage.classList.add('active');
-    setTimeout(function () { stage.classList.remove('active'); }, 2000);
+    setTimeout(function () {
+      stage.classList.remove('active');
+    }, 2000);
   }
 
   var lastRefresh = 0;
@@ -861,9 +1094,13 @@
       addEvent(ev);
       // Immediate refresh on any chain event
       var type = (ev.type || ev.event || '').toLowerCase();
-      if (type.indexOf('proof') >= 0 || type.indexOf('batch') >= 0 ||
-          type.indexOf('wallet') >= 0 || type.indexOf('message') >= 0 ||
-          type.indexOf('settled') >= 0) {
+      if (
+        type.indexOf('proof') >= 0 ||
+        type.indexOf('batch') >= 0 ||
+        type.indexOf('wallet') >= 0 ||
+        type.indexOf('message') >= 0 ||
+        type.indexOf('settled') >= 0
+      ) {
         triggerRefresh();
       }
     });
@@ -882,8 +1119,14 @@
         setConn('connected');
         // Update footer on every poll regardless of tab
         $('footer-height').textContent = status.blockHeight !== undefined ? status.blockHeight : '--';
-        try { var pi = await RPC.getPeerInfo(); $('footer-peers').textContent = (pi.connectedPeers || pi.peers || []).length || 0; } catch {}
-      } catch { setConn('disconnected'); return; }
+        try {
+          var pi = await RPC.getPeerInfo();
+          $('footer-peers').textContent = (pi.connectedPeers || pi.peers || []).length || 0;
+        } catch {}
+      } catch {
+        setConn('disconnected');
+        return;
+      }
       // Reload current tab data
       triggerRefresh();
     }, 3000);

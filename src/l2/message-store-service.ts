@@ -152,11 +152,13 @@ export class MessageStoreService {
    * Get a message with its Merkle inclusion proof.
    * Returns the entry, witness JSON, and current root for off-chain verification.
    */
-  getMessageWithProof(leafIndex: bigint): {
-    entry: MessageStoreEntry;
-    witnessJson: string;
-    root: string;
-  } | undefined {
+  getMessageWithProof(leafIndex: bigint):
+    | {
+        entry: MessageStoreEntry;
+        witnessJson: string;
+        root: string;
+      }
+    | undefined {
     const entry = this.entries.get(leafIndex);
     if (!entry) return undefined;
 
@@ -220,8 +222,6 @@ export class MessageStoreService {
 
   private getEntriesByIndex(index: Map<string, bigint[]>, key: string): MessageStoreEntry[] {
     const indices = index.get(key) ?? [];
-    return indices
-      .map((i) => this.entries.get(i))
-      .filter((e): e is MessageStoreEntry => e !== undefined);
+    return indices.map((i) => this.entries.get(i)).filter((e): e is MessageStoreEntry => e !== undefined);
   }
 }

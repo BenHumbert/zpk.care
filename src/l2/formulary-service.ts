@@ -201,14 +201,17 @@ export interface FormularyServiceState {
   formularyRoot: string;
   /** Number of drugs in the tree */
   drugCount: number;
-  overlays: Record<string, {
-    planIdHash: string;
-    planName: string;
-    overrides: Record<string, DrugOverride>;
-    defaults: PlanDefaults;
-    publishedAt: number;
-    version: number;
-  }>;
+  overlays: Record<
+    string,
+    {
+      planIdHash: string;
+      planName: string;
+      overrides: Record<string, DrugOverride>;
+      defaults: PlanDefaults;
+      publishedAt: number;
+      version: number;
+    }
+  >;
 }
 
 // ─── Service ──────────────────────────────────────────────────
@@ -286,8 +289,7 @@ export function formularyInputDigest(records: readonly LeafDefiningRecord[]): st
   const h = createHash('sha256');
   h.update('zkpcare-formulary-v1~');
   for (const r of records) {
-    h.update(`${r.ndc}|${r.classification}|${r.tierLevel}|${r.copayAmount}|` +
-             `${r.requiresPriorAuth ? 1 : 0}|${r.maxDaySupply}~`);
+    h.update(`${r.ndc}|${r.classification}|${r.tierLevel}|${r.copayAmount}|` + `${r.requiresPriorAuth ? 1 : 0}|${r.maxDaySupply}~`);
   }
   return h.digest('hex');
 }
@@ -321,14 +323,22 @@ export class FormularyService {
   /** A root a checkpoint recorded, checked once the tree exists. See checkRootAgainstCheckpoint. */
   private expectedRootFromCheckpoint: string | null = null;
 
-  get drugCount(): number { return this.allDrugs.length; }
-  get overlayCount(): number { return this.overlays.size; }
+  get drugCount(): number {
+    return this.allDrugs.length;
+  }
+  get overlayCount(): number {
+    return this.overlays.size;
+  }
 
   /** Current Merkle root — single Field committing to all 32K drugs */
-  getRoot(): Field { return this.tree.getRoot(); }
+  getRoot(): Field {
+    return this.tree.getRoot();
+  }
 
   /** Root as string (for JSON serialization) */
-  getRootString(): string { return this.tree.getRoot().toString(); }
+  getRootString(): string {
+    return this.tree.getRoot().toString();
+  }
 
   /** Merkle witness for a specific drug (16 hashes proving inclusion) */
   getWitness(ndcHash: string): FormularyWitness | null {
@@ -357,21 +367,24 @@ export class FormularyService {
    * Load the canonical formulary from raw NADAC records.
    * Called once at sequencer startup.
    */
-  loadFromNadac(records: Array<{
-    ndc: string;
-    ndcFormatted: string;
-    description: string;
-    classification: string;
-    nadacPerUnit: number;
-    pricingUnit: string;
-    otc: boolean;
-    tierLevel: number;
-    copayAmount: number;
-    requiresPriorAuth: boolean;
-    maxQuantityPerFill: number;
-    maxDaySupply: number;
-    stepTherapyRequired: boolean;
-  }>, cache?: FormularyTreeCache | null): void {
+  loadFromNadac(
+    records: Array<{
+      ndc: string;
+      ndcFormatted: string;
+      description: string;
+      classification: string;
+      nadacPerUnit: number;
+      pricingUnit: string;
+      otc: boolean;
+      tierLevel: number;
+      copayAmount: number;
+      requiresPriorAuth: boolean;
+      maxQuantityPerFill: number;
+      maxDaySupply: number;
+      stepTherapyRequired: boolean;
+    }>,
+    cache?: FormularyTreeCache | null,
+  ): void {
     this.drugsByNdcHash.clear();
     this.allDrugs = [];
     this.byClassification.clear();
@@ -444,14 +457,9 @@ export class FormularyService {
       // Collect the leaf hash; the tree is built in one pass after the loop, not per drug.
       // Skipped entirely on a cache hit — this is the single most expensive step on the full set.
       if (!this.usedCache) {
-        leafHashes.push(computeFormularyLeafHash(
-          ndcHash,
-          r.classification,
-          r.tierLevel,
-          r.copayAmount,
-          r.requiresPriorAuth,
-          r.maxDaySupply,
-        ));
+        leafHashes.push(
+          computeFormularyLeafHash(ndcHash, r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply),
+        );
       }
       this.leafIndexByNdcHash.set(ndcHash, this.nextLeafIndex);
       this.nextLeafIndex++;
@@ -463,10 +471,7 @@ export class FormularyService {
       // not throw anywhere — it would commit the sequencer to a formulary no witness matches.
       this.restoreTreeNodes(cache);
       if (!this.verifyRestoredTree(cache, records)) {
-        console.warn(
-          '  [formulary] the cached tree did not match the data it claims to describe; ' +
-          'discarding it and rebuilding.',
-        );
+        console.warn('  [formulary] the cached tree did not match the data it claims to describe; ' + 'discarding it and rebuilding.');
         this.usedCache = false;
         this.rebuildTreeFromRecords(records);
       }
@@ -485,10 +490,19 @@ export class FormularyService {
    */
   private rebuildTreeFromRecords(records: readonly LeafDefiningRecord[]): void {
     this.tree = new MerkleTree(FORMULARY_TREE_HEIGHT);
-    buildTreeBottomUp(this.tree, records.map((r) => computeFormularyLeafHash(
-      hashString(r.ndc).toString(),
-      r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply,
-    )));
+    buildTreeBottomUp(
+      this.tree,
+      records.map((r) =>
+        computeFormularyLeafHash(
+          hashString(r.ndc).toString(),
+          r.classification,
+          r.tierLevel,
+          r.copayAmount,
+          r.requiresPriorAuth,
+          r.maxDaySupply,
+        ),
+      ),
+    );
   }
 
   /** Shape and digest checks. True when the cache may be restored. */
@@ -518,10 +532,7 @@ export class FormularyService {
   }
 
   /** The two checks that cannot be satisfied by a cache that does not match the data. */
-  private verifyRestoredTree(
-    cache: FormularyTreeCache,
-    records: readonly LeafDefiningRecord[],
-  ): boolean {
+  private verifyRestoredTree(cache: FormularyTreeCache, records: readonly LeafDefiningRecord[]): boolean {
     if (this.tree.getRoot().toString() !== cache.root) return false;
 
     // Re-derive a sample of leaves from the records and check them against what was restored.
@@ -532,7 +543,11 @@ export class FormularyService {
       const r = records[i];
       const expected = computeFormularyLeafHash(
         hashString(r.ndc).toString(),
-        r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply,
+        r.classification,
+        r.tierLevel,
+        r.copayAmount,
+        r.requiresPriorAuth,
+        r.maxDaySupply,
       );
       if (this.tree.getNode(0, BigInt(i)).toString() !== expected.toString()) return false;
     }
@@ -541,14 +556,19 @@ export class FormularyService {
     const last = records[n - 1];
     const expectedLast = computeFormularyLeafHash(
       hashString(last.ndc).toString(),
-      last.classification, last.tierLevel, last.copayAmount, last.requiresPriorAuth,
+      last.classification,
+      last.tierLevel,
+      last.copayAmount,
+      last.requiresPriorAuth,
       last.maxDaySupply,
     );
     return this.tree.getNode(0, BigInt(n - 1)).toString() === expectedLast.toString();
   }
 
   /** True when the last load restored a cached tree instead of building one. */
-  get treeCameFromCache(): boolean { return this.usedCache; }
+  get treeCameFromCache(): boolean {
+    return this.usedCache;
+  }
 
   /**
    * The current tree, in a form that can be written to disk and passed back to `loadFromNadac`.
@@ -643,20 +663,21 @@ export class FormularyService {
 
     // Apply filters
     if (filter.classification && filter.classification !== 'all') {
-      candidates = candidates.filter(d => d.classification === filter.classification);
+      candidates = candidates.filter((d) => d.classification === filter.classification);
     }
     if (filter.tierLevel) {
-      candidates = candidates.filter(d => d.defaultTier === filter.tierLevel);
+      candidates = candidates.filter((d) => d.defaultTier === filter.tierLevel);
     }
     if (filter.route) {
-      candidates = candidates.filter(d => d.route === filter.route);
+      candidates = candidates.filter((d) => d.route === filter.route);
     }
     if (filter.namePrefix) {
       const prefix = filter.namePrefix.toUpperCase();
-      candidates = candidates.filter(d =>
-        d.genericName.toUpperCase().startsWith(prefix) ||
-        d.brandName.toUpperCase().startsWith(prefix) ||
-        d.description.toUpperCase().startsWith(prefix)
+      candidates = candidates.filter(
+        (d) =>
+          d.genericName.toUpperCase().startsWith(prefix) ||
+          d.brandName.toUpperCase().startsWith(prefix) ||
+          d.description.toUpperCase().startsWith(prefix),
       );
     }
 
@@ -665,7 +686,7 @@ export class FormularyService {
 
     // Apply plan-specific filtering
     if (filter.excludeNonCovered && overlay) {
-      candidates = candidates.filter(d => {
+      candidates = candidates.filter((d) => {
         const ovr = overlay.overrides.get(d.ndcHash);
         return !ovr?.excluded;
       });
@@ -674,7 +695,7 @@ export class FormularyService {
     const total = candidates.length;
     const page = candidates.slice(offset, offset + limit);
 
-    const drugs: FormularyDrugWithPlan[] = page.map(d => this.applyOverlay(d, overlay ?? null));
+    const drugs: FormularyDrugWithPlan[] = page.map((d) => this.applyOverlay(d, overlay ?? null));
 
     return {
       drugs,
@@ -734,12 +755,7 @@ export class FormularyService {
   // ─── Plan Overlays ───────────────────────────────────────
 
   /** Publish a plan overlay (lightweight — ~5-10KB, not 10MB) */
-  publishOverlay(
-    planIdHash: string,
-    planName: string,
-    overrides: DrugOverride[],
-    defaults: PlanDefaults,
-  ): PlanOverlay {
+  publishOverlay(planIdHash: string, planName: string, overrides: DrugOverride[], defaults: PlanDefaults): PlanOverlay {
     const existing = this.overlays.get(planIdHash);
     const version = existing ? existing.version + 1 : 1;
 
@@ -859,9 +875,11 @@ export class FormularyService {
     }
     console.warn(
       '[Formulary] the loaded formulary does not match the one this checkpoint was taken ' +
-      'against. Checkpoint root %s, loaded root %s over %d drugs. Witnesses issued before the ' +
-      'restart will not verify against this tree.',
-      expected, actual, this.allDrugs.length,
+        'against. Checkpoint root %s, loaded root %s over %d drugs. Witnesses issued before the ' +
+        'restart will not verify against this tree.',
+      expected,
+      actual,
+      this.allDrugs.length,
     );
     this.expectedRootFromCheckpoint = null;
   }
@@ -904,24 +922,85 @@ export class FormularyService {
 // ─── Description Parser (duplicated from src/data/index.ts to avoid circular deps) ──
 
 const DOSAGE_FORMS = [
-  'TABLET', 'CAPSULE', 'SOLUTION', 'SUSPENSION', 'INJECTION', 'CREAM',
-  'OINTMENT', 'GEL', 'PATCH', 'INHALER', 'SPRAY', 'DROPS', 'SUPPOSITORY',
-  'POWDER', 'LIQUID', 'SYRUP', 'LOTION', 'FOAM', 'AEROSOL', 'ENEMA',
-  'IMPLANT', 'FILM', 'GRANULES', 'PELLETS', 'RING', 'INSERT', 'KIT',
-  'SWAB', 'SHAMPOO', 'EMULSION', 'PASTE', 'STRIP', 'WAFER', 'LOZENGE',
-  'ELIXIR', 'TINCTURE', 'OIL', 'VIAL', 'PEN', 'SYRINGE', 'CARTRIDGE',
-  'AMPULE', 'PACKET', 'SACHET', 'POUCH', 'CHEWABLE', 'DELAYED-RELEASE',
-  'EXTENDED-RELEASE', 'ER', 'DR', 'CR', 'SR', 'XR', 'XL', 'LA', 'HFA',
-  'MDI', 'DPI', 'OPHTHALMIC', 'OTIC', 'NASAL', 'RECTAL', 'VAGINAL',
-  'TOPICAL', 'ORAL', 'SUBLINGUAL', 'BUCCAL', 'TRANSDERMAL',
+  'TABLET',
+  'CAPSULE',
+  'SOLUTION',
+  'SUSPENSION',
+  'INJECTION',
+  'CREAM',
+  'OINTMENT',
+  'GEL',
+  'PATCH',
+  'INHALER',
+  'SPRAY',
+  'DROPS',
+  'SUPPOSITORY',
+  'POWDER',
+  'LIQUID',
+  'SYRUP',
+  'LOTION',
+  'FOAM',
+  'AEROSOL',
+  'ENEMA',
+  'IMPLANT',
+  'FILM',
+  'GRANULES',
+  'PELLETS',
+  'RING',
+  'INSERT',
+  'KIT',
+  'SWAB',
+  'SHAMPOO',
+  'EMULSION',
+  'PASTE',
+  'STRIP',
+  'WAFER',
+  'LOZENGE',
+  'ELIXIR',
+  'TINCTURE',
+  'OIL',
+  'VIAL',
+  'PEN',
+  'SYRINGE',
+  'CARTRIDGE',
+  'AMPULE',
+  'PACKET',
+  'SACHET',
+  'POUCH',
+  'CHEWABLE',
+  'DELAYED-RELEASE',
+  'EXTENDED-RELEASE',
+  'ER',
+  'DR',
+  'CR',
+  'SR',
+  'XR',
+  'XL',
+  'LA',
+  'HFA',
+  'MDI',
+  'DPI',
+  'OPHTHALMIC',
+  'OTIC',
+  'NASAL',
+  'RECTAL',
+  'VAGINAL',
+  'TOPICAL',
+  'ORAL',
+  'SUBLINGUAL',
+  'BUCCAL',
+  'TRANSDERMAL',
 ];
 
 function parseDescription(desc: string): { genericName: string; strength: string; dosageForm: string } {
   const parts = desc.split(/\s+/);
   let strengthIdx = -1;
   for (let i = 0; i < parts.length; i++) {
-    if (/^\d/.test(parts[i]) && i + 1 < parts.length &&
-        /^(MG|MCG|ML|MG\/ML|MCG\/ML|%|UNIT|GM|GR|MEQ|IU|MG\/HR|MCG\/HR|MG\/ACTUATION|MCG\/ACTUATION)$/i.test(parts[i + 1])) {
+    if (
+      /^\d/.test(parts[i]) &&
+      i + 1 < parts.length &&
+      /^(MG|MCG|ML|MG\/ML|MCG\/ML|%|UNIT|GM|GR|MEQ|IU|MG\/HR|MCG\/HR|MG\/ACTUATION|MCG\/ACTUATION)$/i.test(parts[i + 1])
+    ) {
       strengthIdx = i;
       break;
     }
@@ -935,7 +1014,7 @@ function parseDescription(desc: string): { genericName: string; strength: string
     const genericName = parts.slice(0, strengthIdx).join(' ');
     let dosageIdx = parts.length;
     for (let i = strengthIdx; i < parts.length; i++) {
-      if (DOSAGE_FORMS.some(f => parts[i].toUpperCase().includes(f))) {
+      if (DOSAGE_FORMS.some((f) => parts[i].toUpperCase().includes(f))) {
         dosageIdx = i;
         break;
       }
@@ -955,13 +1034,29 @@ function guessRoute(dosageForm: string): string {
   if (df.includes('NASAL')) return 'Nasal';
   if (df.includes('RECTAL') || df.includes('SUPPOSITORY') || df.includes('ENEMA')) return 'Rectal';
   if (df.includes('VAGINAL') || df.includes('INSERT') || df.includes('RING')) return 'Vaginal';
-  if (df.includes('TOPICAL') || df.includes('CREAM') || df.includes('OINTMENT') ||
-      df.includes('GEL') || df.includes('LOTION') || df.includes('FOAM') ||
-      df.includes('SHAMPOO') || df.includes('PATCH') || df.includes('TRANSDERMAL')) return 'Topical';
-  if (df.includes('INJECTION') || df.includes('SYRINGE') || df.includes('VIAL') ||
-      df.includes('AMPULE') || df.includes('CARTRIDGE')) return 'Injectable';
-  if (df.includes('INHALER') || df.includes('HFA') || df.includes('MDI') ||
-      df.includes('DPI') || df.includes('AEROSOL') || df.includes('INHALATION')) return 'Inhalation';
+  if (
+    df.includes('TOPICAL') ||
+    df.includes('CREAM') ||
+    df.includes('OINTMENT') ||
+    df.includes('GEL') ||
+    df.includes('LOTION') ||
+    df.includes('FOAM') ||
+    df.includes('SHAMPOO') ||
+    df.includes('PATCH') ||
+    df.includes('TRANSDERMAL')
+  )
+    return 'Topical';
+  if (df.includes('INJECTION') || df.includes('SYRINGE') || df.includes('VIAL') || df.includes('AMPULE') || df.includes('CARTRIDGE'))
+    return 'Injectable';
+  if (
+    df.includes('INHALER') ||
+    df.includes('HFA') ||
+    df.includes('MDI') ||
+    df.includes('DPI') ||
+    df.includes('AEROSOL') ||
+    df.includes('INHALATION')
+  )
+    return 'Inhalation';
   if (df.includes('SUBLINGUAL')) return 'Sublingual';
   if (df.includes('BUCCAL')) return 'Buccal';
   return 'Oral';

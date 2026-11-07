@@ -63,11 +63,13 @@ import type { L2SequencerState } from '../src/l2/l2-checkpoint.js';
 import { BatchProgram } from '../src/l2/batch-program.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import {
-  WalletRegistry, WalletState, WalletRegistryWitness, WALLET_TREE_HEIGHT, CREDENTIAL_INVENTORY_HEIGHT,
+  WalletRegistry,
+  WalletState,
+  WalletRegistryWitness,
+  WALLET_TREE_HEIGHT,
+  CREDENTIAL_INVENTORY_HEIGHT,
 } from '../src/wallets/wallet-state.js';
-import {
-  lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED,
-} from '../src/engine/lifecycle.js';
+import { lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED } from '../src/engine/lifecycle.js';
 import { TransitionOutput } from '../src/engine/state-transition.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
@@ -76,12 +78,16 @@ import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js'
 class Reference {
   reg = new WalletRegistry();
   lc = new MerkleTree(WALLET_TREE_HEIGHT);
-  roots() { return { reg: this.reg.getRoot(), lc: this.lc.getRoot() }; }
+  roots() {
+    return { reg: this.reg.getRoot(), lc: this.lc.getRoot() };
+  }
   provision(wid: Field, state: Field) {
     if (!this.reg.isRegistered(wid)) this.reg.register(wid);
     this.lc.setLeaf(this.reg.getIndex(wid), lifecycleLeafCommitment(wid, state));
   }
-  register(wid: Field) { this.provision(wid, LIFECYCLE_REGISTERED); }
+  register(wid: Field) {
+    this.provision(wid, LIFECYCLE_REGISTERED);
+  }
   update(wid: Field, newCred: Field) {
     const s = this.reg.getState(wid);
     this.reg.updateState(wid, new WalletState({ walletId: wid, credentialInventoryRoot: newCred, nonce: s.nonce.add(1) }));
@@ -92,13 +98,19 @@ class Reference {
 function mockProof(walletId: Field, before: { reg: Field; lc: Field }, after: { reg: Field; lc: Field }) {
   const publicOutput = new TransitionOutput({
     walletId,
-    oldRegistryRoot: before.reg, newRegistryRoot: after.reg,
-    oldLifecycleRoot: before.lc, newLifecycleRoot: after.lc,
+    oldRegistryRoot: before.reg,
+    newRegistryRoot: after.reg,
+    oldLifecycleRoot: before.lc,
+    newLifecycleRoot: after.lc,
   });
   return {
     publicOutput,
-    verify() { /* no-op, as in o1js outside a circuit */ },
-    toJSON() { return { publicOutput: TransitionOutput.toJSON(publicOutput) }; },
+    verify() {
+      /* no-op, as in o1js outside a circuit */
+    },
+    toJSON() {
+      return { publicOutput: TransitionOutput.toJSON(publicOutput) };
+    },
   } as any;
 }
 
@@ -131,9 +143,12 @@ type BatchPath = 'the proving pool' | 'buildBatch';
 function standInBatchProof(first: { publicOutput: TransitionOutput }, last: { publicOutput: TransitionOutput }, transitions: number) {
   return {
     publicOutput: {
-      oldRegistryRoot: first.publicOutput.oldRegistryRoot, newRegistryRoot: last.publicOutput.newRegistryRoot,
-      oldLifecycleRoot: first.publicOutput.oldLifecycleRoot, newLifecycleRoot: last.publicOutput.newLifecycleRoot,
-      registrationCount: Field(0), transitionCount: Field(transitions),
+      oldRegistryRoot: first.publicOutput.oldRegistryRoot,
+      newRegistryRoot: last.publicOutput.newRegistryRoot,
+      oldLifecycleRoot: first.publicOutput.oldLifecycleRoot,
+      newLifecycleRoot: last.publicOutput.newLifecycleRoot,
+      registrationCount: Field(0),
+      transitionCount: Field(transitions),
     },
     toJSON: () => ({ proof: 'stand-in' }),
   };
@@ -193,11 +208,13 @@ async function networkWithMember(path: BatchPath) {
   seq.adminMutate('provision seed providers', ({ provision }) => providers.forEach((p) => provision(p, LIFECYCLE_ELIGIBLE)));
   providers.forEach((p) => ref.provision(p, LIFECYCLE_ELIGIBLE));
   const member = wallet(100);
-  let before = ref.roots(); ref.register(member);
+  let before = ref.roots();
+  ref.register(member);
   await seq.submitProof(mockProof(member, before, ref.roots()));
   seq.adminMutate('register member: ELIGIBLE', ({ setLifecycle }) => setLifecycle(member, LIFECYCLE_ELIGIBLE));
   ref.provision(member, LIFECYCLE_ELIGIBLE);
-  before = ref.roots(); ref.update(member, credRoot(1));
+  before = ref.roots();
+  ref.update(member, credRoot(1));
   await seq.submitProof(mockProof(member, before, ref.roots()), { newCredentialInventoryRoot: credRoot(1).toString() } as any);
   await batchEverything(seq, path);
   return { seq, ref, providers, member };
@@ -205,7 +222,8 @@ async function networkWithMember(path: BatchPath) {
 
 /** The member's next wallet update, built by the reference model the way the device builds it from the ledger's state. */
 async function proveUpdate(seq: L2SequencerService, ref: Reference, member: Field, cred: Field) {
-  const before = ref.roots(); ref.update(member, cred);
+  const before = ref.roots();
+  ref.update(member, cred);
   return seq.submitProof(mockProof(member, before, ref.roots()), { newCredentialInventoryRoot: cred.toString() } as any);
 }
 
@@ -239,19 +257,20 @@ describe.each(['the proving pool', 'buildBatch'] as BatchPath[])('a batch finish
     for (const w of [...providers, member]) {
       expect(restored.getStateTrees().registry.getIndex(w)).toBe(seq.getStateTrees().registry.getIndex(w)); // before: the providers had no receipt and were gone ('Wallet not registered'); the member moved to index 0
     }
-    expect(restored.treesMatchRoots()).toBe(true);   // before: false, the rebuilt registry held one empty wallet
-    expect(authoritative(restored)).toBe(true);      // before: false, every tree and root check relaxed
+    expect(restored.treesMatchRoots()).toBe(true); // before: false, the rebuilt registry held one empty wallet
+    expect(authoritative(restored)).toBe(true); // before: false, every tree and root check relaxed
     expectWitnessesMatchRoot(restored, [...providers, member]); // before: threw 'Wallet not registered' for the providers
 
     // The device goes on from the state the ledger reports: its next update lands and the trees still match.
     await proveUpdate(restored, ref, member, credRoot(2));
     expect(restored.getWalletStateForRpc(member.toString()).nonce).toBe('2'); // before: '1', counted from the empty wallet
-    expect(restored.treesMatchRoots()).toBe(true);   // before: false
+    expect(restored.treesMatchRoots()).toBe(true); // before: false
     // A forged update, whose credential root does not give the root its proof claims, is refused.
     const before = ref.roots();
     const forgedAfter = { reg: Poseidon.hash([Field(1)]), lc: before.lc };
-    await expect(restored.submitProof(mockProof(member, before, forgedAfter), { newCredentialInventoryRoot: credRoot(3).toString() } as any))
-      .rejects.toThrow(/does not match the sequencer tree/); // before: accepted, because the checks were relaxed
+    await expect(
+      restored.submitProof(mockProof(member, before, forgedAfter), { newCredentialInventoryRoot: credRoot(3).toString() } as any),
+    ).rejects.toThrow(/does not match the sequencer tree/); // before: accepted, because the checks were relaxed
   });
 
   test('proofs accepted after the last batch are dropped on restore: the wallet comes back at its state when that batch was finished, and the trees stay authoritative', async () => {
@@ -259,13 +278,15 @@ describe.each(['the proving pool', 'buildBatch'] as BatchPath[])('a batch finish
     const atBatch = { root: seq.getCurrentRegistryRoot().toString(), member: seq.getWalletStateForRpc(member.toString()) };
     const refAtBatch = new Reference();
     providers.forEach((p) => refAtBatch.provision(p, LIFECYCLE_ELIGIBLE));
-    refAtBatch.provision(member, LIFECYCLE_ELIGIBLE); refAtBatch.update(member, credRoot(1));
+    refAtBatch.provision(member, LIFECYCLE_ELIGIBLE);
+    refAtBatch.update(member, credRoot(1));
     expect(refAtBatch.roots().reg.toString()).toBe(atBatch.root);
 
     // After the batch, the member's next update and a second member's registration are accepted, not yet batched.
     await proveUpdate(seq, ref, member, credRoot(2));
     const later = wallet(101);
-    const before = ref.roots(); ref.register(later);
+    const before = ref.roots();
+    ref.register(later);
     await seq.submitProof(mockProof(later, before, ref.roots()));
     expect(seq.getPendingCount()).toBe(2);
     expect(seq.getWalletStateForRpc(member.toString()).nonce).toBe('2');
@@ -275,9 +296,9 @@ describe.each(['the proving pool', 'buildBatch'] as BatchPath[])('a batch finish
     expect(restored.getPendingCount()).toBe(0);
     expect(restored.getCurrentRegistryRoot().toString()).toBe(atBatch.root);
     expect(restored.getWalletStateForRpc(member.toString())).toEqual(atBatch.member); // before: the empty inventory root and nonce '0'
-    expect(restored.getStateTrees().registry.isRegistered(later)).toBe(false);       // before: true, rebuilt from its receipt
-    expect(restored.treesMatchRoots()).toBe(true);   // before: false
-    expect(authoritative(restored)).toBe(true);      // before: false
+    expect(restored.getStateTrees().registry.isRegistered(later)).toBe(false); // before: true, rebuilt from its receipt
+    expect(restored.treesMatchRoots()).toBe(true); // before: false
+    expect(authoritative(restored)).toBe(true); // before: false
     expectWitnessesMatchRoot(restored, [...providers, member]); // before: threw 'Wallet not registered' for the providers
 
     // The device proves its next update from the state the ledger reports. Written down again before the next batch,
@@ -287,7 +308,7 @@ describe.each(['the proving pool', 'buildBatch'] as BatchPath[])('a batch finish
     const again = restore(restored.exportState());
     expect(again.getWalletStateForRpc(member.toString())).toEqual(atBatch.member); // before: the empty inventory root and nonce '0'
     expect(again.getCurrentRegistryRoot().toString()).toBe(atBatch.root);
-    expect(authoritative(again)).toBe(true);         // before: false
+    expect(authoritative(again)).toBe(true); // before: false
   });
 });
 
@@ -296,15 +317,21 @@ describe('the recovery point and its edges', () => {
     const { seq, ref, providers, member } = await networkWithMember('the proving pool');
     await proveUpdate(seq, ref, member, credRoot(2));
     // The proving pool proves the batch holding the update to credRoot(2) while the device's next update lands.
-    await buildOneBatch(seq, 'the proving pool', async () => { await proveUpdate(seq, ref, member, credRoot(3)); });
+    await buildOneBatch(seq, 'the proving pool', async () => {
+      await proveUpdate(seq, ref, member, credRoot(3));
+    });
     expect(seq.getPendingCount()).toBe(1);
     expect(seq.getLastSettledRegistryRoot().toString()).toBe(ref.roots().reg.toString());
 
     const restored = restore(seq.exportState());
 
     expect(restored.getCurrentRegistryRoot().toString()).toBe(ref.roots().reg.toString());
-    expect(restored.getWalletStateForRpc(member.toString())).toEqual({ walletId: member.toString(), credentialInventoryRoot: credRoot(3).toString(), nonce: '3' }); // before: the empty inventory root and nonce '0'
-    expect(authoritative(restored)).toBe(true);      // before: false
+    expect(restored.getWalletStateForRpc(member.toString())).toEqual({
+      walletId: member.toString(),
+      credentialInventoryRoot: credRoot(3).toString(),
+      nonce: '3',
+    }); // before: the empty inventory root and nonce '0'
+    expect(authoritative(restored)).toBe(true); // before: false
     expectWitnessesMatchRoot(restored, [...providers, member]); // before: threw 'Wallet not registered' for the providers
   });
 
@@ -312,7 +339,8 @@ describe('the recovery point and its edges', () => {
     const seq = newSequencer(false);
     const ref = new Reference();
     const member = wallet(100);
-    let before = ref.roots(); ref.register(member);
+    let before = ref.roots();
+    ref.register(member);
     await seq.submitProof(mockProof(member, before, ref.roots()));
     await buildOneBatch(seq, 'the proving pool');
     seq.markBatchSettled(seq.getInFlightBatchNumber()!, 'l1-tx-0');
@@ -373,24 +401,36 @@ describe('the recovery point and its edges', () => {
       expect(restored.getStateTrees().registry.getIndex(member)).toBe(0n);
       expect(restored.getStateTrees().registry.getRoot().toString()).toBe(rebuilt.roots().reg.toString());
       expect(restored.getStateTrees().lifecycle.getRoot().toString()).toBe(rebuilt.roots().lc.toString());
-      expect(restored.getWalletStateForRpc(member.toString())).toEqual({ walletId: member.toString(), credentialInventoryRoot: EMPTY_INVENTORY_ROOT, nonce: '0' });
+      expect(restored.getWalletStateForRpc(member.toString())).toEqual({
+        walletId: member.toString(),
+        credentialInventoryRoot: EMPTY_INVENTORY_ROOT,
+        nonce: '0',
+      });
       expect(restored.getCurrentWalletCount().toString()).toBe('1');
       expect(restored.getCurrentRegistryRoot().toString()).toBe(ref.roots().reg.toString());
       expect(restored.treesMatchRoots()).toBe(false);
       expect(authoritative(restored)).toBe(false);
-      expect(warn).toHaveBeenCalledWith('[sequencer] Restored roots do not match the rebuilt witness trees; tree/root checks are relaxed until the next admin rebuild.');
+      expect(warn).toHaveBeenCalledWith(
+        '[sequencer] Restored roots do not match the rebuilt witness trees; tree/root checks are relaxed until the next admin rebuild.',
+      );
     } finally {
       warn.mockRestore();
     }
   });
 });
 
-describe("a replica whose roots move without its trees", () => {
+describe('a replica whose roots move without its trees', () => {
   const EMPTY_ROOT = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
 
   /** A replica node before it connects. It holds a verifier, so only the tree checks decide what it accepts. */
   function replicaNode(): L2Node {
-    const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, role: 'replica', nodeId: 'replica-sync' }, new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0));
+    const node = new L2Node(
+      { batchIntervalMs: 999_999, autoSettle: false, role: 'replica', nodeId: 'replica-sync' },
+      new InMemoryStore(),
+      EMPTY_ROOT,
+      EMPTY_ROOT,
+      Field(0),
+    );
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/checkpoint-wallet-states.test.ts'));
     return node;
   }
@@ -404,7 +444,8 @@ describe("a replica whose roots move without its trees", () => {
 
   /** The member's next wallet update, built by the reference model as the device builds it, not yet submitted. */
   function nextUpdate(ref: Reference, member: Field, cred: Field) {
-    const before = ref.roots(); ref.update(member, cred);
+    const before = ref.roots();
+    ref.update(member, cred);
     return { proof: mockProof(member, before, ref.roots()), metadata: { newCredentialInventoryRoot: cred.toString() } as any };
   }
 
@@ -428,7 +469,10 @@ describe("a replica whose roots move without its trees", () => {
   async function offer(to: { submitProof(proof: any, metadata?: any): Promise<L2Receipt> }, update: { proof: unknown; metadata: unknown }) {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const refusal = await to.submitProof(update.proof, update.metadata).then(() => null, (err: Error) => err.message);
+      const refusal = await to.submitProof(update.proof, update.metadata).then(
+        () => null,
+        (err: Error) => err.message,
+      );
       return { refusal, relaxed: warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('not enforced')) };
     } finally {
       warn.mockRestore();
@@ -447,7 +491,7 @@ describe("a replica whose roots move without its trees", () => {
     );
   }
 
-  test("restored with trees that match its roots, then handed the roots of an insurer change, the replica refuses a proof with the divergence error, names those roots, and changes nothing", async () => {
+  test('restored with trees that match its roots, then handed the roots of an insurer change, the replica refuses a proof with the divergence error, names those roots, and changes nothing', async () => {
     const { seq: leader, ref, member } = await networkWithMember('the proving pool');
     const replica = restore(leader.exportState());
     expect(authoritative(replica)).toBe(true);
@@ -456,7 +500,11 @@ describe("a replica whose roots move without its trees", () => {
     const pharmacy = wallet(3);
     leader.adminMutate('provision pharmacy', ({ provision }) => provision(pharmacy, LIFECYCLE_ELIGIBLE));
     ref.provision(pharmacy, LIFECYCLE_ELIGIBLE);
-    replica.applyReplicatedRoots(leader.getCurrentRegistryRoot().toString(), leader.getCurrentLifecycleRoot().toString(), leader.getCurrentWalletCount().toString());
+    replica.applyReplicatedRoots(
+      leader.getCurrentRegistryRoot().toString(),
+      leader.getCurrentLifecycleRoot().toString(),
+      leader.getCurrentWalletCount().toString(),
+    );
     expect(replica.treesMatchRoots()).toBe(false);
     expect(authoritative(replica)).toBe(false); // its trees are behind the roots, so nothing reads them as current
 
@@ -465,7 +513,9 @@ describe("a replica whose roots move without its trees", () => {
     const untouched = observable(replica, member);
     const { refusal, relaxed } = await offer(replica, update);
     expect(refusal).toMatch(/^Wallet state divergence before applying a proof: /); // before: null, accepted with no tree check
-    expect(refusal).toContain("This replica took the leader's roots after an insurer change, and its trees do not hash to them; it accepts no proof until it takes the leader's state again"); // before: null
+    expect(refusal).toContain(
+      "This replica took the leader's roots after an insurer change, and its trees do not hash to them; it accepts no proof until it takes the leader's state again",
+    ); // before: null
     expect(observable(replica, member)).toEqual(untouched); // before: a receipt, a pending proof, the proof's roots over trees that do not hash to them, the member's next state
     expect(relaxed).toEqual([]); // before: the divergence only warned of, before and after the proof was applied
 
@@ -483,15 +533,26 @@ describe("a replica whose roots move without its trees", () => {
     const config: LeviathanConfig = {
       partitionCount: 2,
       primaryPartition: 1,
-      failoverChain: new Map([[0, ['lev-leader', 'lev-follower']], [1, ['lev-follower', 'lev-leader']]]),
+      failoverChain: new Map([
+        [0, ['lev-leader', 'lev-follower']],
+        [1, ['lev-follower', 'lev-leader']],
+      ]),
       heartbeatIntervalMs: 999_999,
       heartbeatTimeoutMs: 999_999,
     };
-    const lev = new L2Leviathan(config, { batchIntervalMs: 999_999, l2Only: true, nodeId: 'lev-follower' }, new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0));
+    const lev = new L2Leviathan(
+      config,
+      { batchIntervalMs: 999_999, l2Only: true, nodeId: 'lev-follower' },
+      new InMemoryStore(),
+      EMPTY_ROOT,
+      EMPTY_ROOT,
+      Field(0),
+    );
     const partition = lev.getSequencer(0);
     partition.setTransitionVerifier(createAcceptAllVerifierForTests('tests/checkpoint-wallet-states.test.ts'));
     try {
-      const before = ref.roots(); ref.register(member);
+      const before = ref.roots();
+      ref.register(member);
       relay(leader, partition, await leader.submitProof(mockProof(member, before, ref.roots())));
       expect(partition.treesMatchRoots()).toBe(true);
       expect(authoritative(partition)).toBe(true);
@@ -541,7 +602,9 @@ describe("a replica whose roots move without its trees", () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await syncFrom(node, leader.exportState());
-      expect(warn.mock.calls.some((c) => String(c[0]).startsWith('[sequencer] Restored wallet states do not reproduce the restored roots'))).toBe(true);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).startsWith('[sequencer] Restored wallet states do not reproduce the restored roots')),
+      ).toBe(true);
     } finally {
       warn.mockRestore();
     }
@@ -553,7 +616,10 @@ describe("a replica whose roots move without its trees", () => {
     await expect(proveUpdate(replica, ref, member, credRoot(4))).resolves.toMatchObject({ walletId: member.toString() });
     expect(replica.treesMatchRoots()).toBe(true);
     const before = ref.roots();
-    await expect(replica.submitProof(mockProof(member, before, { reg: Poseidon.hash([Field(1)]), lc: before.lc }), { newCredentialInventoryRoot: credRoot(5).toString() } as any))
-      .rejects.toThrow(/does not match the sequencer tree/);
+    await expect(
+      replica.submitProof(mockProof(member, before, { reg: Poseidon.hash([Field(1)]), lc: before.lc }), {
+        newCredentialInventoryRoot: credRoot(5).toString(),
+      } as any),
+    ).rejects.toThrow(/does not match the sequencer tree/);
   });
 });

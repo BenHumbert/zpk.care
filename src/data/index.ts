@@ -44,10 +44,7 @@ import type { MedicationLocalData, MedicationPricingLocalData } from '../models/
 
 // Locate data JSON files. Works in both CJS (Jest) and ESM (tsx/tsc).
 // Resolve from project root → src/data/ to avoid import.meta.url (breaks Jest CJS).
-const _dataDir = path.resolve(
-  process.env.ZKP_DATA_DIR ||
-  path.join(process.cwd(), 'src', 'data'),
-);
+const _dataDir = path.resolve(process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data'));
 
 // ── Types (re-export compatible interfaces) ─────────────────
 
@@ -203,16 +200,74 @@ interface FormularyJson {
 // ── Parse NADAC description into medication fields ──────────
 
 const DOSAGE_FORMS = [
-  'TABLET', 'CAPSULE', 'SOLUTION', 'SUSPENSION', 'INJECTION', 'CREAM',
-  'OINTMENT', 'GEL', 'PATCH', 'INHALER', 'SPRAY', 'DROPS', 'SUPPOSITORY',
-  'POWDER', 'LIQUID', 'SYRUP', 'LOTION', 'FOAM', 'AEROSOL', 'ENEMA',
-  'IMPLANT', 'FILM', 'GRANULES', 'PELLETS', 'RING', 'INSERT', 'KIT',
-  'SWAB', 'SHAMPOO', 'EMULSION', 'PASTE', 'STRIP', 'WAFER', 'LOZENGE',
-  'ELIXIR', 'TINCTURE', 'OIL', 'VIAL', 'PEN', 'SYRINGE', 'CARTRIDGE',
-  'AMPULE', 'PACKET', 'SACHET', 'POUCH', 'CHEWABLE', 'DELAYED-RELEASE',
-  'EXTENDED-RELEASE', 'ER', 'DR', 'CR', 'SR', 'XR', 'XL', 'LA', 'HFA',
-  'MDI', 'DPI', 'OPHTHALMIC', 'OTIC', 'NASAL', 'RECTAL', 'VAGINAL',
-  'TOPICAL', 'ORAL', 'SUBLINGUAL', 'BUCCAL', 'TRANSDERMAL',
+  'TABLET',
+  'CAPSULE',
+  'SOLUTION',
+  'SUSPENSION',
+  'INJECTION',
+  'CREAM',
+  'OINTMENT',
+  'GEL',
+  'PATCH',
+  'INHALER',
+  'SPRAY',
+  'DROPS',
+  'SUPPOSITORY',
+  'POWDER',
+  'LIQUID',
+  'SYRUP',
+  'LOTION',
+  'FOAM',
+  'AEROSOL',
+  'ENEMA',
+  'IMPLANT',
+  'FILM',
+  'GRANULES',
+  'PELLETS',
+  'RING',
+  'INSERT',
+  'KIT',
+  'SWAB',
+  'SHAMPOO',
+  'EMULSION',
+  'PASTE',
+  'STRIP',
+  'WAFER',
+  'LOZENGE',
+  'ELIXIR',
+  'TINCTURE',
+  'OIL',
+  'VIAL',
+  'PEN',
+  'SYRINGE',
+  'CARTRIDGE',
+  'AMPULE',
+  'PACKET',
+  'SACHET',
+  'POUCH',
+  'CHEWABLE',
+  'DELAYED-RELEASE',
+  'EXTENDED-RELEASE',
+  'ER',
+  'DR',
+  'CR',
+  'SR',
+  'XR',
+  'XL',
+  'LA',
+  'HFA',
+  'MDI',
+  'DPI',
+  'OPHTHALMIC',
+  'OTIC',
+  'NASAL',
+  'RECTAL',
+  'VAGINAL',
+  'TOPICAL',
+  'ORAL',
+  'SUBLINGUAL',
+  'BUCCAL',
+  'TRANSDERMAL',
 ];
 
 function parseDescription(desc: string): { genericName: string; strength: string; dosageForm: string } {
@@ -222,8 +277,11 @@ function parseDescription(desc: string): { genericName: string; strength: string
   // Find strength pattern (number + unit)
   let strengthIdx = -1;
   for (let i = 0; i < parts.length; i++) {
-    if (/^\d/.test(parts[i]) && i + 1 < parts.length &&
-        /^(MG|MCG|ML|MG\/ML|MCG\/ML|%|UNIT|GM|GR|MEQ|IU|MG\/HR|MCG\/HR|MG\/ACTUATION|MCG\/ACTUATION)$/i.test(parts[i + 1])) {
+    if (
+      /^\d/.test(parts[i]) &&
+      i + 1 < parts.length &&
+      /^(MG|MCG|ML|MG\/ML|MCG\/ML|%|UNIT|GM|GR|MEQ|IU|MG\/HR|MCG\/HR|MG\/ACTUATION|MCG\/ACTUATION)$/i.test(parts[i + 1])
+    ) {
       strengthIdx = i;
       break;
     }
@@ -243,7 +301,7 @@ function parseDescription(desc: string): { genericName: string; strength: string
     // Find where dosage form starts
     let dosageIdx = parts.length;
     for (let i = strengthIdx; i < parts.length; i++) {
-      if (DOSAGE_FORMS.some(f => parts[i].toUpperCase().includes(f))) {
+      if (DOSAGE_FORMS.some((f) => parts[i].toUpperCase().includes(f))) {
         dosageIdx = i;
         break;
       }
@@ -266,13 +324,29 @@ function guessRoute(dosageForm: string): string {
   if (df.includes('NASAL')) return 'Nasal';
   if (df.includes('RECTAL') || df.includes('SUPPOSITORY') || df.includes('ENEMA')) return 'Rectal';
   if (df.includes('VAGINAL') || df.includes('INSERT') || df.includes('RING')) return 'Vaginal';
-  if (df.includes('TOPICAL') || df.includes('CREAM') || df.includes('OINTMENT') ||
-      df.includes('GEL') || df.includes('LOTION') || df.includes('FOAM') ||
-      df.includes('SHAMPOO') || df.includes('PATCH') || df.includes('TRANSDERMAL')) return 'Topical';
-  if (df.includes('INJECTION') || df.includes('SYRINGE') || df.includes('VIAL') ||
-      df.includes('AMPULE') || df.includes('CARTRIDGE')) return 'Injectable';
-  if (df.includes('INHALER') || df.includes('HFA') || df.includes('MDI') ||
-      df.includes('DPI') || df.includes('AEROSOL') || df.includes('INHALATION')) return 'Inhalation';
+  if (
+    df.includes('TOPICAL') ||
+    df.includes('CREAM') ||
+    df.includes('OINTMENT') ||
+    df.includes('GEL') ||
+    df.includes('LOTION') ||
+    df.includes('FOAM') ||
+    df.includes('SHAMPOO') ||
+    df.includes('PATCH') ||
+    df.includes('TRANSDERMAL')
+  )
+    return 'Topical';
+  if (df.includes('INJECTION') || df.includes('SYRINGE') || df.includes('VIAL') || df.includes('AMPULE') || df.includes('CARTRIDGE'))
+    return 'Injectable';
+  if (
+    df.includes('INHALER') ||
+    df.includes('HFA') ||
+    df.includes('MDI') ||
+    df.includes('DPI') ||
+    df.includes('AEROSOL') ||
+    df.includes('INHALATION')
+  )
+    return 'Inhalation';
   if (df.includes('SUBLINGUAL')) return 'Sublingual';
   if (df.includes('BUCCAL')) return 'Buccal';
   return 'Oral';
@@ -286,9 +360,10 @@ const pharmaciesRaw = loadJson<PharmacyJson[]>('pharmacies.json');
 // When ZKTRIDENT_FORMULARY_LIMIT is set, load the pre-built 100-drug subset
 // instead of parsing the full 32K NADAC JSON (saves ~2s startup).
 const _formularyLimit = parseInt(process.env.ZKTRIDENT_FORMULARY_LIMIT || '0', 10);
-const formularyRaw = _formularyLimit > 0 && _formularyLimit <= 100
-  ? loadJson<FormularyJson[]>('formulary-100.json')
-  : loadJson<FormularyJson[]>('formulary.json');
+const formularyRaw =
+  _formularyLimit > 0 && _formularyLimit <= 100
+    ? loadJson<FormularyJson[]>('formulary-100.json')
+    : loadJson<FormularyJson[]>('formulary.json');
 
 // ── Prescribers ─────────────────────────────────────────────
 
@@ -305,9 +380,7 @@ export const PRESCRIBERS: SeedPrescriber[] = prescribersRaw.map((p) => ({
   deaNumber: p.deaNumber,
 }));
 
-export const PRESCRIBER_BY_NPI = new Map<string, SeedPrescriber>(
-  PRESCRIBERS.map((p) => [p.localData.prescriberId, p]),
-);
+export const PRESCRIBER_BY_NPI = new Map<string, SeedPrescriber>(PRESCRIBERS.map((p) => [p.localData.prescriberId, p]));
 
 /** Credentials that carry the title "Dr." on screen: physicians. Nurse practitioners and physician assistants do not. */
 const PHYSICIAN_CREDENTIALS = new Set(['MD', 'DO']);
@@ -336,9 +409,7 @@ export const PHARMACIES: SeedPharmacy[] = pharmaciesRaw.map((p) => ({
   deaNumber: '', // fixtures carry no DEA number: a well-formed one cannot be shown to be unassigned
 }));
 
-export const PHARMACY_BY_NPI = new Map<string, SeedPharmacy>(
-  PHARMACIES.map((p) => [p.localData.serviceProviderId, p]),
-);
+export const PHARMACY_BY_NPI = new Map<string, SeedPharmacy>(PHARMACIES.map((p) => [p.localData.serviceProviderId, p]));
 
 export const PHARMACY_BY_NCPDP = new Map<string, SeedPharmacy>(
   PHARMACIES.filter((p) => p.ncpdpProviderId).map((p) => [p.ncpdpProviderId, p]),
@@ -392,22 +463,16 @@ export const TIER2_PREFERRED = MEDICATIONS.filter((m) => m.formularyEntry.tierLe
 export const TIER3_NON_PREFERRED = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 3);
 export const TIER4_SPECIALTY = MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === 4);
 
-export const MEDICATION_BY_NDC = new Map<string, SeedMedication>(
-  MEDICATIONS.map((m) => [m.ndc, m]),
-);
+export const MEDICATION_BY_NDC = new Map<string, SeedMedication>(MEDICATIONS.map((m) => [m.ndc, m]));
 
-export const MEDICATION_BY_GPI = new Map<string, SeedMedication>(
-  MEDICATIONS.filter((m) => m.gpi).map((m) => [m.gpi, m]),
-);
+export const MEDICATION_BY_GPI = new Map<string, SeedMedication>(MEDICATIONS.filter((m) => m.gpi).map((m) => [m.gpi, m]));
 
 export function getAllFormularyEntries(): FormularyEntryLocalData[] {
   return MEDICATIONS.map((m) => m.formularyEntry);
 }
 
 export function getFormularyEntriesByTier(tier: number): FormularyEntryLocalData[] {
-  return MEDICATIONS
-    .filter((m) => m.formularyEntry.tierLevel === tier)
-    .map((m) => m.formularyEntry);
+  return MEDICATIONS.filter((m) => m.formularyEntry.tierLevel === tier).map((m) => m.formularyEntry);
 }
 
 export function buildMedicationLocalData(
@@ -611,9 +676,7 @@ export const MEMBERS: SeedMember[] = [
   },
 ];
 
-export const MEMBER_BY_CARDHOLDER_ID = new Map<string, SeedMember>(
-  MEMBERS.map((m) => [m.localData.cardholderId, m]),
-);
+export const MEMBER_BY_CARDHOLDER_ID = new Map<string, SeedMember>(MEMBERS.map((m) => [m.localData.cardholderId, m]));
 
 export function getMembersByEmployee(employeeId: string): SeedMember[] {
   return MEMBERS.filter((m) => m.employeeId === employeeId);
@@ -647,5 +710,7 @@ export const getGlobexMembers = getBaysideMembers;
  * a function of the fixture itself. F1 isolates the fixtures from the production entry point.
  */
 export function fixtureIdentitySalt(seed: { localData: { cardholderId: string } }): string {
-  return createHash('sha256').update('zpk.care/fixture-identity-salt/v1\n' + seed.localData.cardholderId, 'utf8').digest('hex');
+  return createHash('sha256')
+    .update('zpk.care/fixture-identity-salt/v1\n' + seed.localData.cardholderId, 'utf8')
+    .digest('hex');
 }

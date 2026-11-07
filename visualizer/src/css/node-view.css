@@ -102,8 +102,13 @@
 }
 
 @keyframes batch-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .nv-batch-hash {
@@ -154,9 +159,15 @@
 }
 
 /* Section-specific header accents */
-.nv-grid-header-member { border-bottom-color: rgba(79, 195, 247, 0.3); }
-.nv-grid-header-prescriber { border-bottom-color: rgba(102, 187, 106, 0.3); }
-.nv-grid-header-pharmacy { border-bottom-color: rgba(255, 167, 38, 0.3); }
+.nv-grid-header-member {
+  border-bottom-color: rgba(79, 195, 247, 0.3);
+}
+.nv-grid-header-prescriber {
+  border-bottom-color: rgba(102, 187, 106, 0.3);
+}
+.nv-grid-header-pharmacy {
+  border-bottom-color: rgba(255, 167, 38, 0.3);
+}
 
 /* ─── Member Grid ─────────────────────────────────── */
 .nv-member-grid {
@@ -179,9 +190,15 @@
 }
 
 /* Card type accents */
-.nv-card-member { border-top: 2px solid #4fc3f7; }
-.nv-card-prescriber { border-top: 2px solid #66bb6a; }
-.nv-card-pharmacy { border-top: 2px solid #ffa726; }
+.nv-card-member {
+  border-top: 2px solid #4fc3f7;
+}
+.nv-card-prescriber {
+  border-top: 2px solid #66bb6a;
+}
+.nv-card-pharmacy {
+  border-top: 2px solid #ffa726;
+}
 
 .nv-card-header {
   display: flex;
@@ -217,7 +234,10 @@
   padding: 0 14px;
   background: rgba(13, 27, 42, 0.8);
   border-bottom: 1px solid transparent;
-  transition: max-height 0.6s ease-out, opacity 0.6s ease-out, padding 0.6s ease-out;
+  transition:
+    max-height 0.6s ease-out,
+    opacity 0.6s ease-out,
+    padding 0.6s ease-out;
   font-family: 'Courier New', monospace;
   font-size: 0.7rem;
 }
@@ -240,8 +260,13 @@
 }
 
 @keyframes derive-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .nv-derive-tag {
@@ -303,11 +328,21 @@
 }
 
 /* Section-specific left border accents */
-.nv-section-enrollment { border-left: 3px solid #1565c0; }
-.nv-section-eligibility { border-left: 3px solid #2e7d32; }
-.nv-section-prescription { border-left: 3px solid #e65100; }
-.nv-section-fulfillment { border-left: 3px solid #ad1457; }
-.nv-section-messaging { border-left: 3px solid #6a1b9a; }
+.nv-section-enrollment {
+  border-left: 3px solid #1565c0;
+}
+.nv-section-eligibility {
+  border-left: 3px solid #2e7d32;
+}
+.nv-section-prescription {
+  border-left: 3px solid #e65100;
+}
+.nv-section-fulfillment {
+  border-left: 3px solid #ad1457;
+}
+.nv-section-messaging {
+  border-left: 3px solid #6a1b9a;
+}
 
 /* ─── Stage Badges ────────────────────────────────── */
 .nv-stages {
@@ -409,8 +444,14 @@
 }
 
 @keyframes counter-pop {
-  0% { color: #66bb6a; transform: scale(1.3); }
-  100% { color: #b0c0d0; transform: scale(1); }
+  0% {
+    color: #66bb6a;
+    transform: scale(1.3);
+  }
+  100% {
+    color: #b0c0d0;
+    transform: scale(1);
+  }
 }
 
 /* ─── Patients / Serving Section ─────────────────── */

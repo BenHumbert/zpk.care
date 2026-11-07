@@ -94,10 +94,7 @@ export interface ProofShutdownMessage {
   type: 'shutdown';
 }
 
-export type ProofCoordinatorMessage =
-  | ProofCompileMessage
-  | ProofProveMessage
-  | ProofShutdownMessage;
+export type ProofCoordinatorMessage = ProofCompileMessage | ProofProveMessage | ProofShutdownMessage;
 
 // ─── IPC Messages: Worker → Coordinator ──────────────────
 
@@ -119,10 +116,7 @@ export interface ProofErrorMessage {
   message: string;
 }
 
-export type ProofWorkerMessage =
-  | ProofReadyMessage
-  | ProofResultMessage
-  | ProofErrorMessage;
+export type ProofWorkerMessage = ProofReadyMessage | ProofResultMessage | ProofErrorMessage;
 
 // ─── Pool Options ─────────────────────────────────────────
 

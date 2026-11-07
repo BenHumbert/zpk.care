@@ -52,10 +52,11 @@ export function planInsurerKeys(env: NodeJS.ProcessEnv, checkpointDir: string): 
     const key = insurer?.publicKeys.insurerSigningPublicKeyHex;
     if (!insurer || !key) throw new Error(`the ceremony record ${record.ceremonyId} keys no insurer node`);
     const notes = [
-      `key ceremony ${record.ceremonyId} ${anchored === 'new' ? 'pinned as this sequencer\'s trust anchor' : anchored === 'same' ? 'matches the pinned trust anchor' : 'follows the pinned one and is the anchor now'} (record ${recordHash.slice(0, 16)}…, ${record.threshold} of ${record.holders.length} holders)`,
+      `key ceremony ${record.ceremonyId} ${anchored === 'new' ? "pinned as this sequencer's trust anchor" : anchored === 'same' ? 'matches the pinned trust anchor' : 'follows the pinned one and is the anchor now'} (record ${recordHash.slice(0, 16)}…, ${record.threshold} of ${record.holders.length} holders)`,
       `insurer attestation key from the ceremony: ${key.slice(0, 16)}…`,
     ];
-    if (env.ZKTRIDENT_INSURER_SIGNING_SEED) notes.push('ZKTRIDENT_INSURER_SIGNING_SEED is ignored: the insurer\'s key comes from the ceremony');
+    if (env.ZKTRIDENT_INSURER_SIGNING_SEED)
+      notes.push("ZKTRIDENT_INSURER_SIGNING_SEED is ignored: the insurer's key comes from the ceremony");
     return {
       insurerAttestationPublicKeyHex: key,
       insurerChildEnv: { ZKTRIDENT_CEREMONY_RECORD: absolute, ZKTRIDENT_CEREMONY_NODE_ID: insurer.nodeId },
@@ -69,8 +70,10 @@ export function planInsurerKeys(env: NodeJS.ProcessEnv, checkpointDir: string): 
     insurerChildEnv: { ZKTRIDENT_INSURER_SIGNING_SEED: seed },
     ceremony: null,
     notes: [
-      'no key ceremony record (ZKTRIDENT_CEREMONY_RECORD): the insurer signs with '
-        + (env.ZKTRIDENT_INSURER_SIGNING_SEED ? 'ZKTRIDENT_INSURER_SIGNING_SEED' : 'a seed made at random for this boot, which voids the attestations of a previous run'),
+      'no key ceremony record (ZKTRIDENT_CEREMONY_RECORD): the insurer signs with ' +
+        (env.ZKTRIDENT_INSURER_SIGNING_SEED
+          ? 'ZKTRIDENT_INSURER_SIGNING_SEED'
+          : 'a seed made at random for this boot, which voids the attestations of a previous run'),
     ],
   };
 }

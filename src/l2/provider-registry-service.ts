@@ -226,11 +226,13 @@ export class ProviderRegistryService {
   /**
    * Get a provider with its Merkle inclusion proof.
    */
-  getProviderWithProof(walletId: string): {
-    entry: ProviderRegistryEntry;
-    witnessJson: string;
-    root: string;
-  } | undefined {
+  getProviderWithProof(walletId: string):
+    | {
+        entry: ProviderRegistryEntry;
+        witnessJson: string;
+        root: string;
+      }
+    | undefined {
     const idx = this.walletIndex.get(walletId);
     if (idx === undefined) return undefined;
     const entry = this.entries.get(idx);
@@ -364,8 +366,6 @@ export class ProviderRegistryService {
 
   private getEntriesByMultiIndex(index: Map<string, bigint[]>, key: string): ProviderRegistryEntry[] {
     const indices = index.get(key) ?? [];
-    return indices
-      .map((i) => this.entries.get(i))
-      .filter((e): e is ProviderRegistryEntry => e !== undefined);
+    return indices.map((i) => this.entries.get(i)).filter((e): e is ProviderRegistryEntry => e !== undefined);
   }
 }

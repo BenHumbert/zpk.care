@@ -57,7 +57,11 @@ async function main() {
   );
 
   // 3. Create and start RPC Server
-  const server = new L2RpcServer(node, { port: PORT, host: resolveBindHost(process.env, 'visualizer sequencer'), allowedOrigins: resolveAllowedOrigins(process.env, { role: 'visualizer sequencer' }) });
+  const server = new L2RpcServer(node, {
+    port: PORT,
+    host: resolveBindHost(process.env, 'visualizer sequencer'),
+    allowedOrigins: resolveAllowedOrigins(process.env, { role: 'visualizer sequencer' }),
+  });
   await server.start();
 
   console.log(`[Sequencer] RPC Server listening on port ${PORT}`);

@@ -28,8 +28,14 @@
  *   - Token secrets output to encrypted file only — never emailed
  */
 import {
-  createHash, randomBytes, scryptSync, createCipheriv, createDecipheriv,
-  generateKeyPairSync, createPrivateKey, sign as ed25519Sign,
+  createHash,
+  randomBytes,
+  scryptSync,
+  createCipheriv,
+  createDecipheriv,
+  generateKeyPairSync,
+  createPrivateKey,
+  sign as ed25519Sign,
 } from 'crypto';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, openSync, fsyncSync, closeSync } from 'fs';
 import { join } from 'path';
@@ -332,10 +338,10 @@ export function hashTokenPIN(tokenId: string, pin: string): string {
  * Any additional columns are preserved in the `extra` field.
  */
 export function parseCsv(csvContent: string): EmployeeRecord[] {
-  const lines = csvContent.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const lines = csvContent.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length < 2) throw new Error('CSV must have a header row and at least one data row');
 
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/\s+/g, '_'));
 
   const requiredCols = ['employee_id', 'family_id', 'first_name', 'last_name', 'dob'];
   for (const col of requiredCols) {
@@ -415,32 +421,21 @@ function parseCsvLine(line: string): string[] {
 // ─── Correlation Table ──────────────────────────────────────
 
 /** Save correlation table encrypted with passphrase (atomic write) */
-export function saveCorrelationTable(
-  tablePath: string,
-  table: CorrelationTable,
-  passphrase: string,
-): void {
+export function saveCorrelationTable(tablePath: string, table: CorrelationTable, passphrase: string): void {
   const json = JSON.stringify(table, null, 2);
   const encrypted = encryptWithPassphrase(json, passphrase);
   atomicWriteFileSync(tablePath, encrypted);
 }
 
 /** Save correlation table encrypted with a pre-derived key (atomic write) */
-export function saveCorrelationTableWithKey(
-  tablePath: string,
-  table: CorrelationTable,
-  key: Buffer,
-): void {
+export function saveCorrelationTableWithKey(tablePath: string, table: CorrelationTable, key: Buffer): void {
   const json = JSON.stringify(table, null, 2);
   const encrypted = encryptWithKey(json, key);
   atomicWriteFileSync(tablePath, encrypted);
 }
 
 /** Load and decrypt correlation table */
-export function loadCorrelationTable(
-  tablePath: string,
-  passphrase: string,
-): CorrelationTable {
+export function loadCorrelationTable(tablePath: string, passphrase: string): CorrelationTable {
   const data = readFileSync(tablePath);
   const json = decryptWithPassphrase(data, passphrase);
   return JSON.parse(json) as CorrelationTable;
@@ -504,9 +499,9 @@ export function reconcile(
   localEntries: CorrelationEntry[],
   nodeRoster: Array<{ employeeIdHash: string; status: string }>,
 ): ReconciliationResult {
-  const localHashSet = new Set(localEntries.map(e => e.employeeIdHash));
-  const nodeHashMap = new Map(nodeRoster.map(e => [e.employeeIdHash, e.status]));
-  const nodeHashSet = new Set(nodeRoster.map(e => e.employeeIdHash));
+  const localHashSet = new Set(localEntries.map((e) => e.employeeIdHash));
+  const nodeHashMap = new Map(nodeRoster.map((e) => [e.employeeIdHash, e.status]));
+  const nodeHashSet = new Set(nodeRoster.map((e) => e.employeeIdHash));
 
   const missingFromNode: string[] = [];
   const statusMismatches: ReconciliationResult['statusMismatches'] = [];

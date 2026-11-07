@@ -62,8 +62,10 @@ function makeMockProof(opts: {
 
 /** Build a mock ProvingJobResult that matches a set of transitions */
 function makeMockResult(
-  oldRegRoot: string, newRegRoot: string,
-  oldLcRoot: string, newLcRoot: string,
+  oldRegRoot: string,
+  newRegRoot: string,
+  oldLcRoot: string,
+  newLcRoot: string,
   transitionCount: number,
   workerId?: number,
 ): ProvingJobResult {
@@ -189,11 +191,7 @@ describe('L2SequencerService — Split Batch API', () => {
     const { job } = service.prepareBatch();
     expect(job).not.toBeNull();
 
-    const result = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(),
-      1,
-    );
+    const result = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1);
 
     const batch = await service.finalizeBatch(result);
     expect(batch).toBeDefined();
@@ -217,11 +215,7 @@ describe('L2SequencerService — Split Batch API', () => {
     const receipt = await service.submitProof(proof);
     service.prepareBatch();
 
-    const result = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(),
-      1,
-    );
+    const result = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1);
 
     await service.finalizeBatch(result);
 
@@ -249,11 +243,7 @@ describe('L2SequencerService — Split Batch API', () => {
     await service.submitProof(proof);
     service.prepareBatch();
 
-    const result = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(),
-      1,
-    );
+    const result = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1);
     result.chainProofJson = '{"proof":"mock-chain-proof"}';
     result.chainOutput = {
       globalStateRoot: '9999',
@@ -304,15 +294,9 @@ describe('L2SequencerService — Split Batch API', () => {
   });
 
   test('finalizeBatch throws if called without prepareBatch', async () => {
-    const result = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(),
-      1,
-    );
+    const result = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1);
 
-    await expect(service.finalizeBatch(result)).rejects.toThrow(
-      'finalizeBatch: no drained transitions',
-    );
+    await expect(service.finalizeBatch(result)).rejects.toThrow('finalizeBatch: no drained transitions');
   });
 
   test('prepareBatch includes admin state when configured', async () => {
@@ -373,10 +357,9 @@ describe('L2SequencerService — Split Batch API', () => {
     await service.submitProof(proof1);
     const { job: job1 } = service.prepareBatch();
     expect(job1).not.toBeNull();
-    const batch1 = await service.finalizeBatch(makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(), 1,
-    ));
+    const batch1 = await service.finalizeBatch(
+      makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1),
+    );
     expect(batch1.batchNumber).toBeDefined();
 
     // Second cycle
@@ -390,10 +373,9 @@ describe('L2SequencerService — Split Batch API', () => {
     await service.submitProof(proof2);
     const { job: job2 } = service.prepareBatch();
     expect(job2).not.toBeNull();
-    const batch2 = await service.finalizeBatch(makeMockResult(
-      ROOT_1.toString(), ROOT_2.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(), 1,
-    ));
+    const batch2 = await service.finalizeBatch(
+      makeMockResult(ROOT_1.toString(), ROOT_2.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1),
+    );
     expect(batch2.batchNumber).toBeGreaterThan(batch1.batchNumber);
   });
 });
@@ -497,35 +479,30 @@ describe('ProvingPool status and lifecycle', () => {
 
 describe('L2Node — proving pool integration', () => {
   test('setProvingPool / getProvingPool', () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     expect(node.getProvingPool()).toBeNull();
 
     // Create a mock pool
-    const mockPool = { prove: jest.fn(), isRunning: () => true, on: jest.fn(), off: jest.fn(), getStatus: () => ({ workersIdle: 0, workersBusy: 0, queueDepth: 0 }) } as any;
+    const mockPool = {
+      prove: jest.fn(),
+      isRunning: () => true,
+      on: jest.fn(),
+      off: jest.fn(),
+      getStatus: () => ({ workersIdle: 0, workersBusy: 0, queueDepth: 0 }),
+    } as any;
     node.setProvingPool(mockPool);
     expect(node.getProvingPool()).toBe(mockPool);
   });
 
   test('executeBatchCycle uses pool path when pool is set', async () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // Create mock pool that returns a valid result
     const mockPool = {
-      prove: jest.fn().mockResolvedValue(makeMockResult(
-        ROOT_0.toString(), ROOT_1.toString(),
-        LC_ROOT.toString(), LC_ROOT.toString(), 1,
-      )),
+      prove: jest.fn().mockResolvedValue(makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1)),
       isRunning: () => true,
       on: jest.fn(),
       off: jest.fn(),
@@ -555,11 +532,7 @@ describe('L2Node — proving pool integration', () => {
   });
 
   test('executeBatchCycle restores transitions on pool failure', async () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // Create mock pool that rejects
@@ -598,11 +571,7 @@ describe('L2Node — proving pool integration', () => {
   });
 
   test('executeBatchCycle uses legacy path when no pool set', async () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     // No pool set — should use withProvingLock path (which calls buildBatch)
@@ -622,14 +591,7 @@ describe('L2SequencerService — buildBatch backward compatibility', () => {
   let service: L2SequencerService;
 
   beforeEach(() => {
-    service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
   });
 
@@ -667,14 +629,7 @@ describe('L2SequencerService — buildBatch backward compatibility', () => {
 
 describe('ProvingJobRequest edge cases', () => {
   test('job without adminState omits chain proof context', async () => {
-    const service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    const service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
@@ -694,14 +649,7 @@ describe('ProvingJobRequest edge cases', () => {
   });
 
   test('job with 2 chainable transitions drains both', async () => {
-    const service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    const service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof1 = makeMockProof({
@@ -728,14 +676,7 @@ describe('ProvingJobRequest edge cases', () => {
   });
 
   test('root discontinuity limits drain to 1 transition', async () => {
-    const service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    const service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof1 = makeMockProof({
@@ -809,7 +750,9 @@ describe('ProvingPool — event emitter', () => {
     const pool = new ProvingPool(1);
     const events: PoolEvent[] = [];
 
-    pool.on(() => { throw new Error('bad handler'); });
+    pool.on(() => {
+      throw new Error('bad handler');
+    });
     pool.on((e) => events.push(e));
 
     // Should not throw
@@ -839,14 +782,7 @@ describe('ProvingPool — getWorkerStatuses / getPoolSize', () => {
 
 describe('L2SequencerService — workerId in finalizeBatch', () => {
   test('finalizeBatch stamps workerId onto L2Batch', async () => {
-    const service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    const service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
@@ -860,10 +796,7 @@ describe('L2SequencerService — workerId in finalizeBatch', () => {
     await service.submitProof(proof);
     service.prepareBatch();
 
-    const result = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(), 1, 2,
-    );
+    const result = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1, 2);
 
     const batch = await service.finalizeBatch(result);
     expect(batch.workerId).toBe(2);
@@ -871,14 +804,7 @@ describe('L2SequencerService — workerId in finalizeBatch', () => {
   });
 
   test('finalizeBatch omits workerId when not set in result', async () => {
-    const service = new L2SequencerService(
-      new InMemoryStore(),
-      ROOT_0,
-      LC_ROOT,
-      Field(0),
-      30_000,
-      true,
-    );
+    const service = new L2SequencerService(new InMemoryStore(), ROOT_0, LC_ROOT, Field(0), 30_000, true);
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const proof = makeMockProof({
@@ -917,11 +843,7 @@ describe('L2SequencerService — workerId in finalizeBatch', () => {
 
 describe('L2Node — pool event forwarding', () => {
   test('setProvingPool forwards pool events as L2ChainEvents', () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
     const events: any[] = [];
@@ -932,7 +854,9 @@ describe('L2Node — pool event forwarding', () => {
     const mockPool = {
       prove: jest.fn(),
       isRunning: () => true,
-      on: (h: (e: PoolEvent) => void) => { handlers.push(h); },
+      on: (h: (e: PoolEvent) => void) => {
+        handlers.push(h);
+      },
       off: jest.fn(),
       getPoolSize: () => 2,
       getWorkerStatuses: () => [],
@@ -956,17 +880,10 @@ describe('L2Node — pool event forwarding', () => {
   });
 
   test('executeBatchCycle includes workerId in batch:built event', async () => {
-    const node = new L2Node(
-      { batchIntervalMs: 60_000, l2Only: true },
-      new InMemoryStore(),
-      ROOT_0, LC_ROOT, Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 60_000, l2Only: true }, new InMemoryStore(), ROOT_0, LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-proving-pool.test.ts'));
 
-    const mockResult = makeMockResult(
-      ROOT_0.toString(), ROOT_1.toString(),
-      LC_ROOT.toString(), LC_ROOT.toString(), 1, 1,
-    );
+    const mockResult = makeMockResult(ROOT_0.toString(), ROOT_1.toString(), LC_ROOT.toString(), LC_ROOT.toString(), 1, 1);
     const mockPool = {
       prove: jest.fn().mockResolvedValue(mockResult),
       isRunning: () => true,
@@ -1040,9 +957,14 @@ describe('ProvingJobResult — workerId field', () => {
 
   test('PoolEventType union has expected members', () => {
     const types: PoolEventType[] = [
-      'worker:spawned', 'worker:compiling', 'worker:ready',
-      'worker:compile_timeout', 'worker:compile_failed',
-      'worker:dispatched', 'worker:completed', 'worker:crashed',
+      'worker:spawned',
+      'worker:compiling',
+      'worker:ready',
+      'worker:compile_timeout',
+      'worker:compile_failed',
+      'worker:dispatched',
+      'worker:completed',
+      'worker:crashed',
     ];
     expect(types.length).toBe(8);
     for (const t of types) {

@@ -49,7 +49,13 @@ import { forestLeavesOf, credentialFieldsOf, rederiveInventoryRoot, type WalletU
 import { WalletRegistry, WalletRegistryWitness } from '../wallets/wallet-state.js';
 
 // Engine
-import { lifecycleLeafCommitment, LifecycleWitness, LIFECYCLE_ELIGIBLE, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED } from '../engine/lifecycle.js';
+import {
+  lifecycleLeafCommitment,
+  LifecycleWitness,
+  LIFECYCLE_ELIGIBLE,
+  LIFECYCLE_REGISTERED,
+  LIFECYCLE_REVOKED,
+} from '../engine/lifecycle.js';
 import { StateTransitionProgram, StateTransitionProof, EMPTY_CREDENTIAL_ROOT } from '../engine/state-transition.js';
 import { BatchProgram } from '../l2/batch-program.js';
 import type { L2Node } from '../l2/l2-node.js';
@@ -60,7 +66,19 @@ import { CredentialInventory } from '../credentials/credential-inventory.js';
 // ZKP
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { hashString, dateToField, centsToField, quantityToField } from '../zkp/hash-utils.js';
-import { quoteNadacPrice, priceDispense, statedCostMismatch, formatFillPrice, NETWORK_DEFAULT_DISPENSING_FEE_CENTS, quantityError, quantityMilli, quantityFromMilli, formatQuantity, type PriceQuote, type FillPrice } from '../fulfillment/nadac-pricing.js';
+import {
+  quoteNadacPrice,
+  priceDispense,
+  statedCostMismatch,
+  formatFillPrice,
+  NETWORK_DEFAULT_DISPENSING_FEE_CENTS,
+  quantityError,
+  quantityMilli,
+  quantityFromMilli,
+  formatQuantity,
+  type PriceQuote,
+  type FillPrice,
+} from '../fulfillment/nadac-pricing.js';
 
 // Credentials
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
@@ -69,12 +87,7 @@ import { serializeCredential, verifyCredentialOffline } from '../credentials/por
 import type { PortableCredential } from '../credentials/portable-credential.js';
 import { SequencerAttestationAuthority } from '../credentials/nfc-attestation.js';
 import type { NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
-import {
-  createProviderBadge,
-  authenticateFromBadge,
-  badgePreimage,
-  DEV_BADGE_PIN,
-} from '../credentials/provider-badge-service.js';
+import { createProviderBadge, authenticateFromBadge, badgePreimage, DEV_BADGE_PIN } from '../credentials/provider-badge-service.js';
 import type { ProviderBadge, BadgeTapEvent } from '../credentials/provider-badge-types.js';
 
 // Eligibility
@@ -95,16 +108,38 @@ import { FormularyRegistry } from '../access-control/formulary-registry.js';
 import { buildPlanFormulary, planNetworkRoot, type PlanFormulary } from '../onboarding/plan-formulary.js';
 import { publishedTermsOf, planAsPublished } from '../l2/plan-terms.js';
 import { AccessControlProgram } from '../access-control/access-control-program.js';
-import { AccumulatorData, buildAccumulatorData, withAmountsPaid, withLimits, forNewPlanYear, ACCUMULATOR_LEAF_INDEX } from '../access-control/accumulator-data.js';
+import {
+  AccumulatorData,
+  buildAccumulatorData,
+  withAmountsPaid,
+  withLimits,
+  forNewPlanYear,
+  ACCUMULATOR_LEAF_INDEX,
+} from '../access-control/accumulator-data.js';
 import { splitClaimCost, accumulatorAmountsOf, type FamilyAmounts } from '../access-control/accumulator-query-service.js';
 import { PriorAuthData, buildPriorAuthData } from '../access-control/prior-auth-data.js';
 
 // Messaging
-import { MessageData, MSG_TYPE_PRESCRIPTION, MSG_TYPE_PA_REQUEST, MSG_TYPE_PA_RESPONSE, MSG_TYPE_NOTIFICATION, MSG_TYPE_GENERAL, MSG_TYPE_SUPPORT } from '../messaging/message-data.js';
+import {
+  MessageData,
+  MSG_TYPE_PRESCRIPTION,
+  MSG_TYPE_PA_REQUEST,
+  MSG_TYPE_PA_RESPONSE,
+  MSG_TYPE_NOTIFICATION,
+  MSG_TYPE_GENERAL,
+  MSG_TYPE_SUPPORT,
+} from '../messaging/message-data.js';
 import { MessagingProgram } from '../messaging/messaging-program.js';
 import { MessageRegistry, DelegationRegistry, KeyRegistry, computeMessagingRoot } from '../messaging/message-registry.js';
 import { DelegationData } from '../messaging/delegation-data.js';
-import { deriveEncryptionKeyPair, encryptMessage, decryptMessage as decryptMessageAes, computeContentHash, deriveSharedSecret, publicKeyToFields } from '../messaging/encryption.js';
+import {
+  deriveEncryptionKeyPair,
+  encryptMessage,
+  decryptMessage as decryptMessageAes,
+  computeContentHash,
+  deriveSharedSecret,
+  publicKeyToFields,
+} from '../messaging/encryption.js';
 
 // Prescription
 import {
@@ -213,12 +248,12 @@ function isoDayOf(ccyymmdd: string): string {
 // ─── Step Therapy Prerequisites ─────────────────────────
 // Maps therapeutic class → required prerequisite classes patient must have tried first
 const STEP_THERAPY_MAP: Record<string, string[]> = {
-  'DPP-4 Inhibitor': ['Biguanide Antidiabetic'],                                           // Januvia → metformin first
-  'JAK Inhibitor': ['TNF-alpha Inhibitor'],                                                 // Rinvoq → Humira class
+  'DPP-4 Inhibitor': ['Biguanide Antidiabetic'], // Januvia → metformin first
+  'JAK Inhibitor': ['TNF-alpha Inhibitor'], // Rinvoq → Humira class
   'Anti-IgE Monoclonal Antibody': ['ICS/LABA Combination', 'Short-Acting Beta-2 Agonist (SABA)'], // Xolair → Symbicort or albuterol
-  'GLP-1 Receptor Agonist': ['Biguanide Antidiabetic', 'DPP-4 Inhibitor', 'SGLT2 Inhibitor'],    // Trulicity/Ozempic → metformin/Januvia/Jardiance
-  'ICS/LABA Combination': ['Short-Acting Beta-2 Agonist (SABA)'],                           // Breo Ellipta → albuterol
-  'ARNI (Heart Failure)': ['ACE Inhibitor'],                                                // Entresto → lisinopril first
+  'GLP-1 Receptor Agonist': ['Biguanide Antidiabetic', 'DPP-4 Inhibitor', 'SGLT2 Inhibitor'], // Trulicity/Ozempic → metformin/Januvia/Jardiance
+  'ICS/LABA Combination': ['Short-Acting Beta-2 Agonist (SABA)'], // Breo Ellipta → albuterol
+  'ARNI (Heart Failure)': ['ACE Inhibitor'], // Entresto → lisinopril first
 };
 
 // ─── Enrolled Member State ──────────────────────────────
@@ -236,7 +271,7 @@ export interface MemberHold {
 }
 
 interface EnrolledMember {
-  memberIndex: number;  // -1 for members enrolled via dashboard (no seed index)
+  memberIndex: number; // -1 for members enrolled via dashboard (no seed index)
   walletId: Field;
   walletIdStr: string;
   displayName: string;
@@ -278,7 +313,7 @@ type RxStatus = 'ADJUDICATED' | 'PARTIALLY_FILLED' | 'FILLED' | 'DISPENSED' | 'C
 interface RxStatusEntry {
   from: RxStatus;
   to: RxStatus;
-  updatedBy: string;     // display name of actor
+  updatedBy: string; // display name of actor
   updatedByRole: 'prescriber' | 'pharmacy';
   timestamp: number;
   fillQuantity?: number; // for partial/full fills
@@ -300,20 +335,20 @@ interface PrescriptionState {
   /** Plan-bound formularies: the formulary root the entry was proven against at prescribing; absent in older checkpoints */
   formularyRoot?: string;
   quantity: number;
-  quantityDispensed: number;  // running total of qty dispensed
+  quantityDispensed: number; // running total of qty dispensed
   refills: number;
-  refillsUsed: number;        // how many refills consumed
+  refillsUsed: number; // how many refills consumed
   status: RxStatus;
   statusHistory: RxStatusEntry[];
-  currentStatusLeafIndex: bigint;  // leaf index of the current status in TRANSACTION tree
-  nextTxLeafIndex: bigint;         // next available leaf in TRANSACTION tree
+  currentStatusLeafIndex: bigint; // leaf index of the current status in TRANSACTION tree
+  nextTxLeafIndex: bigint; // next available leaf in TRANSACTION tree
 }
 
 // ─── Fulfillment State ──────────────────────────────────
 
 interface FulfillmentState {
   prescriptionId: string;
-  fillIndex: number;              // which fill (0-based) — supports multi-fill Rx
+  fillIndex: number; // which fill (0-based) — supports multi-fill Rx
   patientPayCents: number;
   planPayCents: number;
   totalCostCents: number;
@@ -324,14 +359,14 @@ interface FulfillmentState {
   settlementCommitment: Field;
   // Data retained for reversal
   fulfillmentData: FulfillmentData;
-  patientPayField: Field;         // original patient pay (ZK Field)
-  planPayField: Field;            // original plan pay (ZK Field)
-  deductibleCreditField: Field;   // original deductible credit (ZK Field)
-  settlementLeafIndex: bigint;    // TRANSACTION tree leaf index of settlement commitment
-  quantityDispensed: number;      // qty dispensed in THIS fill
-  pricing?: FillPrice;            // NADAC x quantity + fee as this fill was priced; absent in a checkpoint from before NADAC pricing
-  reversed: boolean;              // true if this fill has been reversed
-  dateOfService: string;          // YYYYMMDD of this fill — the day the duplicate rule is about (D4)
+  patientPayField: Field; // original patient pay (ZK Field)
+  planPayField: Field; // original plan pay (ZK Field)
+  deductibleCreditField: Field; // original deductible credit (ZK Field)
+  settlementLeafIndex: bigint; // TRANSACTION tree leaf index of settlement commitment
+  quantityDispensed: number; // qty dispensed in THIS fill
+  pricing?: FillPrice; // NADAC x quantity + fee as this fill was priced; absent in a checkpoint from before NADAC pricing
+  reversed: boolean; // true if this fill has been reversed
+  dateOfService: string; // YYYYMMDD of this fill — the day the duplicate rule is about (D4)
 }
 
 // ─── Prior Auth State ──────────────────────────────────
@@ -377,9 +412,9 @@ export interface PriorAuthListing {
 
 /** Serialized leaf entry for MerkleForest reconstruction */
 interface SerializedForestLeaf {
-  domain: number;       // ForestDomain enum value
-  leafIndex: string;    // bigint as string
-  commitment: string;   // Field as decimal string
+  domain: number; // ForestDomain enum value
+  leafIndex: string; // bigint as string
+  commitment: string; // Field as decimal string
 }
 
 /** Serialized EnrolledMember (JSON-safe) */
@@ -388,9 +423,9 @@ interface SerializedEnrolledMember {
   walletId: string;
   walletIdStr: string;
   displayName: string;
-  credentialData: Record<string, string>;     // CredentialData.toJSON()
-  eligibilityData: Record<string, string>;    // EligibilityData.toJSON()
-  accumulatorData: Record<string, string>;    // AccumulatorData.toJSON()
+  credentialData: Record<string, string>; // CredentialData.toJSON()
+  eligibilityData: Record<string, string>; // EligibilityData.toJSON()
+  accumulatorData: Record<string, string>; // AccumulatorData.toJSON()
   planId: string;
   groupId: string;
   familyId: string;
@@ -398,7 +433,7 @@ interface SerializedEnrolledMember {
   employeeId: string;
   /** Not written since B2: the engine holds no member preimage. An older checkpoint's copy is dropped on restore. */
   preimageFields?: string[];
-  pcpAssignment?: Record<string, string>;     // PcpAssignmentData.toJSON() | undefined
+  pcpAssignment?: Record<string, string>; // PcpAssignmentData.toJSON() | undefined
   pcpPrescriberIndex?: number;
   inNetworkPrescriberIndices: number[];
   inNetworkPharmacyIndices: number[];
@@ -408,7 +443,7 @@ interface SerializedEnrolledMember {
   held?: MemberHold;
   walletIndex: number;
   nonce: number;
-  credentialInventoryRoot: string;            // Field as decimal string
+  credentialInventoryRoot: string; // Field as decimal string
   l2Receipts: string[];
   lastCredentialJson?: string;
   /** The device's wallet-ownership proof (ProofGate.verifyMember), kept for the portable credential (B2). */
@@ -416,34 +451,34 @@ interface SerializedEnrolledMember {
   /** Forest leaf data for MerkleForest reconstruction */
   forestLeaves: SerializedForestLeaf[];
   /** Prior auth leaf indices in ACCESS_CONTROL tree (for forest rebuild) */
-  paLeafIndices: string[];                    // bigint[] as string[]
+  paLeafIndices: string[]; // bigint[] as string[]
 }
 
 /** Serialized PrescriptionState (JSON-safe) */
 interface SerializedPrescription {
   id: string;
-  prescriptionData: Record<string, string>;      // PrescriptionData.toJSON()
-  activeStatus: Record<string, string>;          // PrescriptionStatusData.toJSON()
-  rxCredentialData: Record<string, string>;      // CredentialData.toJSON()
-  formularyEntry: Record<string, string>;        // FormularyEntry.toJSON()
+  prescriptionData: Record<string, string>; // PrescriptionData.toJSON()
+  activeStatus: Record<string, string>; // PrescriptionStatusData.toJSON()
+  rxCredentialData: Record<string, string>; // CredentialData.toJSON()
+  formularyEntry: Record<string, string>; // FormularyEntry.toJSON()
   prescriberIndex: number;
   pharmacyIndex: number;
   memberWalletId: string;
   ndcHash: string;
-  formularyLeafIndex: string;                    // bigint as string
-  formularyRoot?: string;                        // absent in a checkpoint from before plan-bound formularies
+  formularyLeafIndex: string; // bigint as string
+  formularyRoot?: string; // absent in a checkpoint from before plan-bound formularies
   quantity: number;
   quantityDispensed: number;
   refills: number;
   refillsUsed: number;
   status: RxStatus;
   statusHistory: RxStatusEntry[];
-  currentStatusLeafIndex: string;                // bigint as string
-  nextTxLeafIndex: string;                       // bigint as string
+  currentStatusLeafIndex: string; // bigint as string
+  nextTxLeafIndex: string; // bigint as string
   /** All TRANSACTION tree leaves for rxForest reconstruction */
   txLeaves: Array<{ leafIndex: string; commitment: string }>;
   /** MEDICATION tree leaf 0 commitment */
-  medicationLeaf0: string;                       // Field as decimal string
+  medicationLeaf0: string; // Field as decimal string
 }
 
 /** Serialized FulfillmentState (JSON-safe) */
@@ -457,16 +492,16 @@ interface SerializedFulfillment {
   accumulatorAfter: { deductiblePaid: number; oopPaid: number; benefitUsed: number };
   newEligForestRoot: string;
   oldEligForestRoot: string;
-  settlementCommitment: string;                  // Field as decimal string
-  fulfillmentData: Record<string, string>;       // FulfillmentData.toJSON()
-  patientPayField: string;                       // Field as decimal string
-  planPayField: string;                          // Field as decimal string
-  deductibleCreditField: string;                 // Field as decimal string
-  settlementLeafIndex: string;                   // bigint as string
+  settlementCommitment: string; // Field as decimal string
+  fulfillmentData: Record<string, string>; // FulfillmentData.toJSON()
+  patientPayField: string; // Field as decimal string
+  planPayField: string; // Field as decimal string
+  deductibleCreditField: string; // Field as decimal string
+  settlementLeafIndex: string; // bigint as string
   quantityDispensed: number;
   reversed: boolean;
-  dateOfService?: string;                        // absent in a checkpoint from before D4
-  pricing?: FillPrice;                           // absent in a checkpoint from before NADAC pricing
+  dateOfService?: string; // absent in a checkpoint from before D4
+  pricing?: FillPrice; // absent in a checkpoint from before NADAC pricing
 }
 
 /** Serialized PriorAuthState (JSON-safe) */
@@ -478,9 +513,9 @@ interface SerializedPriorAuth {
   status: 'PENDING' | 'APPROVED' | 'DENIED';
   requestedAt: number;
   resolvedAt?: number;
-  paLeafIndex?: string;                          // bigint as string
-  priorAuthData?: Record<string, string>;        // PriorAuthData.toJSON()
-  requestedQuantity?: number;                    // absent in older checkpoints and for the console's requests
+  paLeafIndex?: string; // bigint as string
+  priorAuthData?: Record<string, string>; // PriorAuthData.toJSON()
+  requestedQuantity?: number; // absent in older checkpoints and for the console's requests
 }
 
 /** Serialized pending prescription (JSON-safe) */
@@ -507,18 +542,18 @@ export interface PrescriberAuthorization {
 
 /** Full AdjudicationService checkpoint state (JSON-safe) */
 export interface AdjudicationCheckpointState {
-  version: number;  // 1
+  version: number; // 1
   prescriptions: SerializedPrescription[];
   fulfillments: Record<string, SerializedFulfillment[]>;
   pendingPrescriptions: SerializedPendingPrescription[];
   priorAuths: SerializedPriorAuth[];
-  prescriberAuthorizations?: PrescriberAuthorization[];  // B5; absent in older checkpoints
+  prescriberAuthorizations?: PrescriberAuthorization[]; // B5; absent in older checkpoints
   enrolledMembers: SerializedEnrolledMember[];
   rxCounter: number;
   paCounter: number;
   msgNonce: number;
   threadCounter: number;
-  nextPaLeafIndex: Record<string, string>;       // Map<walletId, bigint as string>
+  nextPaLeafIndex: Record<string, string>; // Map<walletId, bigint as string>
   /** Step 2 commit two: the wallets the insurer approved, with the plan each is bound to. Absent in older checkpoints. */
   approvedMembers?: MemberApproval[];
   pendingWalletUpdates?: PendingWalletUpdate[];
@@ -565,7 +600,10 @@ export interface WalletUpdateOutcome {
 }
 
 export class RegistrationRefused extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
     super(message);
     this.name = 'RegistrationRefused';
   }
@@ -585,9 +623,13 @@ export function refuseUnlessLedgerBillable(
 ): void {
   if (ledger?.name === 'revoked') enrolled.lifecycle = 'REVOKED';
   if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, `This member is terminated; ${refusal}`);
-  if (enrolled.held) throw new RegistrationRefused(409, `This member's coverage is held while a report about its enrollment is reviewed; ${refusal}`);
+  if (enrolled.held)
+    throw new RegistrationRefused(409, `This member's coverage is held while a report about its enrollment is reviewed; ${refusal}`);
   if (ledger?.name !== 'eligible' && ledger?.name !== 'active') {
-    throw new RegistrationRefused(409, `The ledger does not show this member eligible (${ledger ? ledger.name : 'not on the ledger'}); ${refusal}`);
+    throw new RegistrationRefused(
+      409,
+      `The ledger does not show this member eligible (${ledger ? ledger.name : 'not on the ledger'}); ${refusal}`,
+    );
   }
 }
 
@@ -626,7 +668,11 @@ export function familyLimitsFor(
 export function bindPlan(
   plan: BenefitPlanConfig,
   providers: { prescribers: Map<number, Field>; pharmacies: Map<number, Field> },
-): { accumulator: { deductibleAmountCents: number; oopMaxCents: number; annualBenefitMaxCents: number }; prescriberIndices: number[]; pharmacyIndices: number[] } {
+): {
+  accumulator: { deductibleAmountCents: number; oopMaxCents: number; annualBenefitMaxCents: number };
+  prescriberIndices: number[];
+  pharmacyIndices: number[];
+} {
   const ids = plan.networkProviderWalletIds ?? [];
   const inNetwork = (map: Map<number, Field>): number[] => {
     const all = [...map.keys()].sort((a, b) => a - b);
@@ -673,9 +719,13 @@ export class AdjudicationService {
 
   // Infrastructure
   /** The sequencer's wallet registry — the only copy. Read here; change via sequencer.adminMutate(). */
-  private get walletRegistry(): WalletRegistry { return this.l2Node.getSequencer().getStateTrees().registry; }
+  private get walletRegistry(): WalletRegistry {
+    return this.l2Node.getSequencer().getStateTrees().registry;
+  }
   /** The sequencer's lifecycle tree — the only copy. Read here; change via sequencer.adminMutate(). */
-  private get lifecycleTree(): MerkleTree { return this.l2Node.getSequencer().getStateTrees().lifecycle; }
+  private get lifecycleTree(): MerkleTree {
+    return this.l2Node.getSequencer().getStateTrees().lifecycle;
+  }
   private benefitPlanRegistry!: BenefitPlanRegistry;
   private tokenAuthority!: TokenAuthority;
   private groupRegistry!: GroupRegistry;
@@ -702,15 +752,18 @@ export class AdjudicationService {
    *  their registry index, 0..1023), so the wallet enrolled at index 999 cannot overwrite it. -1 is
    *  the payloads' "no key" marker, so this is -2. Never written to the key tree. */
   private static readonly ADMIN_KEY_INDEX = -2;
-  private encryptedPayloads: Map<string, {
-    ciphertext: string;       // hex-encoded encrypted bytes
-    iv: string;               // hex-encoded IV
-    tag: string;              // hex-encoded auth tag
-    senderKeyIndex: number;
-    recipientKeyIndex: number;
-    threadId: string;          // raw string (before Poseidon hash), for thread grouping
-    timestamp: number;         // Date.now() for ordering
-  }> = new Map();
+  private encryptedPayloads: Map<
+    string,
+    {
+      ciphertext: string; // hex-encoded encrypted bytes
+      iv: string; // hex-encoded IV
+      tag: string; // hex-encoded auth tag
+      senderKeyIndex: number;
+      recipientKeyIndex: number;
+      threadId: string; // raw string (before Poseidon hash), for thread grouping
+      timestamp: number; // Date.now() for ordering
+    }
+  > = new Map();
   private threadCounter = 0;
 
   // Pre-enrolled entities
@@ -736,18 +789,21 @@ export class AdjudicationService {
   private rxCounter = 0;
   private paCounter = 0;
   /** Prescriptions currently being proved (visible to pharmacy as PENDING). */
-  private pendingPrescriptions: Map<string, {
-    id: string;
-    prescriberIndex: number;
-    pharmacyIndex: number;
-    memberWalletId: string;
-    ndcHash: string;
-    quantity: number;
-    refills: number;
-    startedAt: number;
-    /** The copay of the entry being proven (the member's plan copay), for the pharmacy list; absent after a restore */
-    copayAmountCents?: number;
-  }> = new Map();
+  private pendingPrescriptions: Map<
+    string,
+    {
+      id: string;
+      prescriberIndex: number;
+      pharmacyIndex: number;
+      memberWalletId: string;
+      ndcHash: string;
+      quantity: number;
+      refills: number;
+      startedAt: number;
+      /** The copay of the entry being proven (the member's plan copay), for the pharmacy list; absent after a restore */
+      copayAmountCents?: number;
+    }
+  > = new Map();
   /** Next available PA leaf index per member (leaves 1-126 in ACCESS_CONTROL tree) */
   private nextPaLeafIndex: Map<string, bigint> = new Map();
   /** Step 2 commit two: wallets the insurer approved, by wallet ID; persisted with the checkpoint. */
@@ -766,9 +822,7 @@ export class AdjudicationService {
   /** VK commitment — Poseidon.hash of all 10 ZkProgram VK hashes. Software identity. */
   vkCommitment: string | null = null;
   // Deterministic seed ensures attestation keypair survives restarts (session tokens stay valid)
-  private attestationAuthority = new SequencerAttestationAuthority(
-    Buffer.from('zkpcare-attestation-authority-seed'),
-  );
+  private attestationAuthority = new SequencerAttestationAuthority(Buffer.from('zkpcare-attestation-authority-seed'));
 
   // Provider badges (written during init, used by auto-tap)
   private providerBadges: Map<string, ProviderBadge> = new Map();
@@ -789,7 +843,7 @@ export class AdjudicationService {
 
   // ndcHash → MEDICATIONS array index (= FormularyRegistry leaf index)
   private medIndexByNdcHash: Map<string, number> = new Map();
-  private medByNdcHash: Map<string, typeof MEDICATIONS[0]> = new Map();
+  private medByNdcHash: Map<string, (typeof MEDICATIONS)[0]> = new Map();
 
   // Provider network management state
   private providerNetwork!: ProviderNetworkRegistry;
@@ -812,11 +866,7 @@ export class AdjudicationService {
   private consoleEmitter: (event: ConsoleEvent) => void;
   private vizEmitter: (event: VizEvent) => void;
 
-  constructor(
-    consoleEmitter: (event: ConsoleEvent) => void,
-    vizEmitter: (event: VizEvent) => void,
-    l2Node: L2Node,
-  ) {
+  constructor(consoleEmitter: (event: ConsoleEvent) => void, vizEmitter: (event: VizEvent) => void, l2Node: L2Node) {
     this.consoleEmitter = consoleEmitter;
     this.vizEmitter = vizEmitter;
     this.l2Node = l2Node;
@@ -854,8 +904,11 @@ export class AdjudicationService {
       const p = PRESCRIBERS[i];
       const wid = this.prescriberWalletIds.get(i)!;
       const badge = createProviderBadge(
-        p.enrollmentKey, DEV_BADGE_PIN, 'prescriber',
-        p.localData.prescriberId, p.localData.prescriberIdQualifier,
+        p.enrollmentKey,
+        DEV_BADGE_PIN,
+        'prescriber',
+        p.localData.prescriberId,
+        p.localData.prescriberIdQualifier,
         wid.toString(),
         `${p.firstName} ${p.lastName}, ${p.credential}`,
       );
@@ -865,8 +918,11 @@ export class AdjudicationService {
       const p = PHARMACIES[i];
       const wid = this.pharmacyWalletIds.get(i)!;
       const badge = createProviderBadge(
-        p.enrollmentKey, DEV_BADGE_PIN, 'pharmacy',
-        p.localData.serviceProviderId, p.localData.serviceProviderIdQualifier,
+        p.enrollmentKey,
+        DEV_BADGE_PIN,
+        'pharmacy',
+        p.localData.serviceProviderId,
+        p.localData.serviceProviderIdQualifier,
         wid.toString(),
         p.storeName,
       );
@@ -895,8 +951,8 @@ export class AdjudicationService {
     });
 
     // Rebuild FormularyRegistry to mark off-formulary meds as sentinel entries
-    this.currentFormularyEntries = formularyEntries.map(e => ({ ...e }));
-    this.formularyActive = MEDICATIONS.map(m => m.initiallyOnFormulary !== false);
+    this.currentFormularyEntries = formularyEntries.map((e) => ({ ...e }));
+    this.formularyActive = MEDICATIONS.map((m) => m.initiallyOnFormulary !== false);
 
     // Build ndcHash → index lookup maps for O(1) drug resolution.
     // Uses MEDICATIONS (may be 100-drug subset) for Merkle tree leaf indices,
@@ -952,7 +1008,7 @@ export class AdjudicationService {
       }
     }
 
-    const hasOffFormulary = this.formularyActive.some(a => !a);
+    const hasOffFormulary = this.formularyActive.some((a) => !a);
     if (hasOffFormulary) {
       // Rebuild with sentinels for off-formulary drugs
       const newRegistry = new FormularyRegistry();
@@ -1055,7 +1111,7 @@ export class AdjudicationService {
   }
 
   /** Look up a medication by ndcHash. Throws if not found. */
-  getMedicationByNdcHash(ndcHash: string): typeof MEDICATIONS[0] {
+  getMedicationByNdcHash(ndcHash: string): (typeof MEDICATIONS)[0] {
     const med = this.medByNdcHash.get(ndcHash);
     if (!med) throw new Error(`Drug not on formulary: ndcHash ${ndcHash.slice(0, 16)}...`);
     return med;
@@ -1091,8 +1147,14 @@ export class AdjudicationService {
   quoteMemberCost(walletId: string, ndcHash: string, quantity: number): MemberCostQuote | null {
     const enrolled = this.enrolledMembers.get(walletId);
     if (!enrolled) return null;
-    if (enrolled.lifecycle === 'REVOKED') return { covered: false, reason: 'The member is terminated; nothing can be prescribed or filled for it' };
-    if (enrolled.held) return { covered: false, reason: 'The member\'s coverage is held while a report about its enrollment is reviewed; nothing can be prescribed or filled for it now' };
+    if (enrolled.lifecycle === 'REVOKED')
+      return { covered: false, reason: 'The member is terminated; nothing can be prescribed or filled for it' };
+    if (enrolled.held)
+      return {
+        covered: false,
+        reason:
+          "The member's coverage is held while a report about its enrollment is reviewed; nothing can be prescribed or filled for it now",
+      };
     if (!this.medByNdcHash.has(ndcHash)) return { covered: false, reason: 'The drug is not in the formulary catalog' };
     let coverage: { entry: FormularyEntry; copayAmountCents: number };
     try {
@@ -1102,7 +1164,10 @@ export class AdjudicationService {
       // the reason names no plan: the caller may be a prescriber reading with the member's attestation
       return {
         covered: false,
-        reason: err.status === 403 ? "Not on the formulary of the member's plan" : "The member's plan cannot be quoted until the insurer publishes it again",
+        reason:
+          err.status === 403
+            ? "Not on the formulary of the member's plan"
+            : "The member's plan cannot be quoted until the insurer publishes it again",
       };
     }
     const price = priceDispense(this.quoteFill(walletId, ndcHash), quantity);
@@ -1156,7 +1221,15 @@ export class AdjudicationService {
     this.medIndexByNdcHash.set(ndcHash, leafIdx);
     // Extend parallel arrays to stay in sync
     while (this.currentFormularyEntries.length <= leafIdx) {
-      this.currentFormularyEntries.push({ ndc: '', tierLevel: 0, copayAmount: 0, requiresPriorAuth: false, maxQuantityPerFill: 0, maxDaySupply: 0, stepTherapyRequired: false });
+      this.currentFormularyEntries.push({
+        ndc: '',
+        tierLevel: 0,
+        copayAmount: 0,
+        requiresPriorAuth: false,
+        maxQuantityPerFill: 0,
+        maxDaySupply: 0,
+        stepTherapyRequired: false,
+      });
       this.formularyActive.push(false);
     }
     this.currentFormularyEntries[leafIdx] = { ...med.formularyEntry };
@@ -1235,11 +1308,18 @@ export class AdjudicationService {
 
   /** How many plan formulary versions to keep built now (see PLAN_FORMULARY_CACHE_MIN). */
   private planFormularyCacheCapacity(): number {
-    const live = this.l2Node.getSequencer().getPlans().filter((p) => publishedTermsOf(p) !== null).length;
+    const live = this.l2Node
+      .getSequencer()
+      .getPlans()
+      .filter((p) => publishedTermsOf(p) !== null).length;
     const max = AdjudicationService.PLAN_FORMULARY_CACHE_MAX;
     if (live > max && live > this.planFormularyCacheWarnedAt) {
       this.planFormularyCacheWarnedAt = live;
-      this.emit('warn', 'formulary', `${live} plans are published, more than the ${max} plan formularies the engine keeps built; the least recently used are rebuilt when next used (about 11 ms a drug, on the sequencer's thread)`);
+      this.emit(
+        'warn',
+        'formulary',
+        `${live} plans are published, more than the ${max} plan formularies the engine keeps built; the least recently used are rebuilt when next used (about 11 ms a drug, on the sequencer's thread)`,
+      );
     }
     return Math.min(max, Math.max(AdjudicationService.PLAN_FORMULARY_CACHE_MIN, live));
   }
@@ -1254,7 +1334,10 @@ export class AdjudicationService {
   private publishedPlanFormulary(plan: BenefitPlanConfig): PlanFormulary {
     const terms = publishedTermsOf(plan);
     if (!terms) {
-      throw new RegistrationRefused(409, `Plan ${plan.planId} is not published (it has no published terms); the insurer must publish it before its members are served`);
+      throw new RegistrationRefused(
+        409,
+        `Plan ${plan.planId} is not published (it has no published terms); the insurer must publish it before its members are served`,
+      );
     }
     const cached = this.planFormularies.get(terms.formularyRoot);
     if (cached && cached.copayAmountCents === terms.copayAmountCents) {
@@ -1267,17 +1350,23 @@ export class AdjudicationService {
     try {
       built = buildPlanFormulary(terms, getAllFormularyEntries());
     } catch (err) {
-      throw new RegistrationRefused(409, `Plan ${plan.planId}'s published formulary cannot be built here (${err instanceof Error ? err.message : String(err)}); the insurer must republish the plan`);
+      throw new RegistrationRefused(
+        409,
+        `Plan ${plan.planId}'s published formulary cannot be built here (${err instanceof Error ? err.message : String(err)}); the insurer must republish the plan`,
+      );
     }
     const root = built.root.toString();
     if (root !== terms.formularyRoot) {
-      throw new RegistrationRefused(409, `Plan ${plan.planId} publishes formulary root ${terms.formularyRoot.slice(0, 12)}…, but its published copay and drug list build to ${root.slice(0, 12)}… over this engine's ${getAllFormularyEntries().length}-drug catalog; the insurer must republish the plan`);
+      throw new RegistrationRefused(
+        409,
+        `Plan ${plan.planId} publishes formulary root ${terms.formularyRoot.slice(0, 12)}…, but its published copay and drug list build to ${root.slice(0, 12)}… over this engine's ${getAllFormularyEntries().length}-drug catalog; the insurer must republish the plan`,
+      );
     }
     this.planFormularies.delete(root);
     this.planFormularies.set(root, built);
     const capacity = this.planFormularyCacheCapacity();
     while (this.planFormularies.size > capacity) {
-      this.planFormularies.delete(this.planFormularies.keys().next().value as string);   // the least recently used
+      this.planFormularies.delete(this.planFormularies.keys().next().value as string); // the least recently used
     }
     return built;
   }
@@ -1288,7 +1377,12 @@ export class AdjudicationService {
    * and its network root, all as published. The plan year is the demo's, as for every member (EligibilityProgram is
    * proven at 20260202).
    */
-  private planEligibilityData(planId: string, groupIdHash: string, published: BenefitPlanConfig, formulary: PlanFormulary): EligibilityData {
+  private planEligibilityData(
+    planId: string,
+    groupIdHash: string,
+    published: BenefitPlanConfig,
+    formulary: PlanFormulary,
+  ): EligibilityData {
     const networkKey = (published.networkProviderWalletIds ?? []).join(',');
     let networkRoot = this.planNetworkRoots.get(networkKey);
     if (!networkRoot) {
@@ -1356,7 +1450,11 @@ export class AdjudicationService {
     enrolled.credentialInventory.updateCredential(0n, enrolled.credentialData);
     const usd = (cents: number): string => `$${(cents / 100).toFixed(2)}`;
     const limits = binding.accumulator;
-    this.emit('info', phase, `  Plan ${enrolled.planId} as last published: copay ${usd(formulary.copayAmountCents)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs), deductible ${usd(limits.deductibleAmountCents)}, out-of-pocket max ${usd(limits.oopMaxCents)}, annual benefit max ${limits.annualBenefitMaxCents > 0 ? usd(limits.annualBenefitMaxCents) : 'none'} (amounts paid kept); the member's credential is rebound`);
+    this.emit(
+      'info',
+      phase,
+      `  Plan ${enrolled.planId} as last published: copay ${usd(formulary.copayAmountCents)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs), deductible ${usd(limits.deductibleAmountCents)}, out-of-pocket max ${usd(limits.oopMaxCents)}, annual benefit max ${limits.annualBenefitMaxCents > 0 ? usd(limits.annualBenefitMaxCents) : 'none'} (amounts paid kept); the member's credential is rebound`,
+    );
     this.queueWalletUpdate(enrolled, 'plan binding', phase);
   }
 
@@ -1407,7 +1505,10 @@ export class AdjudicationService {
    * formulary is answered from it, without adding a drug to it; a member whose plan has no published terms is answered
    * as formularyEntryFor answers it. A drug not on the formulary is refused (403).
    */
-  private displayFormularyEntryFor(enrolled: EnrolledMember, ndcHash: string): { leafIndex: bigint; entry: FormularyEntry; copayAmountCents: number } {
+  private displayFormularyEntryFor(
+    enrolled: EnrolledMember,
+    ndcHash: string,
+  ): { leafIndex: bigint; entry: FormularyEntry; copayAmountCents: number } {
     let registry: FormularyRegistry;
     let leafIndex: bigint | undefined;
     let label: string;
@@ -1426,7 +1527,10 @@ export class AdjudicationService {
     }
     const entry = leafIndex === undefined ? undefined : registry.getEntry(leafIndex);
     if (leafIndex === undefined || !entry || entry.ndcHash.toString() !== ndcHash) {
-      throw new RegistrationRefused(403, `${this.medByNdcHash.get(ndcHash)?.brandName ?? 'This drug'} is not on the formulary of this member's plan (${label})`);
+      throw new RegistrationRefused(
+        403,
+        `${this.medByNdcHash.get(ndcHash)?.brandName ?? 'This drug'} is not on the formulary of this member's plan (${label})`,
+      );
     }
     return { leafIndex, entry, copayAmountCents: Number(entry.copayAmountCents.toBigInt()) };
   }
@@ -1437,14 +1541,21 @@ export class AdjudicationService {
    * plan's as last published (or a version still held in memory). A drug not on it is refused (403). The registry's root
    * must be the root the member's EligibilityData names.
    */
-  private formularyEntryFor(enrolled: EnrolledMember, ndcHash: string): { registry: FormularyRegistry; leafIndex: bigint; entry: FormularyEntry; copayAmountCents: number } {
+  private formularyEntryFor(
+    enrolled: EnrolledMember,
+    ndcHash: string,
+  ): { registry: FormularyRegistry; leafIndex: bigint; entry: FormularyEntry; copayAmountCents: number } {
     let registry: FormularyRegistry;
     let leafIndex: bigint | undefined;
     let label: string;
     if (this.onConsoleFormulary(enrolled)) {
       registry = this.formularyRegistry;
       label = 'PLAN-GOLD-2026';
-      try { leafIndex = this.getFormularyLeafIndex(ndcHash); } catch { leafIndex = undefined; }
+      try {
+        leafIndex = this.getFormularyLeafIndex(ndcHash);
+      } catch {
+        leafIndex = undefined;
+      }
     } else {
       const plan = this.l2Node.getSequencer().getPlan(enrolled.planId);
       if (!plan) throw new RegistrationRefused(409, `This member's plan ${enrolled.planId} is not on the sequencer`);
@@ -1452,7 +1563,10 @@ export class AdjudicationService {
       const terms = publishedTermsOf(plan);
       const formulary = terms && terms.formularyRoot === root ? this.publishedPlanFormulary(plan) : this.planFormularies.get(root);
       if (!formulary) {
-        throw new RegistrationRefused(409, `This member's credential names a formulary plan ${enrolled.planId} does not publish now; the insurer must publish the plan`);
+        throw new RegistrationRefused(
+          409,
+          `This member's credential names a formulary plan ${enrolled.planId} does not publish now; the insurer must publish the plan`,
+        );
       }
       registry = formulary.registry;
       leafIndex = formulary.leafByNdcHash.get(ndcHash);
@@ -1460,7 +1574,10 @@ export class AdjudicationService {
     }
     const entry = leafIndex === undefined ? undefined : registry.getEntry(leafIndex);
     if (leafIndex === undefined || !entry || entry.ndcHash.toString() !== ndcHash) {
-      throw new RegistrationRefused(403, `${this.medByNdcHash.get(ndcHash)?.brandName ?? 'This drug'} is not on the formulary of this member's plan (${label})`);
+      throw new RegistrationRefused(
+        403,
+        `${this.medByNdcHash.get(ndcHash)?.brandName ?? 'This drug'} is not on the formulary of this member's plan (${label})`,
+      );
     }
     if (!registry.getRoot().equals(enrolled.eligibilityData.formularyRoot).toBoolean()) {
       throw new Error(`The formulary the engine would prove against is not the one this member's credential names (${label})`);
@@ -1484,13 +1601,18 @@ export class AdjudicationService {
     const capacity = 2 ** (BENEFIT_PLAN_TREE_HEIGHT - 1);
     if (this.benefitPlanRegistry.count >= capacity) {
       const live = new Map<string, EligibilityData>();
-      const named = [...this.enrolledMembers.values()].filter((m) => m.lifecycle !== 'REVOKED' && m.eligibilityData).map((m) => m.eligibilityData);
+      const named = [...this.enrolledMembers.values()]
+        .filter((m) => m.lifecycle !== 'REVOKED' && m.eligibilityData)
+        .map((m) => m.eligibilityData);
       for (const e of [this.sharedEligibilityData, ...named, elig]) {
         const k = e.commitment().toString();
         if (!live.has(k)) live.set(k, e);
       }
       if (live.size > capacity) {
-        throw new RegistrationRefused(409, `The benefit plan registry holds ${capacity} plan versions and live members name ${live.size}; this member's plan version cannot be registered until members move onto current plan versions (a larger registry is a circuit change)`);
+        throw new RegistrationRefused(
+          409,
+          `The benefit plan registry holds ${capacity} plan versions and live members name ${live.size}; this member's plan version cannot be registered until members move onto current plan versions (a larger registry is a circuit change)`,
+        );
       }
       this.benefitPlanRegistry = new BenefitPlanRegistry();
       this.benefitPlanIndexByCommitment = new Map();
@@ -1519,8 +1641,12 @@ export class AdjudicationService {
   setProofPoolStarting(starting: Promise<unknown>): void {
     this.proofPoolStart = 'pending';
     const settled: Promise<void> = starting.then(
-      () => { if (this.proofPoolStarting === settled) this.proofPoolStart = 'started'; },
-      () => { if (this.proofPoolStarting === settled) this.proofPoolStart = 'failed'; },
+      () => {
+        if (this.proofPoolStarting === settled) this.proofPoolStart = 'started';
+      },
+      () => {
+        if (this.proofPoolStarting === settled) this.proofPoolStart = 'failed';
+      },
     );
     this.proofPoolStarting = settled;
   }
@@ -1559,9 +1685,18 @@ export class AdjudicationService {
     if (typeName === 'Field') return value.toString();
     // For Structs and MerkleWitnesses, the static toJSON method exists on the class
     const registry: Record<string, any> = {
-      CredentialData, EligibilityData, ForestRoots, FormularyEntry,
-      AccumulatorData, PriorAuthData, MessageData, DelegationData,
-      PrescriptionData, PrescriptionStatusData, FulfillmentData, ReversalData,
+      CredentialData,
+      EligibilityData,
+      ForestRoots,
+      FormularyEntry,
+      AccumulatorData,
+      PriorAuthData,
+      MessageData,
+      DelegationData,
+      PrescriptionData,
+      PrescriptionStatusData,
+      FulfillmentData,
+      ReversalData,
     };
     const cls = registry[typeName];
     if (cls) return cls.toJSON(value);
@@ -1627,11 +1762,14 @@ export class AdjudicationService {
     }
 
     try {
-      return await this.proofPool.prove({
-        program,
-        method,
-        args: serializedArgs,
-      }, `${program}.${method}`);
+      return await this.proofPool.prove(
+        {
+          program,
+          method,
+          args: serializedArgs,
+        },
+        `${program}.${method}`,
+      );
     } catch (err: any) {
       this.emit('error', program, `  [proof-pool] ${program}.${method} FAILED: ${err.message}`);
       throw err;
@@ -1648,21 +1786,79 @@ export class AdjudicationService {
     const vkHashes: Field[] = [];
 
     const programs = [
-      { name: 'ProofGateProgram (3 methods)', fn: async () => { const r = await ProofGateProgram.compile(); this.proofGateVk = r.verificationKey; vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'EligibilityProgram', fn: async () => { const r = await EligibilityProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'AccessControlProgram (2 methods)', fn: async () => { const r = await AccessControlProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'MessagingProgram (2 methods)', fn: async () => { const r = await MessagingProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'PrescriptionProgram (2 methods)', fn: async () => { const r = await PrescriptionProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'AccumulatorFulfillmentProgram (2 methods)', fn: async () => { const r = await AccumulatorFulfillmentProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'PcpVerificationProgram', fn: async () => { const r = await PcpVerificationProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'CredentialProgram (3 methods)', fn: async () => {
-        const result = await CredentialProgram.compile();
-        this.credentialProgramVk = JSON.stringify(result.verificationKey);
-        this.credentialProgramVkHash = Field(result.verificationKey.hash);
-        vkHashes.push(this.credentialProgramVkHash);
-      } },
-      { name: 'StateTransitionProgram (2 methods)', fn: async () => { const r = await StateTransitionProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
-      { name: 'BatchProgram (3 methods)', fn: async () => { const r = await BatchProgram.compile(); vkHashes.push(Field(r.verificationKey.hash)); } },
+      {
+        name: 'ProofGateProgram (3 methods)',
+        fn: async () => {
+          const r = await ProofGateProgram.compile();
+          this.proofGateVk = r.verificationKey;
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'EligibilityProgram',
+        fn: async () => {
+          const r = await EligibilityProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'AccessControlProgram (2 methods)',
+        fn: async () => {
+          const r = await AccessControlProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'MessagingProgram (2 methods)',
+        fn: async () => {
+          const r = await MessagingProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'PrescriptionProgram (2 methods)',
+        fn: async () => {
+          const r = await PrescriptionProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'AccumulatorFulfillmentProgram (2 methods)',
+        fn: async () => {
+          const r = await AccumulatorFulfillmentProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'PcpVerificationProgram',
+        fn: async () => {
+          const r = await PcpVerificationProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'CredentialProgram (3 methods)',
+        fn: async () => {
+          const result = await CredentialProgram.compile();
+          this.credentialProgramVk = JSON.stringify(result.verificationKey);
+          this.credentialProgramVkHash = Field(result.verificationKey.hash);
+          vkHashes.push(this.credentialProgramVkHash);
+        },
+      },
+      {
+        name: 'StateTransitionProgram (2 methods)',
+        fn: async () => {
+          const r = await StateTransitionProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
+      {
+        name: 'BatchProgram (3 methods)',
+        fn: async () => {
+          const r = await BatchProgram.compile();
+          vkHashes.push(Field(r.verificationKey.hash));
+        },
+      },
     ];
 
     const compileStart = performance.now();
@@ -1745,9 +1941,13 @@ export class AdjudicationService {
     this.emit('offchain', 'enroll', `Step 2: Wallet ID derived: ${walletIdStr}`, 'complete', elapsed2);
     this.emit('info', 'enroll', '         (enrollment key stays on device, NEVER transmitted)');
     this.emit('info', 'enroll', `  ┌─ WALLET DERIVATION`);
-    this.emit('info', 'enroll', `  │  Formula: Poseidon.hash([DOMAIN_TAG_MEMBER, hash(cardholderId), dob, hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash])`);
+    this.emit(
+      'info',
+      'enroll',
+      `  │  Formula: Poseidon.hash([DOMAIN_TAG_MEMBER, hash(cardholderId), dob, hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash])`,
+    );
     this.emit('info', 'enroll', `  │  Wallet ID:       ${walletId.toString()}`);
-    this.emit('info', 'enroll', `  │  Preimage Fields: [${preimageFields.map(f => truncField(f)).join(', ')}]`);
+    this.emit('info', 'enroll', `  │  Preimage Fields: [${preimageFields.map((f) => truncField(f)).join(', ')}]`);
     this.emit('info', 'enroll', `  └─ No private key — access through ZK proof only`);
 
     this.emitViz('viz:enrollment:wallet_derived', 'enrollment', {
@@ -1760,17 +1960,22 @@ export class AdjudicationService {
     this.emit('proof', 'enroll', 'Step 3: Generating ProofGate.verifyMember proof...', 'start');
     const startProof = performance.now();
     const proofGateDispatch = await this.dispatchProof(
-      'ProofGate', 'verifyMember',
+      'ProofGate',
+      'verifyMember',
       ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
       [walletId, ...preimageFields],
-      () => ProofGateProgram.verifyMember(walletId, ...preimageFields as [Field, Field, Field, Field, Field, Field]),
+      () => ProofGateProgram.verifyMember(walletId, ...(preimageFields as [Field, Field, Field, Field, Field, Field])),
     );
     const cachedProofGateProof = proofGateDispatch.proofJson;
     const elapsedProof = performance.now() - startProof;
     this.emit('proof', 'enroll', `Step 3: ProofGate.verifyMember proof generated`, 'complete', elapsedProof);
     this.emit('info', 'enroll', `  ┌─ PROOF: ProofGate.verifyMember`);
     this.emit('info', 'enroll', `  │  Public Input:   walletId = ${truncField(walletId)}`);
-    this.emit('info', 'enroll', `  │  Private Inputs: 6 preimage fields (hash(cardholderId), dob, hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash)`);
+    this.emit(
+      'info',
+      'enroll',
+      `  │  Private Inputs: 6 preimage fields (hash(cardholderId), dob, hash(firstName), hash(lastName), hash(enrollmentKey), groupIdHash)`,
+    );
     this.emit('info', 'enroll', `  │  Constraint:     Poseidon.hash([DOMAIN_TAG_MEMBER, ...preimage]) == walletId`);
     this.emit('info', 'enroll', `  │  Result:         VERIFIED — ${displayName} proved identity without revealing PHI`);
     this.emit('info', 'enroll', `  └─ Proof time: ${elapsedProof.toFixed(0)}ms`);
@@ -1807,10 +2012,36 @@ export class AdjudicationService {
     this.emit('proof', 'enroll', 'Step 4a: Generating StateTransitionProof.proveRegistration...', 'start');
     const startReg = performance.now();
     const regDispatch = await this.dispatchProof(
-      'StateTransition', 'proveRegistration',
+      'StateTransition',
+      'proveRegistration',
       ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field'],
-      [DOMAIN_TAG_MEMBER, preimageFields[0]!, preimageFields[1]!, preimageFields[2]!, preimageFields[3]!, preimageFields[4]!, preimageFields[5]!, regWitness, lcWitness, preRegRoot, preLcRoot],
-      () => StateTransitionProgram.proveRegistration(DOMAIN_TAG_MEMBER, preimageFields[0]!, preimageFields[1]!, preimageFields[2]!, preimageFields[3]!, preimageFields[4]!, preimageFields[5]!, regWitness, lcWitness, preRegRoot, preLcRoot),
+      [
+        DOMAIN_TAG_MEMBER,
+        preimageFields[0]!,
+        preimageFields[1]!,
+        preimageFields[2]!,
+        preimageFields[3]!,
+        preimageFields[4]!,
+        preimageFields[5]!,
+        regWitness,
+        lcWitness,
+        preRegRoot,
+        preLcRoot,
+      ],
+      () =>
+        StateTransitionProgram.proveRegistration(
+          DOMAIN_TAG_MEMBER,
+          preimageFields[0]!,
+          preimageFields[1]!,
+          preimageFields[2]!,
+          preimageFields[3]!,
+          preimageFields[4]!,
+          preimageFields[5]!,
+          regWitness,
+          lcWitness,
+          preRegRoot,
+          preLcRoot,
+        ),
     );
     const elapsedReg = performance.now() - startReg;
     this.emit('proof', 'enroll', `Step 4a: Registration proof generated`, 'complete', elapsedReg);
@@ -1921,7 +2152,11 @@ export class AdjudicationService {
     this.emit('info', 'enroll', `  │    formularyRoot:    ${truncField(eligibilityData.formularyRoot)}`);
     this.emit('info', 'enroll', `  │    networkRoot:      ${truncField(eligibilityData.networkRoot)}`);
     this.emit('info', 'enroll', `  │    copayAmountCents: ${Number(eligibilityData.copayAmountCents.toBigInt())}`);
-    this.emit('info', 'enroll', `  └─ Credential forest embeds ${this.formularyActive.filter(a => a).length} formulary entries + ${this.providerNetwork.count} network providers`);
+    this.emit(
+      'info',
+      'enroll',
+      `  └─ Credential forest embeds ${this.formularyActive.filter((a) => a).length} formulary entries + ${this.providerNetwork.count} network providers`,
+    );
 
     // Create CredentialInventory + mint
     const credentialInventory = new CredentialInventory();
@@ -1936,10 +2171,60 @@ export class AdjudicationService {
 
     this.emit('proof', 'enroll', 'Step 4c: Generating StateTransitionProof.proveWalletUpdate (credential mint)...', 'start');
     const mintDispatch = await this.dispatchProof(
-      'StateTransition', 'proveWalletUpdate',
-      ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
-      [DOMAIN_TAG_MEMBER, preimageFields[0]!, preimageFields[1]!, preimageFields[2]!, preimageFields[3]!, preimageFields[4]!, preimageFields[5]!, EMPTY_CREDENTIAL_ROOT, Field(0), inventoryRoot, mintRegWitness, mintLcWitness, currentRegRoot, currentLcRoot, LIFECYCLE_REGISTERED],
-      () => StateTransitionProgram.proveWalletUpdate(DOMAIN_TAG_MEMBER, preimageFields[0]!, preimageFields[1]!, preimageFields[2]!, preimageFields[3]!, preimageFields[4]!, preimageFields[5]!, EMPTY_CREDENTIAL_ROOT, Field(0), inventoryRoot, mintRegWitness, mintLcWitness, currentRegRoot, currentLcRoot, LIFECYCLE_REGISTERED),
+      'StateTransition',
+      'proveWalletUpdate',
+      [
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'Field',
+        'WalletRegistryWitness',
+        'LifecycleWitness',
+        'Field',
+        'Field',
+        'Field',
+      ],
+      [
+        DOMAIN_TAG_MEMBER,
+        preimageFields[0]!,
+        preimageFields[1]!,
+        preimageFields[2]!,
+        preimageFields[3]!,
+        preimageFields[4]!,
+        preimageFields[5]!,
+        EMPTY_CREDENTIAL_ROOT,
+        Field(0),
+        inventoryRoot,
+        mintRegWitness,
+        mintLcWitness,
+        currentRegRoot,
+        currentLcRoot,
+        LIFECYCLE_REGISTERED,
+      ],
+      () =>
+        StateTransitionProgram.proveWalletUpdate(
+          DOMAIN_TAG_MEMBER,
+          preimageFields[0]!,
+          preimageFields[1]!,
+          preimageFields[2]!,
+          preimageFields[3]!,
+          preimageFields[4]!,
+          preimageFields[5]!,
+          EMPTY_CREDENTIAL_ROOT,
+          Field(0),
+          inventoryRoot,
+          mintRegWitness,
+          mintLcWitness,
+          currentRegRoot,
+          currentLcRoot,
+          LIFECYCLE_REGISTERED,
+        ),
     );
     const elapsedMint = performance.now() - startMint;
     this.emit('proof', 'enroll', `Step 4b: Wallet update proof generated (credential minted)`, 'complete', elapsedMint);
@@ -1986,7 +2271,11 @@ export class AdjudicationService {
     try {
       const enrollBatch = await this.l2Node.buildBatchDirect();
       if (enrollBatch) {
-        this.emit('offchain', 'enroll', `Enrollment batch #${enrollBatch.batchNumber} built & settled (${enrollBatch.transitionCount} transitions)`);
+        this.emit(
+          'offchain',
+          'enroll',
+          `Enrollment batch #${enrollBatch.batchNumber} built & settled (${enrollBatch.transitionCount} transitions)`,
+        );
       }
     } catch (e) {
       this.emit('offchain', 'enroll', `Enrollment batch build warning: ${e instanceof Error ? e.message : e}`);
@@ -1996,9 +2285,11 @@ export class AdjudicationService {
     // Deferred to after both proofs are batched so the proof chain is continuous.
     this.emit('offchain', 'enroll', 'Step 4c: Admin lifecycle transition REGISTERED → ELIGIBLE...', 'start');
     // D7 (A-33): a lifecycle change moves the roots; it waits until no device is proving against them
-    await this.l2Node.getSequencer().withRootsSettled(() => this.l2Node.getSequencer().adminMutate('enroll: REGISTERED → ELIGIBLE', ({ setLifecycle }) => {
-      setLifecycle(walletId, LIFECYCLE_ELIGIBLE);
-    }));
+    await this.l2Node.getSequencer().withRootsSettled(() =>
+      this.l2Node.getSequencer().adminMutate('enroll: REGISTERED → ELIGIBLE', ({ setLifecycle }) => {
+        setLifecycle(walletId, LIFECYCLE_ELIGIBLE);
+      }),
+    );
     this.emit('offchain', 'enroll', 'Step 4c: Lifecycle updated to ELIGIBLE (admin op)', 'complete');
 
     this.emitViz('viz:enrollment:lifecycle', 'enrollment', {
@@ -2033,7 +2324,11 @@ export class AdjudicationService {
     // 5. Provider network credentialing
     const network = PLAN_NETWORKS[planId] || { prescriberIndices: [], pharmacyIndices: [] };
     this.emit('offchain', 'enroll', `Step 5: Insurer issues eligibility notifications to in-network providers...`, 'start');
-    this.emit('info', 'enroll', `         ${network.prescriberIndices.length} prescribers + ${network.pharmacyIndices.length} pharmacies in ${planId} network`);
+    this.emit(
+      'info',
+      'enroll',
+      `         ${network.prescriberIndices.length} prescribers + ${network.pharmacyIndices.length} pharmacies in ${planId} network`,
+    );
     for (const idx of network.prescriberIndices) {
       const p = PRESCRIBERS[idx];
       this.emit('info', 'enroll', `    → ${prescriberDisplayName(p)}, ${p.credential} (${p.specialty}) — CREDENTIALED`);
@@ -2115,12 +2410,21 @@ export class AdjudicationService {
     this.emit('info', 'enroll', `    Deductible:  $500.00 individual / $1,000.00 family`);
     this.emit('info', 'enroll', `    OOPM:        $8,000.00 individual / $16,000.00 family`);
     this.emit('info', 'enroll', `    Formulary:   ${MEDICATIONS.length} medications across 4 tiers`);
-    this.emit('info', 'enroll', `    Network:     ${network.prescriberIndices.length} prescribers, ${network.pharmacyIndices.length} pharmacies`);
+    this.emit(
+      'info',
+      'enroll',
+      `    Network:     ${network.prescriberIndices.length} prescribers, ${network.pharmacyIndices.length} pharmacies`,
+    );
     this.emit('info', 'enroll', `    Family:      ${member.familyId} (${member.relationship})`);
 
     // Auto-send welcome notification
-    this.sendInternalMessage(this.adminWalletId, walletId, MSG_TYPE_NOTIFICATION,
-      'Welcome', `Welcome to PLAN-GOLD-2026! Your benefits are now active under group ${groupId}.`);
+    this.sendInternalMessage(
+      this.adminWalletId,
+      walletId,
+      MSG_TYPE_NOTIFICATION,
+      'Welcome',
+      `Welcome to PLAN-GOLD-2026! Your benefits are now active under group ${groupId}.`,
+    );
 
     return {
       walletId: walletId.toString(),
@@ -2169,7 +2473,7 @@ export class AdjudicationService {
       familyId: member.familyId,
       relationship: member.relationship,
       employeeId: member.employeeId,
-      familyMembers: getMembersByFamily(member.familyId).map(fm => ({
+      familyMembers: getMembersByFamily(member.familyId).map((fm) => ({
         firstName: fm.localData.firstName,
         lastName: fm.localData.lastName,
         relationship: fm.relationship,
@@ -2187,11 +2491,11 @@ export class AdjudicationService {
       providerNetwork: {
         prescriberCount: network.prescriberIndices.length,
         pharmacyCount: network.pharmacyIndices.length,
-        prescribers: network.prescriberIndices.map(i => {
+        prescribers: network.prescriberIndices.map((i) => {
           const p = PRESCRIBERS[i];
           return { index: i, name: `${prescriberDisplayName(p)}`, credential: p.credential, specialty: p.specialty };
         }),
-        pharmacies: network.pharmacyIndices.map(i => {
+        pharmacies: network.pharmacyIndices.map((i) => {
           const p = PHARMACIES[i];
           return { index: i, name: p.storeName, type: p.pharmacyTypeDesc };
         }),
@@ -2217,8 +2521,12 @@ export class AdjudicationService {
   approveMember(a: Omit<MemberApproval, 'approvedAt'>): { approved: true; alreadyApproved: boolean } {
     const existing = this.approvedMembers.get(a.walletId);
     if (existing) {
-      if (existing.groupIdHash !== a.groupIdHash || existing.planIdHash !== a.planIdHash || existing.planId !== a.planId
-        || (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)) {
+      if (
+        existing.groupIdHash !== a.groupIdHash ||
+        existing.planIdHash !== a.planIdHash ||
+        existing.planId !== a.planId ||
+        (existing.familyIdHash ?? null) !== (a.familyIdHash ?? null)
+      ) {
         throw new RegistrationRefused(409, 'This wallet is already approved under a different group, plan or family');
       }
       return { approved: true, alreadyApproved: true };
@@ -2256,7 +2564,10 @@ export class AdjudicationService {
    */
   private async verifyOwnershipProof(walletId: string, json: unknown): Promise<string> {
     if (typeof json !== 'string' || json.length === 0) {
-      throw new RegistrationRefused(400, 'register-member takes the wallet ownership proof made on the device (ProofGate.verifyMember); the identity preimage is never sent');
+      throw new RegistrationRefused(
+        400,
+        'register-member takes the wallet ownership proof made on the device (ProofGate.verifyMember); the identity preimage is never sent',
+      );
     }
     if (!this.proofGateVk) throw new Error('ProofGate verification key not available — programs not compiled');
     let proof: InstanceType<typeof ProofGateProof>;
@@ -2291,7 +2602,12 @@ export class AdjudicationService {
    * must rebuild the root named, which is checked here before anything is queued. A claim rides
    * along by being committed on the sequencer against this wallet and this root.
    */
-  private queueWalletUpdate(enrolled: EnrolledMember, reason: string, phase: string, claim?: import('../l2/l2-types.js').ClaimSubmissionMetadata): PendingWalletUpdate {
+  private queueWalletUpdate(
+    enrolled: EnrolledMember,
+    reason: string,
+    phase: string,
+    claim?: import('../l2/l2-types.js').ClaimSubmissionMetadata,
+  ): PendingWalletUpdate {
     const walletId = enrolled.walletId.toString();
     const queued = this.pendingUpdatesFor(walletId);
     const oldInventoryRoot = queued.length > 0 ? queued[queued.length - 1].newInventoryRoot : enrolled.credentialInventoryRoot.toString();
@@ -2309,12 +2625,18 @@ export class AdjudicationService {
     };
     const check = rederiveInventoryRoot(payload);
     if (check.inventoryRoot !== payload.newInventoryRoot) {
-      throw new Error(`wallet update (${reason}): the credential cannot be rebuilt from its parts (${check.inventoryRoot} vs ${payload.newInventoryRoot})`);
+      throw new Error(
+        `wallet update (${reason}): the credential cannot be rebuilt from its parts (${check.inventoryRoot} vs ${payload.newInventoryRoot})`,
+      );
     }
     if (claim) this.l2Node.getSequencer().commitPendingClaim(walletId, payload.newInventoryRoot, claim);
     const pending: PendingWalletUpdate = { ...payload, phase, status: 'pending' };
     this.pendingWalletUpdates.set(pending.updateId, pending);
-    this.emit('info', phase, `  └─ Wallet update ${pending.updateId} (${reason}) queued for the member's device to prove${claim ? '; its claim is committed on the sequencer' : ''}`);
+    this.emit(
+      'info',
+      phase,
+      `  └─ Wallet update ${pending.updateId} (${reason}) queued for the member's device to prove${claim ? '; its claim is committed on the sequencer' : ''}`,
+    );
     return pending;
   }
 
@@ -2334,7 +2656,10 @@ export class AdjudicationService {
     if (!receipt || receipt.walletId !== walletId) throw new RegistrationRefused(404, 'No receipt by that id for this wallet');
     const live = seq.getWalletStateForRpc(walletId);
     if (live.credentialInventoryRoot !== update.newInventoryRoot) {
-      throw new RegistrationRefused(409, `The ledger holds credential root ${live.credentialInventoryRoot.slice(0, 12)}…, not this update's`);
+      throw new RegistrationRefused(
+        409,
+        `The ledger holds credential root ${live.credentialInventoryRoot.slice(0, 12)}…, not this update's`,
+      );
     }
     update.status = 'applied';
     update.receiptId = receiptId;
@@ -2357,20 +2682,34 @@ export class AdjudicationService {
    * wallet-signed request and proved wallet update are the consent; the PCP verification proof
    * belongs at prescribing (B5). A fixture member, which has no device, keeps the console path.
    */
-  async assignPcpForDevice(opts: { walletId: string; pcpWalletId: string; effectiveDate: string; specialty: string; consentScopeFlags: number }): Promise<Record<string, unknown>> {
+  async assignPcpForDevice(opts: {
+    walletId: string;
+    pcpWalletId: string;
+    effectiveDate: string;
+    specialty: string;
+    consentScopeFlags: number;
+  }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new RegistrationRefused(503, 'Programs not compiled yet');
     const enrolled = this.enrolledMembers.get(opts.walletId);
     if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
-    if (enrolled.memberIndex >= 0) throw new RegistrationRefused(409, 'A fixture member is assigned a primary-care prescriber through the console (POST /interactive/assign-pcp)');
+    if (enrolled.memberIndex >= 0)
+      throw new RegistrationRefused(
+        409,
+        'A fixture member is assigned a primary-care prescriber through the console (POST /interactive/assign-pcp)',
+      );
     if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'A revoked member cannot name a primary-care prescriber');
     const effectiveDate = opts.effectiveDate.replace(/-/g, '');
     if (!/^\d{8}$/.test(effectiveDate)) throw new RegistrationRefused(400, 'effectiveDate must be a calendar date, CCYYMMDD');
     if (!/^\d+$/.test(opts.pcpWalletId)) throw new RegistrationRefused(400, 'pcpWalletId must be a decimal wallet id');
-    if (!Number.isInteger(opts.consentScopeFlags) || opts.consentScopeFlags < 0 || opts.consentScopeFlags > 7) throw new RegistrationRefused(400, 'consentScopeFlags is a bitfield 0..7');
-    if (typeof opts.specialty !== 'string' || opts.specialty.length === 0 || opts.specialty.length > 64) throw new RegistrationRefused(400, 'specialty must be 1..64 characters');
+    if (!Number.isInteger(opts.consentScopeFlags) || opts.consentScopeFlags < 0 || opts.consentScopeFlags > 7)
+      throw new RegistrationRefused(400, 'consentScopeFlags is a bitfield 0..7');
+    if (typeof opts.specialty !== 'string' || opts.specialty.length === 0 || opts.specialty.length > 64)
+      throw new RegistrationRefused(400, 'specialty must be 1..64 characters');
     const provider = this.l2Node.getSequencer().getProvider(opts.pcpWalletId);
-    if (!provider || provider.metadata.providerType !== 'prescriber') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
-    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) throw new RegistrationRefused(409, 'The named prescriber is not active');
+    if (!provider || provider.metadata.providerType !== 'prescriber')
+      throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
+    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE)
+      throw new RegistrationRefused(409, 'The named prescriber is not active');
     const pcpData = buildPcpAssignmentData({
       memberWalletId: enrolled.walletId.toBigInt().toString(),
       pcpWalletId: BigInt(opts.pcpWalletId).toString(),
@@ -2393,7 +2732,11 @@ export class AdjudicationService {
     const outcome = await this.updateCredentialAndSubmitToL2(enrolled, 'pcp');
     enrolled.pcpAssignment = pcpData;
     enrolled.pcpPrescriberIndex = undefined;
-    this.emit('info', 'pcp', `  Primary care named by the member's device: prescriber ${opts.pcpWalletId.slice(0, 12)}… — the device proves the wallet update`);
+    this.emit(
+      'info',
+      'pcp',
+      `  Primary care named by the member's device: prescriber ${opts.pcpWalletId.slice(0, 12)}… — the device proves the wallet update`,
+    );
     return {
       walletId: opts.walletId,
       pcpWalletId: opts.pcpWalletId,
@@ -2406,9 +2749,15 @@ export class AdjudicationService {
   }
 
   /** The authorization that lets this prescriber write for this member now, if any (B5). */
-  private prescriberAuthorizationFor(memberWalletId: string, prescriberWalletId: string, ndcHash: string, now = Date.now()): PrescriberAuthorization | undefined {
-    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).find(a =>
-      a.prescriberWalletId === prescriberWalletId && a.expiresAt > now && (a.ndcHash === null || a.ndcHash === ndcHash));
+  private prescriberAuthorizationFor(
+    memberWalletId: string,
+    prescriberWalletId: string,
+    ndcHash: string,
+    now = Date.now(),
+  ): PrescriberAuthorization | undefined {
+    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).find(
+      (a) => a.prescriberWalletId === prescriberWalletId && a.expiresAt > now && (a.ndcHash === null || a.ndcHash === ndcHash),
+    );
   }
 
   /**
@@ -2420,11 +2769,17 @@ export class AdjudicationService {
    * before a prescriber reads the member's pre-script quote (registered with the quote, registerInteractiveRoutes), and a
    * prescriber's own prior-authorization request and status read are refused without it.
    */
-  prescribingConsentFor(memberWalletId: string, prescriberWalletId: string, ndcHash: string, now = Date.now()): 'pcp' | 'authorization' | null {
+  prescribingConsentFor(
+    memberWalletId: string,
+    prescriberWalletId: string,
+    ndcHash: string,
+    now = Date.now(),
+  ): 'pcp' | 'authorization' | null {
     const enrolled = this.enrolledMembers.get(memberWalletId);
     if (!enrolled || !/^\d+$/.test(prescriberWalletId)) return null;
     const provider = this.l2Node.getSequencer().getProvider(prescriberWalletId);
-    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) return null;
+    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE)
+      return null;
     if (enrolled.pcpAssignment !== undefined && enrolled.pcpAssignment.pcpWalletId.toString() === prescriberWalletId) return 'pcp';
     return this.prescriberAuthorizationFor(memberWalletId, prescriberWalletId, ndcHash, now) ? 'authorization' : null;
   }
@@ -2448,7 +2803,7 @@ export class AdjudicationService {
     const enrolled = this.enrolledMembers.get(walletId);
     if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
     if (held) {
-      enrolled.held = { reason: reason.slice(0, 200) || 'A report about this member\'s enrollment is reviewed', at: Date.now() };
+      enrolled.held = { reason: reason.slice(0, 200) || "A report about this member's enrollment is reviewed", at: Date.now() };
       this.emit('info', 'hold', `  Coverage held for ${walletId.slice(0, 12)}…: ${enrolled.held.reason}`);
     } else if (enrolled.held) {
       enrolled.held = undefined;
@@ -2467,7 +2822,7 @@ export class AdjudicationService {
 
   /** The member's live authorizations, expired ones left out (B5). */
   activePrescriberAuthorizations(memberWalletId: string, now = Date.now()): PrescriberAuthorization[] {
-    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).filter(a => a.expiresAt > now);
+    return (this.prescriberAuthorizations.get(memberWalletId) ?? []).filter((a) => a.expiresAt > now);
   }
 
   /**
@@ -2477,25 +2832,45 @@ export class AdjudicationService {
    * for a visit (1 to 72 hours, 24 by default); createPrescription refuses without it and consumes
    * nothing. Wallet-signed: only the member's own key grants it. No proof: the signature is the consent.
    */
-  async authorizePrescriber(opts: { walletId: string; prescriberWalletId: string; ndcHash?: string | null; hours?: number }): Promise<PrescriberAuthorization> {
+  async authorizePrescriber(opts: {
+    walletId: string;
+    prescriberWalletId: string;
+    ndcHash?: string | null;
+    hours?: number;
+  }): Promise<PrescriberAuthorization> {
     const enrolled = this.enrolledMembers.get(opts.walletId);
     if (!enrolled) throw new RegistrationRefused(404, 'This wallet is not registered with the engine');
     if (enrolled.memberIndex >= 0) throw new RegistrationRefused(409, 'A fixture member has no device to authorize from');
     if (enrolled.lifecycle === 'REVOKED') throw new RegistrationRefused(409, 'A revoked member cannot authorize a prescriber');
     if (!/^\d+$/.test(opts.prescriberWalletId)) throw new RegistrationRefused(400, 'prescriberWalletId must be a decimal wallet id');
     const ndcHash = opts.ndcHash == null || opts.ndcHash === '' ? null : String(opts.ndcHash);
-    if (ndcHash !== null && !/^\d+$/.test(ndcHash)) throw new RegistrationRefused(400, 'ndcHash must be a decimal hash, or omitted for any medication');
+    if (ndcHash !== null && !/^\d+$/.test(ndcHash))
+      throw new RegistrationRefused(400, 'ndcHash must be a decimal hash, or omitted for any medication');
     const hours = opts.hours ?? 24;
     if (!Number.isFinite(hours) || hours < 1 || hours > 72) throw new RegistrationRefused(400, 'hours must be between 1 and 72');
     const provider = this.l2Node.getSequencer().getProvider(opts.prescriberWalletId);
-    if (!provider || provider.metadata.providerType !== 'prescriber') throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
-    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) throw new RegistrationRefused(409, 'The named prescriber is not active');
+    if (!provider || provider.metadata.providerType !== 'prescriber')
+      throw new RegistrationRefused(404, 'The named wallet is not a credentialed prescriber');
+    if (Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE)
+      throw new RegistrationRefused(409, 'The named prescriber is not active');
     const prescriberWalletId = BigInt(opts.prescriberWalletId).toString();
     const now = Date.now();
-    const authorization: PrescriberAuthorization = { memberWalletId: opts.walletId, prescriberWalletId, ndcHash, grantedAt: now, expiresAt: now + hours * 3_600_000 };
-    const kept = this.activePrescriberAuthorizations(opts.walletId, now).filter(a => !(a.prescriberWalletId === prescriberWalletId && a.ndcHash === ndcHash));
+    const authorization: PrescriberAuthorization = {
+      memberWalletId: opts.walletId,
+      prescriberWalletId,
+      ndcHash,
+      grantedAt: now,
+      expiresAt: now + hours * 3_600_000,
+    };
+    const kept = this.activePrescriberAuthorizations(opts.walletId, now).filter(
+      (a) => !(a.prescriberWalletId === prescriberWalletId && a.ndcHash === ndcHash),
+    );
     this.prescriberAuthorizations.set(opts.walletId, [...kept, authorization]);
-    this.emit('info', 'prescribe', `  The member's device authorized prescriber ${prescriberWalletId.slice(0, 12)}… for ${hours} h${ndcHash ? ' (one medication)' : ''}`);
+    this.emit(
+      'info',
+      'prescribe',
+      `  The member's device authorized prescriber ${prescriberWalletId.slice(0, 12)}… for ${hours} h${ndcHash ? ' (one medication)' : ''}`,
+    );
     return authorization;
   }
 
@@ -2506,7 +2881,7 @@ export class AdjudicationService {
     displayName: string;
     /** Display only, as the device reports it. The family is the insurer's approval's (A-34); the employee ID stays with the employer (I5). */
     relationship?: string;
-    publicKeyHex?: string;     // X25519 public key from member's device (private key never leaves device)
+    publicKeyHex?: string; // X25519 public key from member's device (private key never leaves device)
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet — wait for ZkProgram compilation to finish');
 
@@ -2586,7 +2961,11 @@ export class AdjudicationService {
     const formulary = this.publishedPlanFormulary(storedPlan);
     const plan = planAsPublished(storedPlan);
     const eligibilityData = this.planEligibilityData(approval.planId, approval.groupIdHash, plan, formulary);
-    this.emit('info', 'register', `  Plan ${approval.planId}: copay $${(formulary.copayAmountCents / 100).toFixed(2)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs)`);
+    this.emit(
+      'info',
+      'register',
+      `  Plan ${approval.planId}: copay $${(formulary.copayAmountCents / 100).toFixed(2)}, formulary ${truncField(formulary.root)} (${formulary.registry.count} drugs)`,
+    );
     const binding = bindPlan(plan, { prescribers: this.prescriberWalletIds, pharmacies: this.pharmacyWalletIds });
     const accumulatorData = buildAccumulatorData({
       planYear: '20260101',
@@ -2622,9 +3001,11 @@ export class AdjudicationService {
     // already registered by the member's own registration proof; provision() also covers a
     // wallet enrolled without one.
     // D7 (A-33): a lifecycle change moves the roots; it waits until no device is proving against them
-    await this.l2Node.getSequencer().withRootsSettled(() => this.l2Node.getSequencer().adminMutate('register member: ELIGIBLE', ({ provision }) => {
-      provision(walletId, LIFECYCLE_ELIGIBLE);
-    }));
+    await this.l2Node.getSequencer().withRootsSettled(() =>
+      this.l2Node.getSequencer().adminMutate('register member: ELIGIBLE', ({ provision }) => {
+        provision(walletId, LIFECYCLE_ELIGIBLE);
+      }),
+    );
 
     // Credential mint is a proven wallet update (current credential root → inventoryRoot,
     // nonce + 1) that the sequencer checks against its own tree, like any other change.
@@ -2648,7 +3029,11 @@ export class AdjudicationService {
     if (opts.publicKeyHex) {
       // Validate: must be exactly 64 hex chars (32 bytes = X25519 public key)
       if (!/^[0-9a-f]{64}$/i.test(opts.publicKeyHex)) {
-        this.emit('error', 'register', `Invalid publicKeyHex (expected 64 hex chars, got ${opts.publicKeyHex.length}) — skipping key registration`);
+        this.emit(
+          'error',
+          'register',
+          `Invalid publicKeyHex (expected 64 hex chars, got ${opts.publicKeyHex.length}) — skipping key registration`,
+        );
       } else {
         const devicePublicKey = Buffer.from(opts.publicKeyHex, 'hex');
         const { pubKeyX, pubKeyY } = publicKeyToFields(devicePublicKey);
@@ -2660,7 +3045,7 @@ export class AdjudicationService {
 
     // Store enrolled member state
     const enrolled: EnrolledMember = {
-      memberIndex: -1,  // not from seed data
+      memberIndex: -1, // not from seed data
       walletId,
       walletIdStr,
       displayName: opts.displayName,
@@ -2747,11 +3132,7 @@ export class AdjudicationService {
    * PENDING request that the insurer must approve or deny. A prescriber's own request goes through
    * requestPriorAuthAsPrescriber, which takes the prescriber from its signature and checks the member's consent and plan.
    */
-  requestPriorAuth(opts: {
-    memberWalletId: string;
-    prescriberIndex: number;
-    ndcHash: string;
-  }): Record<string, unknown> {
+  requestPriorAuth(opts: { memberWalletId: string; prescriberIndex: number; ndcHash: string }): Record<string, unknown> {
     const medication = this.getMedicationByNdcHash(opts.ndcHash);
     if (!medication.formularyEntry.requiresPriorAuth) {
       throw new Error(`${medication.brandName} does not require prior authorization`);
@@ -2765,12 +3146,12 @@ export class AdjudicationService {
 
     // Check for existing PA (pending or approved) for this member+medication
     for (const [_, pa] of this.priorAuths) {
-      if (pa.memberWalletId === opts.memberWalletId &&
-          pa.ndcHash === opts.ndcHash &&
-          (pa.status === 'PENDING' || pa.status === 'APPROVED')) {
-        throw new Error(
-          `Prior auth already ${pa.status.toLowerCase()} for ${medication.brandName} (${pa.id})`
-        );
+      if (
+        pa.memberWalletId === opts.memberWalletId &&
+        pa.ndcHash === opts.ndcHash &&
+        (pa.status === 'PENDING' || pa.status === 'APPROVED')
+      ) {
+        throw new Error(`Prior auth already ${pa.status.toLowerCase()} for ${medication.brandName} (${pa.id})`);
       }
     }
 
@@ -2789,7 +3170,11 @@ export class AdjudicationService {
     const prescriberName = `${prescriberDisplayName(prescriber)}`;
     this.emit('phase', 'prior-auth', `═══ Prior Auth Request: ${medication.brandName} ═══`);
     this.emit('offchain', 'prior-auth', `${prescriberName} requests PA for ${enrolled.displayName}`);
-    this.emit('info', 'prior-auth', `  Medication: ${medication.brandName} ${medication.strength} (Tier ${medication.formularyEntry.tierLevel})`);
+    this.emit(
+      'info',
+      'prior-auth',
+      `  Medication: ${medication.brandName} ${medication.strength} (Tier ${medication.formularyEntry.tierLevel})`,
+    );
     this.emit('info', 'prior-auth', `  PA ID: ${paId} — Status: PENDING`);
     this.emit('info', 'prior-auth', `  Awaiting insurer review...`);
 
@@ -2803,8 +3188,13 @@ export class AdjudicationService {
 
     // Auto-send PA_REQUEST message (prescriber → insurer)
     const prescriberWalletId = this.prescriberWalletIds.get(opts.prescriberIndex)!;
-    this.sendInternalMessage(prescriberWalletId, this.adminWalletId, MSG_TYPE_PA_REQUEST,
-      `PA Request: ${medication.brandName}`, `Prior auth requested for ${medication.brandName} ${medication.strength} — patient ${enrolled.walletIdStr}`);
+    this.sendInternalMessage(
+      prescriberWalletId,
+      this.adminWalletId,
+      MSG_TYPE_PA_REQUEST,
+      `PA Request: ${medication.brandName}`,
+      `Prior auth requested for ${medication.brandName} ${medication.strength} — patient ${enrolled.walletIdStr}`,
+    );
 
     return {
       paId,
@@ -2850,12 +3240,19 @@ export class AdjudicationService {
     const reasonProblem = plainTextError(reason);
     if (reasonProblem) throw new RegistrationRefused(400, reasonProblem);
     if (!this.prescribingConsentFor(opts.memberWalletId, opts.prescriberWalletId, opts.ndcHash)) {
-      throw new RegistrationRefused(403, "This prescriber may not prescribe this drug for this member: it is not the primary-care prescriber the member named and holds no authorization from the member's device for this visit");
+      throw new RegistrationRefused(
+        403,
+        "This prescriber may not prescribe this drug for this member: it is not the primary-care prescriber the member named and holds no authorization from the member's device for this visit",
+      );
     }
     const prescriberIndex = this.prescriberIndexOf(opts.prescriberWalletId);
     if (prescriberIndex === null) throw new RegistrationRefused(409, 'This prescriber is not a provider the engine can adjudicate for');
     const enrolled = this.enrolledMembers.get(opts.memberWalletId)!;
-    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'no prior authorization can be requested');
+    refuseUnlessLedgerBillable(
+      this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()),
+      enrolled,
+      'no prior authorization can be requested',
+    );
     const medication = this.medByNdcHash.get(opts.ndcHash);
     if (!medication) throw new RegistrationRefused(404, 'The drug is not in the formulary catalog');
     let entry: FormularyEntry;
@@ -2864,9 +3261,12 @@ export class AdjudicationService {
     } catch (err) {
       if (!(err instanceof RegistrationRefused)) throw err;
       // the reason names no plan, as the quote's does
-      throw new RegistrationRefused(err.status, err.status === 403
-        ? `${medication.brandName} is not on the formulary of the member's plan`
-        : "The member's plan cannot be read until the insurer publishes it again");
+      throw new RegistrationRefused(
+        err.status,
+        err.status === 403
+          ? `${medication.brandName} is not on the formulary of the member's plan`
+          : "The member's plan cannot be read until the insurer publishes it again",
+      );
     }
     if (entry.requiresPriorAuth.toBigInt() !== 1n) {
       throw new RegistrationRefused(409, `${medication.brandName} needs no prior authorization on the member's plan`);
@@ -2874,11 +3274,16 @@ export class AdjudicationService {
     const unit = medication.pricingUnit ?? '';
     if (BigInt(quantityMilli(opts.quantity)) > entry.maxQuantityPerFill.toBigInt()) {
       const limit = quantityFromMilli(Number(entry.maxQuantityPerFill.toBigInt()));
-      throw new RegistrationRefused(409, `The member's plan allows at most ${formatQuantity(limit, unit)} of ${medication.brandName} per fill, and an approval does not lift that limit`);
+      throw new RegistrationRefused(
+        409,
+        `The member's plan allows at most ${formatQuantity(limit, unit)} of ${medication.brandName} per fill, and an approval does not lift that limit`,
+      );
     }
     const current = this.priorAuthStatusOf(opts.memberWalletId, opts.ndcHash);
-    if (current.status === 'pending') throw new RegistrationRefused(409, `A prior authorization for ${medication.brandName} is already pending for this member`);
-    if (current.status === 'approved') throw new RegistrationRefused(409, `${medication.brandName} is already authorized for this member through ${current.expiresOn}`);
+    if (current.status === 'pending')
+      throw new RegistrationRefused(409, `A prior authorization for ${medication.brandName} is already pending for this member`);
+    if (current.status === 'approved')
+      throw new RegistrationRefused(409, `${medication.brandName} is already authorized for this member through ${current.expiresOn}`);
 
     this.paCounter++;
     const paId = `PA-${String(this.paCounter).padStart(4, '0')}`;
@@ -2897,10 +3302,18 @@ export class AdjudicationService {
     const prescriberName = prescriberDisplayName(PRESCRIBERS[prescriberIndex]);
     this.emit('phase', 'prior-auth', `═══ Prior Auth Request: ${medication.brandName} ═══`);
     this.emit('offchain', 'prior-auth', `${prescriberName} requests PA, signed as the prescriber's wallet`);
-    this.emit('info', 'prior-auth', `  ${paId} — Status: PENDING, ${formatQuantity(opts.quantity, unit)} per fill — awaiting insurer review`);
-    this.sendInternalMessage(this.prescriberWalletIds.get(prescriberIndex)!, this.adminWalletId, MSG_TYPE_PA_REQUEST,
+    this.emit(
+      'info',
+      'prior-auth',
+      `  ${paId} — Status: PENDING, ${formatQuantity(opts.quantity, unit)} per fill — awaiting insurer review`,
+    );
+    this.sendInternalMessage(
+      this.prescriberWalletIds.get(prescriberIndex)!,
+      this.adminWalletId,
+      MSG_TYPE_PA_REQUEST,
       `PA Request: ${medication.brandName}`,
-      `Prior auth requested for ${medication.brandName} ${medication.strength}, ${formatQuantity(opts.quantity, unit)} per fill — patient ${enrolled.walletIdStr}${reason ? `\nReason: ${reason}` : ''}`);
+      `Prior auth requested for ${medication.brandName} ${medication.strength}, ${formatQuantity(opts.quantity, unit)} per fill — patient ${enrolled.walletIdStr}${reason ? `\nReason: ${reason}` : ''}`,
+    );
 
     return {
       status: 'pending',
@@ -2919,16 +3332,21 @@ export class AdjudicationService {
    */
   priorAuthStatusOf(memberWalletId: string, ndcHash: string, now = Date.now()): PriorAuthStatus {
     const records = [...this.priorAuths.values()]
-      .filter(pa => pa.memberWalletId === memberWalletId && pa.ndcHash === ndcHash)
+      .filter((pa) => pa.memberWalletId === memberWalletId && pa.ndcHash === ndcHash)
       .sort((a, b) => a.requestedAt - b.requestedAt);
-    const pending = records.filter(pa => pa.status === 'PENDING').pop();
+    const pending = records.filter((pa) => pa.status === 'PENDING').pop();
     if (pending) return { status: 'pending', requestedAt: pending.requestedAt };
     const today = ccyymmddOf(now);
     const lastDayOf = (pa: PriorAuthState): string | null =>
       pa.priorAuthData ? pa.priorAuthData.expirationDate.toBigInt().toString().padStart(8, '0') : null;
-    const inForce = records.filter(pa => pa.status === 'APPROVED' && (lastDayOf(pa) ?? '') >= today).pop();
+    const inForce = records.filter((pa) => pa.status === 'APPROVED' && (lastDayOf(pa) ?? '') >= today).pop();
     if (inForce) {
-      return { status: 'approved', requestedAt: inForce.requestedAt, resolvedAt: inForce.resolvedAt, expiresOn: isoDayOf(lastDayOf(inForce)!) };
+      return {
+        status: 'approved',
+        requestedAt: inForce.requestedAt,
+        resolvedAt: inForce.resolvedAt,
+        expiresOn: isoDayOf(lastDayOf(inForce)!),
+      };
     }
     const latest = records[records.length - 1];
     if (latest?.status === 'DENIED') return { status: 'denied', requestedAt: latest.requestedAt, resolvedAt: latest.resolvedAt };
@@ -2943,9 +3361,9 @@ export class AdjudicationService {
    */
   listPriorAuths(filter: 'PENDING' | 'RESOLVED' | 'ALL'): PriorAuthListing[] {
     return [...this.priorAuths.values()]
-      .filter(pa => filter === 'ALL' || (filter === 'PENDING' ? pa.status === 'PENDING' : pa.status !== 'PENDING'))
+      .filter((pa) => filter === 'ALL' || (filter === 'PENDING' ? pa.status === 'PENDING' : pa.status !== 'PENDING'))
       .sort((a, b) => a.requestedAt - b.requestedAt)
-      .map(pa => {
+      .map((pa) => {
         const medication = this.medByNdcHash.get(pa.ndcHash);
         const prescriber = PRESCRIBERS[pa.prescriberIndex];
         return {
@@ -2954,7 +3372,7 @@ export class AdjudicationService {
           memberWalletId: pa.memberWalletId,
           ndcHash: pa.ndcHash,
           ndc: medication?.ndcFormatted ?? null,
-          drugName: medication ? (medication.genericName || medication.brandName) : null,
+          drugName: medication ? medication.genericName || medication.brandName : null,
           quantity: pa.requestedQuantity ?? null,
           pricingUnit: medication?.pricingUnit ?? null,
           prescriberName: prescriber ? prescriberDisplayName(prescriber) : null,
@@ -2972,7 +3390,10 @@ export class AdjudicationService {
    */
   priorAuthStatusForPrescriber(prescriberWalletId: string, memberWalletId: string, ndcHash: string): PriorAuthStatus {
     if (!this.prescribingConsentFor(memberWalletId, prescriberWalletId, ndcHash)) {
-      throw new RegistrationRefused(403, "This prescriber may not prescribe this drug for this member, so it may not read the member's prior authorization for it");
+      throw new RegistrationRefused(
+        403,
+        "This prescriber may not prescribe this drug for this member, so it may not read the member's prior authorization for it",
+      );
     }
     return this.priorAuthStatusOf(memberWalletId, ndcHash);
   }
@@ -3007,7 +3428,10 @@ export class AdjudicationService {
     // (option A, step 1). Nothing awaits between this read and the point below where the index is taken.
     const paLeafIndex = this.nextPaLeafIndex.get(paState.memberWalletId) ?? 1n;
     if (paLeafIndex >= ACCUMULATOR_LEAF_INDEX) {
-      throw new RegistrationRefused(409, `No prior-authorization leaf is left in this member's credential (leaves 1 to ${ACCUMULATOR_LEAF_INDEX - 1n} are taken and leaf ${ACCUMULATOR_LEAF_INDEX} is its accumulator); ${paId} stays pending`);
+      throw new RegistrationRefused(
+        409,
+        `No prior-authorization leaf is left in this member's credential (leaves 1 to ${ACCUMULATOR_LEAF_INDEX - 1n} are taken and leaf ${ACCUMULATOR_LEAF_INDEX} is its accumulator); ${paId} stays pending`,
+      );
     }
     // Plan-bound formularies: the PA is proven against the formulary the member's credential names; a drug not on it is
     // refused here, before the PA is written into the member's forest.
@@ -3056,11 +3480,7 @@ export class AdjudicationService {
       // 2. Insert PA into member's forest ACCESS_CONTROL tree
       this.emit('offchain', 'prior-auth', `  Inserting PA into ACCESS_CONTROL tree at leaf ${paLeafIndex}...`, 'start');
       const startInsert = performance.now();
-      enrolled.forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        paLeafIndex,
-        priorAuthData.commitment(),
-      );
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, paLeafIndex, priorAuthData.commitment());
 
       // 3. Update credential forestRoot to reflect the new tree state
       enrolled.credentialData = new CredentialData({
@@ -3088,10 +3508,45 @@ export class AdjudicationService {
       this.emit('proof', 'prior-auth', `  Generating AccessControl.provePriorAuth proof...`, 'start');
       const startProof = performance.now();
       await this.dispatchProof(
-        'AccessControl', 'provePriorAuth',
-        ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
-        [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)],
-        () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, paWitness, priorAuthData, formularyEntry, formularyWitness, dateToField('20260202'), quantityToField(approvedQuantity)),
+        'AccessControl',
+        'provePriorAuth',
+        [
+          'CredentialData',
+          'EligibilityData',
+          'ForestRoots',
+          'ForestMerkleWitness',
+          'ForestMerkleWitness',
+          'PriorAuthData',
+          'FormularyEntry',
+          'FormularyMerkleWitness',
+          'Field',
+          'Field',
+        ],
+        [
+          enrolled.credentialData,
+          enrolled.eligibilityData,
+          eligForestRoots,
+          eligWitness,
+          paWitness,
+          priorAuthData,
+          formularyEntry,
+          formularyWitness,
+          dateToField('20260202'),
+          quantityToField(approvedQuantity),
+        ],
+        () =>
+          AccessControlProgram.provePriorAuth(
+            enrolled.credentialData,
+            enrolled.eligibilityData,
+            eligForestRoots,
+            eligWitness,
+            paWitness,
+            priorAuthData,
+            formularyEntry,
+            formularyWitness,
+            dateToField('20260202'),
+            quantityToField(approvedQuantity),
+          ),
       );
       elapsedProof = performance.now() - startProof;
       this.emit('proof', 'prior-auth', `  AccessControl.provePriorAuth proof verified`, 'complete', elapsedProof);
@@ -3106,7 +3561,11 @@ export class AdjudicationService {
       enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, paLeafIndex, savedPaLeaf);
       enrolled.credentialData = savedCredential;
       if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
-      this.emit('error', 'prior-auth', `The approval of ${paId} was not recorded and its changes were put back; the request stays pending: ${paErr instanceof Error ? paErr.message : String(paErr)}`);
+      this.emit(
+        'error',
+        'prior-auth',
+        `The approval of ${paId} was not recorded and its changes were put back; the request stays pending: ${paErr instanceof Error ? paErr.message : String(paErr)}`,
+      );
       throw paErr;
     }
 
@@ -3116,11 +3575,20 @@ export class AdjudicationService {
     paState.paLeafIndex = paLeafIndex;
     paState.priorAuthData = priorAuthData;
 
-    this.emit('info', 'prior-auth', `  ${paId} APPROVED — ${medication.brandName} authorized for ${enrolled.displayName}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`);
+    this.emit(
+      'info',
+      'prior-auth',
+      `  ${paId} APPROVED — ${medication.brandName} authorized for ${enrolled.displayName}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`,
+    );
 
     // Auto-send PA_RESPONSE message (insurer → prescriber)
-    this.sendInternalMessage(this.adminWalletId, prescriberWalletId, MSG_TYPE_PA_RESPONSE,
-      `PA Approved: ${medication.brandName}`, `Prior auth approved — Auth #${paId}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`);
+    this.sendInternalMessage(
+      this.adminWalletId,
+      prescriberWalletId,
+      MSG_TYPE_PA_RESPONSE,
+      `PA Approved: ${medication.brandName}`,
+      `Prior auth approved — Auth #${paId}, ${formatQuantity(approvedQuantity, medication.pricingUnit)} per fill`,
+    );
 
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: 'Insurer',
@@ -3192,8 +3660,13 @@ export class AdjudicationService {
 
     // Auto-send PA_RESPONSE message (insurer → prescriber)
     const prescriberWalletId = this.prescriberWalletIds.get(paState.prescriberIndex)!;
-    this.sendInternalMessage(this.adminWalletId, prescriberWalletId, MSG_TYPE_PA_RESPONSE,
-      `PA Denied: ${medication.brandName}`, `Prior auth denied — ${paId}${reason ? `\nReason: ${reason}` : ''}`);
+    this.sendInternalMessage(
+      this.adminWalletId,
+      prescriberWalletId,
+      MSG_TYPE_PA_RESPONSE,
+      `PA Denied: ${medication.brandName}`,
+      `Prior auth denied — ${paId}${reason ? `\nReason: ${reason}` : ''}`,
+    );
 
     this.emitViz('viz:eligibility:verified', 'eligibility', {
       actor: 'Insurer',
@@ -3216,9 +3689,7 @@ export class AdjudicationService {
    */
   private findApprovedPa(memberWalletId: string, ndcHash: string): PriorAuthState | undefined {
     for (const [_, pa] of this.priorAuths) {
-      if (pa.memberWalletId === memberWalletId &&
-          pa.ndcHash === ndcHash &&
-          pa.status === 'APPROVED') {
+      if (pa.memberWalletId === memberWalletId && pa.ndcHash === ndcHash && pa.status === 'APPROVED') {
         return pa;
       }
     }
@@ -3288,9 +3759,7 @@ export class AdjudicationService {
     }
 
     // Find prerequisite medication names for the error message
-    const prereqMeds = MEDICATIONS
-      .filter(m => prereqClasses.includes(m.therapeuticClass))
-      .map(m => m.brandName);
+    const prereqMeds = MEDICATIONS.filter((m) => prereqClasses.includes(m.therapeuticClass)).map((m) => m.brandName);
 
     return {
       allowed: false,
@@ -3303,10 +3772,7 @@ export class AdjudicationService {
   /**
    * Check DEA schedule constraints for a medication.
    */
-  private checkDeaSchedule(
-    ndcHash: string,
-    prescriberIndex: number,
-  ): { allowed: boolean; warnings: string[] } {
+  private checkDeaSchedule(ndcHash: string, prescriberIndex: number): { allowed: boolean; warnings: string[] } {
     const medication = this.getMedicationByNdcHash(ndcHash);
     const prescriber = PRESCRIBERS[prescriberIndex];
     const warnings: string[] = [];
@@ -3323,9 +3789,7 @@ export class AdjudicationService {
       };
     }
 
-    warnings.push(
-      `DEA Schedule ${medication.deaSchedule} controlled substance — DEA# ${prescriber.deaNumber} verified`,
-    );
+    warnings.push(`DEA Schedule ${medication.deaSchedule} controlled substance — DEA# ${prescriber.deaNumber} verified`);
 
     if (medication.deaSchedule <= 2) {
       warnings.push('Schedule II: No refills permitted per federal law');
@@ -3348,7 +3812,7 @@ export class AdjudicationService {
     pharmacyIndex: number;
     quantity: number;
     refills: number;
-    rxId?: string;  // optional: prescriber-supplied ID for cross-node consistency
+    rxId?: string; // optional: prescriber-supplied ID for cross-node consistency
   }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet');
     // A prescription ID names one prescription for good. A caller's ID that is malformed or already in use
@@ -3385,17 +3849,32 @@ export class AdjudicationService {
     const pharmacyName = pharmacy.storeName;
 
     // A-18: a terminated member is not billable. The ledger decides, and the engine's copy follows it.
-    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'no prescription can be written');
+    refuseUnlessLedgerBillable(
+      this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()),
+      enrolled,
+      'no prescription can be written',
+    );
     // B5: a member with a device is prescribed for by the primary-care prescriber it consented to, or by a
     // prescriber its device authorized for this visit. The console's fixture members have no device. Checked before the
     // plan binding below, so a refused request builds no plan formulary.
     if (enrolled.memberIndex < 0) {
       const isPcp = enrolled.pcpAssignment !== undefined && enrolled.pcpAssignment.pcpWalletId.equals(prescriberWalletId).toBoolean();
-      const authorization = isPcp ? undefined : this.prescriberAuthorizationFor(opts.memberWalletId, prescriberWalletId.toString(), opts.ndcHash);
+      const authorization = isPcp
+        ? undefined
+        : this.prescriberAuthorizationFor(opts.memberWalletId, prescriberWalletId.toString(), opts.ndcHash);
       if (!isPcp && !authorization) {
-        throw new RegistrationRefused(403, `${prescriberName} is not this member's primary-care prescriber and holds no authorization from the member's device`);
+        throw new RegistrationRefused(
+          403,
+          `${prescriberName} is not this member's primary-care prescriber and holds no authorization from the member's device`,
+        );
       }
-      this.emit('info', 'prescribe', isPcp ? "  Consent: the member's primary-care prescriber" : `  Consent: authorized from the member's device until ${new Date(authorization!.expiresAt).toISOString()}`);
+      this.emit(
+        'info',
+        'prescribe',
+        isPcp
+          ? "  Consent: the member's primary-care prescriber"
+          : `  Consent: authorized from the member's device until ${new Date(authorization!.expiresAt).toISOString()}`,
+      );
     }
     // Plan-bound formularies: a member with a device is brought onto its plan as the insurer last published it
     // (copay, formulary, network, limits), so the network and formulary checks below are the plan's. Synchronous: no
@@ -3427,26 +3906,27 @@ export class AdjudicationService {
       if (!approvedPa) {
         // Check if there's a pending PA
         const pendingPa = [...this.priorAuths.values()].find(
-          pa => pa.memberWalletId === opts.memberWalletId &&
-                pa.ndcHash === opts.ndcHash &&
-                pa.status === 'PENDING'
+          (pa) => pa.memberWalletId === opts.memberWalletId && pa.ndcHash === opts.ndcHash && pa.status === 'PENDING',
         );
         if (pendingPa) {
           throw new Error(
             `Prior authorization required for ${medication.brandName}. ` +
-            `PA request ${pendingPa.id} is PENDING — awaiting insurer approval.`
+              `PA request ${pendingPa.id} is PENDING — awaiting insurer approval.`,
           );
         }
         throw new Error(
           `Prior authorization required for ${medication.brandName} (Tier ${medication.formularyEntry.tierLevel}). ` +
-          `Use the Prescriber tab to request PA before writing this prescription.`
+            `Use the Prescriber tab to request PA before writing this prescription.`,
         );
       }
       // The approval covers the quantity the insurer approved. The PA proof below asserts the same (requested quantity
       // <= approved quantity); refused here first, with the reason, rather than as a failed proof.
       const approvedMilli = approvedPa.priorAuthData?.approvedQuantity.toBigInt();
       if (approvedMilli !== undefined && BigInt(quantityMilli(opts.quantity)) > approvedMilli) {
-        throw new RegistrationRefused(409, `The prior authorization for ${medication.brandName} approves at most ${formatQuantity(quantityFromMilli(Number(approvedMilli)), medication.pricingUnit)} per fill; ${formatQuantity(opts.quantity, medication.pricingUnit)} is more`);
+        throw new RegistrationRefused(
+          409,
+          `The prior authorization for ${medication.brandName} approves at most ${formatQuantity(quantityFromMilli(Number(approvedMilli)), medication.pricingUnit)} per fill; ${formatQuantity(opts.quantity, medication.pricingUnit)} is more`,
+        );
       }
       this.emit('info', 'prescribe', `  PA verified: ${approvedPa.id} APPROVED for ${medication.brandName}`);
     }
@@ -3456,7 +3936,7 @@ export class AdjudicationService {
     if (!stepTherapyResult.allowed) {
       throw new Error(
         `Step therapy not met for ${medication.brandName}: ${stepTherapyResult.message}. ` +
-        `Patient must first try: ${stepTherapyResult.prerequisiteMeds?.join(', ')}`,
+          `Patient must first try: ${stepTherapyResult.prerequisiteMeds?.join(', ')}`,
       );
     }
     if (coverage.entry.stepTherapyRequired.toBigInt() === 1n) {
@@ -3518,366 +3998,478 @@ export class AdjudicationService {
     });
 
     try {
-    // 1. ProofGate: Prescriber identity
-    this.emit('proof', 'prescribe', `[1/${totalSteps}] Generating ProofGate.verifyPrescriber proof...`, 'start');
-    const startPG = performance.now();
-    await this.dispatchProof(
-      'ProofGate', 'verifyPrescriber',
-      ['Field', 'Field', 'Field', 'Field'],
-      [prescriberWalletId, ...prescriberPreimage],
-      () => ProofGateProgram.verifyPrescriber(prescriberWalletId, ...prescriberPreimage as [Field, Field, Field]),
-    );
-    const elapsedPG = performance.now() - startPG;
-    this.emit('proof', 'prescribe', `[1/${totalSteps}] ProofGate.verifyPrescriber proof generated`, 'complete', elapsedPG);
-    this.emit('info', 'prescribe', `       ${prescriberName} proved NPI ownership without revealing credentials`);
-
-    // Build prescription data
-    const ndcHash = hashString(medication.ndc);
-    const prescriptionData = new PrescriptionData({
-      ndcHash,
-      prescriberWalletId,
-      memberWalletId: enrolled.walletId,
-      writtenDate: dateToField('20260201'),
-      expirationDate: dateToField('20270201'),
-      quantityPrescribed: quantityToField(opts.quantity),
-      refillsAuthorized: Field(BigInt(effectiveRefills)),
-    });
-
-    const activeStatus = new PrescriptionStatusData({
-      prescriptionHash: prescriptionData.commitment(),
-      status: RX_STATUS_ADJUDICATED,
-      updatedByWalletId: prescriberWalletId,
-      updatedAt: dateToField('20260201'),
-      pharmacyWalletId,
-      fillQuantity: Field(0),
-      notesHash: Field(0),
-    });
-
-    // Build prescription forest
-    let rxForest = new MerkleForest();
-    rxForest.setLeaf(ForestDomain.MEDICATION, 0n, prescriptionData.commitment());
-    rxForest.setLeaf(ForestDomain.TRANSACTION, 0n, activeStatus.commitment());
-
-    let rxCredentialData = new CredentialData({
-      credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
-      forestRoot: rxForest.getForestRoot(),
-      issuerWalletId: prescriberWalletId,
-      subjectWalletId: pharmacyWalletId,
-      issuedAt: dateToField('20260201'),
-      expiresAt: Field(0),
-      revoked: Field(0),
-    });
-
-    const formularyEntry = coverage.entry;
-
-    this.emit('info', 'prescribe', '');
-    this.emit('info', 'prescribe', `  eScript: ${medication.brandName} ${medication.strength}`);
-    this.emit('info', 'prescribe', `    NDC:     ${medication.ndcFormatted}`);
-    this.emit('info', 'prescribe', `    Tier:    ${medication.formularyEntry.tierLevel} — $${(coverage.copayAmountCents / 100).toFixed(2)} copay (${enrolled.planId})`);
-    this.emit('info', 'prescribe', `    Qty:     ${formatQuantity(opts.quantity, medication.pricingUnit)} (the NADAC pricing unit), ${opts.refills} refills`);
-    this.emit('info', 'prescribe', `    To:      ${pharmacyName}`);
-    this.emit('info', 'prescribe', '');
-
-    this.emitViz('viz:prescription:written', 'prescription', {
-      actor: prescriberName,
-      actorType: 'prescriber',
-      target: enrolled.displayName,
-      targetType: 'member',
-      data: {
-        medication: medication.brandName,
-        ndc: medication.ndcFormatted,
-        quantity: opts.quantity,
-        pharmacy: pharmacyName,
-      },
-    });
-
-    // 2. EligibilityProgram: Member is eligible
-    this.emitViz('viz:eligibility:check', 'eligibility', {
-      actor: enrolled.displayName,
-      actorType: 'member',
-      target: 'Insurer',
-      targetType: 'insurer',
-      data: { step: 'eligibility-check', medication: medication.brandName, memberIndex: enrolled.memberIndex },
-    });
-
-    const eligForest = enrolled.forest;
-    const eligForestRoots = ForestRoots.fromForest(eligForest);
-    const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    // Plan-bound formularies: the member's own EligibilityData leaf (index 0 is the console's PLAN-GOLD-2026): the
-    // index first, since registering it may rebuild the registry, then the witness and the root from the same registry.
-    const planIndex = this.benefitPlanIndexOf(enrolled.eligibilityData);
-    const planWitness = this.benefitPlanRegistry.getPlanWitness(planIndex);
-    const planRoot = this.benefitPlanRegistry.getRoot();
-
-    this.emit('proof', 'prescribe', `[2/${totalSteps}] Generating EligibilityProgram.proveEligibility proof...`, 'start');
-    const startElig = performance.now();
-    await this.dispatchProof(
-      'Eligibility', 'proveEligibility',
-      ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'BenefitPlanWitness', 'Field', 'Field'],
-      [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, planWitness, planRoot, dateToField('20260202')],
-      () => EligibilityProgram.proveEligibility(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, planWitness, planRoot, dateToField('20260202')),
-    );
-    const elapsedElig = performance.now() - startElig;
-    this.emit('proof', 'prescribe', `[2/${totalSteps}] EligibilityProgram.proveEligibility proof generated`, 'complete', elapsedElig);
-    this.emit('info', 'prescribe', `       ${enrolled.displayName} is ELIGIBLE under ${enrolled.planId}`);
-
-    this.emitViz('viz:eligibility:verified', 'eligibility', {
-      actor: enrolled.displayName,
-      actorType: 'member',
-      target: 'Insurer',
-      targetType: 'insurer',
-      data: { planId: enrolled.planId, status: 'ELIGIBLE' },
-    });
-
-    // 3. AccessControl: Medication on formulary
-    this.emitViz('viz:formulary:check', 'eligibility', {
-      actor: enrolled.displayName,
-      actorType: 'member',
-      target: 'Insurer',
-      targetType: 'insurer',
-      data: { step: 'formulary-check', medication: medication.brandName, ndc: medication.ndcFormatted, memberIndex: enrolled.memberIndex },
-    });
-
-    const formEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-    const formIdx = coverage.leafIndex;
-    const formWitness = coverage.registry.getEntryWitness(formIdx);
-
-    this.emit('proof', 'prescribe', `[3/${totalSteps}] Generating AccessControl.proveFormularyAccess proof...`, 'start');
-    const startAC = performance.now();
-    await this.dispatchProof(
-      'AccessControl', 'proveFormularyAccess',
-      ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field', 'Field', 'Field'],
-      [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, formEligWitness, formularyEntry, formWitness, ndcHash, quantityToField(opts.quantity), Field(BigInt(medication.formularyEntry.maxDaySupply)), Field(20260101)],
-      () => AccessControlProgram.proveFormularyAccess(enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, formEligWitness, formularyEntry, formWitness, ndcHash, quantityToField(opts.quantity), Field(BigInt(medication.formularyEntry.maxDaySupply)), Field(20260101)),
-    );
-    const elapsedAC = performance.now() - startAC;
-    this.emit('proof', 'prescribe', `[3/${totalSteps}] AccessControl.proveFormularyAccess proof generated`, 'complete', elapsedAC);
-    this.emit('info', 'prescribe', `       ${medication.genericName}: ON FORMULARY (${enrolled.planId}), Tier ${medication.formularyEntry.tierLevel}, $${(coverage.copayAmountCents / 100).toFixed(2)} copay`);
-
-    this.emitViz('viz:formulary:verified', 'eligibility', {
-      actor: enrolled.displayName,
-      actorType: 'member',
-      target: 'Insurer',
-      targetType: 'insurer',
-      data: {
-        medication: medication.brandName,
-        tier: medication.formularyEntry.tierLevel,
-        copay: coverage.copayAmountCents,
-        onFormulary: true,
-      },
-    });
-
-    // 4 (PA only). AccessControl.provePriorAuth — verify PA in forest
-    let elapsedPA = 0;
-    if (requiresPa && approvedPa) {
-      const paForestRoots = ForestRoots.fromForest(eligForest);
-      const paEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
-      const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, approvedPa.paLeafIndex!);
-      const paFormWitness = coverage.registry.getEntryWitness(formIdx);
-
-      this.emit('proof', 'prescribe', `[4/${totalSteps}] Generating AccessControl.provePriorAuth proof...`, 'start');
-      const startPA = performance.now();
+      // 1. ProofGate: Prescriber identity
+      this.emit('proof', 'prescribe', `[1/${totalSteps}] Generating ProofGate.verifyPrescriber proof...`, 'start');
+      const startPG = performance.now();
       await this.dispatchProof(
-        'AccessControl', 'provePriorAuth',
-        ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'PriorAuthData', 'FormularyEntry', 'FormularyMerkleWitness', 'Field', 'Field'],
-        [enrolled.credentialData, enrolled.eligibilityData, paForestRoots, paEligWitness, paWitness, approvedPa.priorAuthData!, formularyEntry, paFormWitness, dateToField('20260202'), quantityToField(opts.quantity)],
-        () => AccessControlProgram.provePriorAuth(enrolled.credentialData, enrolled.eligibilityData, paForestRoots, paEligWitness, paWitness, approvedPa.priorAuthData!, formularyEntry, paFormWitness, dateToField('20260202'), quantityToField(opts.quantity)),
+        'ProofGate',
+        'verifyPrescriber',
+        ['Field', 'Field', 'Field', 'Field'],
+        [prescriberWalletId, ...prescriberPreimage],
+        () => ProofGateProgram.verifyPrescriber(prescriberWalletId, ...(prescriberPreimage as [Field, Field, Field])),
       );
-      elapsedPA = performance.now() - startPA;
-      this.emit('proof', 'prescribe', `[4/${totalSteps}] AccessControl.provePriorAuth proof verified`, 'complete', elapsedPA);
-      this.emit('info', 'prescribe', `       Prior auth ${approvedPa.id}: VALID, not expired, quantity within limits`);
-    }
+      const elapsedPG = performance.now() - startPG;
+      this.emit('proof', 'prescribe', `[1/${totalSteps}] ProofGate.verifyPrescriber proof generated`, 'complete', elapsedPG);
+      this.emit('info', 'prescribe', `       ${prescriberName} proved NPI ownership without revealing credentials`);
 
-    // Messaging: eScript message
-    const msgStep = requiresPa ? 5 : 4;
-    this.msgNonce++;
-    const eScriptThreadId = `THREAD-RX-${this.rxCounter}`;
-    const eScriptPlaintext = `Subject: eScript\n\nRx for ${medication.genericName} ${medication.strength} #${opts.quantity}`;
+      // Build prescription data
+      const ndcHash = hashString(medication.ndc);
+      const prescriptionData = new PrescriptionData({
+        ndcHash,
+        prescriberWalletId,
+        memberWalletId: enrolled.walletId,
+        writtenDate: dateToField('20260201'),
+        expirationDate: dateToField('20270201'),
+        quantityPrescribed: quantityToField(opts.quantity),
+        refillsAuthorized: Field(BigInt(effectiveRefills)),
+      });
 
-    // Encrypt eScript with prescriber→pharmacy keys (each at its own wallet-registry slot)
-    const prescriberKeyIndex = this.providerKeyIndex(prescriberWalletId);
-    const pharmacyKeyIndex = this.providerKeyIndex(pharmacyWalletId);
-    const prescriberKeys = this.encryptionKeys.get(prescriberKeyIndex);
-    const pharmacyKeys = this.encryptionKeys.get(pharmacyKeyIndex);
-    let eScriptContentHash: Field;
-    let eScriptEncrypted: { ciphertext: Buffer; iv: Buffer; tag: Buffer } | null = null;
-    if (prescriberKeys && pharmacyKeys && prescriberKeys.privateKey.length > 0) {
-      const sharedSecret = deriveSharedSecret(prescriberKeys.privateKey, pharmacyKeys.publicKey);
-      eScriptEncrypted = encryptMessage(eScriptPlaintext, sharedSecret);
-      eScriptContentHash = computeContentHash(eScriptEncrypted.ciphertext, eScriptEncrypted.iv, eScriptEncrypted.tag);
-    } else {
-      eScriptContentHash = hashString(eScriptPlaintext);
-    }
+      const activeStatus = new PrescriptionStatusData({
+        prescriptionHash: prescriptionData.commitment(),
+        status: RX_STATUS_ADJUDICATED,
+        updatedByWalletId: prescriberWalletId,
+        updatedAt: dateToField('20260201'),
+        pharmacyWalletId,
+        fillQuantity: Field(0),
+        notesHash: Field(0),
+      });
 
-    // Capture messaging root before
-    const eScriptMsgRootBefore = computeMessagingRoot(
-      this.messageRegistry.getRoot(),
-      this.delegationRegistry.getRoot(),
-      this.keyRegistry.getRoot(),
-    ).toString();
+      // Build prescription forest
+      let rxForest = new MerkleForest();
+      rxForest.setLeaf(ForestDomain.MEDICATION, 0n, prescriptionData.commitment());
+      rxForest.setLeaf(ForestDomain.TRANSACTION, 0n, activeStatus.commitment());
 
-    const msg = new MessageData({
-      senderWalletId: prescriberWalletId,
-      recipientWalletId: pharmacyWalletId,
-      contentHash: eScriptContentHash,
-      messageType: MSG_TYPE_PRESCRIPTION,
-      timestamp: dateToField('20260201'),
-      threadId: hashString(eScriptThreadId),
-      nonce: Field(BigInt(this.msgNonce)),
-    });
-    const { index: msgIndex } = this.messageRegistry.addMessage(msg);
-    const msgWitness = this.messageRegistry.getWitness(msgIndex);
+      let rxCredentialData = new CredentialData({
+        credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+        forestRoot: rxForest.getForestRoot(),
+        issuerWalletId: prescriberWalletId,
+        subjectWalletId: pharmacyWalletId,
+        issuedAt: dateToField('20260201'),
+        expiresAt: Field(0),
+        revoked: Field(0),
+      });
 
-    this.emit('proof', 'prescribe', `[${msgStep}/${totalSteps}] Generating MessagingProgram.proveSendMessage proof (eScript)...`, 'start');
-    const startMsg = performance.now();
-    await this.dispatchProof(
-      'Messaging', 'proveSendMessage',
-      ['MessageData', 'MessageRegistryWitness', 'Field', 'Field', 'Field'],
-      [msg, msgWitness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()],
-      () => MessagingProgram.proveSendMessage(msg, msgWitness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()),
-    );
-    const elapsedMsg = performance.now() - startMsg;
-    this.emit('proof', 'prescribe', `[${msgStep}/${totalSteps}] MessagingProgram.proveSendMessage proof generated`, 'complete', elapsedMsg);
-    this.emit('info', 'prescribe', `       Encrypted eScript: ${prescriberName} → ${pharmacyName}`);
+      const formularyEntry = coverage.entry;
 
-    // Store encrypted eScript payload
-    this.encryptedPayloads.set(msgIndex.toString(), {
-      ciphertext: eScriptEncrypted ? eScriptEncrypted.ciphertext.toString('hex') : '',
-      iv: eScriptEncrypted ? eScriptEncrypted.iv.toString('hex') : '',
-      tag: eScriptEncrypted ? eScriptEncrypted.tag.toString('hex') : '',
-      senderKeyIndex: prescriberKeyIndex,
-      recipientKeyIndex: pharmacyKeyIndex,
-      threadId: eScriptThreadId,
-      timestamp: Date.now(),
-    });
+      this.emit('info', 'prescribe', '');
+      this.emit('info', 'prescribe', `  eScript: ${medication.brandName} ${medication.strength}`);
+      this.emit('info', 'prescribe', `    NDC:     ${medication.ndcFormatted}`);
+      this.emit(
+        'info',
+        'prescribe',
+        `    Tier:    ${medication.formularyEntry.tierLevel} — $${(coverage.copayAmountCents / 100).toFixed(2)} copay (${enrolled.planId})`,
+      );
+      this.emit(
+        'info',
+        'prescribe',
+        `    Qty:     ${formatQuantity(opts.quantity, medication.pricingUnit)} (the NADAC pricing unit), ${opts.refills} refills`,
+      );
+      this.emit('info', 'prescribe', `    To:      ${pharmacyName}`);
+      this.emit('info', 'prescribe', '');
 
-    // Emit messaging audit event for eScript
-    const eScriptMsgRootAfter = computeMessagingRoot(
-      this.messageRegistry.getRoot(),
-      this.delegationRegistry.getRoot(),
-      this.keyRegistry.getRoot(),
-    ).toString();
-    this.l2Node.emitMessagingAuditEvent(
-      prescriberWalletId.toString(),
-      eScriptMsgRootBefore,
-      eScriptMsgRootAfter,
-    );
+      this.emitViz('viz:prescription:written', 'prescription', {
+        actor: prescriberName,
+        actorType: 'prescriber',
+        target: enrolled.displayName,
+        targetType: 'member',
+        data: {
+          medication: medication.brandName,
+          ndc: medication.ndcFormatted,
+          quantity: opts.quantity,
+          pharmacy: pharmacyName,
+        },
+      });
 
-    this.emitViz('viz:message:sent', 'messaging', {
-      actor: prescriberName,
-      actorType: 'prescriber',
-      target: pharmacyName,
-      targetType: 'pharmacy',
-      data: { messageType: 'PRESCRIPTION', medication: medication.brandName },
-    });
+      // 2. EligibilityProgram: Member is eligible
+      this.emitViz('viz:eligibility:check', 'eligibility', {
+        actor: enrolled.displayName,
+        actorType: 'member',
+        target: 'Insurer',
+        targetType: 'insurer',
+        data: { step: 'eligibility-check', medication: medication.brandName, memberIndex: enrolled.memberIndex },
+      });
 
-    this.emitViz('viz:prescription:sent', 'prescription', {
-      actor: prescriberName,
-      actorType: 'prescriber',
-      target: pharmacyName,
-      targetType: 'pharmacy',
-      data: { medication: medication.brandName, status: 'ADJUDICATED' },
-    });
+      const eligForest = enrolled.forest;
+      const eligForestRoots = ForestRoots.fromForest(eligForest);
+      const eligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
+      // Plan-bound formularies: the member's own EligibilityData leaf (index 0 is the console's PLAN-GOLD-2026): the
+      // index first, since registering it may rebuild the registry, then the witness and the root from the same registry.
+      const planIndex = this.benefitPlanIndexOf(enrolled.eligibilityData);
+      const planWitness = this.benefitPlanRegistry.getPlanWitness(planIndex);
+      const planRoot = this.benefitPlanRegistry.getRoot();
 
-    // Store prescription state (promote from pending to adjudicated)
-    this.pendingPrescriptions.delete(pendingRxId);
-    const rxId = pendingRxId;
-    const rxState: PrescriptionState = {
-      id: rxId,
-      prescriptionData,
-      activeStatus,
-      rxForest,
-      rxCredentialData,
-      formularyEntry,
-      prescriberIndex: opts.prescriberIndex,
-      pharmacyIndex: opts.pharmacyIndex,
-      memberWalletId: opts.memberWalletId,
-      ndcHash: opts.ndcHash,
-      formularyLeafIndex: coverage.leafIndex, // the leaf in the formulary the member's credential names (its plan's, for a member with a device)
-      formularyRoot: coverage.registry.getRoot().toString(), // the root that entry was proven against at prescribing (B3 can honour it)
-      quantity: opts.quantity,
-      quantityDispensed: 0,
-      refills: effectiveRefills,
-      refillsUsed: 0,
-      status: 'ADJUDICATED',
-      statusHistory: [],
-      currentStatusLeafIndex: 0n,  // initial ADJUDICATED status at leaf 0
-      nextTxLeafIndex: 1n,         // next available leaf
-    };
-    this.prescriptions.set(rxId, rxState);
+      this.emit('proof', 'prescribe', `[2/${totalSteps}] Generating EligibilityProgram.proveEligibility proof...`, 'start');
+      const startElig = performance.now();
+      await this.dispatchProof(
+        'Eligibility',
+        'proveEligibility',
+        ['CredentialData', 'EligibilityData', 'ForestRoots', 'ForestMerkleWitness', 'BenefitPlanWitness', 'Field', 'Field'],
+        [enrolled.credentialData, enrolled.eligibilityData, eligForestRoots, eligWitness, planWitness, planRoot, dateToField('20260202')],
+        () =>
+          EligibilityProgram.proveEligibility(
+            enrolled.credentialData,
+            enrolled.eligibilityData,
+            eligForestRoots,
+            eligWitness,
+            planWitness,
+            planRoot,
+            dateToField('20260202'),
+          ),
+      );
+      const elapsedElig = performance.now() - startElig;
+      this.emit('proof', 'prescribe', `[2/${totalSteps}] EligibilityProgram.proveEligibility proof generated`, 'complete', elapsedElig);
+      this.emit('info', 'prescribe', `       ${enrolled.displayName} is ELIGIBLE under ${enrolled.planId}`);
 
-    this.emitMemory('prescribe');
+      this.emitViz('viz:eligibility:verified', 'eligibility', {
+        actor: enrolled.displayName,
+        actorType: 'member',
+        target: 'Insurer',
+        targetType: 'insurer',
+        data: { planId: enrolled.planId, status: 'ELIGIBLE' },
+      });
 
-    return {
-      prescriptionId: rxId,
-      medication: {
-        brandName: medication.brandName,
-        genericName: medication.genericName,
-        strength: medication.strength,
-        dosageForm: medication.dosageForm,
-        ndc: medication.ndcFormatted,
-        tier: medication.formularyEntry.tierLevel,
-        copayAmountCents: coverage.copayAmountCents,
-        requiresPriorAuth: medication.formularyEntry.requiresPriorAuth,
-        maxQuantityPerFill: medication.formularyEntry.maxQuantityPerFill,
-        awpUnitPriceCents: medication.awpUnitPriceCents,
-      },
-      prescriber: {
-        name: prescriberName,
-        specialty: prescriber.specialty,
-        credential: prescriber.credential,
-        npi: prescriber.localData.prescriberId,
-      },
-      pharmacy: {
-        name: pharmacyName,
-        type: pharmacy.pharmacyTypeDesc,
-        address: `${pharmacy.address}, ${pharmacy.city}, ${pharmacy.state}`,
-      },
-      member: {
-        name: enrolled.displayName,
-        walletId: enrolled.walletIdStr,
-      },
-      quantity: opts.quantity,
-      refills: effectiveRefills,
-      status: 'ADJUDICATED',
-      rxHash: truncField(prescriptionData.commitment()),
-      proofTimesMs: {
-        proofGate: elapsedPG,
-        eligibility: elapsedElig,
-        accessControl: elapsedAC,
-        ...(requiresPa ? { priorAuth: elapsedPA } : {}),
-        messaging: elapsedMsg,
-        total: elapsedPG + elapsedElig + elapsedAC + elapsedPA + elapsedMsg,
-      },
-      ...(approvedPa ? { priorAuthId: approvedPa.id } : {}),
-      stepTherapy: stepTherapyResult,
-      deaWarnings: deaResult.warnings,
-      // ─── ZK Data (full transparency) ────────────────
-      prescriptionCredential: serializeCredentialData(rxCredentialData),
-      prescriptionForest: serializeForestRoots(rxForest),
-      prescriptionData: {
-        ndcHash: fieldToStr(prescriptionData.ndcHash),
-        prescriberWalletId: fieldToStr(prescriptionData.prescriberWalletId),
-        memberWalletId: fieldToStr(prescriptionData.memberWalletId),
-        writtenDate: fieldToStr(prescriptionData.writtenDate),
-        expirationDate: fieldToStr(prescriptionData.expirationDate),
-        quantityPrescribed: fieldToStr(prescriptionData.quantityPrescribed),
-        refillsAuthorized: fieldToStr(prescriptionData.refillsAuthorized),
-        commitment: fieldToStr(prescriptionData.commitment()),
-      },
-      statusData: {
-        prescriptionHash: fieldToStr(activeStatus.prescriptionHash),
-        status: fieldToStr(activeStatus.status),
-        updatedByWalletId: fieldToStr(activeStatus.updatedByWalletId),
-        updatedAt: fieldToStr(activeStatus.updatedAt),
-        pharmacyWalletId: fieldToStr(activeStatus.pharmacyWalletId),
-        fillQuantity: fieldToStr(activeStatus.fillQuantity),
-        notesHash: fieldToStr(activeStatus.notesHash),
-        commitment: fieldToStr(activeStatus.commitment()),
-      },
-      chainState: this.getChainState(),
-    };
+      // 3. AccessControl: Medication on formulary
+      this.emitViz('viz:formulary:check', 'eligibility', {
+        actor: enrolled.displayName,
+        actorType: 'member',
+        target: 'Insurer',
+        targetType: 'insurer',
+        data: {
+          step: 'formulary-check',
+          medication: medication.brandName,
+          ndc: medication.ndcFormatted,
+          memberIndex: enrolled.memberIndex,
+        },
+      });
 
+      const formEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
+      const formIdx = coverage.leafIndex;
+      const formWitness = coverage.registry.getEntryWitness(formIdx);
+
+      this.emit('proof', 'prescribe', `[3/${totalSteps}] Generating AccessControl.proveFormularyAccess proof...`, 'start');
+      const startAC = performance.now();
+      await this.dispatchProof(
+        'AccessControl',
+        'proveFormularyAccess',
+        [
+          'CredentialData',
+          'EligibilityData',
+          'ForestRoots',
+          'ForestMerkleWitness',
+          'FormularyEntry',
+          'FormularyMerkleWitness',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+        ],
+        [
+          enrolled.credentialData,
+          enrolled.eligibilityData,
+          eligForestRoots,
+          formEligWitness,
+          formularyEntry,
+          formWitness,
+          ndcHash,
+          quantityToField(opts.quantity),
+          Field(BigInt(medication.formularyEntry.maxDaySupply)),
+          Field(20260101),
+        ],
+        () =>
+          AccessControlProgram.proveFormularyAccess(
+            enrolled.credentialData,
+            enrolled.eligibilityData,
+            eligForestRoots,
+            formEligWitness,
+            formularyEntry,
+            formWitness,
+            ndcHash,
+            quantityToField(opts.quantity),
+            Field(BigInt(medication.formularyEntry.maxDaySupply)),
+            Field(20260101),
+          ),
+      );
+      const elapsedAC = performance.now() - startAC;
+      this.emit('proof', 'prescribe', `[3/${totalSteps}] AccessControl.proveFormularyAccess proof generated`, 'complete', elapsedAC);
+      this.emit(
+        'info',
+        'prescribe',
+        `       ${medication.genericName}: ON FORMULARY (${enrolled.planId}), Tier ${medication.formularyEntry.tierLevel}, $${(coverage.copayAmountCents / 100).toFixed(2)} copay`,
+      );
+
+      this.emitViz('viz:formulary:verified', 'eligibility', {
+        actor: enrolled.displayName,
+        actorType: 'member',
+        target: 'Insurer',
+        targetType: 'insurer',
+        data: {
+          medication: medication.brandName,
+          tier: medication.formularyEntry.tierLevel,
+          copay: coverage.copayAmountCents,
+          onFormulary: true,
+        },
+      });
+
+      // 4 (PA only). AccessControl.provePriorAuth — verify PA in forest
+      let elapsedPA = 0;
+      if (requiresPa && approvedPa) {
+        const paForestRoots = ForestRoots.fromForest(eligForest);
+        const paEligWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, 0n);
+        const paWitness = eligForest.getWitness(ForestDomain.ACCESS_CONTROL, approvedPa.paLeafIndex!);
+        const paFormWitness = coverage.registry.getEntryWitness(formIdx);
+
+        this.emit('proof', 'prescribe', `[4/${totalSteps}] Generating AccessControl.provePriorAuth proof...`, 'start');
+        const startPA = performance.now();
+        await this.dispatchProof(
+          'AccessControl',
+          'provePriorAuth',
+          [
+            'CredentialData',
+            'EligibilityData',
+            'ForestRoots',
+            'ForestMerkleWitness',
+            'ForestMerkleWitness',
+            'PriorAuthData',
+            'FormularyEntry',
+            'FormularyMerkleWitness',
+            'Field',
+            'Field',
+          ],
+          [
+            enrolled.credentialData,
+            enrolled.eligibilityData,
+            paForestRoots,
+            paEligWitness,
+            paWitness,
+            approvedPa.priorAuthData!,
+            formularyEntry,
+            paFormWitness,
+            dateToField('20260202'),
+            quantityToField(opts.quantity),
+          ],
+          () =>
+            AccessControlProgram.provePriorAuth(
+              enrolled.credentialData,
+              enrolled.eligibilityData,
+              paForestRoots,
+              paEligWitness,
+              paWitness,
+              approvedPa.priorAuthData!,
+              formularyEntry,
+              paFormWitness,
+              dateToField('20260202'),
+              quantityToField(opts.quantity),
+            ),
+        );
+        elapsedPA = performance.now() - startPA;
+        this.emit('proof', 'prescribe', `[4/${totalSteps}] AccessControl.provePriorAuth proof verified`, 'complete', elapsedPA);
+        this.emit('info', 'prescribe', `       Prior auth ${approvedPa.id}: VALID, not expired, quantity within limits`);
+      }
+
+      // Messaging: eScript message
+      const msgStep = requiresPa ? 5 : 4;
+      this.msgNonce++;
+      const eScriptThreadId = `THREAD-RX-${this.rxCounter}`;
+      const eScriptPlaintext = `Subject: eScript\n\nRx for ${medication.genericName} ${medication.strength} #${opts.quantity}`;
+
+      // Encrypt eScript with prescriber→pharmacy keys (each at its own wallet-registry slot)
+      const prescriberKeyIndex = this.providerKeyIndex(prescriberWalletId);
+      const pharmacyKeyIndex = this.providerKeyIndex(pharmacyWalletId);
+      const prescriberKeys = this.encryptionKeys.get(prescriberKeyIndex);
+      const pharmacyKeys = this.encryptionKeys.get(pharmacyKeyIndex);
+      let eScriptContentHash: Field;
+      let eScriptEncrypted: { ciphertext: Buffer; iv: Buffer; tag: Buffer } | null = null;
+      if (prescriberKeys && pharmacyKeys && prescriberKeys.privateKey.length > 0) {
+        const sharedSecret = deriveSharedSecret(prescriberKeys.privateKey, pharmacyKeys.publicKey);
+        eScriptEncrypted = encryptMessage(eScriptPlaintext, sharedSecret);
+        eScriptContentHash = computeContentHash(eScriptEncrypted.ciphertext, eScriptEncrypted.iv, eScriptEncrypted.tag);
+      } else {
+        eScriptContentHash = hashString(eScriptPlaintext);
+      }
+
+      // Capture messaging root before
+      const eScriptMsgRootBefore = computeMessagingRoot(
+        this.messageRegistry.getRoot(),
+        this.delegationRegistry.getRoot(),
+        this.keyRegistry.getRoot(),
+      ).toString();
+
+      const msg = new MessageData({
+        senderWalletId: prescriberWalletId,
+        recipientWalletId: pharmacyWalletId,
+        contentHash: eScriptContentHash,
+        messageType: MSG_TYPE_PRESCRIPTION,
+        timestamp: dateToField('20260201'),
+        threadId: hashString(eScriptThreadId),
+        nonce: Field(BigInt(this.msgNonce)),
+      });
+      const { index: msgIndex } = this.messageRegistry.addMessage(msg);
+      const msgWitness = this.messageRegistry.getWitness(msgIndex);
+
+      this.emit(
+        'proof',
+        'prescribe',
+        `[${msgStep}/${totalSteps}] Generating MessagingProgram.proveSendMessage proof (eScript)...`,
+        'start',
+      );
+      const startMsg = performance.now();
+      await this.dispatchProof(
+        'Messaging',
+        'proveSendMessage',
+        ['MessageData', 'MessageRegistryWitness', 'Field', 'Field', 'Field'],
+        [msg, msgWitness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()],
+        () =>
+          MessagingProgram.proveSendMessage(
+            msg,
+            msgWitness,
+            this.messageRegistry.getRoot(),
+            this.delegationRegistry.getRoot(),
+            this.keyRegistry.getRoot(),
+          ),
+      );
+      const elapsedMsg = performance.now() - startMsg;
+      this.emit(
+        'proof',
+        'prescribe',
+        `[${msgStep}/${totalSteps}] MessagingProgram.proveSendMessage proof generated`,
+        'complete',
+        elapsedMsg,
+      );
+      this.emit('info', 'prescribe', `       Encrypted eScript: ${prescriberName} → ${pharmacyName}`);
+
+      // Store encrypted eScript payload
+      this.encryptedPayloads.set(msgIndex.toString(), {
+        ciphertext: eScriptEncrypted ? eScriptEncrypted.ciphertext.toString('hex') : '',
+        iv: eScriptEncrypted ? eScriptEncrypted.iv.toString('hex') : '',
+        tag: eScriptEncrypted ? eScriptEncrypted.tag.toString('hex') : '',
+        senderKeyIndex: prescriberKeyIndex,
+        recipientKeyIndex: pharmacyKeyIndex,
+        threadId: eScriptThreadId,
+        timestamp: Date.now(),
+      });
+
+      // Emit messaging audit event for eScript
+      const eScriptMsgRootAfter = computeMessagingRoot(
+        this.messageRegistry.getRoot(),
+        this.delegationRegistry.getRoot(),
+        this.keyRegistry.getRoot(),
+      ).toString();
+      this.l2Node.emitMessagingAuditEvent(prescriberWalletId.toString(), eScriptMsgRootBefore, eScriptMsgRootAfter);
+
+      this.emitViz('viz:message:sent', 'messaging', {
+        actor: prescriberName,
+        actorType: 'prescriber',
+        target: pharmacyName,
+        targetType: 'pharmacy',
+        data: { messageType: 'PRESCRIPTION', medication: medication.brandName },
+      });
+
+      this.emitViz('viz:prescription:sent', 'prescription', {
+        actor: prescriberName,
+        actorType: 'prescriber',
+        target: pharmacyName,
+        targetType: 'pharmacy',
+        data: { medication: medication.brandName, status: 'ADJUDICATED' },
+      });
+
+      // Store prescription state (promote from pending to adjudicated)
+      this.pendingPrescriptions.delete(pendingRxId);
+      const rxId = pendingRxId;
+      const rxState: PrescriptionState = {
+        id: rxId,
+        prescriptionData,
+        activeStatus,
+        rxForest,
+        rxCredentialData,
+        formularyEntry,
+        prescriberIndex: opts.prescriberIndex,
+        pharmacyIndex: opts.pharmacyIndex,
+        memberWalletId: opts.memberWalletId,
+        ndcHash: opts.ndcHash,
+        formularyLeafIndex: coverage.leafIndex, // the leaf in the formulary the member's credential names (its plan's, for a member with a device)
+        formularyRoot: coverage.registry.getRoot().toString(), // the root that entry was proven against at prescribing (B3 can honour it)
+        quantity: opts.quantity,
+        quantityDispensed: 0,
+        refills: effectiveRefills,
+        refillsUsed: 0,
+        status: 'ADJUDICATED',
+        statusHistory: [],
+        currentStatusLeafIndex: 0n, // initial ADJUDICATED status at leaf 0
+        nextTxLeafIndex: 1n, // next available leaf
+      };
+      this.prescriptions.set(rxId, rxState);
+
+      this.emitMemory('prescribe');
+
+      return {
+        prescriptionId: rxId,
+        medication: {
+          brandName: medication.brandName,
+          genericName: medication.genericName,
+          strength: medication.strength,
+          dosageForm: medication.dosageForm,
+          ndc: medication.ndcFormatted,
+          tier: medication.formularyEntry.tierLevel,
+          copayAmountCents: coverage.copayAmountCents,
+          requiresPriorAuth: medication.formularyEntry.requiresPriorAuth,
+          maxQuantityPerFill: medication.formularyEntry.maxQuantityPerFill,
+          awpUnitPriceCents: medication.awpUnitPriceCents,
+        },
+        prescriber: {
+          name: prescriberName,
+          specialty: prescriber.specialty,
+          credential: prescriber.credential,
+          npi: prescriber.localData.prescriberId,
+        },
+        pharmacy: {
+          name: pharmacyName,
+          type: pharmacy.pharmacyTypeDesc,
+          address: `${pharmacy.address}, ${pharmacy.city}, ${pharmacy.state}`,
+        },
+        member: {
+          name: enrolled.displayName,
+          walletId: enrolled.walletIdStr,
+        },
+        quantity: opts.quantity,
+        refills: effectiveRefills,
+        status: 'ADJUDICATED',
+        rxHash: truncField(prescriptionData.commitment()),
+        proofTimesMs: {
+          proofGate: elapsedPG,
+          eligibility: elapsedElig,
+          accessControl: elapsedAC,
+          ...(requiresPa ? { priorAuth: elapsedPA } : {}),
+          messaging: elapsedMsg,
+          total: elapsedPG + elapsedElig + elapsedAC + elapsedPA + elapsedMsg,
+        },
+        ...(approvedPa ? { priorAuthId: approvedPa.id } : {}),
+        stepTherapy: stepTherapyResult,
+        deaWarnings: deaResult.warnings,
+        // ─── ZK Data (full transparency) ────────────────
+        prescriptionCredential: serializeCredentialData(rxCredentialData),
+        prescriptionForest: serializeForestRoots(rxForest),
+        prescriptionData: {
+          ndcHash: fieldToStr(prescriptionData.ndcHash),
+          prescriberWalletId: fieldToStr(prescriptionData.prescriberWalletId),
+          memberWalletId: fieldToStr(prescriptionData.memberWalletId),
+          writtenDate: fieldToStr(prescriptionData.writtenDate),
+          expirationDate: fieldToStr(prescriptionData.expirationDate),
+          quantityPrescribed: fieldToStr(prescriptionData.quantityPrescribed),
+          refillsAuthorized: fieldToStr(prescriptionData.refillsAuthorized),
+          commitment: fieldToStr(prescriptionData.commitment()),
+        },
+        statusData: {
+          prescriptionHash: fieldToStr(activeStatus.prescriptionHash),
+          status: fieldToStr(activeStatus.status),
+          updatedByWalletId: fieldToStr(activeStatus.updatedByWalletId),
+          updatedAt: fieldToStr(activeStatus.updatedAt),
+          pharmacyWalletId: fieldToStr(activeStatus.pharmacyWalletId),
+          fillQuantity: fieldToStr(activeStatus.fillQuantity),
+          notesHash: fieldToStr(activeStatus.notesHash),
+          commitment: fieldToStr(activeStatus.commitment()),
+        },
+        chainState: this.getChainState(),
+      };
     } catch (err) {
       // Clean up pending entry on proof failure
       this.pendingPrescriptions.delete(pendingRxId);
@@ -3917,7 +4509,7 @@ export class AdjudicationService {
       updatedByWalletId: pharmacyWalletId,
       updatedAt: dateToField(new Date().toISOString().slice(0, 10).replace(/-/g, '')),
       pharmacyWalletId,
-      fillQuantity: Field(0),  // physical prep, not dispensed yet
+      fillQuantity: Field(0), // physical prep, not dispensed yet
       notesHash: Field(0),
     });
 
@@ -3962,7 +4554,7 @@ export class AdjudicationService {
 
   async dispensePrescription(opts: {
     prescriptionId: string;
-    credentialJson?: string;      // Optional: no longer required for fill (fills are reversible)
+    credentialJson?: string; // Optional: no longer required for fill (fills are reversible)
     quantityDispensed?: number;
     /** What the pharmacy says the fill costs, if it says. Never an input: the engine prices the fill (NADAC x quantity +
      *  the plan's dispensing fee) and refuses a stated amount that differs, before any proof (owner decision 2026-10-18). */
@@ -3986,9 +4578,8 @@ export class AdjudicationService {
     // The pharmacy proves its own identity via ProofGate.verifyPharmacy below.
     // No credential needed — fills are reversible, so the risk is low.
     const now = new Date();
-    const serviceDateStr = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
+    const serviceDateStr =
+      now.getFullYear().toString() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
 
     this.emit('info', 'fill', `  Member wallet from prescription — ${truncField(Field(BigInt(rxState.memberWalletId)))}`);
     this.emit('info', 'fill', `  Service date: ${serviceDateStr}`);
@@ -4002,7 +4593,11 @@ export class AdjudicationService {
     const prescriberPreimage = this.prescriberPreimages.get(rxState.prescriberIndex)!;
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId)!;
     // A-18: a terminated member is not billable; a reversal (which undoes a claim) stays open by design. The ledger decides.
-    refuseUnlessLedgerBillable(this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()), enrolled, 'the prescription cannot be dispensed');
+    refuseUnlessLedgerBillable(
+      this.l2Node.getSequencer().lifecycleStateOf(enrolled.walletId.toString()),
+      enrolled,
+      'the prescription cannot be dispensed',
+    );
 
     // The quantity, duplicate and stated-cost refusals come before the plan binding below, so a refused request builds
     // no plan formulary. None of them depends on the binding: the fee comes from the plan as published (quoteFill).
@@ -4018,7 +4613,7 @@ export class AdjudicationService {
     if (quantityMilli(qtyDispensed) > remainingMilli) {
       throw new Error(
         `Quantity dispensed (${formatQuantity(qtyDispensed, unit)}) exceeds remaining prescribed qty (${formatQuantity(quantityFromMilli(remainingMilli), unit)} of ${formatQuantity(rxState.quantity, unit)}). ` +
-        `Possible fraud/waste/abuse — fill rejected.`
+          `Possible fraud/waste/abuse — fill rejected.`,
       );
     }
 
@@ -4035,13 +4630,19 @@ export class AdjudicationService {
       fillNumber,
     });
     if (duplicateOf) {
-      throw new RegistrationRefused(409, `Duplicate fill: ${medication.brandName} was already dispensed to this member by this pharmacy today (${duplicateOf}). Reverse that fill first if it was wrong.`);
+      throw new RegistrationRefused(
+        409,
+        `Duplicate fill: ${medication.brandName} was already dispensed to this member by this pharmacy today (${duplicateOf}). Reverse that fill first if it was wrong.`,
+      );
     }
     // Owner decision 2026-10-18: the price list is NADAC plus a dispensing fee and the engine prices the fill; the
     // pharmacy sets neither amount. A cost the pharmacy states is only checked, and a different one is refused here,
     // before any proof is made or any amount billed. (B3 will price at prescribing with this same quote and lock it.)
     const fillPrice = priceDispense(this.quoteFill(rxState.memberWalletId, rxState.ndcHash), qtyDispensed);
-    const statedMismatch = statedCostMismatch(fillPrice, { ingredientCostCents: opts.statedIngredientCostCents, dispensingFeeCents: opts.statedDispensingFeeCents });
+    const statedMismatch = statedCostMismatch(fillPrice, {
+      ingredientCostCents: opts.statedIngredientCostCents,
+      dispensingFeeCents: opts.statedDispensingFeeCents,
+    });
     if (statedMismatch) throw new RegistrationRefused(409, statedMismatch);
     const { ingredientCostCents, dispensingFeeCents, totalCostCents } = fillPrice;
 
@@ -4052,7 +4653,11 @@ export class AdjudicationService {
     this.ensurePlanBinding(enrolled, 'fill');
     const coverage = this.formularyEntryFor(enrolled, rxState.ndcHash);
     if (!coverage.entry.commitment().equals(rxState.formularyEntry.commitment()).toBoolean()) {
-      this.emit('info', 'fill', `  The member's formulary entry for this drug changed since prescribing (the plan was republished or edited); the fill uses the current one`);
+      this.emit(
+        'info',
+        'fill',
+        `  The member's formulary entry for this drug changed since prescribing (the plan was republished or edited); the fill uses the current one`,
+      );
     }
 
     this.emit('phase', 'fill', `═══ Pharmacy Fill: ${pharmacy.storeName} ═══`);
@@ -4066,22 +4671,32 @@ export class AdjudicationService {
       actorType: 'pharmacy',
       target: enrolled.displayName,
       targetType: 'member',
-      data: { step: 'credential-scan', medication: medication.brandName, pharmacyIndex: rxState.pharmacyIndex, memberIndex: enrolled.memberIndex },
+      data: {
+        step: 'credential-scan',
+        medication: medication.brandName,
+        pharmacyIndex: rxState.pharmacyIndex,
+        memberIndex: enrolled.memberIndex,
+      },
     });
 
     this.emit('proof', 'fill', `[1/3] Generating ProofGate.verifyPharmacy proof...`, 'start');
     const startPG = performance.now();
     await this.dispatchProof(
-      'ProofGate', 'verifyPharmacy',
+      'ProofGate',
+      'verifyPharmacy',
       ['Field', 'Field', 'Field', 'Field'],
       [pharmacyWalletId, ...pharmacyPreimage],
-      () => ProofGateProgram.verifyPharmacy(pharmacyWalletId, ...pharmacyPreimage as [Field, Field, Field]),
+      () => ProofGateProgram.verifyPharmacy(pharmacyWalletId, ...(pharmacyPreimage as [Field, Field, Field])),
     );
     const elapsedPG = performance.now() - startPG;
     this.emit('proof', 'fill', `[1/3] ProofGate.verifyPharmacy proof generated`, 'complete', elapsedPG);
     this.emit('info', 'fill', `  ┌─ PROOF: ProofGate.verifyPharmacy`);
     this.emit('info', 'fill', `  │  Public Input:  pharmacyWalletId = ${truncField(pharmacyWalletId)}`);
-    this.emit('info', 'fill', `  │  Constraint:    Poseidon.hash([DOMAIN_TAG_PHARMACY, qualifier, hash(NPI), hash(enrollmentKey)]) == walletId`);
+    this.emit(
+      'info',
+      'fill',
+      `  │  Constraint:    Poseidon.hash([DOMAIN_TAG_PHARMACY, qualifier, hash(NPI), hash(enrollmentKey)]) == walletId`,
+    );
     this.emit('info', 'fill', `  │  Result:        VERIFIED — ${pharmacy.storeName} proved NPI ownership (${elapsedPG.toFixed(0)}ms)`);
     this.emit('info', 'fill', `  └─ No NPI data revealed — only Poseidon hash checked`);
 
@@ -4121,10 +4736,44 @@ export class AdjudicationService {
     this.emit('proof', 'fill', `[2/3] Generating PrescriptionProgram.proveStatusUpdate (${rxState.status}→${zkStatusLabel})...`, 'start');
     const startRx = performance.now();
     await this.dispatchProof(
-      'Prescription', 'proveStatusUpdate',
-      ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'PrescriptionStatusData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'Field', 'Field', 'Field'],
-      [rxState.rxCredentialData, rxState.prescriptionData, rxState.activeStatus, filledStatus, rxForestRoots, medWitness, oldStatusWitness, newSlotWitness, ...prescriberPreimage],
-      () => PrescriptionProgram.proveStatusUpdate(rxState.rxCredentialData, rxState.prescriptionData, rxState.activeStatus, filledStatus, rxForestRoots, medWitness, oldStatusWitness, newSlotWitness, ...prescriberPreimage as [Field, Field, Field]),
+      'Prescription',
+      'proveStatusUpdate',
+      [
+        'CredentialData',
+        'PrescriptionData',
+        'PrescriptionStatusData',
+        'PrescriptionStatusData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+      ],
+      [
+        rxState.rxCredentialData,
+        rxState.prescriptionData,
+        rxState.activeStatus,
+        filledStatus,
+        rxForestRoots,
+        medWitness,
+        oldStatusWitness,
+        newSlotWitness,
+        ...prescriberPreimage,
+      ],
+      () =>
+        PrescriptionProgram.proveStatusUpdate(
+          rxState.rxCredentialData,
+          rxState.prescriptionData,
+          rxState.activeStatus,
+          filledStatus,
+          rxForestRoots,
+          medWitness,
+          oldStatusWitness,
+          newSlotWitness,
+          ...(prescriberPreimage as [Field, Field, Field]),
+        ),
     );
     const elapsedRx = performance.now() - startRx;
     this.emit('proof', 'fill', `[2/3] PrescriptionProgram.proveStatusUpdate proof generated`, 'complete', elapsedRx);
@@ -4176,7 +4825,7 @@ export class AdjudicationService {
       // The fulfillment circuit requires the FILLED status (pre-dispense), not DISPENSED.
       // It checks that the prescription is in FILLED or PARTIALLY_FILLED state before settling.
       const preDispenseStatus = rxState.activeStatus; // FILLED status from markFilled()
-      const preDispenseLeaf = oldStatusLeaf;          // leaf index of the FILLED status
+      const preDispenseLeaf = oldStatusLeaf; // leaf index of the FILLED status
 
       const fulfillmentData = new FulfillmentData({
         prescriptionHash: rxState.prescriptionData.commitment(),
@@ -4210,15 +4859,82 @@ export class AdjudicationService {
       // editing bills nothing). The pre-script quote takes the same six inputs (familyInputsOf).
       const { totals: familyTotals, amounts: family } = this.familyInputsOf(enrolled);
       const familyFields = [
-        family.deductiblePaidCents, family.oopPaidCents, family.annualBenefitUsedCents,
-        family.familyDeductibleAmountCents, family.familyOopMaxCents, family.familyAnnualBenefitMaxCents,
+        family.deductiblePaidCents,
+        family.oopPaidCents,
+        family.annualBenefitUsedCents,
+        family.familyDeductibleAmountCents,
+        family.familyOopMaxCents,
+        family.familyAnnualBenefitMaxCents,
       ].map((n) => Field(BigInt(n)));
       const startFulf = performance.now();
       const fulfillDispatch = await this.dispatchProof(
-        'AccumulatorFulfillment', 'proveFulfillmentWithAccumulator',
-        ['CredentialData', 'PrescriptionData', 'PrescriptionStatusData', 'FulfillmentData', 'FormularyEntry', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'FormularyMerkleWitness', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
-        [rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage, ...familyFields],
-        () => AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(rxCredentialData, rxState.prescriptionData, preDispenseStatus, fulfillmentData, coverage.entry, rxForestRoots, fulfMedWitness, fulfStatusWitness, fulfNewSlotWitness, fulfFormWitness, enrolled.eligibilityData.formularyRoot, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field], ...familyFields as [Field, Field, Field, Field, Field, Field]),
+        'AccumulatorFulfillment',
+        'proveFulfillmentWithAccumulator',
+        [
+          'CredentialData',
+          'PrescriptionData',
+          'PrescriptionStatusData',
+          'FulfillmentData',
+          'FormularyEntry',
+          'ForestRoots',
+          'ForestMerkleWitness',
+          'ForestMerkleWitness',
+          'ForestMerkleWitness',
+          'FormularyMerkleWitness',
+          'Field',
+          'CredentialData',
+          'ForestRoots',
+          'AccumulatorData',
+          'ForestMerkleWitness',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+        ],
+        [
+          rxCredentialData,
+          rxState.prescriptionData,
+          preDispenseStatus,
+          fulfillmentData,
+          coverage.entry,
+          rxForestRoots,
+          fulfMedWitness,
+          fulfStatusWitness,
+          fulfNewSlotWitness,
+          fulfFormWitness,
+          enrolled.eligibilityData.formularyRoot,
+          enrolled.credentialData,
+          eligForestRoots,
+          enrolled.accumulatorData,
+          accumWitness,
+          ...pharmacyPreimage,
+          ...familyFields,
+        ],
+        () =>
+          AccumulatorFulfillmentProgram.proveFulfillmentWithAccumulator(
+            rxCredentialData,
+            rxState.prescriptionData,
+            preDispenseStatus,
+            fulfillmentData,
+            coverage.entry,
+            rxForestRoots,
+            fulfMedWitness,
+            fulfStatusWitness,
+            fulfNewSlotWitness,
+            fulfFormWitness,
+            enrolled.eligibilityData.formularyRoot,
+            enrolled.credentialData,
+            eligForestRoots,
+            enrolled.accumulatorData,
+            accumWitness,
+            ...(pharmacyPreimage as [Field, Field, Field]),
+            ...(familyFields as [Field, Field, Field, Field, Field, Field]),
+          ),
       );
       const elapsedFulf = performance.now() - startFulf;
       this.emit('proof', 'fill', `[3/3] AccumulatorFulfillment proof generated`, 'complete', elapsedFulf);
@@ -4226,10 +4942,14 @@ export class AdjudicationService {
       // Extract proof output (individual-level, ZK-enforced) — values are decimal strings from dispatchProof
       const proofOutput = fulfillDispatch.publicOutput;
       if (!proofOutput) {
-        throw new Error(`AccumulatorFulfillment proof returned no publicOutput. Keys received: ${JSON.stringify(Object.keys(fulfillDispatch))}`);
+        throw new Error(
+          `AccumulatorFulfillment proof returned no publicOutput. Keys received: ${JSON.stringify(Object.keys(fulfillDispatch))}`,
+        );
       }
       if (!proofOutput.patientPayCents || !proofOutput.planPayCents || !proofOutput.newEligibilityForestRoot) {
-        throw new Error(`AccumulatorFulfillment publicOutput missing fields. Keys: [${Object.keys(proofOutput).join(', ')}]. patientPayCents=${proofOutput.patientPayCents}, planPayCents=${proofOutput.planPayCents}, newEligibilityForestRoot=${proofOutput.newEligibilityForestRoot}`);
+        throw new Error(
+          `AccumulatorFulfillment publicOutput missing fields. Keys: [${Object.keys(proofOutput).join(', ')}]. patientPayCents=${proofOutput.patientPayCents}, planPayCents=${proofOutput.planPayCents}, newEligibilityForestRoot=${proofOutput.newEligibilityForestRoot}`,
+        );
       }
       let patientPayCents = Number(BigInt(proofOutput.patientPayCents));
       let planPayCents = Number(BigInt(proofOutput.planPayCents));
@@ -4245,7 +4965,11 @@ export class AdjudicationService {
       this.emit('info', 'fill', `  │    FulfillmentData:    hash = ${truncField(fulfillmentData.commitment())}`);
       this.emit('info', 'fill', `  │    FormularyEntry:     NDC = ${medication.ndc}, tier ${rxState.formularyEntry.tierLevel.toString()}`);
       this.emit('info', 'fill', `  │    Eligibility Cred:   forestRoot = ${truncField(enrolled.credentialData.forestRoot)}`);
-      this.emit('info', 'fill', `  │    AccumulatorData:    deductible=$${(Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt()) / 100).toFixed(2)}, OOP=$${(Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.oopMaxCents.toBigInt()) / 100).toFixed(2)}`);
+      this.emit(
+        'info',
+        'fill',
+        `  │    AccumulatorData:    deductible=$${(Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.deductibleAmountCents.toBigInt()) / 100).toFixed(2)}, OOP=$${(Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) / 100).toFixed(2)}/$${(Number(enrolled.accumulatorData.oopMaxCents.toBigInt()) / 100).toFixed(2)}`,
+      );
       this.emit('info', 'fill', `  │    Pharmacy Preimage:  3 fields (ZK identity binding)`);
       this.emit('info', 'fill', `  │    Merkle Witnesses:   5 trees (MEDICATION, TRANSACTION x2, FORMULARY, ACCESS_CONTROL)`);
       this.emit('info', 'fill', `  │`);
@@ -4258,7 +4982,11 @@ export class AdjudicationService {
       this.emit('info', 'fill', `  │    planPayCents:             ${planPayCents} ($${(planPayCents / 100).toFixed(2)})`);
       this.emit('info', 'fill', `  │    operationType:            ${truncStr(proofOutput.operationType)}`);
       this.emit('info', 'fill', `  │    newEligibilityForestRoot: ${truncStr(proofOutput.newEligibilityForestRoot)}`);
-      this.emit('info', 'fill', `  │    deductibleCreditCents:    ${Number(BigInt(proofOutput.deductibleCreditCents))} ($${(Number(BigInt(proofOutput.deductibleCreditCents)) / 100).toFixed(2)})`);
+      this.emit(
+        'info',
+        'fill',
+        `  │    deductibleCreditCents:    ${Number(BigInt(proofOutput.deductibleCreditCents))} ($${(Number(BigInt(proofOutput.deductibleCreditCents)) / 100).toFixed(2)})`,
+      );
       this.emit('info', 'fill', `  │    ndcHash:                  ${truncStr(proofOutput.ndcHash)}`);
       this.emit('info', 'fill', `  │`);
       this.emit('info', 'fill', `  │  KEY DISTINCTION: patientPay + planPay are CIRCUIT OUTPUTS`);
@@ -4280,9 +5008,17 @@ export class AdjudicationService {
 
       // A-35: the engine's new accumulator keeps the member's plan year and limits, as the circuit does, and must reach
       // the eligibility root the proof committed to. Checked here, before the claim or the member's record changes.
-      const newAccumulator = withAmountsPaid(enrolled.accumulatorData, { deductiblePaidCents: newDeductiblePaid, oopPaidCents: newOopPaid, annualBenefitUsedCents: newBenefitUsed });
-      if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(newAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
-        throw new Error('The fill proof\'s eligibility root does not match the engine\'s accumulator update; the claim was not recorded');
+      const newAccumulator = withAmountsPaid(enrolled.accumulatorData, {
+        deductiblePaidCents: newDeductiblePaid,
+        oopPaidCents: newOopPaid,
+        annualBenefitUsedCents: newBenefitUsed,
+      });
+      if (
+        !forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(newAccumulator.commitment()))
+          .equals(newEligForestRoot)
+          .toBoolean()
+      ) {
+        throw new Error("The fill proof's eligibility root does not match the engine's accumulator update; the claim was not recorded");
       }
 
       let phase = patientPayCents === totalCostCents ? 'DEDUCTIBLE (not yet met)' : 'NORMAL COPAY';
@@ -4291,13 +5027,14 @@ export class AdjudicationService {
       // proof's, pooled inside the circuit; nothing is rewritten after the proof any more.
       const familyRuleCode = Number(BigInt(proofOutput.familyRule ?? '0'));
       const familyPoolingApplied = familyRuleCode !== 0;
-      const familyPoolingReason = [
-        'Individual accumulator rules applied',
-        'Family out-of-pocket maximum met',
-        'Family annual benefit maximum exhausted',
-        'Patient pay capped at family out-of-pocket maximum',
-        'Plan pay capped at family annual benefit maximum',
-      ][familyRuleCode] ?? 'Individual accumulator rules applied';
+      const familyPoolingReason =
+        [
+          'Individual accumulator rules applied',
+          'Family out-of-pocket maximum met',
+          'Family annual benefit maximum exhausted',
+          'Patient pay capped at family out-of-pocket maximum',
+          'Plan pay capped at family annual benefit maximum',
+        ][familyRuleCode] ?? 'Individual accumulator rules applied';
       if (familyPoolingApplied) {
         phase = familyPoolingReason;
         this.emitViz('viz:accumulator:updated', 'fulfillment', {
@@ -4326,13 +5063,25 @@ export class AdjudicationService {
       }
       this.emit('info', 'fill', '');
       this.emit('info', 'fill', `  ACCUMULATOR (BEFORE → AFTER):`);
-      this.emit('info', 'fill', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${deductibleAmt > 0 ? (newDeductiblePaid / deductibleAmt * 100).toFixed(1) + '%' : 'no deductible'}`);
-      this.emit('info', 'fill', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${oopMax > 0 ? (newOopPaid / oopMax * 100).toFixed(1) + '%' : 'no maximum'}`);
+      this.emit(
+        'info',
+        'fill',
+        `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $${(deductibleAmt / 100).toFixed(2)}  ${deductibleAmt > 0 ? ((newDeductiblePaid / deductibleAmt) * 100).toFixed(1) + '%' : 'no deductible'}`,
+      );
+      this.emit(
+        'info',
+        'fill',
+        `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $${(oopMax / 100).toFixed(2)}  ${oopMax > 0 ? ((newOopPaid / oopMax) * 100).toFixed(1) + '%' : 'no maximum'}`,
+      );
       this.emit('info', 'fill', '');
       this.emit('info', 'fill', `  ELIGIBILITY CREDENTIAL:`);
       this.emit('info', 'fill', `    Forest root BEFORE: ${truncField(oldEligForestRoot)}`);
       this.emit('info', 'fill', `    Forest root AFTER:  ${truncField(newEligForestRoot)}`);
-      this.emit('info', 'fill', `    CHANGED: ${!oldEligForestRoot.equals(newEligForestRoot).toBoolean() ? 'YES — accumulator updated in credential' : 'NO (unexpected)'}`)
+      this.emit(
+        'info',
+        'fill',
+        `    CHANGED: ${!oldEligForestRoot.equals(newEligForestRoot).toBoolean() ? 'YES — accumulator updated in credential' : 'NO (unexpected)'}`,
+      );
       this.emit('info', 'fill', '');
       this.emit('info', 'fill', `  MERKLE TREE STATE:`);
       this.emit('info', 'fill', `    Rx TRANSACTION tree:       leaf ${newStatusLeaf} = status, leaf ${newStatusLeaf + 1n} = settlement`);
@@ -4346,12 +5095,7 @@ export class AdjudicationService {
       const patientPayField = Field(BigInt(proofOutput.patientPayCents));
       const planPayField = Field(BigInt(proofOutput.planPayCents));
       const deductibleCreditField = Field(BigInt(proofOutput.deductibleCreditCents));
-      const settlementCommit = Poseidon.hash([
-        fulfillmentData.commitment(),
-        patientPayField,
-        planPayField,
-        deductibleCreditField,
-      ]);
+      const settlementCommit = Poseidon.hash([fulfillmentData.commitment(), patientPayField, planPayField, deductibleCreditField]);
       rxForest.setLeaf(ForestDomain.TRANSACTION, newStatusLeaf + 1n, settlementCommit);
       const updatedRxCredentialData = new CredentialData({
         credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
@@ -4416,10 +5160,10 @@ export class AdjudicationService {
 
       rxState.quantityDispensed = quantityFromMilli(totalAfterFillMilli);
       rxState.status = newStatus;
-      rxState.activeStatus = filledStatus;                       // update current ZK status
-      rxState.currentStatusLeafIndex = newStatusLeaf;            // track current status leaf
-      rxState.nextTxLeafIndex = newStatusLeaf + 2n;              // advance past status + fulfillment leaves
-      rxState.rxCredentialData = updatedRxCredentialData;          // update Rx credential with new forest root
+      rxState.activeStatus = filledStatus; // update current ZK status
+      rxState.currentStatusLeafIndex = newStatusLeaf; // track current status leaf
+      rxState.nextTxLeafIndex = newStatusLeaf + 2n; // advance past status + fulfillment leaves
+      rxState.rxCredentialData = updatedRxCredentialData; // update Rx credential with new forest root
       rxState.statusHistory.push({
         from: previousStatus,
         to: newStatus,
@@ -4507,7 +5251,7 @@ export class AdjudicationService {
           totalCostCents,
           ingredientCostCents,
           dispensingFeeCents,
-          pricing: fillPrice,   // NADAC per unit x quantity + fee, and whether the fee is the plan's or the network default
+          pricing: fillPrice, // NADAC per unit x quantity + fee, and whether the fee is the plan's or the network default
           familyPoolingApplied,
           familyPoolingReason: familyPoolingApplied ? familyPoolingReason : undefined,
         },
@@ -4588,7 +5332,13 @@ export class AdjudicationService {
       enrolled.credentialData = savedCredential;
       if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
       const why = fillErr instanceof Error ? fillErr.message : String(fillErr);
-      this.emit('error', 'fill', fillStage === 'ledger' ? `The ledger did not take the fill; nothing was filled: ${why}` : `The fill did not complete; nothing was filled: ${why}`);
+      this.emit(
+        'error',
+        'fill',
+        fillStage === 'ledger'
+          ? `The ledger did not take the fill; nothing was filled: ${why}`
+          : `The fill did not complete; nothing was filled: ${why}`,
+      );
       throw fillErr;
     }
   }
@@ -4616,8 +5366,13 @@ export class AdjudicationService {
     } else {
       // Validate the transition using production state machine
       const statusMap: Record<string, bigint> = {
-        'ADJUDICATED': 1n, 'PARTIALLY_FILLED': 2n, 'FILLED': 3n,
-        'CANCELLED': 4n, 'REJECTED': 5n, 'REVERSED': 6n, 'DISPENSED': 8n,
+        ADJUDICATED: 1n,
+        PARTIALLY_FILLED: 2n,
+        FILLED: 3n,
+        CANCELLED: 4n,
+        REJECTED: 5n,
+        REVERSED: 6n,
+        DISPENSED: 8n,
       };
       const fromBigint = statusMap[rxState.status];
       const toBigint = statusMap[opts.newStatus];
@@ -4626,7 +5381,9 @@ export class AdjudicationService {
       }
       // A-148: a partly filled script is finished by the fill that dispenses its rest, with its proof, never by hand
       if (opts.newStatus === 'DISPENSED' && rxState.status !== 'FILLED') {
-        throw new Error(`Invalid status transition: ${rxState.status} → DISPENSED (only the last fill finishes a partly filled prescription)`);
+        throw new Error(
+          `Invalid status transition: ${rxState.status} → DISPENSED (only the last fill finishes a partly filled prescription)`,
+        );
       }
 
       // Validate role: prescribers cancel, pharmacies reject
@@ -4638,9 +5395,8 @@ export class AdjudicationService {
       }
     }
 
-    const actorName = opts.role === 'prescriber'
-      ? `${prescriberDisplayName(PRESCRIBERS[opts.actorIndex])}`
-      : PHARMACIES[opts.actorIndex].storeName;
+    const actorName =
+      opts.role === 'prescriber' ? `${prescriberDisplayName(PRESCRIBERS[opts.actorIndex])}` : PHARMACIES[opts.actorIndex].storeName;
     const enrolled = this.enrolledMembers.get(rxState.memberWalletId);
     const medication = this.getMedicationByNdcHash(rxState.ndcHash);
 
@@ -4657,7 +5413,10 @@ export class AdjudicationService {
 
     // Console log
     const verbMap: Record<string, string> = {
-      'CANCELLED': 'cancelled', 'REJECTED': 'rejected', 'COMPLETED': 'completed (PoS pickup)', 'DISPENSED': 'dispensed (awaiting pickup)',
+      CANCELLED: 'cancelled',
+      REJECTED: 'rejected',
+      COMPLETED: 'completed (PoS pickup)',
+      DISPENSED: 'dispensed (awaiting pickup)',
     };
     const verb = verbMap[opts.newStatus] || opts.newStatus.toLowerCase();
     this.emit('phase', 'status', `═══ Prescription ${verb.charAt(0).toUpperCase() + verb.slice(1)}: ${medication.brandName} ═══`);
@@ -4699,7 +5458,7 @@ export class AdjudicationService {
 
   async reversePrescription(opts: {
     prescriptionId: string;
-    fillIndex?: number;      // which fill to reverse (default: last)
+    fillIndex?: number; // which fill to reverse (default: last)
     reason?: string;
   }): Promise<Record<string, unknown>> {
     const rxState = this.prescriptions.get(opts.prescriptionId);
@@ -4730,7 +5489,11 @@ export class AdjudicationService {
 
     this.emit('phase', 'reversal', `═══ Claim Reversal: ${medication.brandName} ═══`);
     this.emit('info', 'reversal', `  Reversing fill #${fillIdx} of ${opts.prescriptionId}`);
-    this.emit('info', 'reversal', `  Original: patient $${(fillToReverse.patientPayCents / 100).toFixed(2)}, plan $${(fillToReverse.planPayCents / 100).toFixed(2)}`);
+    this.emit(
+      'info',
+      'reversal',
+      `  Original: patient $${(fillToReverse.patientPayCents / 100).toFixed(2)}, plan $${(fillToReverse.planPayCents / 100).toFixed(2)}`,
+    );
     if (opts.reason) this.emit('info', 'reversal', `  Reason: ${opts.reason}`);
 
     // 1. Build ReversalData
@@ -4765,10 +5528,65 @@ export class AdjudicationService {
 
     const startRev = performance.now();
     const reversalDispatch = await this.dispatchProof(
-      'AccumulatorFulfillment', 'proveReversalWithAccumulator',
-      ['CredentialData', 'PrescriptionData', 'FulfillmentData', 'ReversalData', 'ForestRoots', 'ForestMerkleWitness', 'ForestMerkleWitness', 'ForestMerkleWitness', 'Field', 'Field', 'Field', 'CredentialData', 'ForestRoots', 'AccumulatorData', 'ForestMerkleWitness', 'Field', 'Field', 'Field'],
-      [rxState.rxCredentialData, rxState.prescriptionData, fillToReverse.fulfillmentData, reversalData, rxForestRoots, revMedWitness, revFulfWitness, revSlotWitness, fillToReverse.patientPayField, fillToReverse.planPayField, fillToReverse.deductibleCreditField, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage],
-      () => AccumulatorFulfillmentProgram.proveReversalWithAccumulator(rxState.rxCredentialData, rxState.prescriptionData, fillToReverse.fulfillmentData, reversalData, rxForestRoots, revMedWitness, revFulfWitness, revSlotWitness, fillToReverse.patientPayField, fillToReverse.planPayField, fillToReverse.deductibleCreditField, enrolled.credentialData, eligForestRoots, enrolled.accumulatorData, accumWitness, ...pharmacyPreimage as [Field, Field, Field]),
+      'AccumulatorFulfillment',
+      'proveReversalWithAccumulator',
+      [
+        'CredentialData',
+        'PrescriptionData',
+        'FulfillmentData',
+        'ReversalData',
+        'ForestRoots',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+        'CredentialData',
+        'ForestRoots',
+        'AccumulatorData',
+        'ForestMerkleWitness',
+        'Field',
+        'Field',
+        'Field',
+      ],
+      [
+        rxState.rxCredentialData,
+        rxState.prescriptionData,
+        fillToReverse.fulfillmentData,
+        reversalData,
+        rxForestRoots,
+        revMedWitness,
+        revFulfWitness,
+        revSlotWitness,
+        fillToReverse.patientPayField,
+        fillToReverse.planPayField,
+        fillToReverse.deductibleCreditField,
+        enrolled.credentialData,
+        eligForestRoots,
+        enrolled.accumulatorData,
+        accumWitness,
+        ...pharmacyPreimage,
+      ],
+      () =>
+        AccumulatorFulfillmentProgram.proveReversalWithAccumulator(
+          rxState.rxCredentialData,
+          rxState.prescriptionData,
+          fillToReverse.fulfillmentData,
+          reversalData,
+          rxForestRoots,
+          revMedWitness,
+          revFulfWitness,
+          revSlotWitness,
+          fillToReverse.patientPayField,
+          fillToReverse.planPayField,
+          fillToReverse.deductibleCreditField,
+          enrolled.credentialData,
+          eligForestRoots,
+          enrolled.accumulatorData,
+          accumWitness,
+          ...(pharmacyPreimage as [Field, Field, Field]),
+        ),
     );
     const elapsedRev = performance.now() - startRev;
     this.emit('proof', 'reversal', `[1/2] AccumulatorFulfillment.proveReversalWithAccumulator proof generated`, 'complete', elapsedRev);
@@ -4780,12 +5598,19 @@ export class AdjudicationService {
     // A-35: the reversed accumulator keeps the member's plan year and limits and must reach the proof's root,
     // checked before the transaction tree or the member's record changes.
     const revAccumulator = withAmountsPaid(enrolled.accumulatorData, {
-      deductiblePaidCents: Math.max(0, Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) - Number(fillToReverse.deductibleCreditField.toBigInt())),
+      deductiblePaidCents: Math.max(
+        0,
+        Number(enrolled.accumulatorData.deductiblePaidCents.toBigInt()) - Number(fillToReverse.deductibleCreditField.toBigInt()),
+      ),
       oopPaidCents: Math.max(0, Number(enrolled.accumulatorData.oopPaidCents.toBigInt()) - fillToReverse.patientPayCents),
       annualBenefitUsedCents: Math.max(0, Number(enrolled.accumulatorData.annualBenefitUsedCents.toBigInt()) - fillToReverse.planPayCents),
     });
-    if (!forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(revAccumulator.commitment())).equals(newEligForestRoot).toBoolean()) {
-      throw new Error('The reversal proof\'s eligibility root does not match the engine\'s accumulator update; nothing was reversed');
+    if (
+      !forestRootWithAccessControl(eligForestRoots, accumWitness.calculateRoot(revAccumulator.commitment()))
+        .equals(newEligForestRoot)
+        .toBoolean()
+    ) {
+      throw new Error("The reversal proof's eligibility root does not match the engine's accumulator update; nothing was reversed");
     }
 
     // 3. Update eligibility forest: reverse accumulator. The member's record is what the ledger step proves, so it
@@ -4848,7 +5673,11 @@ export class AdjudicationService {
       eligForest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, savedAccumulatorLeaf);
       enrolled.credentialData = savedCredential;
       if (savedInventorySlot) enrolled.credentialInventory.updateCredential(0n, savedInventorySlot);
-      this.emit('error', 'reversal', `The ledger did not take the reversal; nothing was reversed: ${revSubmitErr instanceof Error ? revSubmitErr.message : String(revSubmitErr)}`);
+      this.emit(
+        'error',
+        'reversal',
+        `The ledger did not take the reversal; nothing was reversed: ${revSubmitErr instanceof Error ? revSubmitErr.message : String(revSubmitErr)}`,
+      );
       throw revSubmitErr;
     }
 
@@ -4869,7 +5698,9 @@ export class AdjudicationService {
     // 7. Update prescription state
     const previousStatus = rxState.status;
     rxState.status = 'REVERSED';
-    rxState.quantityDispensed = quantityFromMilli(quantityMilli(rxState.quantityDispensed) - quantityMilli(fillToReverse.quantityDispensed));
+    rxState.quantityDispensed = quantityFromMilli(
+      quantityMilli(rxState.quantityDispensed) - quantityMilli(fillToReverse.quantityDispensed),
+    );
     rxState.rxCredentialData = updatedRxCredentialData;
     // Note: nextTxLeafIndex unchanged — reversal slot is at settlementLeafIndex+1, not at nextTxLeafIndex
     rxState.statusHistory.push({
@@ -4895,7 +5726,11 @@ export class AdjudicationService {
     this.emit('info', 'reversal', `    Plan refund:    $${(origPlanPay / 100).toFixed(2)}`);
     this.emit('info', 'reversal', '');
     this.emit('info', 'reversal', `  ACCUMULATOR (BEFORE → AFTER reversal):`);
-    this.emit('info', 'reversal', `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $500.00`);
+    this.emit(
+      'info',
+      'reversal',
+      `    Deductible:  $${(oldDeductiblePaid / 100).toFixed(2)} → $${(newDeductiblePaid / 100).toFixed(2)} / $500.00`,
+    );
     this.emit('info', 'reversal', `    OOPM:        $${(oldOopPaid / 100).toFixed(2)} → $${(newOopPaid / 100).toFixed(2)} / $8000.00`);
     this.emit('info', 'reversal', '');
     this.emit('info', 'reversal', `  ELIGIBILITY CREDENTIAL:`);
@@ -4959,8 +5794,11 @@ export class AdjudicationService {
    * Internal message — no proof, no encryption. Used for auto-sent system messages.
    */
   private sendInternalMessage(
-    sender: Field, recipient: Field, msgType: Field,
-    subject: string, plaintext: string,
+    sender: Field,
+    recipient: Field,
+    msgType: Field,
+    subject: string,
+    plaintext: string,
     threadId?: string,
   ): bigint {
     this.msgNonce++;
@@ -5030,11 +5868,7 @@ export class AdjudicationService {
       this.delegationRegistry.getRoot(),
       this.keyRegistry.getRoot(),
     ).toString();
-    this.l2Node.emitMessagingAuditEvent(
-      sender.toString(),
-      messagingRootBefore,
-      messagingRootAfter,
-    );
+    this.l2Node.emitMessagingAuditEvent(sender.toString(), messagingRootBefore, messagingRootAfter);
 
     return index;
   }
@@ -5061,7 +5895,8 @@ export class AdjudicationService {
     // Check enrolled members
     for (const enrolled of this.enrolledMembers.values()) {
       // members key by their live registry slot: a restore can move them, and a stale saved index may name a provider
-      if (enrolled.walletId.toString() === walletStr) return this.walletRegistry.isRegistered(enrolled.walletId) ? Number(this.walletRegistry.getIndex(enrolled.walletId)) : null;
+      if (enrolled.walletId.toString() === walletStr)
+        return this.walletRegistry.isRegistered(enrolled.walletId) ? Number(this.walletRegistry.getIndex(enrolled.walletId)) : null;
     }
     // Check admin/insurer
     if (this.adminWalletId && this.adminWalletId.toString() === walletStr) return AdjudicationService.ADMIN_KEY_INDEX;
@@ -5071,9 +5906,7 @@ export class AdjudicationService {
   /**
    * Resolve a wallet ID from party type + index/walletId string.
    */
-  private resolveWalletId(
-    type: string, index?: number, walletId?: string,
-  ): { walletId: Field; keyIndex: number; displayName: string } {
+  private resolveWalletId(type: string, index?: number, walletId?: string): { walletId: Field; keyIndex: number; displayName: string } {
     if (type === 'prescriber') {
       if (index === undefined) throw new Error('Prescriber index required');
       const p = PRESCRIBERS[index];
@@ -5142,14 +5975,19 @@ export class AdjudicationService {
     const plaintext = `Subject: ${opts.subject}\n\n${opts.body}`;
 
     this.emit('phase', 'messaging', `═══ Secure Message: ${sender.displayName} → ${recipient.displayName} ═══`);
-    this.emit('info', 'messaging', `  Type: ${msgType === MSG_TYPE_SUPPORT ? 'SUPPORT' : msgType === MSG_TYPE_NOTIFICATION ? 'NOTIFICATION' : 'GENERAL'}`);
+    this.emit(
+      'info',
+      'messaging',
+      `  Type: ${msgType === MSG_TYPE_SUPPORT ? 'SUPPORT' : msgType === MSG_TYPE_NOTIFICATION ? 'NOTIFICATION' : 'GENERAL'}`,
+    );
     this.emit('info', 'messaging', `  Subject: ${opts.subject}`);
 
     // 1. Encrypt with ECIES
     const senderKeys = this.encryptionKeys.get(sender.keyIndex);
     const recipientKeys = this.encryptionKeys.get(recipient.keyIndex);
     if (!senderKeys || !recipientKeys) throw new Error('Encryption keys not found');
-    if (senderKeys.privateKey.length === 0) throw new Error('Cannot encrypt on sequencer — sender private key is device-only. Encrypt on the sender\'s device before submitting.');
+    if (senderKeys.privateKey.length === 0)
+      throw new Error("Cannot encrypt on sequencer — sender private key is device-only. Encrypt on the sender's device before submitting.");
 
     const sharedSecret = deriveSharedSecret(senderKeys.privateKey, recipientKeys.publicKey);
     const encrypted = encryptMessage(plaintext, sharedSecret);
@@ -5193,10 +6031,18 @@ export class AdjudicationService {
     this.emit('proof', 'messaging', 'Generating MessagingProgram.proveSendMessage proof...', 'start');
     const startProof = performance.now();
     await this.dispatchProof(
-      'Messaging', 'proveSendMessage',
+      'Messaging',
+      'proveSendMessage',
       ['MessageData', 'MessageRegistryWitness', 'Field', 'Field', 'Field'],
       [msg, msgWitness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()],
-      () => MessagingProgram.proveSendMessage(msg, msgWitness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()),
+      () =>
+        MessagingProgram.proveSendMessage(
+          msg,
+          msgWitness,
+          this.messageRegistry.getRoot(),
+          this.delegationRegistry.getRoot(),
+          this.keyRegistry.getRoot(),
+        ),
     );
     const elapsed = performance.now() - startProof;
     this.emit('proof', 'messaging', 'MessagingProgram.proveSendMessage proof generated', 'complete', elapsed);
@@ -5218,18 +6064,16 @@ export class AdjudicationService {
       this.delegationRegistry.getRoot(),
       this.keyRegistry.getRoot(),
     ).toString();
-    const auditResult = this.l2Node.emitMessagingAuditEvent(
-      sender.walletId.toString(),
-      messagingRootBefore,
-      messagingRootAfter,
-    );
+    const auditResult = this.l2Node.emitMessagingAuditEvent(sender.walletId.toString(), messagingRootBefore, messagingRootAfter);
 
     this.emit('info', 'messaging', `  Message #${msgIndex} stored in MessageRegistry`);
     this.emitMemory('messaging');
 
     this.emitViz('viz:message:sent', 'messaging', {
-      actor: sender.displayName, actorType: opts.senderType as VizEvent['actorType'],
-      target: recipient.displayName, targetType: opts.recipientType,
+      actor: sender.displayName,
+      actorType: opts.senderType as VizEvent['actorType'],
+      target: recipient.displayName,
+      targetType: opts.recipientType,
       data: { messageType: msgType.toString(), subject: opts.subject },
     });
 
@@ -5255,7 +6099,10 @@ export class AdjudicationService {
    * Decrypt a single message. Verifies the requester is sender or recipient.
    * Returns null if message not found, no payload, or access denied.
    */
-  decryptMessageByIndex(messageIndex: number, requestingWalletId: string): {
+  decryptMessageByIndex(
+    messageIndex: number,
+    requestingWalletId: string,
+  ): {
     subject: string;
     body: string;
     threadId: string;
@@ -5330,7 +6177,10 @@ export class AdjudicationService {
   /**
    * Batch decrypt multiple messages. Avoids N HTTP round-trips per thread.
    */
-  decryptThread(messageIndices: number[], requestingWalletId: string): Array<{
+  decryptThread(
+    messageIndices: number[],
+    requestingWalletId: string,
+  ): Array<{
     messageIndex: number;
     subject: string;
     body: string;
@@ -5367,12 +6217,15 @@ export class AdjudicationService {
     latestTimestamp: number;
     messageIndices: number[];
   }> {
-    const threadMap = new Map<string, {
-      participants: Set<string>;
-      messageCount: number;
-      latestTimestamp: number;
-      messageIndices: number[];
-    }>();
+    const threadMap = new Map<
+      string,
+      {
+        participants: Set<string>;
+        messageCount: number;
+        latestTimestamp: number;
+        messageIndices: number[];
+      }
+    >();
 
     for (let i = 0; i < this.messageRegistry.count; i++) {
       const msg = this.messageRegistry.getMessage(BigInt(i));
@@ -5440,8 +6293,12 @@ export class AdjudicationService {
     if (opts.scopeFlags & 4) scopeLabels.push('PICKUP');
 
     const REL_LABELS: Record<number, string> = {
-      1: 'Parent', 2: 'Spouse', 3: 'Power of Attorney',
-      4: 'Guardian', 5: 'Migration', 6: 'Appointed Rep',
+      1: 'Parent',
+      2: 'Spouse',
+      3: 'Power of Attorney',
+      4: 'Guardian',
+      5: 'Migration',
+      6: 'Appointed Rep',
     };
 
     this.emit('phase', 'delegation', `═══ Delegation: ${delegator.displayName} → ${delegate.displayName} ═══`);
@@ -5464,18 +6321,36 @@ export class AdjudicationService {
     this.emit('proof', 'delegation', 'Generating MessagingProgram.proveDelegate proof...', 'start');
     const startProof = performance.now();
     await this.dispatchProof(
-      'Messaging', 'proveDelegate',
+      'Messaging',
+      'proveDelegate',
       ['DelegationData', 'DelegationRegistryWitness', 'Field', 'Field', 'Field', 'Field'],
-      [delegationData, witness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot(), dateToField('20260214')],
-      () => MessagingProgram.proveDelegate(delegationData, witness, this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot(), dateToField('20260214')),
+      [
+        delegationData,
+        witness,
+        this.messageRegistry.getRoot(),
+        this.delegationRegistry.getRoot(),
+        this.keyRegistry.getRoot(),
+        dateToField('20260214'),
+      ],
+      () =>
+        MessagingProgram.proveDelegate(
+          delegationData,
+          witness,
+          this.messageRegistry.getRoot(),
+          this.delegationRegistry.getRoot(),
+          this.keyRegistry.getRoot(),
+          dateToField('20260214'),
+        ),
     );
     const elapsed = performance.now() - startProof;
     this.emit('proof', 'delegation', 'MessagingProgram.proveDelegate proof generated', 'complete', elapsed);
     this.emitMemory('delegation');
 
     this.emitViz('viz:message:sent', 'messaging', {
-      actor: delegator.displayName, actorType: 'member',
-      target: delegate.displayName, targetType: 'member',
+      actor: delegator.displayName,
+      actorType: 'member',
+      target: delegate.displayName,
+      targetType: 'member',
       data: { messageType: 'DELEGATION', scope: scopeLabels.join('+') },
     });
 
@@ -5494,15 +6369,13 @@ export class AdjudicationService {
 
   // ─── Terminate Member ─────────────────────────────────────
 
-  terminateMember(opts: {
-    memberWalletId: string;
-    terminationDate?: string;
-  }): Record<string, unknown> {
+  terminateMember(opts: { memberWalletId: string; terminationDate?: string }): Record<string, unknown> {
     const enrolled = this.enrolledMembers.get(opts.memberWalletId);
     if (!enrolled) throw new Error(`Member not found: ${opts.memberWalletId}`);
     // A copy brought into step from the ledger has no termination date: the termination's own steps (cancel the
     // prescriptions, revoke the attestation nonce, notify) never ran, so they may run now.
-    if (enrolled.lifecycle === 'REVOKED' && enrolled.terminationDate !== undefined) throw new Error(`Member ${enrolled.displayName} is already terminated`);
+    if (enrolled.lifecycle === 'REVOKED' && enrolled.terminationDate !== undefined)
+      throw new Error(`Member ${enrolled.displayName} is already terminated`);
 
     const termDate = opts.terminationDate || '20260214';
 
@@ -5519,14 +6392,15 @@ export class AdjudicationService {
     // (Step 2b registers it straight on the sequencer), so its lifecycle is set on the trees directly.
     // D7 (A-33): termination is synchronous and rare; it does not wait for the proving lease, so a prover caught
     // in flight re-proves once. Making it wait is part of the lease-hardening item (D8).
-    const result = enrolled.memberIndex >= 0
-      ? this.l2Node.getSequencer().adminMutate('terminate member', () =>
-          this.enrollmentService.terminateMember(enrolled.walletId, termDate),
-        )
-      : this.l2Node.getSequencer().adminMutate('terminate member', ({ setLifecycle, registry, lifecycle }) => {
-          setLifecycle(enrolled.walletId, LIFECYCLE_REVOKED);
-          return { newRegistryRoot: registry.getRoot(), newLifecycleRoot: lifecycle.getRoot() };
-        });
+    const result =
+      enrolled.memberIndex >= 0
+        ? this.l2Node
+            .getSequencer()
+            .adminMutate('terminate member', () => this.enrollmentService.terminateMember(enrolled.walletId, termDate))
+        : this.l2Node.getSequencer().adminMutate('terminate member', ({ setLifecycle, registry, lifecycle }) => {
+            setLifecycle(enrolled.walletId, LIFECYCLE_REVOKED);
+            return { newRegistryRoot: registry.getRoot(), newLifecycleRoot: lifecycle.getRoot() };
+          });
     this.emit('offchain', 'terminate', 'Step 1: Credential revoked, lifecycle set to REVOKED', 'complete');
 
     // 2. Revoke NFC attestation nonce (if one exists)
@@ -5552,8 +6426,10 @@ export class AdjudicationService {
     // 3. Cancel any active prescriptions for this member
     const cancelledRxs: string[] = [];
     for (const [rxId, rx] of this.prescriptions) {
-      if (rx.memberWalletId === opts.memberWalletId &&
-          (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')) {
+      if (
+        rx.memberWalletId === opts.memberWalletId &&
+        (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')
+      ) {
         const prevStatus = rx.status;
         rx.status = 'CANCELLED';
         rx.statusHistory.push({
@@ -5580,8 +6456,13 @@ export class AdjudicationService {
     this.emit('info', 'terminate', `    Active Rx cancelled: ${cancelledRxs.length}`);
 
     // Auto-send termination notification
-    this.sendInternalMessage(this.adminWalletId, enrolled.walletId, MSG_TYPE_NOTIFICATION,
-      'Coverage Terminated', `Coverage terminated effective ${termDate}. Credential revoked. ${cancelledRxs.length} active prescription(s) cancelled.`);
+    this.sendInternalMessage(
+      this.adminWalletId,
+      enrolled.walletId,
+      MSG_TYPE_NOTIFICATION,
+      'Coverage Terminated',
+      `Coverage terminated effective ${termDate}. Credential revoked. ${cancelledRxs.length} active prescription(s) cancelled.`,
+    );
     this.emitMemory('terminate');
 
     this.emitViz('viz:enrollment:terminated', 'enrollment', {
@@ -5607,15 +6488,11 @@ export class AdjudicationService {
 
   // ─── Terminate Group ─────────────────────────────────────
 
-  terminateGroup(opts: {
-    groupId: string;
-    terminationDate?: string;
-  }): Record<string, unknown> {
+  terminateGroup(opts: { groupId: string; terminationDate?: string }): Record<string, unknown> {
     const termDate = opts.terminationDate || '20260214';
 
     // Find all members in this group
-    const groupMembers = Array.from(this.enrolledMembers.values())
-      .filter(m => m.groupId === opts.groupId && m.lifecycle !== 'REVOKED');
+    const groupMembers = Array.from(this.enrolledMembers.values()).filter((m) => m.groupId === opts.groupId && m.lifecycle !== 'REVOKED');
 
     if (groupMembers.length === 0) {
       throw new Error(`No active members found in group ${opts.groupId}`);
@@ -5666,9 +6543,7 @@ export class AdjudicationService {
       copayAmount: this.planTemplate.config.copayAmountCents,
       coverageType: 1,
       formularyRoot: this.formularyRegistry.getRoot().toString(),
-      networkRoot: this.providerNetwork.count > 0
-        ? this.providerNetwork.getRoot().toString()
-        : '0',
+      networkRoot: this.providerNetwork.count > 0 ? this.providerNetwork.getRoot().toString() : '0',
     });
   }
 
@@ -5778,7 +6653,11 @@ export class AdjudicationService {
     this.emit('info', 'formulary', `  │  Action:           ${opts.action} — ${medication.brandName} (${medication.genericName})`);
     this.emit('info', 'formulary', `  │  Old Root:         ${oldFormularyRoot.slice(0, 16)}...`);
     this.emit('info', 'formulary', `  │  New Root:         ${newFormularyRoot.slice(0, 16)}...`);
-    this.emit('info', 'formulary', `  │  Entries:          ${this.currentFormularyEntries.length} total (${activeCount} active, ${inactiveCount} inactive/sentinel)`);
+    this.emit(
+      'info',
+      'formulary',
+      `  │  Entries:          ${this.currentFormularyEntries.length} total (${activeCount} active, ${inactiveCount} inactive/sentinel)`,
+    );
     this.emit('info', 'formulary', `  │  Tree:             MerkleTree(16), 32,768 leaf capacity`);
     this.emit('info', 'formulary', `  │  Eligibility:      formularyRoot updated in shared EligibilityData`);
     this.emit('info', 'formulary', `  │  New Elig Commit:  ${truncField(this.sharedEligibilityData.commitment())}`);
@@ -5797,11 +6676,7 @@ export class AdjudicationService {
 
       // Update ACCESS_CONTROL leaf 0 (EligibilityData) — preserves leaves 1-127
       enrolled.eligibilityData = this.sharedEligibilityData;
-      enrolled.forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        0n,
-        this.sharedEligibilityData.commitment(),
-      );
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, this.sharedEligibilityData.commitment());
 
       // Update CredentialData with new forest root
       enrolled.credentialData = new CredentialData({
@@ -5843,9 +6718,7 @@ export class AdjudicationService {
     this.emit('info', 'formulary', `  └─ All member eligibility credentials reflect new formulary`);
 
     // 7. Send notifications to all affected members
-    const pastVerb = opts.action === 'REMOVE' ? 'removed from'
-      : opts.action === 'ADD' ? 'added back to'
-      : 'modified on';
+    const pastVerb = opts.action === 'REMOVE' ? 'removed from' : opts.action === 'ADD' ? 'added back to' : 'modified on';
     const subject = `Formulary Change: ${medication.brandName}`;
     const body = `${medication.brandName} (${medication.genericName}) has been ${pastVerb} your formulary. ${details ? `Changes: ${details}.` : ''} Your eligibility credential has been updated with the new formulary.`;
 
@@ -5889,10 +6762,7 @@ export class AdjudicationService {
    * Add or remove a prescriber from the provider network.
    * Cascades the change to all enrolled members' eligibility credentials.
    */
-  async updateProviderNetwork(opts: {
-    prescriberWalletId: string;
-    action: 'ADD' | 'REMOVE';
-  }): Promise<Record<string, unknown>> {
+  async updateProviderNetwork(opts: { prescriberWalletId: string; action: 'ADD' | 'REMOVE' }): Promise<Record<string, unknown>> {
     const walletIdStr = opts.prescriberWalletId;
     const isCurrentlyActive = this.networkActive.get(walletIdStr) === true;
 
@@ -5942,10 +6812,13 @@ export class AdjudicationService {
       }
     }
 
-    const newNetworkRoot = this.providerNetwork.count > 0
-      ? fieldToStr(this.providerNetwork.getRoot())
-      : '0';
-    this.emit('offchain', 'network', `ProviderNetworkRegistry rebuilt. Root: ${newNetworkRoot.slice(0, 12)}... (${this.providerNetwork.count} providers)`, 'complete');
+    const newNetworkRoot = this.providerNetwork.count > 0 ? fieldToStr(this.providerNetwork.getRoot()) : '0';
+    this.emit(
+      'offchain',
+      'network',
+      `ProviderNetworkRegistry rebuilt. Root: ${newNetworkRoot.slice(0, 12)}... (${this.providerNetwork.count} providers)`,
+      'complete',
+    );
 
     // 4. Rebuild sharedEligibilityData with new network root (preserves formularyRoot)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();
@@ -5960,7 +6833,11 @@ export class AdjudicationService {
     const inNetworkCount = [...this.networkActive.values()].filter(Boolean).length;
     const outNetworkCount = this.networkActive.size - inNetworkCount;
     this.emit('info', 'network', `  ┌─ PROVIDER NETWORK STATE CHANGE`);
-    this.emit('info', 'network', `  │  Action:           ${opts.action} — ${prescriberName}${prescriberIdx >= 0 ? ` (seed index ${prescriberIdx})` : ''}`);
+    this.emit(
+      'info',
+      'network',
+      `  │  Action:           ${opts.action} — ${prescriberName}${prescriberIdx >= 0 ? ` (seed index ${prescriberIdx})` : ''}`,
+    );
     this.emit('info', 'network', `  │  Prescriber Wallet: ${walletIdStr.slice(0, 16)}...`);
     this.emit('info', 'network', `  │  Old Root:         ${oldNetworkRoot.slice(0, 16)}...`);
     this.emit('info', 'network', `  │  New Root:         ${newNetworkRoot.slice(0, 16)}...`);
@@ -5983,11 +6860,7 @@ export class AdjudicationService {
 
       // Update ACCESS_CONTROL leaf 0 (EligibilityData) — preserves leaves 1-127
       enrolled.eligibilityData = this.sharedEligibilityData;
-      enrolled.forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        0n,
-        this.sharedEligibilityData.commitment(),
-      );
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, 0n, this.sharedEligibilityData.commitment());
 
       // Update CredentialData with new forest root
       enrolled.credentialData = new CredentialData({
@@ -6083,9 +6956,7 @@ export class AdjudicationService {
    * Plan year rollover — reset accumulators for all active members.
    * Preserves all other data (prior auths, transaction history, prescriptions).
    */
-  async planYearRollover(opts: {
-    newPlanYear: string;
-  }): Promise<Record<string, unknown>> {
+  async planYearRollover(opts: { newPlanYear: string }): Promise<Record<string, unknown>> {
     this.emit('phase', 'rollover', `═══ Plan Year Rollover: ${opts.newPlanYear} ═══`);
 
     const affectedMembers: string[] = [];
@@ -6103,11 +6974,7 @@ export class AdjudicationService {
       enrolled.accumulatorData = forNewPlanYear(enrolled.accumulatorData, opts.newPlanYear);
 
       // Update ACCESS_CONTROL leaf 127 with new accumulator commitment
-      enrolled.forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        ACCUMULATOR_LEAF_INDEX,
-        enrolled.accumulatorData.commitment(),
-      );
+      enrolled.forest.setLeaf(ForestDomain.ACCESS_CONTROL, ACCUMULATOR_LEAF_INDEX, enrolled.accumulatorData.commitment());
 
       // Update CredentialData with new forest root
       enrolled.credentialData = new CredentialData({
@@ -6123,15 +6990,20 @@ export class AdjudicationService {
       // Submit wallet update to L2 (accumulator reset → new inventory root)
       await this.updateCredentialAndSubmitToL2(enrolled, 'rollover');
 
-      this.emit('info', 'rollover',
+      this.emit(
+        'info',
+        'rollover',
         `  ${enrolled.displayName}: deductible $${(oldDeductiblePaid / 100).toFixed(2)}→$0, ` +
-        `OOPM $${(oldOopPaid / 100).toFixed(2)}→$0, benefit $${(oldBenefitUsed / 100).toFixed(2)}→$0`,
+          `OOPM $${(oldOopPaid / 100).toFixed(2)}→$0, benefit $${(oldBenefitUsed / 100).toFixed(2)}→$0`,
       );
 
       affectedMembers.push(walletIdStr);
 
       // Send notification
-      this.sendInternalMessage(this.adminWalletId, enrolled.walletId, MSG_TYPE_NOTIFICATION,
+      this.sendInternalMessage(
+        this.adminWalletId,
+        enrolled.walletId,
+        MSG_TYPE_NOTIFICATION,
         'Plan Year Rollover',
         `Your benefit accumulators have been reset for plan year ${opts.newPlanYear}. Deductible, OOP, and benefit used amounts are now $0.00.`,
       );
@@ -6151,10 +7023,7 @@ export class AdjudicationService {
 
   // ─── Assign PCP ───────────────────────────────────────────
 
-  async assignPcp(opts: {
-    memberWalletId: string;
-    prescriberIndex: number;
-  }): Promise<Record<string, unknown>> {
+  async assignPcp(opts: { memberWalletId: string; prescriberIndex: number }): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet');
 
     const enrolled = this.enrolledMembers.get(opts.memberWalletId);
@@ -6173,10 +7042,11 @@ export class AdjudicationService {
     this.emit('proof', 'pcp', `[1/2] Generating ProofGate.verifyPrescriber proof...`, 'start');
     const startPG = performance.now();
     await this.dispatchProof(
-      'ProofGate', 'verifyPrescriber',
+      'ProofGate',
+      'verifyPrescriber',
       ['Field', 'Field', 'Field', 'Field'],
       [prescriberWalletId, ...prescriberPreimage],
-      () => ProofGateProgram.verifyPrescriber(prescriberWalletId, ...prescriberPreimage as [Field, Field, Field]),
+      () => ProofGateProgram.verifyPrescriber(prescriberWalletId, ...(prescriberPreimage as [Field, Field, Field])),
     );
     const elapsedPG = performance.now() - startPG;
     this.emit('proof', 'pcp', `[1/2] ProofGate.verifyPrescriber proof generated`, 'complete', elapsedPG);
@@ -6232,10 +7102,19 @@ export class AdjudicationService {
     this.emit('proof', 'pcp', `[2/2] Generating PcpVerificationProgram.verifyPcpAssignment proof...`, 'start');
     const startPCP = performance.now();
     await this.dispatchProof(
-      'PcpVerification', 'verifyPcpAssignment',
+      'PcpVerification',
+      'verifyPcpAssignment',
       ['CredentialData', 'PcpAssignmentData', 'ForestRoots', 'ForestMerkleWitness', 'Field', 'Field'],
       [enrolled.credentialData, pcpData, forestRoots, memberWitness, prescriberWalletId, dateToField('20260201')],
-      () => PcpVerificationProgram.verifyPcpAssignment(enrolled.credentialData, pcpData, forestRoots, memberWitness, prescriberWalletId, dateToField('20260201')),
+      () =>
+        PcpVerificationProgram.verifyPcpAssignment(
+          enrolled.credentialData,
+          pcpData,
+          forestRoots,
+          memberWitness,
+          prescriberWalletId,
+          dateToField('20260201'),
+        ),
     );
     const elapsedPCP = performance.now() - startPCP;
     this.emit('proof', 'pcp', `[2/2] PcpVerificationProgram.verifyPcpAssignment proof generated`, 'complete', elapsedPCP);
@@ -6361,11 +7240,13 @@ export class AdjudicationService {
         quantity: rx.quantity,
         refills: rx.refills,
         status: rx.status,
-        fill: latestFill ? {
-          patientPayCents: latestFill.patientPayCents,
-          planPayCents: latestFill.planPayCents,
-          totalCostCents: latestFill.totalCostCents,
-        } : null,
+        fill: latestFill
+          ? {
+              patientPayCents: latestFill.patientPayCents,
+              planPayCents: latestFill.planPayCents,
+              totalCostCents: latestFill.totalCostCents,
+            }
+          : null,
         // Poseidon hash commitments (privacy-preserving proofs)
         rxCommitment: fieldToStr(rx.prescriptionData.commitment()),
         statusCommitment: fieldToStr(rx.activeStatus.commitment()),
@@ -6430,11 +7311,13 @@ export class AdjudicationService {
           pharmacy: pharmacyData.storeName,
           quantity: rx.quantity,
           status: rx.status,
-          fill: latestFill ? {
-            patientPayCents: latestFill.patientPayCents,
-            planPayCents: latestFill.planPayCents,
-            totalCostCents: latestFill.totalCostCents,
-          } : null,
+          fill: latestFill
+            ? {
+                patientPayCents: latestFill.patientPayCents,
+                planPayCents: latestFill.planPayCents,
+                totalCostCents: latestFill.totalCostCents,
+              }
+            : null,
           rxCommitment: fieldToStr(rx.prescriptionData.commitment()),
           ndcHash: fieldToStr(rx.prescriptionData.ndcHash),
           // Same fix as above (A12 / ENG-19): `fulfillment` was undeclared here too.
@@ -6497,7 +7380,12 @@ export class AdjudicationService {
       throw new Error('A member with a device proves its own wallet updates; the engine holds no preimage for it (B2)');
     }
     const receipt = await this.proveAndSubmitWalletUpdate(
-      enrolled.walletId, enrolled.preimageFields, newInventoryRoot, LIFECYCLE_ELIGIBLE, phase, claimMetadata,
+      enrolled.walletId,
+      enrolled.preimageFields,
+      newInventoryRoot,
+      LIFECYCLE_ELIGIBLE,
+      phase,
+      claimMetadata,
     );
     // The sequencer has applied the new state to its tree; mirror it on the enrolled record.
     enrolled.nonce = Number(this.walletRegistry.getState(enrolled.walletId).nonce.toBigInt());
@@ -6538,10 +7426,60 @@ export class AdjudicationService {
       this.emit('proof', phase, 'Generating StateTransitionProof.proveWalletUpdate...', 'start');
       const start = performance.now();
       const stDispatch = await this.dispatchProof(
-        'StateTransition', 'proveWalletUpdate',
-        ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'WalletRegistryWitness', 'LifecycleWitness', 'Field', 'Field', 'Field'],
-        [DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, lifecycleState],
-        () => StateTransitionProgram.proveWalletUpdate(DOMAIN_TAG_MEMBER, pi[0]!, pi[1]!, pi[2]!, pi[3]!, pi[4]!, pi[5]!, oldRoot, oldNonce, newInventoryRoot, regWitness, lcWitness, currentRegRoot, currentLcRoot, lifecycleState),
+        'StateTransition',
+        'proveWalletUpdate',
+        [
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'Field',
+          'WalletRegistryWitness',
+          'LifecycleWitness',
+          'Field',
+          'Field',
+          'Field',
+        ],
+        [
+          DOMAIN_TAG_MEMBER,
+          pi[0]!,
+          pi[1]!,
+          pi[2]!,
+          pi[3]!,
+          pi[4]!,
+          pi[5]!,
+          oldRoot,
+          oldNonce,
+          newInventoryRoot,
+          regWitness,
+          lcWitness,
+          currentRegRoot,
+          currentLcRoot,
+          lifecycleState,
+        ],
+        () =>
+          StateTransitionProgram.proveWalletUpdate(
+            DOMAIN_TAG_MEMBER,
+            pi[0]!,
+            pi[1]!,
+            pi[2]!,
+            pi[3]!,
+            pi[4]!,
+            pi[5]!,
+            oldRoot,
+            oldNonce,
+            newInventoryRoot,
+            regWitness,
+            lcWitness,
+            currentRegRoot,
+            currentLcRoot,
+            lifecycleState,
+          ),
       );
       const elapsed = performance.now() - start;
       this.emit('proof', phase, `StateTransitionProof generated`, 'complete', elapsed);
@@ -6598,7 +7536,11 @@ export class AdjudicationService {
 
     // ─── Patent Evidence: Credential State Mutation ─────────────────
     this.emit('info', phase, `  ┌─ CREDENTIAL UPDATE (${enrolled.displayName})`);
-    this.emit('info', phase, `  │  Credential Type:  ${enrolled.credentialData.credentialType.equals(CREDENTIAL_TYPE_ELIGIBILITY).toBoolean() ? 'ELIGIBILITY' : 'PRESCRIPTION'}`);
+    this.emit(
+      'info',
+      phase,
+      `  │  Credential Type:  ${enrolled.credentialData.credentialType.equals(CREDENTIAL_TYPE_ELIGIBILITY).toBoolean() ? 'ELIGIBILITY' : 'PRESCRIPTION'}`,
+    );
     this.emit('info', phase, `  │  Subject Wallet:   ${truncField(enrolled.credentialData.subjectWalletId)}`);
     this.emit('info', phase, `  │  Forest Root:      ${truncField(enrolled.credentialData.forestRoot)}`);
     this.emit('info', phase, `  │  Inventory Root:   ${truncField(oldInventoryRoot)} → ${truncField(newInventoryRoot)}`);
@@ -6631,7 +7573,14 @@ export class AdjudicationService {
    * include fills the member's device has not yet proven, or on the sequencer's ledger. The remainder of a partial
    * fill is the same prescription and is not a duplicate. Returns a short description of the earlier fill, or null.
    */
-  findDuplicateFill(key: { prescriptionId: string; memberWalletId: string; ndcHash: string; pharmacyWalletId: string; dateOfService: string; fillNumber: number }): string | null {
+  findDuplicateFill(key: {
+    prescriptionId: string;
+    memberWalletId: string;
+    ndcHash: string;
+    pharmacyWalletId: string;
+    dateOfService: string;
+    fillNumber: number;
+  }): string | null {
     for (const [rxId, fills] of this.fulfillments) {
       if (rxId === key.prescriptionId) continue;
       const rx = this.prescriptions.get(rxId);
@@ -6639,7 +7588,10 @@ export class AdjudicationService {
       if (this.pharmacyWalletIds.get(rx.pharmacyIndex)?.toBigInt().toString() !== key.pharmacyWalletId) continue;
       if (fills.some((f) => !f.reversed && f.dateOfService === key.dateOfService)) return `prescription ${rxId}`;
     }
-    const onLedger = this.getL2Node().getSequencer().getClaimAccumulator().hasActiveFill(key.memberWalletId, key.ndcHash, key.pharmacyWalletId, key.dateOfService, key.fillNumber);
+    const onLedger = this.getL2Node()
+      .getSequencer()
+      .getClaimAccumulator()
+      .hasActiveFill(key.memberWalletId, key.ndcHash, key.pharmacyWalletId, key.dateOfService, key.fillNumber);
     return onLedger ? `ledger leaf ${onLedger.leafIndex}` : null;
   }
 
@@ -6682,7 +7634,7 @@ export class AdjudicationService {
         prescriberWalletId: this.prescriberWalletIds.get(pending.prescriberIndex)?.toString() ?? '',
         pharmacyWalletId: this.pharmacyWalletIds.get(pending.pharmacyIndex)?.toString() ?? '',
         quantity: pending.quantity,
-        pricingUnit: med.pricingUnit ?? null,   // the quantities count this unit (EA, ML or GM)
+        pricingUnit: med.pricingUnit ?? null, // the quantities count this unit (EA, ML or GM)
         quantityDispensed: 0,
         refills: pending.refills,
         dateOfService: new Date().toISOString().slice(0, 10),
@@ -6700,11 +7652,11 @@ export class AdjudicationService {
       if (rx.pharmacyIndex !== pharmacyIndex) continue;
       const med = this.getMedicationByNdcHash(rx.ndcHash);
       const fills = this.fulfillments.get(rxId) || [];
-      const activeFills = fills.filter(f => !f.reversed);
+      const activeFills = fills.filter((f) => !f.reversed);
       // Every amount on the prescription is a sum over its standing fills, so patient + plan = ingredient + fee on the
       // pharmacy's card; null before the first fill. Each fill's own amounts and pricing are in fills[].
       const sumOverFills = (amount: (f: FulfillmentState) => number): number | null =>
-        (activeFills.length > 0 ? activeFills.reduce((s, f) => s + amount(f), 0) : null);
+        activeFills.length > 0 ? activeFills.reduce((s, f) => s + amount(f), 0) : null;
       const lastFill = activeFills.length > 0 ? activeFills[activeFills.length - 1] : null;
 
       results.push({
@@ -6721,7 +7673,7 @@ export class AdjudicationService {
         prescriberWalletId: this.prescriberWalletIds.get(rx.prescriberIndex)?.toString() ?? '',
         pharmacyWalletId: this.pharmacyWalletIds.get(rx.pharmacyIndex)?.toString() ?? '',
         quantity: rx.quantity,
-        pricingUnit: med.pricingUnit ?? null,   // the quantities count this unit (EA, ML or GM)
+        pricingUnit: med.pricingUnit ?? null, // the quantities count this unit (EA, ML or GM)
         quantityDispensed: rx.quantityDispensed,
         refills: rx.refills,
         refillsUsed: rx.refillsUsed,
@@ -6768,11 +7720,9 @@ export class AdjudicationService {
       benefitPlanRoot: fieldToStr(this.benefitPlanRegistry.getRoot()),
       credentialRegistryRoot: '0',
       eligibilityVkHash: '0',
-      messagingRoot: fieldToStr(computeMessagingRoot(
-        this.messageRegistry.getRoot(),
-        this.delegationRegistry.getRoot(),
-        this.keyRegistry.getRoot(),
-      )),
+      messagingRoot: fieldToStr(
+        computeMessagingRoot(this.messageRegistry.getRoot(), this.delegationRegistry.getRoot(), this.keyRegistry.getRoot()),
+      ),
     };
   }
 
@@ -6819,9 +7769,7 @@ export class AdjudicationService {
       if (!prescriberWid) continue;
 
       // Find matching Rx to get approved quantity
-      const rx = [...this.prescriptions.values()].find(
-        r => r.ndcHash === pa.ndcHash && r.memberWalletId === pa.memberWalletId
-      );
+      const rx = [...this.prescriptions.values()].find((r) => r.ndcHash === pa.ndcHash && r.memberWalletId === pa.memberWalletId);
 
       contexts.push({
         ndcHash: hashString(med.ndc).toString(),
@@ -6852,20 +7800,17 @@ export class AdjudicationService {
       priorAuthReport: rs.generatePriorAuthReport(claims, paContexts),
       reversalReport: rs.generateReversalReport(claims),
       ndcDirectory: Object.fromEntries(
-        MEDICATIONS.map(m => [
+        MEDICATIONS.map((m) => [
           hashString(m.ndc).toString(),
-          { brandName: m.brandName, genericName: m.genericName, ndc: m.ndcFormatted, tier: m.formularyEntry.tierLevel }
-        ])
+          { brandName: m.brandName, genericName: m.genericName, ndc: m.ndcFormatted, tier: m.formularyEntry.tierLevel },
+        ]),
       ),
     };
   }
 
   // ─── Portable Credentials ────────────────────────────────────
 
-  async generateCredential(
-    walletIdStr: string,
-    proofType: 'holding' | 'holding-by-type' = 'holding',
-  ): Promise<Record<string, unknown>> {
+  async generateCredential(walletIdStr: string, proofType: 'holding' | 'holding-by-type' = 'holding'): Promise<Record<string, unknown>> {
     if (!this.compiled) throw new Error('Programs not compiled yet');
 
     const enrolled = this.enrolledMembers.get(walletIdStr);
@@ -6875,7 +7820,10 @@ export class AdjudicationService {
     // B1 step two (A-17): a member with a device proves its own portable credential; the engine mints
     // none for it, so no operator can hold a real member's credential. Fixture members keep this path.
     if (enrolled.memberIndex < 0) {
-      throw new RegistrationRefused(409, 'A member with a device generates its own portable credential (POST /credential/generate on the member node); the engine mints none for it');
+      throw new RegistrationRefused(
+        409,
+        'A member with a device generates its own portable credential (POST /credential/generate on the member node); the engine mints none for it',
+      );
     }
 
     this.emit('phase', 'credential', `═══ Generate Portable Credential: ${enrolled.displayName} ═══`);
@@ -6901,19 +7849,20 @@ export class AdjudicationService {
     // keeps it and never holds the preimage. A fixture member's is made here from the fixture preimage.
     // Fresh Field objects are created from bigint values to avoid o1js internal FieldVar state
     // corruption that can occur after Fields are used as circuit inputs.
-    this.emit('proof', 'credential', 'Step 1: ProofGate.verifyMember proof (the device\'s, or the fixture\'s)...', 'start');
+    this.emit('proof', 'credential', "Step 1: ProofGate.verifyMember proof (the device's, or the fixture's)...", 'start');
     const pgStart = performance.now();
     const freshWalletId = Field(enrolled.walletId.toBigInt());
     let pgProofJson: string;
     if (typeof enrolled.cachedProofGateProof === 'string' && enrolled.cachedProofGateProof.length > 0) {
       pgProofJson = enrolled.cachedProofGateProof;
     } else if (enrolled.preimageFields) {
-      const freshPreimage = enrolled.preimageFields.map(f => Field(f.toBigInt())) as [Field, Field, Field, Field, Field, Field];
+      const freshPreimage = enrolled.preimageFields.map((f) => Field(f.toBigInt())) as [Field, Field, Field, Field, Field, Field];
       const pgDispatch = await this.dispatchProof(
-        'ProofGate', 'verifyMember',
+        'ProofGate',
+        'verifyMember',
         ['Field', 'Field', 'Field', 'Field', 'Field', 'Field', 'Field'],
         [freshWalletId, ...freshPreimage],
-        () => ProofGateProgram.verifyMember(freshWalletId, ...freshPreimage as [Field, Field, Field, Field, Field, Field]),
+        () => ProofGateProgram.verifyMember(freshWalletId, ...(freshPreimage as [Field, Field, Field, Field, Field, Field])),
       );
       pgProofJson = pgDispatch.proofJson!;
       enrolled.cachedProofGateProof = pgProofJson;
@@ -6935,7 +7884,8 @@ export class AdjudicationService {
     let credentialProofType: PortableCredential['proofType'];
     if (proofType === 'holding') {
       credDispatch = await this.dispatchProof(
-        'Credential', 'proveHolding',
+        'Credential',
+        'proveHolding',
         ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field'],
         [pgProof, credentialData, witness, inventoryRoot],
         () => CredentialProgram.proveHolding(pgProof, credentialData, witness, inventoryRoot),
@@ -6943,7 +7893,8 @@ export class AdjudicationService {
       credentialProofType = 'credential-holding';
     } else {
       credDispatch = await this.dispatchProof(
-        'Credential', 'proveHoldingByType',
+        'Credential',
+        'proveHoldingByType',
         ['ProofGateProof', 'CredentialData', 'CredentialInventoryWitness', 'Field', 'Field'],
         [pgProof, credentialData, witness, inventoryRoot, CREDENTIAL_TYPE_ELIGIBILITY],
         () => CredentialProgram.proveHoldingByType(pgProof, credentialData, witness, inventoryRoot, CREDENTIAL_TYPE_ELIGIBILITY),
@@ -6983,7 +7934,11 @@ export class AdjudicationService {
       forestRoot: credentialData.forestRoot.toString(),
     });
     enrolled.lastAttestation = attestation;
-    this.emit('info', 'credential', `  NFC attestation created (Ed25519 signed, expires ${new Date(attestation.exp * 1000).toLocaleString()})`);
+    this.emit(
+      'info',
+      'credential',
+      `  NFC attestation created (Ed25519 signed, expires ${new Date(attestation.exp * 1000).toLocaleString()})`,
+    );
 
     // Emit visualization event for credential generation at pharmacy
     this.emitViz('viz:credential:generated', 'fulfillment', {
@@ -7074,8 +8029,10 @@ export class AdjudicationService {
     // Collect fillable prescriptions for this member (stateless — not stored)
     const memberPrescriptions: Record<string, unknown>[] = [];
     for (const [_, rx] of this.prescriptions) {
-      if (rx.memberWalletId === walletId &&
-          (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')) {
+      if (
+        rx.memberWalletId === walletId &&
+        (rx.status === 'ADJUDICATED' || rx.status === 'FILLED' || rx.status === 'PARTIALLY_FILLED' || rx.status === 'DISPENSED')
+      ) {
         const med = this.getMedicationByNdcHash(rx.ndcHash);
         const pharm = PHARMACIES[rx.pharmacyIndex];
         memberPrescriptions.push({
@@ -7164,10 +8121,7 @@ export class AdjudicationService {
    * key and no fetch is needed.
    */
   verifyAttestation(att: NfcCredentialAttestation): { valid: boolean; expired: boolean; revoked: boolean; reason?: string } {
-    const result = SequencerAttestationAuthority.verifyAttestation(
-      att,
-      this.attestationAuthority.publicKeyHex,
-    );
+    const result = SequencerAttestationAuthority.verifyAttestation(att, this.attestationAuthority.publicKeyHex);
     const revoked = this.attestationAuthority.isRevoked(att.n);
     return {
       ...result,
@@ -7247,9 +8201,7 @@ export class AdjudicationService {
         employeeId: m.employeeId,
         // B2: no identity preimage is written; the device's ownership proof is kept for the portable credential
         ownershipProofJson: typeof m.cachedProofGateProof === 'string' ? m.cachedProofGateProof : undefined,
-        pcpAssignment: m.pcpAssignment
-          ? PcpAssignmentData.toJSON(m.pcpAssignment) as Record<string, string>
-          : undefined,
+        pcpAssignment: m.pcpAssignment ? (PcpAssignmentData.toJSON(m.pcpAssignment) as Record<string, string>) : undefined,
         pcpPrescriberIndex: m.pcpPrescriberIndex,
         inNetworkPrescriberIndices: m.inNetworkPrescriberIndices,
         inNetworkPharmacyIndices: m.inNetworkPharmacyIndices,
@@ -7310,7 +8262,7 @@ export class AdjudicationService {
     // --- Fulfillments ---
     const serializedFulfillments: Record<string, SerializedFulfillment[]> = {};
     for (const [rxId, fills] of this.fulfillments) {
-      serializedFulfillments[rxId] = fills.map(f => ({
+      serializedFulfillments[rxId] = fills.map((f) => ({
         prescriptionId: f.prescriptionId,
         fillIndex: f.fillIndex,
         patientPayCents: f.patientPayCents,
@@ -7345,9 +8297,7 @@ export class AdjudicationService {
         requestedAt: pa.requestedAt,
         resolvedAt: pa.resolvedAt,
         paLeafIndex: pa.paLeafIndex !== undefined ? pa.paLeafIndex.toString() : undefined,
-        priorAuthData: pa.priorAuthData
-          ? PriorAuthData.toJSON(pa.priorAuthData) as Record<string, string>
-          : undefined,
+        priorAuthData: pa.priorAuthData ? (PriorAuthData.toJSON(pa.priorAuthData) as Record<string, string>) : undefined,
         // the prescriber's and the insurer's reasons stay in memory: free text about a member's care is not written to disk
         requestedQuantity: pa.requestedQuantity,
       });
@@ -7423,7 +8373,13 @@ export class AdjudicationService {
     this.prescriberAuthorizations.clear();
     for (const a of state.prescriberAuthorizations ?? []) {
       const list = this.prescriberAuthorizations.get(a.memberWalletId) ?? [];
-      list.push({ memberWalletId: a.memberWalletId, prescriberWalletId: a.prescriberWalletId, ndcHash: a.ndcHash ?? null, grantedAt: Number(a.grantedAt), expiresAt: Number(a.expiresAt) });
+      list.push({
+        memberWalletId: a.memberWalletId,
+        prescriberWalletId: a.prescriberWalletId,
+        ndcHash: a.ndcHash ?? null,
+        grantedAt: Number(a.grantedAt),
+        expiresAt: Number(a.expiresAt),
+      });
       this.prescriberAuthorizations.set(a.memberWalletId, list);
     }
 
@@ -7439,9 +8395,7 @@ export class AdjudicationService {
         requestedAt: spa.requestedAt,
         resolvedAt: spa.resolvedAt,
         paLeafIndex: spa.paLeafIndex !== undefined ? BigInt(spa.paLeafIndex) : undefined,
-        priorAuthData: spa.priorAuthData
-          ? new PriorAuthData(PriorAuthData.fromJSON(spa.priorAuthData as any))
-          : undefined,
+        priorAuthData: spa.priorAuthData ? new PriorAuthData(PriorAuthData.fromJSON(spa.priorAuthData as any)) : undefined,
         requestedQuantity: typeof spa.requestedQuantity === 'number' ? spa.requestedQuantity : undefined,
       };
       this.priorAuths.set(pa.id, pa);
@@ -7454,9 +8408,7 @@ export class AdjudicationService {
       const credentialData = new CredentialData(CredentialData.fromJSON(sm.credentialData as any));
       const eligibilityData = new EligibilityData(EligibilityData.fromJSON(sm.eligibilityData as any));
       const accumulatorData = new AccumulatorData(AccumulatorData.fromJSON(sm.accumulatorData as any));
-      const pcpAssignment = sm.pcpAssignment
-        ? new PcpAssignmentData(PcpAssignmentData.fromJSON(sm.pcpAssignment as any))
-        : undefined;
+      const pcpAssignment = sm.pcpAssignment ? new PcpAssignmentData(PcpAssignmentData.fromJSON(sm.pcpAssignment as any)) : undefined;
       const walletId = Field(BigInt(sm.walletId));
       // B2: a member with a device has no preimage here. A fixture member's is recomputed from the
       // fixture file, as enrollMember derives it; an older checkpoint's copy is dropped either way.
@@ -7471,11 +8423,7 @@ export class AdjudicationService {
       // Rebuild MerkleForest from stored leaf data
       const forest = new MerkleForest();
       for (const leaf of sm.forestLeaves) {
-        forest.setLeaf(
-          leaf.domain as ForestDomain,
-          BigInt(leaf.leafIndex),
-          Field(BigInt(leaf.commitment)),
-        );
+        forest.setLeaf(leaf.domain as ForestDomain, BigInt(leaf.leafIndex), Field(BigInt(leaf.commitment)));
       }
 
       // Rebuild CredentialInventory: slot 0 = credentialData
@@ -7504,11 +8452,14 @@ export class AdjudicationService {
         inNetworkPharmacyIndices: sm.inNetworkPharmacyIndices,
         lifecycle: sm.lifecycle,
         terminationDate: sm.terminationDate,
-        held: sm.held && typeof sm.held.reason === 'string' && Number.isFinite(sm.held.at) ? { reason: sm.held.reason, at: sm.held.at } : undefined,
+        held:
+          sm.held && typeof sm.held.reason === 'string' && Number.isFinite(sm.held.at)
+            ? { reason: sm.held.reason, at: sm.held.at }
+            : undefined,
         walletIndex: sm.walletIndex,
         nonce: sm.nonce,
         credentialInventoryRoot: Field(BigInt(sm.credentialInventoryRoot)),
-        cachedProofGateProof: sm.ownershipProofJson ?? null,  // the device's proof (B2); a fixture's is made on demand
+        cachedProofGateProof: sm.ownershipProofJson ?? null, // the device's proof (B2); a fixture's is made on demand
         l2Receipts: sm.l2Receipts,
         lastCredentialJson: sm.lastCredentialJson,
       };
@@ -7530,18 +8481,10 @@ export class AdjudicationService {
       // Rebuild rxForest from stored leaf data
       const rxForest = new MerkleForest();
       // MEDICATION tree leaf 0
-      rxForest.setLeaf(
-        ForestDomain.MEDICATION,
-        0n,
-        Field(BigInt(srx.medicationLeaf0)),
-      );
+      rxForest.setLeaf(ForestDomain.MEDICATION, 0n, Field(BigInt(srx.medicationLeaf0)));
       // TRANSACTION tree leaves
       for (const txLeaf of srx.txLeaves) {
-        rxForest.setLeaf(
-          ForestDomain.TRANSACTION,
-          BigInt(txLeaf.leafIndex),
-          Field(BigInt(txLeaf.commitment)),
-        );
+        rxForest.setLeaf(ForestDomain.TRANSACTION, BigInt(txLeaf.leafIndex), Field(BigInt(txLeaf.commitment)));
       }
 
       const rx: PrescriptionState = {
@@ -7573,7 +8516,7 @@ export class AdjudicationService {
     // --- Restore Fulfillments ---
     this.fulfillments.clear();
     for (const [rxId, sfills] of Object.entries(state.fulfillments)) {
-      const fills: FulfillmentState[] = sfills.map(sf => ({
+      const fills: FulfillmentState[] = sfills.map((sf) => ({
         prescriptionId: sf.prescriptionId,
         fillIndex: sf.fillIndex,
         patientPayCents: sf.patientPayCents,
@@ -7618,11 +8561,14 @@ export class AdjudicationService {
   getState(): Record<string, unknown> {
     const enrolledList: Record<string, unknown>[] = [];
     for (const [_, m] of this.enrolledMembers) {
-      const pcpInfo = m.pcpPrescriberIndex !== undefined ? {
-        prescriberIndex: m.pcpPrescriberIndex,
-        prescriberName: `${prescriberDisplayName(PRESCRIBERS[m.pcpPrescriberIndex])}`,
-        specialty: PRESCRIBERS[m.pcpPrescriberIndex].specialty,
-      } : null;
+      const pcpInfo =
+        m.pcpPrescriberIndex !== undefined
+          ? {
+              prescriberIndex: m.pcpPrescriberIndex,
+              prescriberName: `${prescriberDisplayName(PRESCRIBERS[m.pcpPrescriberIndex])}`,
+              specialty: PRESCRIBERS[m.pcpPrescriberIndex].specialty,
+            }
+          : null;
 
       enrolledList.push({
         memberIndex: m.memberIndex,
@@ -7633,7 +8579,10 @@ export class AdjudicationService {
         groupId: m.groupId,
         // Plan-bound formularies: what the member's credential names (its EligibilityData, leaf 0 of the ACCESS_CONTROL tree):
         // plan and group hashes, copay, coverage type, formulary and network roots. Hashes and codes, no PHI.
-        eligibility: { ...(EligibilityData.toJSON(m.eligibilityData) as Record<string, string>), commitment: m.eligibilityData.commitment().toString() },
+        eligibility: {
+          ...(EligibilityData.toJSON(m.eligibilityData) as Record<string, string>),
+          commitment: m.eligibilityData.commitment().toString(),
+        },
         familyId: m.familyId,
         relationship: m.relationship,
         employeeId: m.employeeId,
@@ -7650,7 +8599,11 @@ export class AdjudicationService {
         pcpAssignment: pcpInfo,
         pendingWalletUpdates: this.pendingUpdatesFor(m.walletId.toString()).length,
         pcpAssigned: m.pcpAssignment !== undefined,
-        prescriberAuthorizations: this.activePrescriberAuthorizations(m.walletId.toString()).map(a => ({ prescriberWalletId: a.prescriberWalletId, ndcHash: a.ndcHash, expiresAt: a.expiresAt })),
+        prescriberAuthorizations: this.activePrescriberAuthorizations(m.walletId.toString()).map((a) => ({
+          prescriberWalletId: a.prescriberWalletId,
+          ndcHash: a.ndcHash,
+          expiresAt: a.expiresAt,
+        })),
         inNetworkPrescribers: m.inNetworkPrescriberIndices,
         inNetworkPharmacies: m.inNetworkPharmacyIndices,
         lifecycle: m.lifecycle,
@@ -7693,8 +8646,8 @@ export class AdjudicationService {
     for (const [_, rx] of this.prescriptions) {
       const med = this.getMedicationByNdcHash(rx.ndcHash);
       const fills = this.fulfillments.get(rx.id) || [];
-      const totalPatientPay = fills.filter(f => !f.reversed).reduce((s, f) => s + f.patientPayCents, 0);
-      const totalPlanPay = fills.filter(f => !f.reversed).reduce((s, f) => s + f.planPayCents, 0);
+      const totalPatientPay = fills.filter((f) => !f.reversed).reduce((s, f) => s + f.patientPayCents, 0);
+      const totalPlanPay = fills.filter((f) => !f.reversed).reduce((s, f) => s + f.planPayCents, 0);
       rxList.push({
         id: rx.id,
         medication: med.brandName,
@@ -7708,7 +8661,7 @@ export class AdjudicationService {
         refills: rx.refills,
         refillsUsed: rx.refillsUsed,
         status: rx.status,
-        filled: rx.status === 'FILLED',  // backwards-compat
+        filled: rx.status === 'FILLED', // backwards-compat
         statusHistory: rx.statusHistory,
         patientPayCents: totalPatientPay || undefined,
         planPayCents: totalPlanPay || undefined,
@@ -7745,7 +8698,7 @@ export class AdjudicationService {
       ...rawL2Status,
       inFlightBatch: rawL2Status.inFlightBatch !== null ? Number(rawL2Status.inFlightBatch) : null,
     };
-    const l2Receipts = seq.getAllReceipts().map(r => ({
+    const l2Receipts = seq.getAllReceipts().map((r) => ({
       receiptId: r.receiptId,
       walletId: r.walletId.length > 16 ? r.walletId.slice(0, 8) + '...' + r.walletId.slice(-8) : r.walletId,
       isRegistration: r.isRegistration,
@@ -7753,7 +8706,7 @@ export class AdjudicationService {
       l1Status: r.l1Status,
       acceptedAt: r.acceptedAt,
     }));
-    const l2Batches = seq.getAllBatches().map(b => ({
+    const l2Batches = seq.getAllBatches().map((b) => ({
       batchNumber: Number(b.batchNumber),
       registrationCount: b.registrationCount,
       transitionCount: b.transitionCount,
@@ -7780,32 +8733,48 @@ export class AdjudicationService {
       enrolledMembers: enrolledList,
       prescriptions: rxList,
       priorAuths: paList,
-      fulfillments: Array.from(this.fulfillments.values()).flat().map(f => ({
-        prescriptionId: f.prescriptionId,
-        fillIndex: f.fillIndex,
-        patientPayCents: f.patientPayCents,
-        planPayCents: f.planPayCents,
-        totalCostCents: f.totalCostCents,
-        accumulatorBefore: f.accumulatorBefore,
-        accumulatorAfter: f.accumulatorAfter,
-        newEligForestRoot: f.newEligForestRoot,
-        oldEligForestRoot: f.oldEligForestRoot,
-        settlementCommitment: fieldToStr(f.settlementCommitment),
-        quantityDispensed: f.quantityDispensed,
-        reversed: f.reversed,
-        serviceDateStr: f.fulfillmentData.dateOfService.toBigInt().toString(),
-      })),
+      fulfillments: Array.from(this.fulfillments.values())
+        .flat()
+        .map((f) => ({
+          prescriptionId: f.prescriptionId,
+          fillIndex: f.fillIndex,
+          patientPayCents: f.patientPayCents,
+          planPayCents: f.planPayCents,
+          totalCostCents: f.totalCostCents,
+          accumulatorBefore: f.accumulatorBefore,
+          accumulatorAfter: f.accumulatorAfter,
+          newEligForestRoot: f.newEligForestRoot,
+          oldEligForestRoot: f.oldEligForestRoot,
+          settlementCommitment: fieldToStr(f.settlementCommitment),
+          quantityDispensed: f.quantityDispensed,
+          reversed: f.reversed,
+          serviceDateStr: f.fulfillmentData.dateOfService.toBigInt().toString(),
+        })),
       reports: this.buildReports(),
       auditSummary: {
         enrollmentCount: this.enrolledMembers.size,
         prescriptionCount: this.prescriptions.size,
         fulfillmentCount: Array.from(this.fulfillments.values()).flat().length,
-        reversalCount: Array.from(this.fulfillments.values()).flat().filter(f => f.reversed).length,
-        totalPatientPayCents: Array.from(this.fulfillments.values()).flat().filter(f => !f.reversed).reduce((s, f) => s + (f.patientPayCents || 0), 0),
-        totalPlanPayCents: Array.from(this.fulfillments.values()).flat().filter(f => !f.reversed).reduce((s, f) => s + (f.planPayCents || 0), 0),
-        totalReversedPatientCents: Array.from(this.fulfillments.values()).flat().filter(f => f.reversed).reduce((s, f) => s + (f.patientPayCents || 0), 0),
-        totalReversedPlanCents: Array.from(this.fulfillments.values()).flat().filter(f => f.reversed).reduce((s, f) => s + (f.planPayCents || 0), 0),
-        terminationCount: Array.from(this.enrolledMembers.values()).filter(m => m.lifecycle === 'REVOKED').length,
+        reversalCount: Array.from(this.fulfillments.values())
+          .flat()
+          .filter((f) => f.reversed).length,
+        totalPatientPayCents: Array.from(this.fulfillments.values())
+          .flat()
+          .filter((f) => !f.reversed)
+          .reduce((s, f) => s + (f.patientPayCents || 0), 0),
+        totalPlanPayCents: Array.from(this.fulfillments.values())
+          .flat()
+          .filter((f) => !f.reversed)
+          .reduce((s, f) => s + (f.planPayCents || 0), 0),
+        totalReversedPatientCents: Array.from(this.fulfillments.values())
+          .flat()
+          .filter((f) => f.reversed)
+          .reduce((s, f) => s + (f.patientPayCents || 0), 0),
+        totalReversedPlanCents: Array.from(this.fulfillments.values())
+          .flat()
+          .filter((f) => f.reversed)
+          .reduce((s, f) => s + (f.planPayCents || 0), 0),
+        terminationCount: Array.from(this.enrolledMembers.values()).filter((m) => m.lifecycle === 'REVOKED').length,
       },
       formularyChangeHistory: this.formularyChangeHistory,
       demoData: {
@@ -7827,7 +8796,7 @@ export class AdjudicationService {
           stepTherapyRequired: m.formularyEntry.stepTherapyRequired,
           maxQuantityPerFill: m.formularyEntry.maxQuantityPerFill,
           maxDaySupply: m.formularyEntry.maxDaySupply,
-          awpUnitPriceCents: m.awpUnitPriceCents,   // display only: fills are priced from NADAC
+          awpUnitPriceCents: m.awpUnitPriceCents, // display only: fills are priced from NADAC
           nadacPerUnit: m.nadacPerUnit,
           pricingUnit: m.pricingUnit,
           therapeuticClass: m.therapeuticClass,
@@ -7856,16 +8825,16 @@ export class AdjudicationService {
           // NADAC pricing: PLAN-GOLD-2026 has no plan record, so its fixture members pay the network-default fee
           dispensingFeeCents: NETWORK_DEFAULT_DISPENSING_FEE_CENTS,
           dispensingFeeSource: 'network-default',
-          formularyCount: this.formularyActive.length > 0 ? this.formularyActive.filter(a => a).length : MEDICATIONS.length,
+          formularyCount: this.formularyActive.length > 0 ? this.formularyActive.filter((a) => a).length : MEDICATIONS.length,
           formularyRoot: fieldToStr(this.formularyRegistry.getRoot()),
           networkRoot: this.providerNetwork.count > 0 ? fieldToStr(this.providerNetwork.getRoot()) : '0',
-          inNetworkPrescriberCount: Array.from(this.networkActive.values()).filter(a => a).length,
+          inNetworkPrescriberCount: Array.from(this.networkActive.values()).filter((a) => a).length,
         },
         providerNetwork: {
           root: this.providerNetwork.count > 0 ? fieldToStr(this.providerNetwork.getRoot()) : '0',
           count: this.providerNetwork.count,
           active: Object.fromEntries(this.networkActive),
-          changeHistory: this.networkChangeHistory.map(h => ({
+          changeHistory: this.networkChangeHistory.map((h) => ({
             timestamp: h.timestamp,
             changeType: h.changeType,
             prescriberName: h.prescriberName,
@@ -7885,33 +8854,37 @@ export class AdjudicationService {
         messageCount: this.messageRegistry.count,
         delegationCount: this.delegationRegistry.count,
         keyCount: this.keyRegistry.count,
-        messages: [...Array(this.messageRegistry.count)].map((_, i) => {
-          const msg = this.messageRegistry.getMessage(BigInt(i));
-          if (!msg) return null;
-          const payload = this.encryptedPayloads.get(i.toString());
-          return {
-            messageIndex: i,
-            senderWalletId: msg.senderWalletId.toString(),
-            recipientWalletId: msg.recipientWalletId.toString(),
-            contentHash: fieldToStr(msg.contentHash),
-            messageType: Number(msg.messageType.toBigInt()),
-            nonce: Number(msg.nonce.toBigInt()),
-            threadId: payload?.threadId || null,
-            timestamp: payload?.timestamp || null,
-            hasEncryptedPayload: !!(payload?.ciphertext),
-          };
-        }).filter(Boolean),
-        delegations: [...Array(this.delegationRegistry.count)].map((_, i) => {
-          const del = this.delegationRegistry.getDelegation(BigInt(i));
-          if (!del) return null;
-          return {
-            delegationIndex: i,
-            delegatorWalletId: del.delegatorWalletId.toString(),
-            delegateWalletId: del.delegateWalletId.toString(),
-            scopeFlags: Number(del.scopeFlags.toBigInt()),
-            relationshipCode: Number(del.relationshipCode.toBigInt()),
-          };
-        }).filter(Boolean),
+        messages: [...Array(this.messageRegistry.count)]
+          .map((_, i) => {
+            const msg = this.messageRegistry.getMessage(BigInt(i));
+            if (!msg) return null;
+            const payload = this.encryptedPayloads.get(i.toString());
+            return {
+              messageIndex: i,
+              senderWalletId: msg.senderWalletId.toString(),
+              recipientWalletId: msg.recipientWalletId.toString(),
+              contentHash: fieldToStr(msg.contentHash),
+              messageType: Number(msg.messageType.toBigInt()),
+              nonce: Number(msg.nonce.toBigInt()),
+              threadId: payload?.threadId || null,
+              timestamp: payload?.timestamp || null,
+              hasEncryptedPayload: !!payload?.ciphertext,
+            };
+          })
+          .filter(Boolean),
+        delegations: [...Array(this.delegationRegistry.count)]
+          .map((_, i) => {
+            const del = this.delegationRegistry.getDelegation(BigInt(i));
+            if (!del) return null;
+            return {
+              delegationIndex: i,
+              delegatorWalletId: del.delegatorWalletId.toString(),
+              delegateWalletId: del.delegateWalletId.toString(),
+              scopeFlags: Number(del.scopeFlags.toBigInt()),
+              relationshipCode: Number(del.relationshipCode.toBigInt()),
+            };
+          })
+          .filter(Boolean),
       },
       walletDirectory: this.buildWalletDirectory(),
     };
@@ -8010,17 +8983,12 @@ export class AdjudicationService {
    * @param providerIndex — index into PRESCRIBERS or PHARMACIES
    * @returns BadgeTapEvent[] — sequence of events for the tap flow
    */
-  async simulateBadgeTap(
-    providerType: 'prescriber' | 'pharmacy',
-    providerIndex: number,
-  ): Promise<BadgeTapEvent[]> {
+  async simulateBadgeTap(providerType: 'prescriber' | 'pharmacy', providerIndex: number): Promise<BadgeTapEvent[]> {
     const events: BadgeTapEvent[] = [];
     const key = `${providerType}-${providerIndex}`;
     const badge = this.providerBadges.get(key);
 
-    const provider = providerType === 'prescriber'
-      ? PRESCRIBERS[providerIndex]
-      : PHARMACIES[providerIndex];
+    const provider = providerType === 'prescriber' ? PRESCRIBERS[providerIndex] : PHARMACIES[providerIndex];
 
     if (!badge || !provider) {
       events.push({
@@ -8102,27 +9070,32 @@ export class AdjudicationService {
         data: { skipped: true, reason: 'Programs not compiled' },
       });
     } else {
-      this.emit('proof', 'badge-tap', `  Generating ProofGate.verify${providerType === 'prescriber' ? 'Prescriber' : 'Pharmacy'} proof...`, 'start');
+      this.emit(
+        'proof',
+        'badge-tap',
+        `  Generating ProofGate.verify${providerType === 'prescriber' ? 'Prescriber' : 'Pharmacy'} proof...`,
+        'start',
+      );
       const proofStart = Date.now();
 
       // Get the enrollment key to build preimage (in real flow this comes from badge decrypt)
-      const enrollmentKey = providerType === 'prescriber'
-        ? PRESCRIBERS[providerIndex].enrollmentKey
-        : PHARMACIES[providerIndex].enrollmentKey;
+      const enrollmentKey =
+        providerType === 'prescriber' ? PRESCRIBERS[providerIndex].enrollmentKey : PHARMACIES[providerIndex].enrollmentKey;
 
       const { preimage, method } = badgePreimage(badge, enrollmentKey);
-      const walletId = providerType === 'prescriber'
-        ? this.prescriberWalletIds.get(providerIndex)!
-        : this.pharmacyWalletIds.get(providerIndex)!;
+      const walletId =
+        providerType === 'prescriber' ? this.prescriberWalletIds.get(providerIndex)! : this.pharmacyWalletIds.get(providerIndex)!;
 
       try {
         const dispatchResult = await this.dispatchProof(
-          'ProofGate', method,
+          'ProofGate',
+          method,
           ['Field', 'Field', 'Field', 'Field'],
           [walletId, preimage[0], preimage[1], preimage[2]],
-          () => method === 'verifyPrescriber'
-            ? ProofGateProgram.verifyPrescriber(walletId, preimage[0], preimage[1], preimage[2])
-            : ProofGateProgram.verifyPharmacy(walletId, preimage[0], preimage[1], preimage[2]),
+          () =>
+            method === 'verifyPrescriber'
+              ? ProofGateProgram.verifyPrescriber(walletId, preimage[0], preimage[1], preimage[2])
+              : ProofGateProgram.verifyPharmacy(walletId, preimage[0], preimage[1], preimage[2]),
         );
 
         const proofMs = dispatchResult.proveTimeMs;
@@ -8143,7 +9116,13 @@ export class AdjudicationService {
           },
         });
 
-        this.emit('proof', 'badge-tap', `  ProofGate proof generated (${(proofMs / 1000).toFixed(2)}s) — hash: ${proofHash}...`, 'complete', proofMs);
+        this.emit(
+          'proof',
+          'badge-tap',
+          `  ProofGate proof generated (${(proofMs / 1000).toFixed(2)}s) — hash: ${proofHash}...`,
+          'complete',
+          proofMs,
+        );
       } catch (err) {
         const proofMs = Date.now() - proofStart;
         events.push({
@@ -8210,10 +9189,7 @@ export class AdjudicationService {
    * @param includePharmacies — if true, also tap all pharmacy badges
    * @param maxProviders — limit the number of providers to tap (for faster demos)
    */
-  async autoTapSimulation(opts?: {
-    includePharmacies?: boolean;
-    maxProviders?: number;
-  }): Promise<BadgeTapEvent[]> {
+  async autoTapSimulation(opts?: { includePharmacies?: boolean; maxProviders?: number }): Promise<BadgeTapEvent[]> {
     const allEvents: BadgeTapEvent[] = [];
     const includePharmacies = opts?.includePharmacies ?? false;
     const maxProviders = opts?.maxProviders ?? PRESCRIBERS.length;
@@ -8222,12 +9198,21 @@ export class AdjudicationService {
     const prescriberCount = Math.min(maxProviders, PRESCRIBERS.length);
     const pharmacyCount = includePharmacies ? Math.min(maxProviders, PHARMACIES.length) : 0;
 
-    this.emit('phase', 'auto-tap', `\u{1F4F3} Auto-tap simulation: ${prescriberCount} prescribers${pharmacyCount > 0 ? ` + ${pharmacyCount} pharmacies` : ''}`, 'start');
+    this.emit(
+      'phase',
+      'auto-tap',
+      `\u{1F4F3} Auto-tap simulation: ${prescriberCount} prescribers${pharmacyCount > 0 ? ` + ${pharmacyCount} pharmacies` : ''}`,
+      'start',
+    );
 
     // Tap prescribers
     for (let i = 0; i < prescriberCount; i++) {
       const p = PRESCRIBERS[i];
-      this.emit('info', 'auto-tap', `\u2500\u2500\u2500 Prescriber ${i + 1}/${prescriberCount}: ${p.firstName} ${p.lastName}, ${p.credential} (${p.specialty}) \u2500\u2500\u2500`);
+      this.emit(
+        'info',
+        'auto-tap',
+        `\u2500\u2500\u2500 Prescriber ${i + 1}/${prescriberCount}: ${p.firstName} ${p.lastName}, ${p.credential} (${p.specialty}) \u2500\u2500\u2500`,
+      );
       const events = await this.simulateBadgeTap('prescriber', i);
       allEvents.push(...events);
     }
@@ -8236,32 +9221,34 @@ export class AdjudicationService {
     if (pharmacyCount > 0) {
       for (let i = 0; i < pharmacyCount; i++) {
         const p = PHARMACIES[i];
-        this.emit('info', 'auto-tap', `\u2500\u2500\u2500 Pharmacy ${i + 1}/${pharmacyCount}: ${p.storeName} (${p.pharmacyTypeDesc}) \u2500\u2500\u2500`);
+        this.emit(
+          'info',
+          'auto-tap',
+          `\u2500\u2500\u2500 Pharmacy ${i + 1}/${pharmacyCount}: ${p.storeName} (${p.pharmacyTypeDesc}) \u2500\u2500\u2500`,
+        );
         const events = await this.simulateBadgeTap('pharmacy', i);
         allEvents.push(...events);
       }
     }
 
     const totalMs = Date.now() - totalStart;
-    const successCount = allEvents.filter(e => e.type === 'badge:session').length;
-    const failCount = allEvents.filter(e => e.type === 'badge:error').length;
+    const successCount = allEvents.filter((e) => e.type === 'badge:session').length;
+    const failCount = allEvents.filter((e) => e.type === 'badge:error').length;
 
-    this.emit('phase', 'auto-tap',
+    this.emit(
+      'phase',
+      'auto-tap',
       `Auto-tap complete: ${successCount} authenticated, ${failCount} failed (${(totalMs / 1000).toFixed(2)}s total)`,
-      'complete', totalMs);
+      'complete',
+      totalMs,
+    );
 
     return allEvents;
   }
 
   // ─── Event Helpers ─────────────────────────────────────
 
-  private emit(
-    type: ConsoleEventType,
-    phase: string,
-    message: string,
-    status?: 'start' | 'complete' | 'error',
-    elapsedMs?: number,
-  ): void {
+  private emit(type: ConsoleEventType, phase: string, message: string, status?: 'start' | 'complete' | 'error', elapsedMs?: number): void {
     this.consoleEmitter({
       type,
       timestamp: Date.now(),

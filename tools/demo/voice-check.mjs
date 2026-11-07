@@ -20,14 +20,36 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, parseVoices } from './lib/args.mjs';
-import { synth, stopEngines, stripCues, engineVoice, knownVoice, speechChunks, toSpeech, TOOLS, OUT_ROOT, VOICE_CACHE } from './lib/narrate.mjs';
+import {
+  synth,
+  stopEngines,
+  stripCues,
+  engineVoice,
+  knownVoice,
+  speechChunks,
+  toSpeech,
+  TOOLS,
+  OUT_ROOT,
+  VOICE_CACHE,
+} from './lib/narrate.mjs';
 import { PEOPLE, castOf, allLines } from './lib/claim-script.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = parseArgs();
-const VOICE_DEFAULT = { narrator: 'maya:narrator', hr: 'maya:hr', analyst: 'maya:analyst', member: 'turbo:af_heart', prescriber: 'maya:prescriber', pharmacist: 'orpheus:dan' };
+const VOICE_DEFAULT = {
+  narrator: 'maya:narrator',
+  hr: 'maya:hr',
+  analyst: 'maya:analyst',
+  member: 'turbo:af_heart',
+  prescriber: 'maya:prescriber',
+  pharmacist: 'orpheus:dan',
+};
 const voices = { ...VOICE_DEFAULT, ...parseVoices(args.voices) };
-const only = args.only ? String(args.only).split(',').map((s) => s.trim()) : Object.keys(PEOPLE);
+const only = args.only
+  ? String(args.only)
+      .split(',')
+      .map((s) => s.trim())
+  : Object.keys(PEOPLE);
 for (const k of only) {
   if (!PEOPLE[k]) throw new Error(`no person "${k}" (${Object.keys(PEOPLE).join(', ')})`);
   if (!knownVoice(voices[k]) || !engineVoice(voices[k])) throw new Error(`${k}: ${voices[k]} is not an engine voice lib/narrate.mjs knows`);
@@ -60,12 +82,16 @@ for (const key of only) {
 }
 stopEngines();
 if (!fs.existsSync(ASR_PY)) throw new Error(`the Whisper check is not installed: ${ASR_PY}`);
-const r = spawnSync(ASR_PY, ['-I', CHECK, ...dirs], { encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, ZPK_DEMO_TOOLS: TOOLS } });
+const r = spawnSync(ASR_PY, ['-I', CHECK, ...dirs], {
+  encoding: 'utf8',
+  maxBuffer: 1 << 26,
+  env: { ...process.env, ZPK_DEMO_TOOLS: TOOLS },
+});
 if (r.status !== 0) throw new Error(`check_asr failed: ${(r.stderr || '').slice(-800)}`);
 let weak = 0;
 for (const dir of dirs) {
   const a = JSON.parse(fs.readFileSync(path.join(dir, 'asr.json'), 'utf8'));
-  const list = Array.isArray(a) ? a : (a.results || a.lines || []);
+  const list = Array.isArray(a) ? a : a.results || a.lines || [];
   console.log(`\n${path.basename(dir)} (${voices[path.basename(dir)]})`);
   // a clip rendered whole at its engine's token cap (Maya1 about 25 s, Orpheus about 14 s) was probably cut off; a
   // line spoken in pieces (lib/narrate.mjs speechChunks) is longer than one piece by design
@@ -74,9 +100,16 @@ for (const dir of dirs) {
   for (const x of list) {
     const m = Number(x.match);
     const whole = speechChunks(engine, toSpeech(String(x.meant))).length === 1;
-    const flags = [m < 0.85 ? 'low match' : '', x.ending_missing ? 'ending missing' : '', x.repeats && x.repeats.length ? `repeated: ${x.repeats.join(', ')}` : '', capS && whole && x.audio_s >= capS ? 'at the length cap' : ''].filter(Boolean);
+    const flags = [
+      m < 0.85 ? 'low match' : '',
+      x.ending_missing ? 'ending missing' : '',
+      x.repeats && x.repeats.length ? `repeated: ${x.repeats.join(', ')}` : '',
+      capS && whole && x.audio_s >= capS ? 'at the length cap' : '',
+    ].filter(Boolean);
     if (flags.length) weak += 1;
-    console.log(`  ${x.file} ${m.toFixed(2)}  ${flags.length ? `[${flags.join(', ')}] meant "${x.meant}" | heard "${x.heard}"` : String(x.meant).slice(0, 70)}`);
+    console.log(
+      `  ${x.file} ${m.toFixed(2)}  ${flags.length ? `[${flags.join(', ')}] meant "${x.meant}" | heard "${x.heard}"` : String(x.meant).slice(0, 70)}`,
+    );
   }
 }
 console.log(`\n${weak} lines flagged${weak ? ' (rework them: reword, or add a toSpeech rule in lib/narrate.mjs)' : ''}`);

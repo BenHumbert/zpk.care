@@ -86,16 +86,36 @@ const termination = { memberWalletId: ALICE, terminationDate: '20261031' };
 const LOCKED_ROUTES: Array<{ route: string; body: Record<string, unknown>; as: 'operator' | 'alice' | 'anyone' }> = [
   { route: '/interactive/pcp-assignment', body: { walletId: ALICE, pcpWalletId: '2001', effectiveDate: '20261024' }, as: 'alice' },
   { route: '/interactive/approve-prior-auth', body: { priorAuthId: 'PA-BUDGET' }, as: 'operator' },
-  { route: '/interactive/prescribe', body: { prescriberIndex: 0, memberWalletId: ALICE, ndcHash: '777', pharmacyIndex: 0 }, as: 'operator' },
-  { route: '/interactive/update-rx-status', body: { prescriptionId: 'RX-BUDGET', newStatus: 'CANCELLED', role: 'prescriber', actorIndex: 0 }, as: 'operator' },
+  {
+    route: '/interactive/prescribe',
+    body: { prescriberIndex: 0, memberWalletId: ALICE, ndcHash: '777', pharmacyIndex: 0 },
+    as: 'operator',
+  },
+  {
+    route: '/interactive/update-rx-status',
+    body: { prescriptionId: 'RX-BUDGET', newStatus: 'CANCELLED', role: 'prescriber', actorIndex: 0 },
+    as: 'operator',
+  },
   { route: '/interactive/reverse', body: { prescriptionId: 'RX-BUDGET' }, as: 'operator' },
   { route: '/interactive/assign-pcp', body: { memberWalletId: ALICE, prescriberIndex: 0 }, as: 'operator' },
   { route: '/interactive/enroll-family', body: { subscriberIndex: 0 }, as: 'operator' },
   { route: TERMINATE_MEMBER, body: termination, as: 'operator' },
   { route: '/interactive/terminate-group', body: { groupId: 'ACME-CORP', terminationDate: '20261031' }, as: 'operator' },
-  { route: '/interactive/hold-member', body: { walletId: ALICE, held: true, reason: 'A report about this member is reviewed' }, as: 'operator' },   // A-109
-  { route: '/interactive/send-message', body: { senderType: 'prescriber', recipientType: 'member', subject: 'Refill', body: 'Ready' }, as: 'operator' },
-  { route: '/interactive/create-delegation', body: { delegatorWalletId: ALICE, delegateWalletId: '1002', scopeFlags: 1, relationshipCode: 1 }, as: 'operator' },
+  {
+    route: '/interactive/hold-member',
+    body: { walletId: ALICE, held: true, reason: 'A report about this member is reviewed' },
+    as: 'operator',
+  }, // A-109
+  {
+    route: '/interactive/send-message',
+    body: { senderType: 'prescriber', recipientType: 'member', subject: 'Refill', body: 'Ready' },
+    as: 'operator',
+  },
+  {
+    route: '/interactive/create-delegation',
+    body: { delegatorWalletId: ALICE, delegateWalletId: '1002', scopeFlags: 1, relationshipCode: 1 },
+    as: 'operator',
+  },
   { route: '/interactive/verify-credential', body: { credentialJson: '{"version":1}' }, as: 'anyone' },
   { route: '/interactive/update-formulary', body: { ndcHash: '777', action: 'MODIFY' }, as: 'operator' },
   { route: '/interactive/update-provider-network', body: { prescriberWalletId: '2001', action: 'ADD' }, as: 'operator' },
@@ -113,9 +133,15 @@ let unhurried: L2RpcServer;
 /** The sequencer with the engine's routes under the engine's own budgets. */
 let patient: L2RpcServer;
 const reader = new (class StandInReader extends EventEmitter {
-  getStatus(): NfcBridgeStatus { return { state: 'polling', devicePath: null, tagUid: null, pendingWrite: null, error: null }; }
-  async queueWrite(): Promise<void> { /* no tag is written here */ }
-  cancelWrite(): void { /* nothing is queued to cancel */ }
+  getStatus(): NfcBridgeStatus {
+    return { state: 'polling', devicePath: null, tagUid: null, pendingWrite: null, error: null };
+  }
+  async queueWrite(): Promise<void> {
+    /* no tag is written here */
+  }
+  cancelWrite(): void {
+    /* nothing is queued to cancel */
+  }
 })();
 
 /** What the stand-in engine did, in order: each change a route asked it to make, and each badge proof's start and end. */
@@ -140,16 +166,27 @@ let warn: jest.SpyInstance;
 /** What the stand-in engine answers for a badge tap that proves and is issued a session. */
 function badgeEvents(providerType: 'prescriber' | 'pharmacy', providerIndex: number): BadgeTapEvent[] {
   const tap = { providerType, providerIndex, displayName: `${providerType}-${providerIndex}`, timestamp: 0 };
-  return [{ type: 'badge:proof', ...tap, data: { verified: true } }, { type: 'badge:session', ...tap }];
+  return [
+    { type: 'badge:proof', ...tap, data: { verified: true } },
+    { type: 'badge:session', ...tap },
+  ];
 }
 
 /** Only what the routes under test call; anything else throws, so a wider dependency shows up. */
 function standInEngine() {
-  const change = (name: string) => async (): Promise<unknown> => { events.push(name); return { changed: name }; };
+  const change = (name: string) => async (): Promise<unknown> => {
+    events.push(name);
+    return { changed: name };
+  };
   const own: Record<string, unknown> = {
     isProvingReady: () => true,
     // the sequencer's own chain node, as the engine's is, so the routes take its real proving lock
-    getL2Node: () => ({ withProvingLock: <T>(fn: () => Promise<T>) => { lockRequests++; return node.withProvingLock(fn); } }),
+    getL2Node: () => ({
+      withProvingLock: <T>(fn: () => Promise<T>) => {
+        lockRequests++;
+        return node.withProvingLock(fn);
+      },
+    }),
     forceBatch: async () => null,
     assignPcpForDevice: change('assignPcpForDevice'),
     approvePriorAuth: change('approvePriorAuth'),
@@ -166,18 +203,27 @@ function standInEngine() {
     updateFormularyEntry: change('updateFormularyEntry'),
     updateProviderNetwork: change('updateProviderNetwork'),
     planYearRollover: change('planYearRollover'),
-    reset: () => { events.push('reset'); },
+    reset: () => {
+      events.push('reset');
+    },
     simulateBadgeTap: async (providerType: 'prescriber' | 'pharmacy', providerIndex: number): Promise<BadgeTapEvent[]> => {
       const tap = `${providerType}-${providerIndex}`;
       events.push(`${tap} badge proof starts`);
-      if (holdTaps) await new Promise<void>((resolve) => { tapProofs.set(tap, resolve); if (ending) resolve(); });
+      if (holdTaps)
+        await new Promise<void>((resolve) => {
+          tapProofs.set(tap, resolve);
+          if (ending) resolve();
+        });
       events.push(`${tap} badge proof ends`);
       return badgeEvents(providerType, providerIndex);
     },
     // the engine's round as its autoTapSimulation runs it: each provider in turn, through this.simulateBadgeTap
-    async autoTapSimulation(this: { simulateBadgeTap(type: 'prescriber', index: number): Promise<BadgeTapEvent[]> }, opts: { maxProviders?: number }) {
+    async autoTapSimulation(
+      this: { simulateBadgeTap(type: 'prescriber', index: number): Promise<BadgeTapEvent[]> },
+      opts: { maxProviders?: number },
+    ) {
       const all: BadgeTapEvent[] = [];
-      for (let i = 0; i < (opts.maxProviders ?? 1); i++) all.push(...await this.simulateBadgeTap('prescriber', i));
+      for (let i = 0; i < (opts.maxProviders ?? 1); i++) all.push(...(await this.simulateBadgeTap('prescriber', i)));
       return all;
     },
   };
@@ -203,8 +249,12 @@ function registering(target: L2RpcServer, budgetMs?: number): L2RpcServer {
     get(t, p) {
       if (p === 'registerRoute') {
         return (method: string, path: string, handler: Handler, options?: RouteOptions) => {
-          const watched: Handler = (req, res) => { responses.set(`${method} ${path}`, res); return handler(req, res); };
-          const shortened = budgetMs !== undefined && (options?.timeoutMs || path === NFC_EVENTS) ? { ...options, timeoutMs: budgetMs } : options;
+          const watched: Handler = (req, res) => {
+            responses.set(`${method} ${path}`, res);
+            return handler(req, res);
+          };
+          const shortened =
+            budgetMs !== undefined && (options?.timeoutMs || path === NFC_EVENTS) ? { ...options, timeoutMs: budgetMs } : options;
           t.registerRoute(method, path, watched, shortened);
         };
       }
@@ -217,10 +267,19 @@ function registering(target: L2RpcServer, budgetMs?: number): L2RpcServer {
 type Reply = { status: number; json: any };
 
 async function post(on: L2RpcServer, p: string, body: unknown, headers: Record<string, string>, signal?: AbortSignal): Promise<Reply> {
-  const r = await fetch(`http://127.0.0.1:${on.getPort()}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal });
+  const r = await fetch(`http://127.0.0.1:${on.getPort()}${p}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+    signal,
+  });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = null; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
 
@@ -242,9 +301,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Take the proving lock as a fill's proof holds it, until the test lets it go (releaseLock). */
 async function holdLock(): Promise<void> {
   let release: (() => void) | undefined;
-  void node.withProvingLock(() => new Promise<void>((resolve) => { release = resolve; }));
+  void node.withProvingLock(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
   await until(() => release !== undefined);
-  releaseLock = () => { releaseLock = null; release!(); };
+  releaseLock = () => {
+    releaseLock = null;
+    release!();
+  };
 }
 
 /** Resolves once every locked operation queued so far has let go of the lock. */
@@ -257,7 +324,10 @@ const lockFree = () => node.withProvingLock(async () => undefined);
 async function sendWhileLocked(on: L2RpcServer, p: string, body: unknown, headers: Record<string, string>): Promise<Reply> {
   const asked = lockRequests;
   let answered = false;
-  const reply = post(on, p, body, headers).then((r) => { answered = true; return r; });
+  const reply = post(on, p, body, headers).then((r) => {
+    answered = true;
+    return r;
+  });
   replies.push(reply);
   await until(() => lockRequests > asked || answered);
   return reply;
@@ -291,7 +361,9 @@ function openStream(p: string): Promise<{ status: number; frames: string[]; clos
           buffered = buffered.slice(end + 2);
         }
       });
-      res.on('error', () => { /* the test closes the stream */ });
+      res.on('error', () => {
+        /* the test closes the stream */
+      });
       resolve({ status: res.statusCode ?? 0, frames, close: () => req.destroy() });
     });
     req.on('error', reject);
@@ -306,12 +378,21 @@ function openStream(p: string): Promise<{ status: number; frames: string[]; clos
 function headsWrittenOn(res: ServerResponse): number[] {
   const heads: number[] = [];
   const writeHead = res.writeHead.bind(res) as (status: number, ...rest: unknown[]) => ServerResponse;
-  res.writeHead = ((status: number, ...rest: unknown[]) => { heads.push(status); return writeHead(status, ...rest); }) as typeof res.writeHead;
+  res.writeHead = ((status: number, ...rest: unknown[]) => {
+    heads.push(status);
+    return writeHead(status, ...rest);
+  }) as typeof res.writeHead;
   return heads;
 }
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-locked-route-budget' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-locked-route-budget' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
   registerInteractiveRoutes(registering(server, BUDGET_MS), standInEngine() as any, reader);
@@ -323,9 +404,26 @@ beforeAll(async () => {
   registerInteractiveRoutes(registering(patient), standInEngine() as any);
   await patient.start();
   // Alice's wallet signing key, registered as her member node registers it, so her device can sign pcp-assignment
-  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params: { walletId: ALICE, displayName: 'alice', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(ALICE_EK).publicKeyHex } });
-  const headers = signRequest({ signerId: memberNode.nodeId, privateKey: privateKeyFromSeedHex(memberNode.seedHex), method: 'POST', path: '/rpc', body });
-  const registered = await (await fetch(`http://127.0.0.1:${server.getPort()}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body })).json() as { error?: { message: string } };
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'l2_registerEntity',
+    params: { walletId: ALICE, displayName: 'alice', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(ALICE_EK).publicKeyHex },
+  });
+  const headers = signRequest({
+    signerId: memberNode.nodeId,
+    privateKey: privateKeyFromSeedHex(memberNode.seedHex),
+    method: 'POST',
+    path: '/rpc',
+    body,
+  });
+  const registered = (await (
+    await fetch(`http://127.0.0.1:${server.getPort()}/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    })
+  ).json()) as { error?: { message: string } };
   if (registered.error) throw new Error(`fixture registration failed: ${registered.error.message}`);
 });
 
@@ -356,36 +454,42 @@ afterEach(async () => {
 });
 
 describe('a locked route still waiting for the proving lock when its budget runs out', () => {
-  test('is answered 504, saying it was dropped, and never makes its change, even once the lock is free; the caller\'s retry makes it once', async () => {
+  test("is answered 504, saying it was dropped, and never makes its change, even once the lock is free; the caller's retry makes it once", async () => {
     await holdLock();
     const first = await sendWhileLocked(server, TERMINATE_MEMBER, termination, bearer);
     expect(first.status).toBe(504);
     releaseLock!();
     await lockFree();
-    expect(events).toEqual([]);                      // before: ['terminateMember']: made once the lock came free, after its caller was told it timed out
+    expect(events).toEqual([]); // before: ['terminateMember']: made once the lock came free, after its caller was told it timed out
     expect(first.json).toStrictEqual({ error: 'Request timeout', detail: TIMED_OUT_WAITING_DETAIL }); // before: { error: 'Request timeout' } alone
     expect(drops()).toEqual([expect.stringContaining(`POST ${TERMINATE_MEMBER} dropped without running`)]); // before: [], nothing said
     const retry = await post(server, TERMINATE_MEMBER, termination, bearer);
     expect(retry).toEqual({ status: 200, json: { changed: 'terminateMember' } });
-    expect(events).toEqual(['terminateMember']);     // before: ['terminateMember', 'terminateMember']: the retry made it a second time
+    expect(events).toEqual(['terminateMember']); // before: ['terminateMember', 'terminateMember']: the retry made it a second time
   });
 
-  test.each(LOCKED_ROUTES.map((r) => [r.route, r] as const))('%s drops the same way: 504, no change once the lock is free, one line naming it', async (route, r) => {
-    await holdLock();
-    const reply = await sendWhileLocked(server, route, r.body, headersFor(route, r.body, r.as));
-    expect(reply.status).toBe(504);
-    releaseLock!();
-    await lockFree();
-    expect(events).toEqual([]);                      // before: the route's change (a badge route's proof), made once the lock came free
-    expect(reply.json).toStrictEqual({ error: 'Request timeout', detail: TIMED_OUT_WAITING_DETAIL }); // before: { error: 'Request timeout' } alone
-    expect(drops()).toEqual([expect.stringContaining(`POST ${route} dropped without running`)]); // before: [], nothing said
-  });
+  test.each(LOCKED_ROUTES.map((r) => [r.route, r] as const))(
+    '%s drops the same way: 504, no change once the lock is free, one line naming it',
+    async (route, r) => {
+      await holdLock();
+      const reply = await sendWhileLocked(server, route, r.body, headersFor(route, r.body, r.as));
+      expect(reply.status).toBe(504);
+      releaseLock!();
+      await lockFree();
+      expect(events).toEqual([]); // before: the route's change (a badge route's proof), made once the lock came free
+      expect(reply.json).toStrictEqual({ error: 'Request timeout', detail: TIMED_OUT_WAITING_DETAIL }); // before: { error: 'Request timeout' } alone
+      expect(drops()).toEqual([expect.stringContaining(`POST ${route} dropped without running`)]); // before: [], nothing said
+    },
+  );
 
   test('a request whose caller goes away while it waits changes nothing once the lock is free, long before its budget', async () => {
     await holdLock();
     const asked = lockRequests;
     const caller = new AbortController();
-    const reply = post(patient, TERMINATE_MEMBER, termination, bearer, caller.signal).then(() => 'answered', (err: { name?: string }) => err.name);
+    const reply = post(patient, TERMINATE_MEMBER, termination, bearer, caller.signal).then(
+      () => 'answered',
+      (err: { name?: string }) => err.name,
+    );
     replies.push(reply);
     await until(() => lockRequests > asked);
     caller.abort();
@@ -394,7 +498,7 @@ describe('a locked route still waiting for the proving lock when its budget runs
     expect(responses.get(`POST ${TERMINATE_MEMBER}`)?.writableEnded).toBe(false); // nothing answered it: the engine's own budget is minutes
     releaseLock!();
     await lockFree();
-    expect(events).toEqual([]);                      // before: ['terminateMember']: made for a caller that had gone
+    expect(events).toEqual([]); // before: ['terminateMember']: made for a caller that had gone
     expect(drops()).toEqual([expect.stringContaining(`POST ${TERMINATE_MEMBER} dropped without running: its caller went away`)]); // before: []
   });
 });
@@ -426,13 +530,18 @@ describe('a locked route whose work had started when its budget ran out', () => 
     await until(() => events.includes('prescriber-1 badge proof starts'));
     endTap('prescriber-1');
     await lockFree();
-    expect(events).toEqual(['prescriber-0 badge proof starts', 'prescriber-0 badge proof ends', 'prescriber-1 badge proof starts', 'prescriber-1 badge proof ends']);
+    expect(events).toEqual([
+      'prescriber-0 badge proof starts',
+      'prescriber-0 badge proof ends',
+      'prescriber-1 badge proof starts',
+      'prescriber-1 badge proof ends',
+    ]);
     expect(drops()).toEqual([]);
   });
 });
 
 describe('streams and the request budget', () => {
-  test('the NFC reader\'s event stream outlives the budget: still open and sending, and nothing written over it', async () => {
+  test("the NFC reader's event stream outlives the budget: still open and sending, and nothing written over it", async () => {
     const stream = await openStream(NFC_EVENTS);
     await until(() => stream.frames.length === 1);
     const heads = headsWrittenOn(responses.get(`GET ${NFC_EVENTS}`)!);
@@ -443,16 +552,21 @@ describe('streams and the request budget', () => {
     stream.close();
     expect(stream.status).toBe(200);
     expect(stream.frames).toEqual(['nfc:status', 'nfc:tag_detected']);
-    expect(heads).toEqual([]);                       // before: [504]: the budget wrote its head over the open stream, and writeHead threw ERR_HTTP_HEADERS_SENT out of its timer, uncaught
+    expect(heads).toEqual([]); // before: [504]: the budget wrote its head over the open stream, and writeHead threw ERR_HTTP_HEADERS_SENT out of its timer, uncaught
   });
 
   test('a stream on a path the server does not list is left to its handler when its budget runs out: nothing written over it', async () => {
     const held: { res?: ServerResponse } = {};
-    server.registerRoute('GET', '/test/unlisted-stream', async (_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      res.write('event: first\ndata: {}\n\n');
-      held.res = res;
-    }, { timeoutMs: BUDGET_MS });
+    server.registerRoute(
+      'GET',
+      '/test/unlisted-stream',
+      async (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write('event: first\ndata: {}\n\n');
+        held.res = res;
+      },
+      { timeoutMs: BUDGET_MS },
+    );
     const stream = await openStream('/test/unlisted-stream');
     await until(() => stream.frames.length === 1);
     const heads = headsWrittenOn(held.res!);
@@ -461,7 +575,7 @@ describe('streams and the request budget', () => {
     await until(() => stream.frames.length === 2);
     stream.close();
     expect(stream.frames).toEqual(['first', 'later']);
-    expect(heads).toEqual([]);                       // before: [504], whose writeHead threw ERR_HTTP_HEADERS_SENT out of the budget's timer, uncaught
+    expect(heads).toEqual([]); // before: [504], whose writeHead threw ERR_HTTP_HEADERS_SENT out of the budget's timer, uncaught
   });
 });
 
@@ -483,13 +597,22 @@ describe('in the code', () => {
 
   test('every route that answers from a locked engine call takes the lock through underProvingLock; only the background jobs and the reader take it directly', () => {
     const direct = new Map<string, string>();
-    lines.forEach((line, i) => { if (line.includes('.withProvingLock(')) direct.set(owner(i), line); });
-    const background = ['POST /interactive/enroll', 'POST /interactive/fill', 'POST /interactive/generate-credential', 'POST /interactive/prescribe-and-fill'];
+    lines.forEach((line, i) => {
+      if (line.includes('.withProvingLock(')) direct.set(owner(i), line);
+    });
+    const background = [
+      'POST /interactive/enroll',
+      'POST /interactive/fill',
+      'POST /interactive/generate-credential',
+      'POST /interactive/prescribe-and-fill',
+    ];
     expect([...direct.keys()].sort()).toEqual([...background, 'function underProvingLock', 'reader tag:read'].sort()); // before: eighteen routes more, each taking the lock itself
     // a background job answers 202 and takes the lock afterwards: its handler does not wait for the lock
     for (const route of background) expect([route, /\bawait\b/.test(direct.get(route)!)]).toEqual([route, false]);
     const throughHelper = new Set<string>();
-    lines.forEach((line, i) => { if (line.includes('underProvingLock(req, res,')) throughHelper.add(owner(i)); });
+    lines.forEach((line, i) => {
+      if (line.includes('underProvingLock(req, res,')) throughHelper.add(owner(i));
+    });
     expect([...throughHelper].sort()).toEqual(LOCKED_ROUTES.map((r) => `POST ${r.route}`).sort()); // before: [], no such helper
   });
 });

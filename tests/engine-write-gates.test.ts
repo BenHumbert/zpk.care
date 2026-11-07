@@ -65,19 +65,48 @@ const CLAIM = { memberWalletId: '700001', prescriberWalletId: '700002', pharmacy
  */
 function standInService() {
   const sequencer = {
-    getAllReceipts: () => [{ receiptId: 'rcpt-1', walletId: CLAIM.memberWalletId, sequenceNumber: 1n, isRegistration: false, acceptedAt: 1, l1Status: 'pending' }],
+    getAllReceipts: () => [
+      {
+        receiptId: 'rcpt-1',
+        walletId: CLAIM.memberWalletId,
+        sequenceNumber: 1n,
+        isRegistration: false,
+        acceptedAt: 1,
+        l1Status: 'pending',
+      },
+    ],
     getAllBatches: () => [],
     getAuditLog: () => ({
-      events: [{
-        sequenceNumber: 1n, receiptId: 'rcpt-1', walletId: CLAIM.memberWalletId, timestamp: 1, l1Status: 'pending',
-        claimContext: { ...CLAIM, ingredientCostCents: 1234, dispensingFeeCents: 150, quantityDispensed: '30', dateOfService: 20261024 },
-      }],
-      genesisHash: '1', latestChainHash: '2', eventCount: 1n,
+      events: [
+        {
+          sequenceNumber: 1n,
+          receiptId: 'rcpt-1',
+          walletId: CLAIM.memberWalletId,
+          timestamp: 1,
+          l1Status: 'pending',
+          claimContext: { ...CLAIM, ingredientCostCents: 1234, dispensingFeeCents: 150, quantityDispensed: '30', dateOfService: 20261024 },
+        },
+      ],
+      genesisHash: '1',
+      latestChainHash: '2',
+      eventCount: 1n,
     }),
   };
   const chain = { getStatus: () => ({ running: true, inFlightBatch: null }), getSequencer: () => sequencer };
-  const svc = { getState() { return { compiled: true, enrolledMembers: [] }; }, getL2Node() { return chain; } };
-  return new Proxy(svc, { get(t, p) { if (p in t) return (t as any)[p]; return typeof p === 'string' && p !== 'then' ? () => undefined : undefined; } });
+  const svc = {
+    getState() {
+      return { compiled: true, enrolledMembers: [] };
+    },
+    getL2Node() {
+      return chain;
+    },
+  };
+  return new Proxy(svc, {
+    get(t, p) {
+      if (p in t) return (t as any)[p];
+      return typeof p === 'string' && p !== 'then' ? () => undefined : undefined;
+    },
+  });
 }
 
 async function post(p: string, body: unknown, headers: Record<string, string> = {}) {
@@ -87,10 +116,22 @@ async function post(p: string, body: unknown, headers: Record<string, string> = 
 }
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
 const byNode = (key: ReturnType<typeof generateNodeKey>, method: string, p: string, body?: unknown) =>
-  signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method, path: p, body: body === undefined ? undefined : JSON.stringify(body) });
+  signRequest({
+    signerId: key.nodeId,
+    privateKey: privateKeyFromSeedHex(key.seedHex),
+    method,
+    path: p,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-write-gates' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-write-gates' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: true, maxSseConnections: 10 });
   server.registerNodeKey(prescriberNode.nodeId, prescriberNode.publicKeyHex, 'prescriber');
   server.registerNodeKey(pharmacyNode.nodeId, pharmacyNode.publicKeyHex, 'pharmacy');
@@ -100,11 +141,13 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
 const gated = (s: number) => s === 401 || s === 403;
 
-describe('the engine\'s write routes', () => {
+describe("the engine's write routes", () => {
   const writes: Array<[string, unknown]> = [
     ['/interactive/prescribe', { prescriberIndex: 0, pharmacyIndex: 0, memberWalletId: '1', ndcHash: '1', quantity: 1, refills: 0 }],
     ['/interactive/fill', { prescriptionId: 'RX-1' }],
@@ -145,17 +188,25 @@ describe('the engine\'s write routes', () => {
     expect((await post(fill[0], fill[1], byNode(memberNode, 'POST', fill[0], fill[1]))).status).toBe(403);
   });
 
-  test('register-member and verify-credential stay reachable without a token: the first carries the device\'s proof, the second changes nothing', async () => {
+  test("register-member and verify-credential stay reachable without a token: the first carries the device's proof, the second changes nothing", async () => {
     expect(gated((await post('/interactive/register-member', {})).status)).toBe(false);
     expect(gated((await post('/interactive/verify-credential', {})).status)).toBe(false);
   });
 
-  test('the member-data reads need a credential; the chain\'s own state does not', async () => {
+  test("the member-data reads need a credential; the chain's own state does not", async () => {
     for (const p of [
-      '/interactive/member-history?walletId=1', '/interactive/family-history?familyId=1', '/interactive/threads?walletId=1',
-      '/interactive/fill-status?prescriptionId=RX-1', '/interactive/enroll-status?memberIndex=0',
-      '/node/state', '/node/claims-by-member?walletId=1', '/node/receipts-by-wallet?walletId=1', '/node/dur?memberWalletId=1',
-      '/node/all-receipts', '/node/audit-log', '/node/claim-proof?leafIndex=0',
+      '/interactive/member-history?walletId=1',
+      '/interactive/family-history?familyId=1',
+      '/interactive/threads?walletId=1',
+      '/interactive/fill-status?prescriptionId=RX-1',
+      '/interactive/enroll-status?memberIndex=0',
+      '/node/state',
+      '/node/claims-by-member?walletId=1',
+      '/node/receipts-by-wallet?walletId=1',
+      '/node/dur?memberWalletId=1',
+      '/node/all-receipts',
+      '/node/audit-log',
+      '/node/claim-proof?leafIndex=0',
     ]) {
       expect([p, (await fetch(url + p)).status]).toEqual([p, 401]);
       expect([p, gated((await fetch(url + p, { headers: bearer })).status)]).toEqual([p, false]);
@@ -165,17 +216,20 @@ describe('the engine\'s write routes', () => {
     }
   });
 
-  test('the engine\'s chain status lists every wallet and each claim\'s parties, so it answers the operator only', async () => {
+  test("the engine's chain status lists every wallet and each claim's parties, so it answers the operator only", async () => {
     const p = '/interactive/l2-status';
     const anonymous = await fetch(url + p);
-    expect(anonymous.status).toBe(401);                                                          // before: 200
-    expect(await anonymous.text()).not.toContain(CLAIM.memberWalletId);                          // before: the member's wallet, in its receipt and in its claim
+    expect(anonymous.status).toBe(401); // before: 200
+    expect(await anonymous.text()).not.toContain(CLAIM.memberWalletId); // before: the member's wallet, in its receipt and in its claim
     // no node role reads it: the plan reads the same lists from the sequencer (l2_getAllReceipts, l2_getAuditLog)
     expect((await fetch(url + p, { headers: byNode(pharmacyNode, 'GET', p) })).status).toBe(403); // before: 200
-    expect((await fetch(url + p, { headers: byNode(memberNode, 'GET', p) })).status).toBe(403);   // before: 200
+    expect((await fetch(url + p, { headers: byNode(memberNode, 'GET', p) })).status).toBe(403); // before: 200
     const operator = await fetch(url + p, { headers: bearer });
     expect(operator.status).toBe(200);
-    const status = await operator.json() as { receipts: Array<{ walletId: string }>; auditLog: { events: Array<{ claimContext?: Record<string, unknown> }> } };
+    const status = (await operator.json()) as {
+      receipts: Array<{ walletId: string }>;
+      auditLog: { events: Array<{ claimContext?: Record<string, unknown> }> };
+    };
     expect(status.receipts.map((r) => r.walletId)).toEqual([CLAIM.memberWalletId]);
     expect(status.auditLog.events[0].claimContext).toMatchObject(CLAIM);
   });
@@ -204,7 +258,8 @@ describe('the sequencer', () => {
   test('the engine console and the viz history answer a credential only; the console also takes the operator token in the query', async () => {
     const streams: AbortController[] = [];
     const openStream = async (p: string, headers: Record<string, string> = {}) => {
-      const ctl = new AbortController(); streams.push(ctl);
+      const ctl = new AbortController();
+      streams.push(ctl);
       return (await fetch(url + p, { headers, signal: ctl.signal })).status;
     };
     try {
@@ -221,13 +276,14 @@ describe('the sequencer', () => {
     expect((await fetch(`${url}/viz/history`, { headers: byNode(pharmacyNode, 'GET', '/viz/history') })).status).toBe(403); // the operator's and the plan's
   });
 
-  test('streams events to a credential only: a node\'s signature or the operator\'s token, in a header or in the query', async () => {
+  test("streams events to a credential only: a node's signature or the operator's token, in a header or in the query", async () => {
     expect((await fetch(`${url}/events`)).status).toBe(401);
     expect((await fetch(`${url}/viz/events`)).status).toBe(401);
     expect((await fetch(`${url}/events?token=not-the-operator`)).status).toBe(401);
     const opened: AbortController[] = [];
     const open = async (p: string, headers: Record<string, string> = {}) => {
-      const ctl = new AbortController(); opened.push(ctl);
+      const ctl = new AbortController();
+      opened.push(ctl);
       const r = await fetch(url + p, { headers, signal: ctl.signal });
       return r.status;
     };

@@ -51,12 +51,7 @@ const threadAlpha = Poseidon.hash([Field(100)]).toString();
 const threadBeta = Poseidon.hash([Field(200)]).toString();
 
 /** Helper to create a test StoredMessage */
-function makeMessage(
-  sender: string,
-  recipient: string,
-  threadId: string,
-  type = '1',
-): StoredMessage {
+function makeMessage(sender: string, recipient: string, threadId: string, type = '1'): StoredMessage {
   return {
     messageCommitment: Poseidon.hash([Field(BigInt(sender)), Field(BigInt(recipient))]).toString(),
     senderWalletId: sender,
@@ -85,12 +80,7 @@ const INITIAL_LC_ROOT = emptyLcTree.getRoot();
 
 function createSequencer(): L2SequencerService {
   const store = new InMemoryStore();
-  const seq = new L2SequencerService(
-    store,
-    INITIAL_REG_ROOT,
-    INITIAL_LC_ROOT,
-    Field(0),
-  );
+  const seq = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
   seq.setTransitionVerifier(createAcceptAllVerifierForTests('tests/message-store.test.ts'));
   return seq;
 }
@@ -146,22 +136,13 @@ describe('MessageStoreService — CRUD', () => {
   });
 
   test('appendMessage assigns sequential leaf indices', () => {
-    const entry0 = service.appendMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload('hello'),
-    );
+    const entry0 = service.appendMessage(makeMessage(walletA, walletB, threadAlpha), makePayload('hello'));
     expect(entry0.leafIndex).toBe(0n);
 
-    const entry1 = service.appendMessage(
-      makeMessage(walletB, walletC, threadAlpha),
-      makePayload('world'),
-    );
+    const entry1 = service.appendMessage(makeMessage(walletB, walletC, threadAlpha), makePayload('world'));
     expect(entry1.leafIndex).toBe(1n);
 
-    const entry2 = service.appendMessage(
-      makeMessage(walletC, walletA, threadBeta),
-      makePayload('!'),
-    );
+    const entry2 = service.appendMessage(makeMessage(walletC, walletA, threadBeta), makePayload('!'));
     expect(entry2.leafIndex).toBe(2n);
   });
 
@@ -173,20 +154,14 @@ describe('MessageStoreService — CRUD', () => {
   });
 
   test('getRoot returns non-zero after append', () => {
-    service.appendMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload(),
-    );
+    service.appendMessage(makeMessage(walletA, walletB, threadAlpha), makePayload());
     const root = service.getRoot();
     expect(root).not.toBe(0n);
   });
 
   test('getRoot changes after append', () => {
     const rootBefore = service.getRoot();
-    service.appendMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload(),
-    );
+    service.appendMessage(makeMessage(walletA, walletB, threadAlpha), makePayload());
     const rootAfter = service.getRoot();
     expect(rootAfter).not.toBe(rootBefore);
   });
@@ -261,28 +236,16 @@ describe('MessageStoreService — Index Queries', () => {
     service = new MessageStoreService();
 
     // Message 0: A → B, thread Alpha, type clinical
-    service.appendMessage(
-      makeMessage(walletA, walletB, threadAlpha, '1'),
-      makePayload('msg0'),
-    );
+    service.appendMessage(makeMessage(walletA, walletB, threadAlpha, '1'), makePayload('msg0'));
 
     // Message 1: B → C, thread Alpha, type administrative
-    service.appendMessage(
-      makeMessage(walletB, walletC, threadAlpha, '2'),
-      makePayload('msg1'),
-    );
+    service.appendMessage(makeMessage(walletB, walletC, threadAlpha, '2'), makePayload('msg1'));
 
     // Message 2: C → A, thread Beta, type clinical
-    service.appendMessage(
-      makeMessage(walletC, walletA, threadBeta, '1'),
-      makePayload('msg2'),
-    );
+    service.appendMessage(makeMessage(walletC, walletA, threadBeta, '1'), makePayload('msg2'));
 
     // Message 3: A → C, thread Beta, type eScript
-    service.appendMessage(
-      makeMessage(walletA, walletC, threadBeta, '3'),
-      makePayload('msg3'),
-    );
+    service.appendMessage(makeMessage(walletA, walletC, threadBeta, '3'), makePayload('msg3'));
   });
 
   test('getMessagesBySender returns messages from sender', () => {
@@ -319,10 +282,7 @@ describe('MessageStoreService — Index Queries', () => {
 
   test('getMessagesByWallet deduplicates when sender == recipient', () => {
     // Add a self-message: A → A
-    service.appendMessage(
-      makeMessage(walletA, walletA, threadAlpha),
-      makePayload('self-msg'),
-    );
+    service.appendMessage(makeMessage(walletA, walletA, threadAlpha), makePayload('self-msg'));
 
     const walletAMessages = service.getMessagesByWallet(walletA);
     // Original 3 (msg0, msg2, msg3) + 1 self-message = 4
@@ -333,16 +293,12 @@ describe('MessageStoreService — Index Queries', () => {
   });
 
   test('getMessagesByThread groups messages by thread', () => {
-    const alphaThread = service.getMessagesByThread(
-      Poseidon.hash([Field(BigInt(threadAlpha))]).toString(),
-    );
+    const alphaThread = service.getMessagesByThread(Poseidon.hash([Field(BigInt(threadAlpha))]).toString());
     // msg0 and msg1 use threadAlpha
     expect(alphaThread.length).toBe(2);
     expect(alphaThread.map((e) => e.leafIndex)).toEqual([0n, 1n]);
 
-    const betaThread = service.getMessagesByThread(
-      Poseidon.hash([Field(BigInt(threadBeta))]).toString(),
-    );
+    const betaThread = service.getMessagesByThread(Poseidon.hash([Field(BigInt(threadBeta))]).toString());
     // msg2 and msg3 use threadBeta
     expect(betaThread.length).toBe(2);
     expect(betaThread.map((e) => e.leafIndex)).toEqual([2n, 3n]);
@@ -400,14 +356,8 @@ describe('MessageStoreService — Merkle Proof Verification', () => {
 
   beforeEach(() => {
     service = new MessageStoreService();
-    service.appendMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload('proof-msg0'),
-    );
-    service.appendMessage(
-      makeMessage(walletB, walletC, threadBeta),
-      makePayload('proof-msg1'),
-    );
+    service.appendMessage(makeMessage(walletA, walletB, threadAlpha), makePayload('proof-msg0'));
+    service.appendMessage(makeMessage(walletB, walletC, threadBeta), makePayload('proof-msg1'));
   });
 
   test('getMessageWithProof returns entry + witness + root', () => {
@@ -431,17 +381,13 @@ describe('MessageStoreService — Merkle Proof Verification', () => {
   test('witness verifies against current root (using o1js MerkleWitness.calculateRoot)', () => {
     // Verify leaf 0
     const witness0 = service.getWitness(0n);
-    const leafHash0 = computeMessageLeafHash(
-      makeMessage(walletA, walletB, threadAlpha),
-    );
+    const leafHash0 = computeMessageLeafHash(makeMessage(walletA, walletB, threadAlpha));
     const root0 = witness0.calculateRoot(leafHash0);
     expect(root0.toBigInt()).toBe(service.getRoot());
 
     // Verify leaf 1
     const witness1 = service.getWitness(1n);
-    const leafHash1 = computeMessageLeafHash(
-      makeMessage(walletB, walletC, threadBeta),
-    );
+    const leafHash1 = computeMessageLeafHash(makeMessage(walletB, walletC, threadBeta));
     const root1 = witness1.calculateRoot(leafHash1);
     expect(root1.toBigInt()).toBe(service.getRoot());
 
@@ -588,10 +534,7 @@ describe('L2 Sequencer — Message Store Integration', () => {
     expect(typeof emptyRoot).toBe('string');
 
     // After storing a message, root should change
-    sequencer.storeMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload(),
-    );
+    sequencer.storeMessage(makeMessage(walletA, walletB, threadAlpha), makePayload());
     const newRoot = sequencer.getMessageStoreRoot();
     expect(newRoot).not.toBe(emptyRoot);
   });
@@ -623,10 +566,7 @@ describe('L2 Sequencer — Message Store Integration', () => {
 
   test('buildBatch includes messageStoreRoot on L2Batch', () => {
     // Store a message so the root is non-empty
-    sequencer.storeMessage(
-      makeMessage(walletA, walletB, threadAlpha),
-      makePayload('batch-msg'),
-    );
+    sequencer.storeMessage(makeMessage(walletA, walletB, threadAlpha), makePayload('batch-msg'));
 
     const expectedRoot = sequencer.getMessageStoreRoot();
 

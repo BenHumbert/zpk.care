@@ -63,7 +63,7 @@ test('ingredient is NADAC x quantity rounded half up, in integers', () => {
   expect(nadacIngredientCents(81693, 30)).toBe(2451);
   expect(nadacIngredientCents(36315, 30)).toBe(1089);
   expect(nadacIngredientCents(90511, 30)).toBe(2715);
-  expect(nadacIngredientCents(1868756, 30)).toBe(56063);   // ABILIFY 10 MG, the harness's tier-2 drug
+  expect(nadacIngredientCents(1868756, 30)).toBe(56063); // ABILIFY 10 MG, the harness's tier-2 drug
   // a half cent rounds up, just under it rounds down
   expect(nadacIngredientCents(50, 10)).toBe(1);
   expect(nadacIngredientCents(49, 10)).toBe(0);
@@ -96,7 +96,7 @@ test('matches exact decimal arithmetic for every drug in src/data/formulary.json
   expect(differences).toBe(0);
 });
 
-test('the fee is the plan\'s when set, 0 included, otherwise the network default', () => {
+test("the fee is the plan's when set, 0 included, otherwise the network default", () => {
   for (const plan of [undefined, null, {}, { dispensingFeeCents: null }]) {
     expect(dispensingFeeOf(plan)).toEqual({ dispensingFeeCents: 1000, dispensingFeeSource: 'network-default' });
   }
@@ -106,13 +106,22 @@ test('the fee is the plan\'s when set, 0 included, otherwise the network default
     expect(() => dispensingFeeOf({ dispensingFeeCents: fee as unknown as number })).toThrow(/cannot be priced/);
   }
   for (const ok of [undefined, null, 0, 10000]) expect(dispensingFeeError(ok)).toBeNull();
-  for (const bad of [-1, 12.5, '1250', 10001, NaN]) expect(dispensingFeeError(bad)).toMatch(/dispensingFeeCents must be whole cents from 0 to 10000/);
+  for (const bad of [-1, 12.5, '1250', 10001, NaN])
+    expect(dispensingFeeError(bad)).toMatch(/dispensingFeeCents must be whole cents from 0 to 10000/);
 });
 
 test('quote then price', () => {
   expect(priceDispense(quoteNadacPrice(ABACAVIR, { dispensingFeeCents: 1250 }), 30)).toEqual({
-    basis: 'NADAC', ndc: '00378410591', nadacUnitPriceE5: 60042, pricingUnit: 'EA', nadacEffectiveDate: '12/18/2024',
-    dispensingFeeCents: 1250, dispensingFeeSource: 'plan', quantity: 30, ingredientCostCents: 1801, totalCostCents: 3051,
+    basis: 'NADAC',
+    ndc: '00378410591',
+    nadacUnitPriceE5: 60042,
+    pricingUnit: 'EA',
+    nadacEffectiveDate: '12/18/2024',
+    dispensingFeeCents: 1250,
+    dispensingFeeSource: 'plan',
+    quantity: 30,
+    ingredientCostCents: 1801,
+    totalCostCents: 3051,
   });
   expect(priceDispense(quoteNadacPrice(ABACAVIR, null), 30).totalCostCents).toBe(2801);
 });
@@ -139,15 +148,17 @@ test('stated costs: absent or equal pass, anything else is refused', () => {
   expect(zero).toContain('$18.01');
   expect(zero).toContain('$12.50 (plan)');
   expect(statedCostMismatch(p, { dispensingFeeCents: 1300 })).toMatch(/does not set the price/);
-  expect(statedCostMismatch(p, { ingredientCostCents: '1801' })).toMatch(/does not set the price/);   // a numeric string is refused, never added
+  expect(statedCostMismatch(p, { ingredientCostCents: '1801' })).toMatch(/does not set the price/); // a numeric string is refused, never added
 });
 
 test('formatting', () => {
   expect(formatNadacUnitPrice(60042)).toBe('$0.60042');
   expect(formatNadacUnitPrice(2369832)).toBe('$23.69832');
   expect(formatNadacUnitPrice(145)).toBe('$0.00145');
-  expect(formatFillPrice(priceDispense(quoteNadacPrice(ABACAVIR, { dispensingFeeCents: 1250 }), 30)))
-    .toBe('NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 (plan) = $30.51');
-  expect(formatFillPrice(priceDispense(quoteNadacPrice(ABACAVIR, null), 30)))
-    .toBe('NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $10.00 (network default) = $28.01');
+  expect(formatFillPrice(priceDispense(quoteNadacPrice(ABACAVIR, { dispensingFeeCents: 1250 }), 30))).toBe(
+    'NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $12.50 (plan) = $30.51',
+  );
+  expect(formatFillPrice(priceDispense(quoteNadacPrice(ABACAVIR, null), 30))).toBe(
+    'NADAC $0.60042/EA x 30 = $18.01 + dispensing fee $10.00 (network default) = $28.01',
+  );
 });

@@ -108,9 +108,7 @@ export function buildEligibilityData(local: EligibilityLocalData): EligibilityDa
     planIdHash: hashString(local.planId),
     groupIdHash: hashString(local.groupId),
     effectiveDate: dateToField(local.effectiveDate),
-    terminationDate: local.terminationDate
-      ? dateToField(local.terminationDate)
-      : Field(0),
+    terminationDate: local.terminationDate ? dateToField(local.terminationDate) : Field(0),
     copayAmountCents: centsToField(local.copayAmount),
     coverageType: codeToField(local.coverageType),
     formularyRoot: Field(BigInt(local.formularyRoot)),

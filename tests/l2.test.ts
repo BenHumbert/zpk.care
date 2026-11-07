@@ -28,13 +28,7 @@ import { L2SequencerService, DEFAULT_BATCH_INTERVAL_MS, MAX_TRANSITIONS_PER_BATC
 import type { AdminStateConfig } from '../src/l2/l2-sequencer-service.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
-import type {
-  L2Receipt,
-  L2Block,
-  L2Batch,
-  L2NodeConfig,
-  AdminStateDelta,
-} from '../src/l2/l2-types.js';
+import type { L2Receipt, L2Block, L2Batch, L2NodeConfig, AdminStateDelta } from '../src/l2/l2-types.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Test Data ──────────────────────────────────────────────
@@ -203,35 +197,20 @@ describe('L2SequencerService', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
   test('constructor initializes with correct initial state', () => {
-    expect(service.getCurrentRegistryRoot().toString()).toBe(
-      INITIAL_REG_ROOT.toString(),
-    );
-    expect(service.getCurrentLifecycleRoot().toString()).toBe(
-      INITIAL_LC_ROOT.toString(),
-    );
+    expect(service.getCurrentRegistryRoot().toString()).toBe(INITIAL_REG_ROOT.toString());
+    expect(service.getCurrentLifecycleRoot().toString()).toBe(INITIAL_LC_ROOT.toString());
     expect(service.getCurrentWalletCount().toString()).toBe('0');
     expect(service.getPendingCount()).toBe(0);
     expect(service.getBatchIntervalMs()).toBe(DEFAULT_BATCH_INTERVAL_MS);
   });
 
   test('constructor accepts custom batch interval', () => {
-    const custom = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-      60_000,
-    );
+    const custom = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0), 60_000);
     custom.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(custom.getBatchIntervalMs()).toBe(60_000);
   });
@@ -293,12 +272,7 @@ describe('L2SequencerService — Batch Failure & Retry', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
@@ -307,13 +281,11 @@ describe('L2SequencerService — Batch Failure & Retry', () => {
   });
 
   test('markBatchFailed throws for unknown batch', () => {
-    expect(() => service.markBatchFailed(999n, 'L1 timeout'))
-      .toThrow('Batch 999 not found');
+    expect(() => service.markBatchFailed(999n, 'L1 timeout')).toThrow('Batch 999 not found');
   });
 
   test('retryBatch throws for unknown batch', () => {
-    expect(() => service.retryBatch(999n))
-      .toThrow('Batch 999 not found');
+    expect(() => service.retryBatch(999n)).toThrow('Batch 999 not found');
   });
 
   test('buildBatch returns empty batch with no pending and no in-flight', async () => {
@@ -340,9 +312,7 @@ describe('H3 — Settlement Failure Rollback', () => {
     // Advance current roots to batch end-state (simulates submitProof having run)
     s.currentRegistryRoot = Field(BigInt(batch.newRegistryRoot));
     s.currentLifecycleRoot = Field(BigInt(batch.newLifecycleRoot));
-    s.currentWalletCount = Field(
-      s.lastSettledWalletCount.toBigInt() + BigInt(batch.registrationCount),
-    );
+    s.currentWalletCount = Field(s.lastSettledWalletCount.toBigInt() + BigInt(batch.registrationCount));
   }
 
   function makeBatch(overrides?: Partial<L2Batch>): L2Batch {
@@ -364,12 +334,7 @@ describe('H3 — Settlement Failure Rollback', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
@@ -492,12 +457,7 @@ describe('H4 — syncFromL1', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
@@ -607,12 +567,8 @@ describe('Root Chaining Logic', () => {
     });
 
     // Verify chain: left.new == right.old
-    expect(left.newRegistryRoot.toString()).toBe(
-      right.oldRegistryRoot.toString(),
-    );
-    expect(left.newLifecycleRoot.toString()).toBe(
-      right.oldLifecycleRoot.toString(),
-    );
+    expect(left.newRegistryRoot.toString()).toBe(right.oldRegistryRoot.toString());
+    expect(left.newLifecycleRoot.toString()).toBe(right.oldLifecycleRoot.toString());
 
     // Merged result: A→C
     expect(left.oldRegistryRoot.toString()).toBe(rootA_reg.toString());
@@ -640,9 +596,7 @@ describe('Root Chaining Logic', () => {
       transitionCount: Field(7),
     });
 
-    const mergedRegCount = left.registrationCount.add(
-      right.registrationCount,
-    );
+    const mergedRegCount = left.registrationCount.add(right.registrationCount);
     expect(mergedRegCount.toString()).toBe('8');
   });
 
@@ -686,12 +640,7 @@ describe('L2SequencerService — AdminState & ChainProof', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
   });
 
@@ -729,8 +678,7 @@ describe('L2SequencerService — AdminState & ChainProof', () => {
   });
 
   test('updateAdminField throws when admin state not configured', () => {
-    expect(() => service.updateAdminField('benefitPlanRoot', Field(9999)))
-      .toThrow('Admin state not configured');
+    expect(() => service.updateAdminField('benefitPlanRoot', Field(9999))).toThrow('Admin state not configured');
   });
 
   test('chain state getters return defaults before chain proofs', () => {
@@ -910,31 +858,25 @@ describe('L2SequencerService — L2-Only Mode', () => {
   });
 
   test('isL2Only returns false by default', () => {
-    const defaultService = new L2SequencerService(
-      store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
-    );
+    const defaultService = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     defaultService.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(defaultService.isL2Only()).toBe(false);
   });
 
   test('syncFromL1 throws in L2-only mode', () => {
-    expect(() => service.syncFromL1(rootA_reg, rootA_lc, Field(10)))
-      .toThrow('L2-only mode: no L1 sync available');
+    expect(() => service.syncFromL1(rootA_reg, rootA_lc, Field(10))).toThrow('L2-only mode: no L1 sync available');
   });
 
   test('markBatchSettled throws in L2-only mode', () => {
-    expect(() => service.markBatchSettled(0n, '0xabc'))
-      .toThrow('L2-only mode');
+    expect(() => service.markBatchSettled(0n, '0xabc')).toThrow('L2-only mode');
   });
 
   test('markBatchFailed throws in L2-only mode', () => {
-    expect(() => service.markBatchFailed(0n, 'timeout'))
-      .toThrow('L2-only mode');
+    expect(() => service.markBatchFailed(0n, 'timeout')).toThrow('L2-only mode');
   });
 
   test('retryBatch throws in L2-only mode', () => {
-    expect(() => service.retryBatch(0n))
-      .toThrow('L2-only mode');
+    expect(() => service.retryBatch(0n)).toThrow('L2-only mode');
   });
 
   test('exportState includes l2Only flag', () => {
@@ -945,9 +887,7 @@ describe('L2SequencerService — L2-Only Mode', () => {
   test('restoreState preserves l2Only flag', () => {
     const state = service.exportState();
 
-    const restored = new L2SequencerService(
-      store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
-    );
+    const restored = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     restored.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     expect(restored.isL2Only()).toBe(false);
 
@@ -957,15 +897,16 @@ describe('L2SequencerService — L2-Only Mode', () => {
 
   test('restoreState backward-compatible when l2Only is absent', () => {
     // Simulate an old checkpoint without l2Only field
-    const defaultService = new L2SequencerService(
-      store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
-    );
+    const defaultService = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     defaultService.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2.test.ts'));
     const state = defaultService.exportState();
     delete (state as any).l2Only;
 
     const restored = new L2SequencerService(
-      store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0),
+      store,
+      INITIAL_REG_ROOT,
+      INITIAL_LC_ROOT,
+      Field(0),
       DEFAULT_BATCH_INTERVAL_MS,
       true, // constructed as L2-only
     );

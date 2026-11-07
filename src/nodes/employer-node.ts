@@ -187,7 +187,7 @@ export class EmployerNode extends EntityNodeBase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_verifyEmployer', params: { employerId: this.employerId } }),
       });
-      const attJson = await attResp.json() as any;
+      const attJson = (await attResp.json()) as any;
       if (attJson.result?.valid && attJson.result?.attestation) {
         this.setAttestation(attJson.result.attestation);
         return { loaded: true, authorizedPlanIds: attJson.result.attestation.authorizedPlanIds || [] };
@@ -226,7 +226,11 @@ export class EmployerNode extends EntityNodeBase {
    * marketplace, which registers the next attestation (seq + 1). The answer is reused for TERMS_STATUS_TTL_MS (or until
    * another attestation is loaded), so callers cannot drive one sequencer read per request.
    */
-  async attestationTermsStatus(): Promise<{ termsChanged: boolean | null; signedBeforeFullTerms: boolean | null; unavailablePlanIds: string[] }> {
+  async attestationTermsStatus(): Promise<{
+    termsChanged: boolean | null;
+    signedBeforeFullTerms: boolean | null;
+    unavailablePlanIds: string[];
+  }> {
     const att = this.attestation;
     if (!att) return { termsChanged: null, signedBeforeFullTerms: null, unavailablePlanIds: [] };
     const cached = this.termsStatusCache;
@@ -236,7 +240,11 @@ export class EmployerNode extends EntityNodeBase {
         const plans = await this.client.getPlans();
         const { attestationTermsStatus } = await import('../onboarding/employer-attestation.js');
         const status = attestationTermsStatus(att, Array.isArray(plans) ? plans : []);
-        return { termsChanged: status.termsChanged, signedBeforeFullTerms: status.signedBeforeFullTerms, unavailablePlanIds: status.unavailablePlanIds };
+        return {
+          termsChanged: status.termsChanged,
+          signedBeforeFullTerms: status.signedBeforeFullTerms,
+          unavailablePlanIds: status.unavailablePlanIds,
+        };
       } catch {
         return { termsChanged: null, signedBeforeFullTerms: null, unavailablePlanIds: [] };
       }
@@ -271,9 +279,9 @@ export class EmployerNode extends EntityNodeBase {
       try {
         const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
         if (!resp.ok) return null;
-        const json = await resp.json() as { data?: { plansToAdd?: unknown } };
+        const json = (await resp.json()) as { data?: { plansToAdd?: unknown } };
         const list = json?.data?.plansToAdd;
-        return Array.isArray(list) && list.every((p) => typeof p === 'string') ? list as string[] : null;
+        return Array.isArray(list) && list.every((p) => typeof p === 'string') ? (list as string[]) : null;
       } catch {
         return null;
       }
@@ -308,12 +316,7 @@ export class EmployerNode extends EntityNodeBase {
   // ─── Group Management ──────────────────────────────────────
 
   /** Create a new employer group */
-  createGroup(
-    groupId: string,
-    planId: string,
-    effectiveDate: string,
-    enrollmentCap: number = 0,
-  ): EmployerGroupRecord {
+  createGroup(groupId: string, planId: string, effectiveDate: string, enrollmentCap: number = 0): EmployerGroupRecord {
     if (this.groups.has(groupId)) {
       throw new Error(`Group ${groupId} already exists`);
     }
@@ -322,13 +325,12 @@ export class EmployerNode extends EntityNodeBase {
     if (this.requireAttestation && !this.attestation) {
       throw new Error(
         `Employer node is in fail-closed mode but has no attestation loaded. ` +
-        `createGroup refused. Complete the marketplace ceremony first.`,
+          `createGroup refused. Complete the marketplace ceremony first.`,
       );
     }
     if (this.attestation && !this.attestation.authorizedPlanIds.includes(planId)) {
       throw new Error(
-        `Plan "${planId}" is not authorized for this employer. ` +
-        `Authorized plans: [${this.attestation.authorizedPlanIds.join(', ')}]`,
+        `Plan "${planId}" is not authorized for this employer. ` + `Authorized plans: [${this.attestation.authorizedPlanIds.join(', ')}]`,
       );
     }
 
@@ -398,9 +400,7 @@ export class EmployerNode extends EntityNodeBase {
     const totalTokens = enrolledCount + pendingTokens + terminatedCount;
     // enrollmentCap === 0 means unlimited
     const isUnlimited = group.enrollmentCap === 0;
-    const remainingSlots = isUnlimited
-      ? 0
-      : Math.max(0, group.enrollmentCap - enrolledCount - pendingTokens);
+    const remainingSlots = isUnlimited ? 0 : Math.max(0, group.enrollmentCap - enrolledCount - pendingTokens);
 
     return {
       groupId: group.groupId,
@@ -682,16 +682,9 @@ export class EmployerNode extends EntityNodeBase {
    * Encrypts with recipient's X25519 public key if available (E2E).
    * Falls back to hex encoding for recipients without registered encryption keys.
    */
-  async sendMessage(
-    recipientWalletId: string,
-    subject: string,
-    body: string,
-  ): Promise<MessageStoreEntry> {
+  async sendMessage(recipientWalletId: string, subject: string, body: string): Promise<MessageStoreEntry> {
     const plaintext = JSON.stringify({ subject, body });
-    const threadIdHash = Poseidon.hash([
-      Field(BigInt(this.employerWalletId)),
-      hashString(recipientWalletId + ':' + subject),
-    ]).toString();
+    const threadIdHash = Poseidon.hash([Field(BigInt(this.employerWalletId)), hashString(recipientWalletId + ':' + subject)]).toString();
 
     // Try E2E encryption: look up recipient's encryption key via direct fetch to sequencer
     let ciphertextHex: string;
@@ -725,9 +718,7 @@ export class EmployerNode extends EntityNodeBase {
       ciphertextHex = Buffer.from(plaintext, 'utf8').toString('hex');
     }
 
-    const messageCommitment = Poseidon.hash([
-      hashString(ciphertextHex.slice(0, 64)),
-    ]).toString();
+    const messageCommitment = Poseidon.hash([hashString(ciphertextHex.slice(0, 64))]).toString();
 
     return this.client.storeMessage(
       {

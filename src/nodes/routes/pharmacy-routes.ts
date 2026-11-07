@@ -29,16 +29,8 @@ import { generateEnrollmentKey } from '../../wallets/wallet-derivation.js';
 import { securePharmacyDerivation } from '../../security/secure-context.js';
 import { WalletRegistryWitness } from '../../wallets/wallet-state.js';
 import { LifecycleWitness } from '../../engine/lifecycle.js';
-import {
-  parseNfcIdentityPayload,
-  parseNfcIdentityBase64,
-  isValidWalletId,
-} from '../nfc-identity.js';
-import {
-  SequencerAttestationAuthority,
-  isAttestation,
-  type NfcCredentialAttestation,
-} from '../../credentials/nfc-attestation.js';
+import { parseNfcIdentityPayload, parseNfcIdentityBase64, isValidWalletId } from '../nfc-identity.js';
+import { SequencerAttestationAuthority, isAttestation, type NfcCredentialAttestation } from '../../credentials/nfc-attestation.js';
 import { PharmacyNode } from '../pharmacy-node.js';
 import type { NautilusAppServer } from '../nautilus-app-server.js';
 import { PROVING_BUDGET_MS, type RouteRegistration } from '../nautilus-app-types.js';
@@ -84,11 +76,14 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: '2.0', id: 1, method: 'l2_getAttestationPublicKey', params: {},
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'l2_getAttestationPublicKey',
+          params: {},
         }),
         signal: AbortSignal.timeout(10_000),
       });
-      const json = await resp.json() as { result?: unknown };
+      const json = (await resp.json()) as { result?: unknown };
       // The sequencer answers { publicKey } (l2_getAttestationPublicKey in l2-rpc-server.ts); a bare string or
       // { publicKeyHex } is accepted too. Reading only publicKeyHex pinned nothing, so every scan was refused.
       const r = json.result as { publicKey?: unknown; publicKeyHex?: unknown } | string | null | undefined;
@@ -194,9 +189,7 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         serviceProviderIdQualifier: b.serviceProviderIdQualifier,
         serviceProviderId: b.serviceProviderId,
       };
-      const result = state.useEnrollmentKey((key) =>
-        securePharmacyDerivation(localData, key),
-      );
+      const result = state.useEnrollmentKey((key) => securePharmacyDerivation(localData, key));
       const walletId = result.walletId.toString();
       const preimageFields = result.preimage.map((f) => f.toString());
 
@@ -227,8 +220,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
        * not used.
        */
       if (body !== null && typeof body === 'object' && Object.prototype.hasOwnProperty.call(body, 'insurerUrl')) {
-        return server.sendResponse(res, 400, false, undefined,
-          'insurerUrl is not accepted in a request: this node notifies the insurer its configuration names (ZKTRIDENT_INSURER_URL)');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'insurerUrl is not accepted in a request: this node notifies the insurer its configuration names (ZKTRIDENT_INSURER_URL)',
+        );
       }
       if (server.getOnboardingPhase() !== 'wallet_derived') {
         return server.sendResponse(res, 409, false, undefined, `Cannot enroll in phase: ${server.getOnboardingPhase()}`);
@@ -488,7 +486,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
   }
   /** The log line of a job waiting for the engine to start its provers (sendWhileEngineStarts); it names no one. */
   function engineStartingLog(job: string): (waitMs: number, nextTry: number) => void {
-    return (waitMs, nextTry) => console.log('  [pharmacy] the claims engine is still starting its provers; the %s job waits %d s before try %d', job, Math.round(waitMs / 1000), nextTry);
+    return (waitMs, nextTry) =>
+      console.log(
+        '  [pharmacy] the claims engine is still starting its provers; the %s job waits %d s before try %d',
+        job,
+        Math.round(waitMs / 1000),
+        nextTry,
+      );
   }
   function pruneStaleJobs(jobs: Map<string, ProofJob>): void {
     const now = Date.now();
@@ -517,10 +521,17 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pharmacyWalletId }),
         });
-        if (!resolveResp.ok) return server.sendResponse(res, 502, false, undefined, `The engine could not resolve this pharmacy (HTTP ${resolveResp.status})`);
-        const { pharmacyIndex } = await resolveResp.json() as { pharmacyIndex?: number };
+        if (!resolveResp.ok)
+          return server.sendResponse(res, 502, false, undefined, `The engine could not resolve this pharmacy (HTTP ${resolveResp.status})`);
+        const { pharmacyIndex } = (await resolveResp.json()) as { pharmacyIndex?: number };
         if (typeof pharmacyIndex !== 'number' || pharmacyIndex < 0) {
-          return server.sendResponse(res, 409, false, undefined, `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for`);
+          return server.sendResponse(
+            res,
+            409,
+            false,
+            undefined,
+            `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for`,
+          );
         }
 
         const resp = await server.signedFetch(`${seqUrl}/interactive/prescriptions-by-pharmacy?pharmacyIndex=${pharmacyIndex}`);
@@ -554,7 +565,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         });
         const result = await resp.json();
         // A refused fill says why (the engine answers { error }), so the dashboard can show it and leave the script in place.
-        server.sendResponse(res, resp.ok ? 200 : 400, resp.ok, result, resp.ok ? undefined : String((result as { error?: unknown } | null)?.error ?? `HTTP ${resp.status}`));
+        server.sendResponse(
+          res,
+          resp.ok ? 200 : 400,
+          resp.ok,
+          result,
+          resp.ok ? undefined : String((result as { error?: unknown } | null)?.error ?? `HTTP ${resp.status}`),
+        );
       } catch (err: any) {
         server.sendResponse(res, 502, false, undefined, err.message);
       }
@@ -572,12 +589,14 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // NADAC pricing (owner decision 2026-10-18): the pharmacy does not set the price. The engine charges NADAC x
       // quantity + the plan's dispensing fee. A request normally carries no costs; any it carries are forwarded only
       // so the engine can refuse a fill that states different ones, before any proof.
-      const b = body as {
-        prescriptionId?: string;
-        quantityDispensed?: number;
-        ingredientCostCents?: unknown;
-        dispensingFeeCents?: unknown;
-      } | undefined;
+      const b = body as
+        | {
+            prescriptionId?: string;
+            quantityDispensed?: number;
+            ingredientCostCents?: unknown;
+            dispensingFeeCents?: unknown;
+          }
+        | undefined;
 
       if (!b?.prescriptionId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
@@ -604,21 +623,25 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             ingredientCostCents: b!.ingredientCostCents,
             dispensingFeeCents: b!.dispensingFeeCents,
           });
-          const resp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/fill`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: fillBody,
-          }), { onWait: engineStartingLog('dispense') });
+          const resp = await sendWhileEngineStarts(
+            () =>
+              server.signedFetch(`${seqUrl}/interactive/fill`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: fillBody,
+              }),
+            { onWait: engineStartingLog('dispense') },
+          );
 
           if (!resp.ok) {
-            const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as Record<string, unknown>;
+            const err = (await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }))) as Record<string, unknown>;
             const job = dispensingJobs.get(jobKey);
             if (job) failJob(job, (err.error as string) || `HTTP ${resp.status}`);
             return;
           }
 
           // /interactive/fill returns 202 with { status, prescriptionId } — poll fill-status for result
-          const result = await resp.json() as Record<string, unknown>;
+          const result = (await resp.json()) as Record<string, unknown>;
           // D4: an engine that answers a finished job directly is an older build; its error is this job's error.
           if (result.status === 'error') {
             const job = dispensingJobs.get(jobKey);
@@ -635,9 +658,11 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           // Poll sequencer fill-status until complete
           const maxAttempts = 120;
           for (let i = 0; i < maxAttempts; i++) {
-            await new Promise(r => setTimeout(r, 5000));
-            const statusResp = await server.signedFetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(seqJobKey)}`);
-            const statusResult = await statusResp.json() as Record<string, unknown>;
+            await new Promise((r) => setTimeout(r, 5000));
+            const statusResp = await server.signedFetch(
+              `${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(seqJobKey)}`,
+            );
+            const statusResult = (await statusResp.json()) as Record<string, unknown>;
             if (statusResult.status === 'complete') {
               const job = dispensingJobs.get(jobKey);
               // Unwrap: sequencer returns { status, result: { ...dispensePrescription output } }
@@ -673,19 +698,21 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const pharmacyWalletId = node.getWalletId();
       if (!pharmacyWalletId) return server.sendResponse(res, 409, false, undefined, 'Pharmacy wallet not set');
 
-      const b = body as {
-        memberWalletId?: string;
-        ndcHash?: string;
-        prescriberWalletId?: string;
-        brandName?: string;
-        quantity?: number;
-        daysSupply?: number;
-        ndc?: string;
-        fillNumber?: number;
-        ingredientCostCents?: unknown;   // never an input: checked by the engine against its NADAC price (owner decision 2026-10-18)
-        dispensingFeeCents?: unknown;
-        quantityDispensed?: number;
-      } | undefined;
+      const b = body as
+        | {
+            memberWalletId?: string;
+            ndcHash?: string;
+            prescriberWalletId?: string;
+            brandName?: string;
+            quantity?: number;
+            daysSupply?: number;
+            ndc?: string;
+            fillNumber?: number;
+            ingredientCostCents?: unknown; // never an input: checked by the engine against its NADAC price (owner decision 2026-10-18)
+            dispensingFeeCents?: unknown;
+            quantityDispensed?: number;
+          }
+        | undefined;
 
       if (!b?.memberWalletId || !b?.ndcHash || !b?.prescriberWalletId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId, ndcHash or prescriberWalletId');
@@ -708,18 +735,42 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           body: JSON.stringify({ prescriberWalletId: b!.prescriberWalletId, pharmacyWalletId }),
         });
         if (!resolveResp.ok) {
-          return server.sendResponse(res, 502, false, undefined, `The engine could not resolve the providers (HTTP ${resolveResp.status}); the fill was not sent`);
+          return server.sendResponse(
+            res,
+            502,
+            false,
+            undefined,
+            `The engine could not resolve the providers (HTTP ${resolveResp.status}); the fill was not sent`,
+          );
         }
-        const indices = await resolveResp.json() as { prescriberIndex?: number; pharmacyIndex?: number };
+        const indices = (await resolveResp.json()) as { prescriberIndex?: number; pharmacyIndex?: number };
         if (typeof indices.pharmacyIndex !== 'number' || indices.pharmacyIndex < 0) {
-          return server.sendResponse(res, 409, false, undefined, `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for; the fill was not sent`);
+          return server.sendResponse(
+            res,
+            409,
+            false,
+            undefined,
+            `This pharmacy (wallet ${pharmacyWalletId}) is not a provider the engine can adjudicate for; the fill was not sent`,
+          );
         }
         if (typeof indices.prescriberIndex !== 'number' || indices.prescriberIndex < 0) {
-          return server.sendResponse(res, 409, false, undefined, `Prescriber ${b!.prescriberWalletId} is not a provider the engine can adjudicate for; the fill was not sent`);
+          return server.sendResponse(
+            res,
+            409,
+            false,
+            undefined,
+            `Prescriber ${b!.prescriberWalletId} is not a provider the engine can adjudicate for; the fill was not sent`,
+          );
         }
         pharmacyIndex = indices.pharmacyIndex;
       } catch (err) {
-        return server.sendResponse(res, 502, false, undefined, 'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)));
+        return server.sendResponse(
+          res,
+          502,
+          false,
+          undefined,
+          'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)),
+        );
       }
 
       const jobKey = `fill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -739,13 +790,17 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             ingredientCostCents: b!.ingredientCostCents,
             dispensingFeeCents: b!.dispensingFeeCents,
           });
-          const proveResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: proveBody,
-          }), { onWait: engineStartingLog('fill') });
+          const proveResp = await sendWhileEngineStarts(
+            () =>
+              server.signedFetch(`${seqUrl}/interactive/prescribe-and-fill`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: proveBody,
+              }),
+            { onWait: engineStartingLog('fill') },
+          );
 
-          const proveResult = await proveResp.json() as Record<string, unknown>;
+          const proveResult = (await proveResp.json()) as Record<string, unknown>;
 
           if (!proveResp.ok) {
             const job = dispensingJobs.get(jobKey);
@@ -760,9 +815,11 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
           const POLL_TIMEOUT = 600000; // 10 min
 
           while (Date.now() - pollStart < POLL_TIMEOUT) {
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
-            const statusResp = await server.signedFetch(`${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(prescriptionId)}`);
-            const statusResult = await statusResp.json() as Record<string, unknown>;
+            await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+            const statusResp = await server.signedFetch(
+              `${seqUrl}/interactive/fill-status?prescriptionId=${encodeURIComponent(prescriptionId)}`,
+            );
+            const statusResult = (await statusResp.json()) as Record<string, unknown>;
 
             if (statusResult.status === 'complete') {
               const job = dispensingJobs.get(jobKey);
@@ -820,10 +877,12 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
 
-      const b = body as {
-        prescriptionId?: string;
-        reason?: string;
-      } | undefined;
+      const b = body as
+        | {
+            prescriptionId?: string;
+            reason?: string;
+          }
+        | undefined;
 
       if (!b?.prescriptionId) {
         return server.sendResponse(res, 400, false, undefined, 'Missing prescriptionId');
@@ -842,13 +901,17 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             reason: b!.reason ?? 'Pharmacy reversal',
           });
           // the reversal proves too: a 503 while the engine starts its provers is waited out like a dispense's
-          const reverseResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/reverse`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: reverseBody,
-          }), { onWait: engineStartingLog('reversal') });
+          const reverseResp = await sendWhileEngineStarts(
+            () =>
+              server.signedFetch(`${seqUrl}/interactive/reverse`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: reverseBody,
+              }),
+            { onWait: engineStartingLog('reversal') },
+          );
 
-          const reverseResult = await reverseResp.json() as Record<string, unknown>;
+          const reverseResult = (await reverseResp.json()) as Record<string, unknown>;
 
           if (!reverseResp.ok) {
             const job = reversalJobs.get(jobKey);
@@ -988,18 +1051,20 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       const node = server.getEntityNode() as PharmacyNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
 
-      const b = body as {
-        /** Raw NFC NDEF payload JSON string */
-        payload?: string;
-        /** Pre-parsed NFC payload object */
-        payloadObject?: Record<string, unknown>;
-        /** Base64url-encoded payload (from QR code fallback) */
-        payloadBase64?: string;
-        /** Direct walletId (manual entry or already-extracted) */
-        walletId?: string;
-        /** Full credential-attestation object (from member dashboard export) */
-        attestation?: NfcCredentialAttestation;
-      } | undefined;
+      const b = body as
+        | {
+            /** Raw NFC NDEF payload JSON string */
+            payload?: string;
+            /** Pre-parsed NFC payload object */
+            payloadObject?: Record<string, unknown>;
+            /** Base64url-encoded payload (from QR code fallback) */
+            payloadBase64?: string;
+            /** Direct walletId (manual entry or already-extracted) */
+            walletId?: string;
+            /** Full credential-attestation object (from member dashboard export) */
+            attestation?: NfcCredentialAttestation;
+          }
+        | undefined;
 
       // Extract walletId from whichever input format is provided
       let walletId: string | null = null;
@@ -1079,14 +1144,25 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
       // If attestation was provided but failed verification, return the failure
       if (attestationResult && !attestationResult.valid) {
-        return server.sendResponse(res, 403, false, {
-          attestationVerification: attestationResult,
-        }, `Attestation verification failed: ${attestationResult.reason || 'unknown'}`);
+        return server.sendResponse(
+          res,
+          403,
+          false,
+          {
+            attestationVerification: attestationResult,
+          },
+          `Attestation verification failed: ${attestationResult.reason || 'unknown'}`,
+        );
       }
 
       if (!walletId) {
-        return server.sendResponse(res, 400, false, undefined,
-          'Invalid or missing NFC payload. Provide attestation, payload (JSON string), payloadObject, payloadBase64, or walletId.');
+        return server.sendResponse(
+          res,
+          400,
+          false,
+          undefined,
+          'Invalid or missing NFC payload. Provide attestation, payload (JSON string), payloadObject, payloadBase64, or walletId.',
+        );
       }
 
       // D1: a member's drug history answers the member's tapped attestation, verified above against the pinned
@@ -1094,8 +1170,13 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       // even this pharmacy's own rows: a 200 from this route is what "verified" means to the counter.
       const tapped = attestationResult?.attestation;
       if (!tapped) {
-        return server.sendResponse(res, 403, false, undefined,
-          "A wallet ID alone verifies no one: scan the member's attestation (the NFC tap, or the credential the member's app copies)");
+        return server.sendResponse(
+          res,
+          403,
+          false,
+          undefined,
+          "A wallet ID alone verifies no one: scan the member's attestation (the NFC tap, or the credential the member's app copies)",
+        );
       }
 
       // One read, signed as this pharmacy and carrying the tap; the active medications come from the same rows.
@@ -1201,7 +1282,16 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         return server.sendResponse(res, 400, false, undefined, 'This node only handles pharmacy badges');
       }
 
-      const events: Array<{ type: string; providerIndex: number; providerType: string; displayName: string; timestamp: number; elapsedMs?: number; data?: Record<string, unknown>; error?: string }> = [];
+      const events: Array<{
+        type: string;
+        providerIndex: number;
+        providerType: string;
+        displayName: string;
+        timestamp: number;
+        elapsedMs?: number;
+        data?: Record<string, unknown>;
+        error?: string;
+      }> = [];
       const start = Date.now();
 
       try {
@@ -1224,12 +1314,20 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
 
         const walletId = derivePharmacyWalletId(pharmacy.localData, enrollmentKey).toString();
         events.push({
-          type: 'badge:derive', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:derive',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { walletId },
         });
 
         events.push({
-          type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:proof',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { skipped: true, reason: 'Standalone mode — ZK proof not required in standalone mode' },
         });
 
@@ -1241,19 +1339,29 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
           });
-          const json = await resp.json() as any;
+          const json = (await resp.json()) as any;
           if (json.result) {
             const states = ['PENDING', 'SUSPENDED', 'ACTIVE', 'TERMINATED'];
             credentialState = states[json.result.credentialState] ?? 'UNKNOWN';
           }
-        } catch { /* sequencer offline */ }
+        } catch {
+          /* sequencer offline */
+        }
         events.push({
-          type: 'badge:verify', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:verify',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { credentialState, walletId },
         });
 
         events.push({
-          type: 'badge:session', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:session',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { sessionDuration: '8h', walletId },
         });
 
@@ -1261,7 +1369,11 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
         res.end(JSON.stringify({ authenticated: true, events, elapsedMs: Date.now() - start }));
       } catch (err: any) {
         events.push({
-          type: 'badge:error', providerIndex, providerType, displayName: 'Unknown', timestamp: Date.now(),
+          type: 'badge:error',
+          providerIndex,
+          providerType,
+          displayName: 'Unknown',
+          timestamp: Date.now(),
           error: err?.message ?? String(err),
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1285,7 +1397,9 @@ export function buildPharmacyRoutes(server: NautilusAppServer): RouteRegistratio
       try {
         const dataDir = process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data');
         rawData = JSON.parse(fs.readFileSync(path.join(dataDir, 'pharmacies.json'), 'utf-8'));
-      } catch { /* fall back to PHARMACIES fields */ }
+      } catch {
+        /* fall back to PHARMACIES fields */
+      }
 
       const list = PHARMACIES.map((p, i) => ({
         index: i,

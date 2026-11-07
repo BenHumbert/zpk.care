@@ -29,14 +29,15 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import {
-  runCeremony, verifyCeremonyRecord, verifyRecordSuccession, recordHashOf, type CeremonyRecord,
-} from '../../src/keys/ceremony.js';
+import { runCeremony, verifyCeremonyRecord, verifyRecordSuccession, recordHashOf, type CeremonyRecord } from '../../src/keys/ceremony.js';
 import { holderFingerprint, isHolderCard, type HolderCard } from '../../src/keys/holder-key.js';
 import { parseArgs, required, readJson, writeJson, programSourceSha256, fail } from './cli-util.js';
 
 function slug(label: string): string {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function warnIfOnline(): void {
@@ -56,11 +57,13 @@ async function main(): Promise<void> {
     warnIfOnline();
     const out = required(options, 'out');
     if (fs.existsSync(out) && fs.readdirSync(out).length > 0) throw new Error(`${out} is not empty`);
-    const holders = required(options, 'holders').split(',').map((f) => {
-      const card = readJson<HolderCard>(f.trim());
-      if (!isHolderCard(card)) throw new Error(`${f} is not a holder card`);
-      return card;
-    });
+    const holders = required(options, 'holders')
+      .split(',')
+      .map((f) => {
+        const card = readJson<HolderCard>(f.trim());
+        if (!isHolderCard(card)) throw new Error(`${f} is not a holder card`);
+        return card;
+      });
     const threshold = Number.parseInt(required(options, 'threshold'), 10);
     const nodeId = options.get('node') ?? 'insurer';
     const previous = options.has('previous') ? readJson<CeremonyRecord>(required(options, 'previous')) : null;
@@ -78,7 +81,8 @@ async function main(): Promise<void> {
       writeJson(path.join(out, 'shares', `${slug(holder.label)}.${share.nodeId}.share.json`), share);
     }
     console.log(`Ceremony ${record.ceremonyId}: ${threshold} of ${holders.length} holders rebuild each key`);
-    for (const h of holders) console.log(`  ${h.label}${h.group ? ` (${h.group})` : ''}: ${holderFingerprint(h)} -> shares/${slug(h.label)}.${nodeId}.share.json`);
+    for (const h of holders)
+      console.log(`  ${h.label}${h.group ? ` (${h.group})` : ''}: ${holderFingerprint(h)} -> shares/${slug(h.label)}.${nodeId}.share.json`);
     console.log(`Record: ${path.join(out, 'record.json')} (unsigned)`);
     console.log(`Record hash: ${recordHashOf(record)}`);
     console.log(`Program hash: ${record.program.sourceSha256}`);
@@ -90,7 +94,9 @@ async function main(): Promise<void> {
     const result = options.has('previous')
       ? verifyRecordSuccession(readJson<CeremonyRecord>(required(options, 'previous')), record)
       : verifyCeremonyRecord(record);
-    console.log(`Valid: ceremony ${record.ceremonyId}, signed by ${result.signedBy.length} of ${record.holders.length} (needs ${record.threshold})`);
+    console.log(
+      `Valid: ceremony ${record.ceremonyId}, signed by ${result.signedBy.length} of ${record.holders.length} (needs ${record.threshold})`,
+    );
     console.log(`Record hash: ${result.recordHash}`);
     return;
   }

@@ -56,8 +56,14 @@ import { planStoreError, planAsPublished, publishedTermsOf, publishedListCovers 
 import { splitClaimCost, type ClaimSplit } from '../access-control/accumulator-query-service.js';
 import { ProofRejected } from './l2-proof-verifier.js';
 import {
-  corsOriginHeader, resolveAllowedOrigins, resolvePublicHosts, requestHostAllowed, bodyTypeAccepted,
-  MISDIRECTED_REQUEST, UNSUPPORTED_BODY_TYPE, type HostPolicy,
+  corsOriginHeader,
+  resolveAllowedOrigins,
+  resolvePublicHosts,
+  requestHostAllowed,
+  bodyTypeAccepted,
+  MISDIRECTED_REQUEST,
+  UNSUPPORTED_BODY_TYPE,
+  type HostPolicy,
 } from '../security/network-policy.js';
 import { verifySignedRequest, signerIdFromHeaders, ReplayCache } from '../security/signed-request.js';
 import { SequencerAttestationAuthority, type NfcCredentialAttestation } from '../credentials/nfc-attestation.js';
@@ -73,28 +79,52 @@ import { AuditService } from '../audit/audit-service.js';
 
 /** Visualization event types for the dashboard */
 export type VizEventType =
-  | 'viz:token:generated' | 'viz:token:consumed'
-  | 'viz:enrollment:started' | 'viz:enrollment:complete'
-  | 'viz:eligibility:check' | 'viz:eligibility:verified'
-  | 'viz:formulary:check' | 'viz:formulary:verified'
-  | 'viz:prescription:written' | 'viz:prescription:sent'
-  | 'viz:prescription:received' | 'viz:prescription:status'
-  | 'viz:fulfillment:started' | 'viz:fulfillment:settled' | 'viz:fulfillment:reversed'
-  | 'viz:pharmacy:dispensed' | 'viz:pharmacy:rejected' | 'viz:pharmacy:credential_scan'
-  | 'viz:accumulator:updated' | 'viz:reversal:processed'
-  | 'viz:message:sent' | 'viz:message:received'
+  | 'viz:token:generated'
+  | 'viz:token:consumed'
+  | 'viz:enrollment:started'
+  | 'viz:enrollment:complete'
+  | 'viz:eligibility:check'
+  | 'viz:eligibility:verified'
+  | 'viz:formulary:check'
+  | 'viz:formulary:verified'
+  | 'viz:prescription:written'
+  | 'viz:prescription:sent'
+  | 'viz:prescription:received'
+  | 'viz:prescription:status'
+  | 'viz:fulfillment:started'
+  | 'viz:fulfillment:settled'
+  | 'viz:fulfillment:reversed'
+  | 'viz:pharmacy:dispensed'
+  | 'viz:pharmacy:rejected'
+  | 'viz:pharmacy:credential_scan'
+  | 'viz:accumulator:updated'
+  | 'viz:reversal:processed'
+  | 'viz:message:sent'
+  | 'viz:message:received'
   | 'viz:delegation:created'
-  | 'viz:batch:submitted' | 'viz:batch:settled'
-  | 'viz:enrollment:wallet_derived' | 'viz:enrollment:proof_gate'
-  | 'viz:enrollment:registration' | 'viz:enrollment:credential_mint'
-  | 'viz:enrollment:lifecycle' | 'viz:enrollment:provider_notify'
+  | 'viz:batch:submitted'
+  | 'viz:batch:settled'
+  | 'viz:enrollment:wallet_derived'
+  | 'viz:enrollment:proof_gate'
+  | 'viz:enrollment:registration'
+  | 'viz:enrollment:credential_mint'
+  | 'viz:enrollment:lifecycle'
+  | 'viz:enrollment:provider_notify'
   | 'viz:enrollment:terminated'
   | 'viz:credential:generated'
-  | 'viz:proving:started' | 'viz:proving:completed'
-  | 'viz:leviathan:heartbeat' | 'viz:leviathan:failover' | 'viz:leviathan:gossip'
-  | 'viz:worker:spawned' | 'viz:worker:compiling' | 'viz:worker:ready'
-  | 'viz:worker:compile_timeout' | 'viz:worker:compile_failed'
-  | 'viz:worker:assigned' | 'viz:worker:completed' | 'viz:worker:crashed';
+  | 'viz:proving:started'
+  | 'viz:proving:completed'
+  | 'viz:leviathan:heartbeat'
+  | 'viz:leviathan:failover'
+  | 'viz:leviathan:gossip'
+  | 'viz:worker:spawned'
+  | 'viz:worker:compiling'
+  | 'viz:worker:ready'
+  | 'viz:worker:compile_timeout'
+  | 'viz:worker:compile_failed'
+  | 'viz:worker:assigned'
+  | 'viz:worker:completed'
+  | 'viz:worker:crashed';
 
 /** Lane names for the horse-race view */
 export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillment' | 'messaging' | 'batch' | 'leviathan';
@@ -103,7 +133,15 @@ export type VizLane = 'enrollment' | 'eligibility' | 'prescription' | 'fulfillme
 export type VizActorType = 'member' | 'prescriber' | 'pharmacy' | 'insurer' | 'employer' | 'leviathan' | 'worker';
 
 /** Every kind an entity may be registered as: a provider route admits a signer by the kind its registration names. */
-const ENTITY_KINDS: ReadonlySet<string> = new Set<VizActorType>(['member', 'prescriber', 'pharmacy', 'insurer', 'employer', 'leviathan', 'worker']);
+const ENTITY_KINDS: ReadonlySet<string> = new Set<VizActorType>([
+  'member',
+  'prescriber',
+  'pharmacy',
+  'insurer',
+  'employer',
+  'leviathan',
+  'worker',
+]);
 
 /** A visualization event pushed by the scenario script */
 export interface VizEvent {
@@ -252,9 +290,7 @@ export interface WalletRouteSpec {
 /** Who a gate admitted: the operator's credential, a registered node key with its role, or a registered wallet's own key. */
 export type AuthPrincipal = { kind: 'operator' } | { kind: 'node'; nodeId: string; role: NodeRole } | { kind: 'wallet'; walletId: string };
 
-export type AuthDecision =
-  | { ok: true; principal: AuthPrincipal }
-  | { ok: false; status: 401 | 403 | 413; message: string };
+export type AuthDecision = { ok: true; principal: AuthPrincipal } | { ok: false; status: 401 | 403 | 413; message: string };
 
 /** The kinds of provider a provider-signed route takes the signature of (registerRoute's providerSigned). */
 export type ProviderSignerType = 'prescriber' | 'pharmacy';
@@ -298,18 +334,18 @@ export interface FormularyAvailability {
 export type MemberCostQuote =
   | { covered: false; reason: string }
   | {
-    covered: true;
-    /** NADAC x quantity + the plan's fee, by the fill's own quote (quoteFill; B3 will lock it at prescribing) */
-    price: FillPrice;
-    copayAmountCents: number;
-    /** 'plan': the copay of the member's plan as published; 'tier': a fixture member's catalog tier copay */
-    copayBasis: 'plan' | 'tier';
-    tierLevel: number;
-    /** The fill circuit's split over the member's and its family's accumulators */
-    split: ClaimSplit;
-    /** Prior authorization, step therapy and the quantity limit, as the member's plan publishes them */
-    availability: FormularyAvailability;
-  };
+      covered: true;
+      /** NADAC x quantity + the plan's fee, by the fill's own quote (quoteFill; B3 will lock it at prescribing) */
+      price: FillPrice;
+      copayAmountCents: number;
+      /** 'plan': the copay of the member's plan as published; 'tier': a fixture member's catalog tier copay */
+      copayBasis: 'plan' | 'tier';
+      tierLevel: number;
+      /** The fill circuit's split over the member's and its family's accumulators */
+      split: ClaimSplit;
+      /** Prior authorization, step therapy and the quantity limit, as the member's plan publishes them */
+      availability: FormularyAvailability;
+    };
 
 /**
  * The engine's pre-script quote, registered by the engine when it starts in this process (registerInteractiveRoutes).
@@ -466,10 +502,13 @@ export class L2RpcServer {
 
     // Create HTTP or HTTPS server based on TLS configuration
     if (this.options.tlsCert && this.options.tlsKey) {
-      this.server = https.createServer({
-        cert: fs.readFileSync(this.options.tlsCert),
-        key: fs.readFileSync(this.options.tlsKey),
-      }, requestHandler);
+      this.server = https.createServer(
+        {
+          cert: fs.readFileSync(this.options.tlsCert),
+          key: fs.readFileSync(this.options.tlsKey),
+        },
+        requestHandler,
+      );
     } else {
       this.server = http.createServer(requestHandler);
     }
@@ -486,7 +525,7 @@ export class L2RpcServer {
       const now = Date.now();
       const windowMs = 60_000;
       for (const [ip, timestamps] of this.proofSubmissionLog) {
-        const active = timestamps.filter(t => now - t < windowMs);
+        const active = timestamps.filter((t) => now - t < windowMs);
         if (active.length === 0) {
           this.proofSubmissionLog.delete(ip);
         } else {
@@ -510,13 +549,21 @@ export class L2RpcServer {
 
     // Close all SSE connections
     for (const client of this.sseClients) {
-      try { client.end(); } catch { /* ignore */ }
+      try {
+        client.end();
+      } catch {
+        /* ignore */
+      }
     }
     this.sseClients.clear();
 
     // Close viz SSE connections
     for (const client of this.vizSseClients) {
-      try { client.end(); } catch { /* ignore */ }
+      try {
+        client.end();
+      } catch {
+        /* ignore */
+      }
     }
     this.vizSseClients.clear();
 
@@ -647,8 +694,11 @@ export class L2RpcServer {
     // The engine's NFC reader stream is one of the streams. It was missing from this list until the review of option A
     // step 1, round two (2026-10-24): the budget was armed on it, and once it ran out its writeHead threw
     // ERR_HTTP_HEADERS_SENT on the open stream, out of the timer, where nothing caught it.
-    const isSSE = req.url?.startsWith('/events') || req.url?.startsWith('/viz/events') || req.url?.startsWith('/interactive/console')
-      || req.url?.startsWith('/interactive/nfc/events');
+    const isSSE =
+      req.url?.startsWith('/events') ||
+      req.url?.startsWith('/viz/events') ||
+      req.url?.startsWith('/interactive/console') ||
+      req.url?.startsWith('/interactive/nfc/events');
     let budgetTimer: ReturnType<typeof setTimeout> | null = null;
     const armBudget = (ms: number): void => {
       if (budgetTimer) clearTimeout(budgetTimer);
@@ -663,7 +713,9 @@ export class L2RpcServer {
     };
     if (!isSSE) {
       armBudget(30_000);
-      res.on('finish', () => { if (budgetTimer) clearTimeout(budgetTimer); });
+      res.on('finish', () => {
+        if (budgetTimer) clearTimeout(budgetTimer);
+      });
     }
 
     // CORS. The header is omitted entirely for a request with no Origin and for an origin
@@ -674,7 +726,10 @@ export class L2RpcServer {
     if (corsOrigin) res.setHeader('Access-Control-Allow-Origin', corsOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Signature');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data:");
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://localhost:* http://127.0.0.1:*; img-src 'self' data:",
+    );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
 
@@ -799,14 +854,20 @@ export class L2RpcServer {
           const content = fs.readFileSync(filePath);
           const ext = path.extname(filePath).toLowerCase();
           const mimeTypes: Record<string, string> = {
-            '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript',
-            '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml',
+            '.html': 'text/html',
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.svg': 'image/svg+xml',
             '.ico': 'image/x-icon',
           };
           res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
           res.end(content);
           return;
-        } catch { /* file not found, fall through to 404 */ }
+        } catch {
+          /* file not found, fall through to 404 */
+        }
       }
     }
 
@@ -881,7 +942,7 @@ export class L2RpcServer {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     });
 
     this.sseClients.add(res);
@@ -908,7 +969,11 @@ export class L2RpcServer {
     // Clean up on disconnect
     req.on('close', () => {
       this.sseClients.delete(res);
-      try { res.end(); } catch { /* already closed */ }
+      try {
+        res.end();
+      } catch {
+        /* already closed */
+      }
     });
   }
 
@@ -926,7 +991,11 @@ export class L2RpcServer {
         client.write(`id: ${this.sseEventIdCounter}\ndata: ${data}\n\n`);
       } catch {
         this.sseClients.delete(client);
-        try { client.end(); } catch { /* socket already dead */ }
+        try {
+          client.end();
+        } catch {
+          /* socket already dead */
+        }
       }
     }
   }
@@ -939,8 +1008,7 @@ export class L2RpcServer {
     try {
       body = await this.readBody(req);
     } catch (err) {
-      return this.sendRpcError(res, 0, RPC_PARSE_ERROR,
-        err instanceof Error ? err.message : 'Failed to read request body');
+      return this.sendRpcError(res, 0, RPC_PARSE_ERROR, err instanceof Error ? err.message : 'Failed to read request body');
     }
 
     // Parse JSON-RPC request
@@ -955,18 +1023,23 @@ export class L2RpcServer {
     // a method sent as a list (["toString"] is "toString" to a property lookup) and params sent as a string each threw
     // before the dispatcher's try below, in this check or in the gates that read them, and the caller got an HTTP 500
     // instead of this answer (the review of round eight of the security fixes, 2026-10-24).
-    if (rpcReq === null || typeof rpcReq !== 'object' || rpcReq.jsonrpc !== '2.0' || typeof rpcReq.method !== 'string' || !rpcReq.method
-      || rpcReq.id === undefined || (rpcReq.params !== undefined && rpcReq.params !== null && typeof rpcReq.params !== 'object')) {
-      return this.sendRpcError(res, rpcReq?.id ?? 0, RPC_INVALID_REQUEST,
-        'Invalid JSON-RPC 2.0 request');
+    if (
+      rpcReq === null ||
+      typeof rpcReq !== 'object' ||
+      rpcReq.jsonrpc !== '2.0' ||
+      typeof rpcReq.method !== 'string' ||
+      !rpcReq.method ||
+      rpcReq.id === undefined ||
+      (rpcReq.params !== undefined && rpcReq.params !== null && typeof rpcReq.params !== 'object')
+    ) {
+      return this.sendRpcError(res, rpcReq?.id ?? 0, RPC_INVALID_REQUEST, 'Invalid JSON-RPC 2.0 request');
     }
 
     // Admin gate (A9): the operator's bearer, or a registered key's signature authorised by its
     // role. l2_registerAdminKey needs no credential only at genesis, when no operator key exists
     // yet; node keys registered for this boot do not count as operator keys.
     const operatorKeys = [...this.adminKeyRegistry.values()].filter((e) => !e.ephemeral).length;
-    const needsAuth = L2RpcServer.ADMIN_METHODS.has(rpcReq.method)
-      || (rpcReq.method === 'l2_registerAdminKey' && operatorKeys > 0);
+    const needsAuth = L2RpcServer.ADMIN_METHODS.has(rpcReq.method) || (rpcReq.method === 'l2_registerAdminKey' && operatorKeys > 0);
     if (needsAuth) {
       const decision = this.authorize(req, { kind: 'rpc', method: rpcReq.method }, body);
       if (!decision.ok) {
@@ -978,7 +1051,9 @@ export class L2RpcServer {
       (rpcReq.params as any)._verifiedRole = decision.principal.kind === 'node' ? decision.principal.role : 'operator';
       if (decision.principal.kind === 'node') {
         (rpcReq.params as any)._verifiedNodeId = decision.principal.nodeId;
-        console.log(`  [admin] ${rpcReq.method} by ${decision.principal.nodeId} (${decision.principal.role}) at ${new Date().toISOString()}`);
+        console.log(
+          `  [admin] ${rpcReq.method} by ${decision.principal.nodeId} (${decision.principal.role}) at ${new Date().toISOString()}`,
+        );
       }
     }
 
@@ -1039,7 +1114,18 @@ export class L2RpcServer {
         this.sendRpcError(res, rpcReq.id, RPC_PROOF_REJECTED, message);
       } else if (message.includes('not running')) {
         this.sendRpcError(res, rpcReq.id, RPC_NODE_NOT_RUNNING, message);
-      } else if (message.includes('Missing or invalid') || message.includes('not configured') || message.includes('Duplicate proof') || message.includes('Wrong partition') || message.includes('Not leader') || message.includes('Not a leviathan') || message.includes('already registered') || message.includes('registry full') || message.includes('unavailable') || message.includes('not known')) {
+      } else if (
+        message.includes('Missing or invalid') ||
+        message.includes('not configured') ||
+        message.includes('Duplicate proof') ||
+        message.includes('Wrong partition') ||
+        message.includes('Not leader') ||
+        message.includes('Not a leviathan') ||
+        message.includes('already registered') ||
+        message.includes('registry full') ||
+        message.includes('unavailable') ||
+        message.includes('not known')
+      ) {
         this.sendRpcError(res, rpcReq.id, RPC_INVALID_PARAMS, message);
       } else {
         console.error(`[rpc] Internal error in ${rpcReq.method}:`, err);
@@ -1050,32 +1136,31 @@ export class L2RpcServer {
 
   // ─── Method Dispatch ──────────────────────────────────
 
-  private async dispatchMethod(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<unknown> {
+  private async dispatchMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
     switch (method) {
       case 'l2_submitProof': {
         // RPC-04: a registration proof shows that a wallet is new and that its holder knows its secrets, and nothing
         // about who the holder is. An entity's name and kind are registered with l2_registerEntity, which checks both
         // and decides by the caller's role.
         if (params.entityMetadata !== undefined) {
-          throw new RequestRefused('l2_submitProof takes no entityMetadata: an entity\'s name and kind are registered with l2_registerEntity', RPC_INVALID_PARAMS);
+          throw new RequestRefused(
+            "l2_submitProof takes no entityMetadata: an entity's name and kind are registered with l2_registerEntity",
+            RPC_INVALID_PARAMS,
+          );
         }
         const proofJson = params.proofJson;
         if (!proofJson || typeof proofJson !== 'object') {
           throw new Error('Missing or invalid proofJson parameter');
         }
-        const proof = await StateTransitionProof.fromJSON(
-          proofJson as Parameters<typeof StateTransitionProof.fromJSON>[0],
-        );
+        const proof = await StateTransitionProof.fromJSON(proofJson as Parameters<typeof StateTransitionProof.fromJSON>[0]);
         // Wallet updates must say what the new credential inventory root is, so the
         // sequencer can update its tree and check it against the proof's new root.
         // Only this field is accepted from outside callers (no claim metadata).
         const newCred = params.newCredentialInventoryRoot;
-        const submitMeta = typeof newCred === 'string' && /^\d+$/.test(newCred)
-          ? ({ newCredentialInventoryRoot: newCred } as unknown as ClaimSubmissionMetadata)
-          : undefined;
+        const submitMeta =
+          typeof newCred === 'string' && /^\d+$/.test(newCred)
+            ? ({ newCredentialInventoryRoot: newCred } as unknown as ClaimSubmissionMetadata)
+            : undefined;
         // B2: a claim the engine committed for this wallet's pending update rides on the member's own
         // proof. Outside callers still send no claim metadata; the sequencer attaches what the engine
         // committed for exactly this wallet and this root, and forgets it once the proof is accepted.
@@ -1151,7 +1236,7 @@ export class L2RpcServer {
         }
         // Non-genesis in unsecure mode: direct registration (backward compat)
         if (this.options.unsecureMode) {
-          const admittedBy = params.admittedBy as string ?? 'admin';
+          const admittedBy = (params.admittedBy as string) ?? 'admin';
           this.adminKeyRegistry.set(nodeId, {
             publicKeyHex,
             admittedBy,
@@ -1236,7 +1321,7 @@ export class L2RpcServer {
           throw new Error(`No pending admission for ${targetNodeId}`);
         }
         // Determine approver identity — injected by auth gate in secure mode
-        const approverNodeId = (params as any)._verifiedNodeId as string ?? 'admin';
+        const approverNodeId = ((params as any)._verifiedNodeId as string) ?? 'admin';
 
         // Record the approval with reason string
         pending.approvals.set(approverNodeId, {
@@ -1266,8 +1351,8 @@ export class L2RpcServer {
           // Admit the node
           this.adminKeyRegistry.set(targetNodeId, {
             publicKeyHex: pending.publicKeyHex,
-            admittedBy: approvalHistory.map(a => a.approverNodeId).join(','),
-            reason: approvalHistory.map(a => `${a.approverNodeId}: "${a.reason}"`).join('; '),
+            admittedBy: approvalHistory.map((a) => a.approverNodeId).join(','),
+            reason: approvalHistory.map((a) => `${a.approverNodeId}: "${a.reason}"`).join('; '),
             timestamp: Date.now(),
           });
           this.pendingAdmissions.delete(targetNodeId);
@@ -1319,7 +1404,7 @@ export class L2RpcServer {
       case 'l2_revokeAdminKey': {
         const targetNodeId = params.nodeId as string;
         const revokeReason = params.reason as string;
-        const blacklist = params.blacklist as boolean ?? false;
+        const blacklist = (params.blacklist as boolean) ?? false;
         if (!targetNodeId) throw new Error('Missing nodeId');
         if (!revokeReason) throw new Error('Missing reason — revocation requires justification');
         // Capture publicKeyHex before deleting for blacklist
@@ -1349,9 +1434,7 @@ export class L2RpcServer {
 
       case 'l2_getHealth': {
         const mem = process.memoryUsage();
-        const pool = !(this.node instanceof L2Leviathan)
-          ? (this.node as L2Node).getProvingPool()
-          : null;
+        const pool = !(this.node instanceof L2Leviathan) ? (this.node as L2Node).getProvingPool() : null;
         const epFn = this.entityProofPoolStatusFn;
         const ep = epFn ? epFn() : null;
         return {
@@ -1409,8 +1492,7 @@ export class L2RpcServer {
 
       case 'l2_forceBatch': {
         if (this.node instanceof L2Leviathan && params.partitionIndex !== undefined) {
-          const idx = typeof params.partitionIndex === 'number'
-            ? params.partitionIndex : Number(params.partitionIndex);
+          const idx = typeof params.partitionIndex === 'number' ? params.partitionIndex : Number(params.partitionIndex);
           return this.node.forceBatch(idx);
         }
         return this.node.forceBatch();
@@ -1418,9 +1500,7 @@ export class L2RpcServer {
 
       case 'l2_getAuditLog': {
         // H9 fix: paginate audit events (metadata always included)
-        const fullLog = this.node instanceof L2Leviathan
-          ? this.node.getAuditLog()
-          : this.node.getSequencer().getAuditLog();
+        const fullLog = this.node instanceof L2Leviathan ? this.node.getAuditLog() : this.node.getSequencer().getAuditLog();
         const aLimit = typeof params.limit === 'number' ? Math.min(params.limit, 1000) : 1000;
         const aOffset = typeof params.offset === 'number' ? Math.max(params.offset, 0) : 0;
         return {
@@ -1433,9 +1513,7 @@ export class L2RpcServer {
         // Open: the number of events, which the event stream and l2_getStatus publish anyway, and the sequence numbers of
         // links that do not hash, which carry no amount, drug or day. MEMBER_DATA_METHODS says why the balance check below
         // is gated and this one is not; what it costs to run is A-80's to limit.
-        const ciLog = this.node instanceof L2Leviathan
-          ? this.node.getAuditLog()
-          : this.node.getSequencer().getAuditLog();
+        const ciLog = this.node instanceof L2Leviathan ? this.node.getAuditLog() : this.node.getSequencer().getAuditLog();
         const ciResult = AuditService.verifyReceiptChain(ciLog);
         return {
           valid: ciResult.isValid,
@@ -1447,23 +1525,30 @@ export class L2RpcServer {
       }
 
       case 'l2_verifyFinancialBalance': {
-        const fbLog = this.node instanceof L2Leviathan
-          ? this.node.getAuditLog()
-          : this.node.getSequencer().getAuditLog();
+        const fbLog = this.node instanceof L2Leviathan ? this.node.getAuditLog() : this.node.getSequencer().getAuditLog();
         const fbResult = AuditService.verifyFinancialBalance(fbLog.events);
         // The read gate answers this the plan and the operator only, as it does the audit log the totals come from
         // (MEMBER_DATA_METHODS). The totals move by one claim's amounts with each proof the event stream announces by
         // wallet and receipt, so read around each event they gave any key that may open the stream every wallet's claim
         // amounts; until the review of round eight of the security fixes (2026-10-24) they answered anyone.
         // D5: the chain's money must equal the ledger's; a divergence is what A-10 described, made visible.
-        const ledger = this.node instanceof L2Leviathan ? this.node.getClaimTotals() : this.node.getSequencer().getClaimAccumulator().getTotals();
-        const reconciled = ledger.claimCount === fbResult.totalClaims && ledger.reversalCount === fbResult.reversals
-          && ledger.patientPayCents === BigInt(fbResult.totalPatientPayCents) && ledger.planPayCents === BigInt(fbResult.totalPlanPayCents);
+        const ledger =
+          this.node instanceof L2Leviathan ? this.node.getClaimTotals() : this.node.getSequencer().getClaimAccumulator().getTotals();
+        const reconciled =
+          ledger.claimCount === fbResult.totalClaims &&
+          ledger.reversalCount === fbResult.reversals &&
+          ledger.patientPayCents === BigInt(fbResult.totalPatientPayCents) &&
+          ledger.planPayCents === BigInt(fbResult.totalPlanPayCents);
         return {
           valid: fbResult.isValid && reconciled,
           balanced: fbResult.isValid,
           reconciled,
-          ledger: { claimCount: ledger.claimCount, reversalCount: ledger.reversalCount, patientPayCents: ledger.patientPayCents.toString(), planPayCents: ledger.planPayCents.toString() },
+          ledger: {
+            claimCount: ledger.claimCount,
+            reversalCount: ledger.reversalCount,
+            patientPayCents: ledger.patientPayCents.toString(),
+            planPayCents: ledger.planPayCents.toString(),
+          },
           reversals: fbResult.reversals,
           totalClaims: fbResult.totalClaims,
           imbalancedClaims: fbResult.imbalancedClaims,
@@ -1479,9 +1564,7 @@ export class L2RpcServer {
         // Each group names a wallet, a drug and a day of service, so the read gate answers this the plan and the operator
         // only, as it does the audit log the groups come from (MEMBER_DATA_METHODS); until the security review of the
         // sweep fixes (2026-10-24) it answered anyone.
-        const ddLog = this.node instanceof L2Leviathan
-          ? this.node.getAuditLog()
-          : this.node.getSequencer().getAuditLog();
+        const ddLog = this.node instanceof L2Leviathan ? this.node.getAuditLog() : this.node.getSequencer().getAuditLog();
         const ddResult = AuditService.detectDuplicateClaims(ddLog.events);
         return {
           hasDuplicates: ddResult.hasDuplicates,
@@ -1522,9 +1605,7 @@ export class L2RpcServer {
 
       case 'l2_getAllReceipts': {
         // H9 fix: paginate receipts (default 1000, max 1000)
-        const allReceipts = this.node instanceof L2Leviathan
-          ? this.node.getAllReceipts()
-          : this.node.getSequencer().getAllReceipts();
+        const allReceipts = this.node instanceof L2Leviathan ? this.node.getAllReceipts() : this.node.getSequencer().getAllReceipts();
         const rLimit = typeof params.limit === 'number' ? Math.min(params.limit, 1000) : 1000;
         const rOffset = typeof params.offset === 'number' ? Math.max(params.offset, 0) : 0;
         return allReceipts.slice(rOffset, rOffset + rLimit);
@@ -1532,9 +1613,7 @@ export class L2RpcServer {
 
       case 'l2_getAllBatches': {
         // H9 fix: paginate batches (default 1000, max 1000)
-        const allBatches = this.node instanceof L2Leviathan
-          ? this.node.getAllBatches()
-          : this.node.getSequencer().getAllBatches();
+        const allBatches = this.node instanceof L2Leviathan ? this.node.getAllBatches() : this.node.getSequencer().getAllBatches();
         const bLimit = typeof params.limit === 'number' ? Math.min(params.limit, 1000) : 1000;
         const bOffset = typeof params.offset === 'number' ? Math.max(params.offset, 0) : 0;
         return allBatches.slice(bOffset, bOffset + bLimit);
@@ -1573,8 +1652,9 @@ export class L2RpcServer {
         }
         // Use gossip-aware method for replication to peers
         // Both L2Node and L2Leviathan implement storeFormularyWithGossip()
-        await (this.node as unknown as { storeFormularyWithGossip(p: string, r: string, e: string): Promise<void> })
-          .storeFormularyWithGossip(planIdHash, formularyRoot, entriesJson);
+        await (
+          this.node as unknown as { storeFormularyWithGossip(p: string, r: string, e: string): Promise<void> }
+        ).storeFormularyWithGossip(planIdHash, formularyRoot, entriesJson);
         this.node.emit({
           type: 'formulary:updated',
           timestamp: Date.now(),
@@ -1682,13 +1762,17 @@ export class L2RpcServer {
         if (!pinnedInsurerKey) {
           throw new Error(
             'Employer registration refused: no insurer attestation key is pinned on this ' +
-            'sequencer, so an insurer counter-signature cannot be verified.',
+              'sequencer, so an insurer counter-signature cannot be verified.',
           );
         }
         if (!verifyEmployerSignature(att)) throw new Error('Invalid employer signature');
         if (!verifyInsurerSignature(att, pinnedInsurerKey)) throw new Error('Invalid insurer signature');
         this.node.getSequencer().storeEmployerAttestation(att);
-        this.node.emit({ type: 'employer:registered', timestamp: Date.now(), data: { employerId: att.employerId, attestationSeq: att.attestationSeq } });
+        this.node.emit({
+          type: 'employer:registered',
+          timestamp: Date.now(),
+          data: { employerId: att.employerId, attestationSeq: att.attestationSeq },
+        });
         return { success: true, employerId: att.employerId, attestationSeq: att.attestationSeq };
       }
 
@@ -1850,7 +1934,10 @@ export class L2RpcServer {
         const estWalletId = params.walletId;
         if (typeof estWalletId === 'string' && estWalletId.length > 0) {
           if (!this.memberQuoteEngine) {
-            throw new RequestRefused("A member's estimate is made by the engine, and no engine runs beside this sequencer", RPC_INVALID_PARAMS);
+            throw new RequestRefused(
+              "A member's estimate is made by the engine, and no engine runs beside this sequencer",
+              RPC_INVALID_PARAMS,
+            );
           }
           const quote = this.memberQuoteEngine.quote({ walletId: estWalletId, ndcHash: estNdcHash, quantity });
           if (!quote) throw new RequestRefused('This wallet is not a member enrolled with the engine', RPC_INVALID_PARAMS);
@@ -1870,12 +1957,14 @@ export class L2RpcServer {
             memberPayCents: quote.split.patientPayCents,
             employerPayCents: quote.split.planPayCents,
             // the drug's availability on the member's plan; an engine that does not report it adds nothing
-            ...(availability ? {
-              priorAuthRequired: availability.priorAuthRequired,
-              stepTherapyRequired: availability.stepTherapyRequired,
-              maxQuantityPerFill: availability.maxQuantityPerFill,
-              ...(availability.priorAuth ? { priorAuth: availability.priorAuth } : {}),
-            } : {}),
+            ...(availability
+              ? {
+                  priorAuthRequired: availability.priorAuthRequired,
+                  stepTherapyRequired: availability.stepTherapyRequired,
+                  maxQuantityPerFill: availability.maxQuantityPerFill,
+                  ...(availability.priorAuth ? { priorAuth: availability.priorAuth } : {}),
+                }
+              : {}),
           };
         }
 
@@ -1893,7 +1982,13 @@ export class L2RpcServer {
         };
         if (stored && !terms) {
           // a plan never published binds no one and bills nothing; the price is what its draft states
-          return { covered: false, ...about, ...priced, phase: 'not-covered', reason: `Plan ${stored.planId} is not published; no member is billed under it until the insurer publishes it` };
+          return {
+            covered: false,
+            ...about,
+            ...priced,
+            phase: 'not-covered',
+            reason: `Plan ${stored.planId} is not published; no member is billed under it until the insurer publishes it`,
+          };
         }
         if (terms && !publishedListCovers(terms, drug.ndc)) {
           return { covered: false, ...about, phase: 'not-covered', reason: 'Drug excluded from this plan' };
@@ -1903,7 +1998,14 @@ export class L2RpcServer {
         const split = splitClaimCost({
           totalCostCents: price.totalCostCents,
           copayCents: copayAmountCents,
-          accumulator: { deductibleAmountCents: 0, deductiblePaidCents: 0, oopMaxCents: 0, oopPaidCents: 0, annualBenefitMaxCents: 0, annualBenefitUsedCents: 0 },
+          accumulator: {
+            deductibleAmountCents: 0,
+            deductiblePaidCents: 0,
+            oopMaxCents: 0,
+            oopPaidCents: 0,
+            annualBenefitMaxCents: 0,
+            annualBenefitUsedCents: 0,
+          },
         });
         return {
           covered: true,
@@ -1965,7 +2067,9 @@ export class L2RpcServer {
           formularyRoot: fSvc.getRootString(),
           witnessPath: path,
           witnessIsLeft: isLeft,
-          drug: drug ? { genericName: drug.genericName, brandName: drug.brandName, tierLevel: drug.defaultTier, copayAmount: drug.defaultCopay } : null,
+          drug: drug
+            ? { genericName: drug.genericName, brandName: drug.brandName, tierLevel: drug.defaultTier, copayAmount: drug.defaultCopay }
+            : null,
         };
       }
 
@@ -2112,27 +2216,38 @@ export class L2RpcServer {
       case 'l2_storeMessage': {
         const msg = params.message as Record<string, unknown> | undefined;
         const pl = params.payload as Record<string, unknown> | undefined;
-        if (!msg || typeof msg.messageCommitment !== 'string' ||
-            typeof msg.senderWalletId !== 'string' ||
-            typeof msg.recipientWalletId !== 'string' ||
-            typeof msg.messageType !== 'string' ||
-            typeof msg.threadIdHash !== 'string') {
-          throw new Error('Missing or invalid message parameter (requires messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash)');
+        if (
+          !msg ||
+          typeof msg.messageCommitment !== 'string' ||
+          typeof msg.senderWalletId !== 'string' ||
+          typeof msg.recipientWalletId !== 'string' ||
+          typeof msg.messageType !== 'string' ||
+          typeof msg.threadIdHash !== 'string'
+        ) {
+          throw new Error(
+            'Missing or invalid message parameter (requires messageCommitment, senderWalletId, recipientWalletId, messageType, threadIdHash)',
+          );
         }
-        if (!pl || typeof pl.ciphertext !== 'string' ||
-            typeof pl.iv !== 'string' ||
-            typeof pl.tag !== 'string') {
+        if (!pl || typeof pl.ciphertext !== 'string' || typeof pl.iv !== 'string' || typeof pl.tag !== 'string') {
           throw new Error('Missing or invalid payload parameter (requires ciphertext, iv, tag)');
         }
         // Map human-readable messageType to numeric codes for Poseidon hashing
         const MESSAGE_TYPE_MAP: Record<string, string> = {
-          clinical: '1', '1': '1',
-          administrative: '2', admin: '2', '2': '2',
-          escript: '3', '3': '3',
-          text: '4', '4': '4',
-          system: '5', '5': '5',
-          pcp_assign: '6', '6': '6',
-          access_grant: '7', '7': '7',
+          clinical: '1',
+          '1': '1',
+          administrative: '2',
+          admin: '2',
+          '2': '2',
+          escript: '3',
+          '3': '3',
+          text: '4',
+          '4': '4',
+          system: '5',
+          '5': '5',
+          pcp_assign: '6',
+          '6': '6',
+          access_grant: '7',
+          '7': '7',
         };
         const rawType = (msg.messageType as string).toLowerCase();
         const numericType = MESSAGE_TYPE_MAP[rawType] ?? '4'; // default to text
@@ -2155,11 +2270,21 @@ export class L2RpcServer {
         // Emit viz event for messaging
         const senderEntity = this.entityRegistry.get(storedMessage.senderWalletId);
         const recipientEntity = this.entityRegistry.get(storedMessage.recipientWalletId);
-        this.emitVizEvent('viz:message:sent', 'messaging',
+        this.emitVizEvent(
+          'viz:message:sent',
+          'messaging',
           senderEntity?.displayName ?? storedMessage.senderWalletId.slice(0, 12) + '…',
           (senderEntity?.type as VizActorType) ?? 'member',
-          { messageType: rawType, threadIdHash: storedMessage.threadIdHash, leafIndex: String(storeResult.leafIndex), leafHash: storeResult.leafHash },
-          { target: recipientEntity?.displayName ?? storedMessage.recipientWalletId.slice(0, 12) + '…', targetType: recipientEntity?.type ?? 'prescriber' },
+          {
+            messageType: rawType,
+            threadIdHash: storedMessage.threadIdHash,
+            leafIndex: String(storeResult.leafIndex),
+            leafHash: storeResult.leafHash,
+          },
+          {
+            target: recipientEntity?.displayName ?? storedMessage.recipientWalletId.slice(0, 12) + '…',
+            targetType: recipientEntity?.type ?? 'prescriber',
+          },
         );
         return storeResult;
       }
@@ -2194,7 +2319,11 @@ export class L2RpcServer {
         const npiProblem = params.npi === undefined || params.npi === null || params.npi === '' ? null : npiError(params.npi);
         if (npiProblem) throw new RequestRefused(npiProblem, RPC_INVALID_PARAMS);
         const encryptionKey = params.encryptionPublicKeyHex;
-        if (encryptionKey !== undefined && encryptionKey !== null && (typeof encryptionKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(encryptionKey))) {
+        if (
+          encryptionKey !== undefined &&
+          encryptionKey !== null &&
+          (typeof encryptionKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(encryptionKey))
+        ) {
           throw new RequestRefused('encryptionPublicKeyHex must be 32 bytes (64 hex chars)', RPC_INVALID_PARAMS);
         }
         // A10b / A-32: a node registers entities of its own kind; the operator and the insurer, who
@@ -2202,7 +2331,9 @@ export class L2RpcServer {
         const principalRole = params._verifiedRole as NodeRole | undefined;
         const administers = principalRole === 'operator' || principalRole === 'insurer';
         if (!administers && principalRole !== type) {
-          throw new RequestRefused(`A ${principalRole ?? 'unidentified'} node may register a ${principalRole ?? 'matching'} entity, not a ${type}`);
+          throw new RequestRefused(
+            `A ${principalRole ?? 'unidentified'} node may register a ${principalRole ?? 'matching'} entity, not a ${type}`,
+          );
         }
         const signingPublicKeyHex = typeof params.signingPublicKeyHex === 'string' ? params.signingPublicKeyHex.toLowerCase() : undefined;
         if (signingPublicKeyHex !== undefined && !/^[0-9a-f]{64}$/.test(signingPublicKeyHex)) {
@@ -2212,7 +2343,9 @@ export class L2RpcServer {
         // The signing key is set once: an entity that has one is owned by it. A re-registration (a
         // restarted node, a recovered device) presents the same key; only the operator changes it.
         if (existing?.signingPublicKeyHex && signingPublicKeyHex !== existing.signingPublicKeyHex && principalRole !== 'operator') {
-          throw new RequestRefused(`Entity ${walletId.slice(0, 12)}… is owned by its registered signing key; a re-registration must present that key`);
+          throw new RequestRefused(
+            `Entity ${walletId.slice(0, 12)}… is owned by its registered signing key; a re-registration must present that key`,
+          );
         }
         this.entityRegistry.set(walletId, {
           walletId,
@@ -2260,10 +2393,12 @@ export class L2RpcServer {
           (this.node as L2Node).registerKnownWallet(walletId);
         }
         // Emit viz event for entity registration
-        this.emitVizEvent('viz:enrollment:started', 'enrollment',
-          displayName, type as VizActorType,
-          { walletId, type, specialty: params.specialty, pharmacyType: params.pharmacyType },
-        );
+        this.emitVizEvent('viz:enrollment:started', 'enrollment', displayName, type as VizActorType, {
+          walletId,
+          type,
+          specialty: params.specialty,
+          pharmacyType: params.pharmacyType,
+        });
         return { ok: true, walletId, displayName, type };
       }
 
@@ -2300,17 +2435,21 @@ export class L2RpcServer {
         // A-74: every screen that lists providers draws what this writes, so it keeps what l2_registerEntity keeps: a
         // wallet ID as the network writes one, short lines of plain text, and an npi, when one is given, that is a
         // National Provider Identifier before it is hashed into the registry's key, one provider to an NPI (A-89).
-        const credentialFieldProblem = walletIdError(walletId) ?? displayNameError(displayName)
-          ?? (params.npi === undefined || params.npi === null || params.npi === '' ? null : npiError(params.npi))
-          ?? ['specialty', 'pharmacyType', 'deaNumber', 'stateOfLicense']
-            .map((label) => { const value = params[label]; return value === undefined || value === null || value === '' ? null : displayNameError(value, label); })
-            .find((problem) => problem !== null)
-          ?? null;
+        const credentialFieldProblem =
+          walletIdError(walletId) ??
+          displayNameError(displayName) ??
+          (params.npi === undefined || params.npi === null || params.npi === '' ? null : npiError(params.npi)) ??
+          ['specialty', 'pharmacyType', 'deaNumber', 'stateOfLicense']
+            .map((label) => {
+              const value = params[label];
+              return value === undefined || value === null || value === '' ? null : displayNameError(value, label);
+            })
+            .find((problem) => problem !== null) ??
+          null;
         if (credentialFieldProblem) throw new RequestRefused(credentialFieldProblem, RPC_INVALID_PARAMS);
         const npiHash = npi ? hashString(npi).toString() : walletId;
-        const initialState = params.initialState !== undefined
-          ? parseInt(String(params.initialState), 10) as ProviderLifecycle
-          : ProviderLifecycle.ACTIVE;
+        const initialState =
+          params.initialState !== undefined ? (parseInt(String(params.initialState), 10) as ProviderLifecycle) : ProviderLifecycle.ACTIVE;
         const seq = this.node.getSequencer();
         const entry = seq.credentialProvider(
           {
@@ -2319,7 +2458,7 @@ export class L2RpcServer {
             providerTypeTag: String(PROVIDER_TYPE_TAG[providerType]),
             credentialState: String(initialState),
             credentialedAt: String(Math.floor(Date.now() / 1000)),
-            credentialedByHash: params.credentialedByHash as string ?? '0',
+            credentialedByHash: (params.credentialedByHash as string) ?? '0',
           },
           {
             displayName,
@@ -2346,9 +2485,18 @@ export class L2RpcServer {
           signingPublicKeyHex: known?.signingPublicKeyHex,
         });
         // Emit viz event for provider credentialing
-        this.emitVizEvent('viz:credential:generated', 'enrollment',
-          displayName, providerType as VizActorType,
-          { walletId, providerType, leafIndex: entry.leafIndex.toString(), credentialState: entry.leaf.credentialState, npi: npi || undefined },
+        this.emitVizEvent(
+          'viz:credential:generated',
+          'enrollment',
+          displayName,
+          providerType as VizActorType,
+          {
+            walletId,
+            providerType,
+            leafIndex: entry.leafIndex.toString(),
+            credentialState: entry.leaf.credentialState,
+            npi: npi || undefined,
+          },
           { target: 'Provider Registry', targetType: 'leviathan' },
         );
         return {
@@ -2375,8 +2523,11 @@ export class L2RpcServer {
         const entry = seq.updateProviderStatus(walletId, newState);
         // Emit viz event for provider status update
         const STATE_NAMES = ['pending', 'verified', 'active', 'suspended', 'terminated'];
-        this.emitVizEvent('viz:enrollment:lifecycle', 'enrollment',
-          entry.metadata.displayName, entry.metadata.providerType as VizActorType,
+        this.emitVizEvent(
+          'viz:enrollment:lifecycle',
+          'enrollment',
+          entry.metadata.displayName,
+          entry.metadata.providerType as VizActorType,
           { walletId, newState, stateName: STATE_NAMES[newState] ?? 'unknown', providerType: entry.metadata.providerType },
           { target: 'Provider Registry', targetType: 'leviathan' },
         );
@@ -2400,7 +2551,8 @@ export class L2RpcServer {
           displayName: entry.metadata.displayName,
           providerType: entry.metadata.providerType,
           credentialState: parseInt(entry.leaf.credentialState, 10),
-          credentialStateName: ['pending', 'verified', 'active', 'suspended', 'terminated'][parseInt(entry.leaf.credentialState, 10)] ?? 'unknown',
+          credentialStateName:
+            ['pending', 'verified', 'active', 'suspended', 'terminated'][parseInt(entry.leaf.credentialState, 10)] ?? 'unknown',
           specialty: entry.metadata.specialty,
           pharmacyType: entry.metadata.pharmacyType,
           npi: entry.metadata.npi,
@@ -2455,8 +2607,7 @@ export class L2RpcServer {
         const seq = this.node.getSequencer();
 
         // Try provider registry first
-        const providerType = roleFilter === 'prescriber' || roleFilter === 'pharmacy'
-          ? roleFilter as ProviderType : undefined;
+        const providerType = roleFilter === 'prescriber' || roleFilter === 'pharmacy' ? (roleFilter as ProviderType) : undefined;
         const registryEntries = seq.getProviders(providerType, ProviderLifecycle.ACTIVE);
 
         if (registryEntries.length > 0) {
@@ -2464,7 +2615,7 @@ export class L2RpcServer {
             walletId: e.leaf.walletId,
             displayName: e.metadata.displayName,
             providerType: e.metadata.providerType,
-            role: e.metadata.providerType,  // backward compat
+            role: e.metadata.providerType, // backward compat
             npi: e.metadata.npi,
             specialty: e.metadata.specialty,
             pharmacyType: e.metadata.pharmacyType,
@@ -2484,7 +2635,7 @@ export class L2RpcServer {
             walletId: e.walletId,
             displayName: e.displayName,
             providerType: e.type,
-            role: e.type,  // backward compat
+            role: e.type, // backward compat
             npi: (e as any).npi || '',
             specialty: e.specialty,
             pharmacyType: e.pharmacyType,
@@ -2522,7 +2673,9 @@ export class L2RpcServer {
         // A-59: the members who name this prescriber now; one that has named another since is no longer its patient.
         // The provider's status is not asked, so the list of a suspended or terminated prescriber still shows the plan
         // whom that leaves without primary care.
-        return (this.pcpAssignments.get(prescriberWalletId) ?? []).filter((a) => this.latestPcpOf.get(a.memberWalletId) === prescriberWalletId);
+        return (this.pcpAssignments.get(prescriberWalletId) ?? []).filter(
+          (a) => this.latestPcpOf.get(a.memberWalletId) === prescriberWalletId,
+        );
       }
 
       // ── Accumulator Reconstruction ──
@@ -2532,8 +2685,7 @@ export class L2RpcServer {
         if (typeof walletId !== 'string') {
           throw new Error('Missing or invalid walletId parameter');
         }
-        const planFilter = typeof params.planIdHash === 'string' && params.planIdHash.length > 0
-          ? params.planIdHash : undefined;
+        const planFilter = typeof params.planIdHash === 'string' && params.planIdHash.length > 0 ? params.planIdHash : undefined;
         return this.node.getSequencer().reconstructAccumulator(walletId, planFilter);
       }
 
@@ -2551,11 +2703,12 @@ export class L2RpcServer {
         if (this.entityRegistry.has(walletId) && 'registerKnownWallet' in this.node) {
           (this.node as L2Node).registerKnownWallet(walletId);
         }
-        const expirySeconds = typeof params.expirySeconds === 'number'
-          ? params.expirySeconds : undefined;
+        const expirySeconds = typeof params.expirySeconds === 'number' ? params.expirySeconds : undefined;
         const att = (this.node as L2Node).requestAttestation(walletId, expirySeconds);
         if (!att) {
-          throw new Error('Attestation unavailable — the ledger holds no registration for this wallet, or the attestation authority is not configured');
+          throw new Error(
+            'Attestation unavailable — the ledger holds no registration for this wallet, or the attestation authority is not configured',
+          );
         }
         return att;
       }
@@ -2598,23 +2751,15 @@ export class L2RpcServer {
         if (!message || !message.messageId || !message.type) {
           throw new Error('Missing or invalid message parameter');
         }
-        const fromPeerId = typeof params.fromPeerId === 'string'
-          ? params.fromPeerId : undefined;
-        const accepted = await this.peerNetwork.handleIncomingAndRelay(
-          message, fromPeerId,
-        );
+        const fromPeerId = typeof params.fromPeerId === 'string' ? params.fromPeerId : undefined;
+        const accepted = await this.peerNetwork.handleIncomingAndRelay(message, fromPeerId);
         return { accepted };
       }
 
       case 'l2_getPeerInfo': {
         const seq = this.node.getSequencer();
-        const nodeId = this.peerNetwork?.getConfig().nodeId
-          ?? (this.node as any).nodeId
-          ?? (this.node as any).options?.nodeId
-          ?? 'unknown';
-        const nodeRole = this.peerNetwork?.getConfig().role
-          ?? (this.node as any).role
-          ?? 'sequencer';
+        const nodeId = this.peerNetwork?.getConfig().nodeId ?? (this.node as any).nodeId ?? (this.node as any).options?.nodeId ?? 'unknown';
+        const nodeRole = this.peerNetwork?.getConfig().role ?? (this.node as any).role ?? 'sequencer';
         const peerInfo: PeerInfo = {
           peerId: nodeId,
           url: '', // Caller knows the URL they connected to
@@ -2737,9 +2882,7 @@ export class L2RpcServer {
         if (!quorumSvc) {
           throw new Error('Quorum not enabled');
         }
-        const valid = quorumSvc.verifyStateCertificate(
-          cert as import('./l2-quorum-types.js').StateCertificate,
-        );
+        const valid = quorumSvc.verifyStateCertificate(cert as import('./l2-quorum-types.js').StateCertificate);
         return { valid };
       }
 
@@ -2756,13 +2899,7 @@ export class L2RpcServer {
     res.end(l2Stringify(response));
   }
 
-  private sendRpcError(
-    res: ServerResponse,
-    id: string | number,
-    code: number,
-    message: string,
-    data?: unknown,
-  ): void {
+  private sendRpcError(res: ServerResponse, id: string | number, code: number, message: string, data?: unknown): void {
     const response: RpcResponse = {
       jsonrpc: '2.0',
       id,
@@ -2826,7 +2963,7 @@ export class L2RpcServer {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     });
 
     this.vizSseClients.add(res);
@@ -2837,7 +2974,11 @@ export class L2RpcServer {
 
     req.on('close', () => {
       this.vizSseClients.delete(res);
-      try { res.end(); } catch { /* already closed */ }
+      try {
+        res.end();
+      } catch {
+        /* already closed */
+      }
     });
   }
 
@@ -2892,7 +3033,11 @@ export class L2RpcServer {
         client.write(`data: ${data}\n\n`);
       } catch {
         this.vizSseClients.delete(client);
-        try { client.end(); } catch { /* socket already dead */ }
+        try {
+          client.end();
+        } catch {
+          /* socket already dead */
+        }
       }
     }
   }
@@ -2912,7 +3057,7 @@ export class L2RpcServer {
     const event: VizEvent = {
       type,
       timestamp: Date.now(),
-      id: `viz-${String(this.vizEventIdCounter = (this.vizEventIdCounter + 1) % Number.MAX_SAFE_INTEGER).padStart(6, '0')}`,
+      id: `viz-${String((this.vizEventIdCounter = (this.vizEventIdCounter + 1) % Number.MAX_SAFE_INTEGER)).padStart(6, '0')}`,
       actor,
       actorType,
       data,
@@ -2943,12 +3088,15 @@ export class L2RpcServer {
   private adminKeyRegistry: Map<string, AdminKeyEntry> = new Map();
 
   /** Pending admission requests — awaiting quorum approval */
-  private pendingAdmissions: Map<string, {
-    nodeId: string;
-    publicKeyHex: string;
-    requestedAt: number;
-    approvals: Map<string, { approverNodeId: string; reason: string; timestamp: number }>;
-  }> = new Map();
+  private pendingAdmissions: Map<
+    string,
+    {
+      nodeId: string;
+      publicKeyHex: string;
+      requestedAt: number;
+      approvals: Map<string, { approverNodeId: string; reason: string; timestamp: number }>;
+    }
+  > = new Map();
 
   /** Blacklisted node IDs — permanently rejected */
   private blacklistedNodes: Set<string> = new Set();
@@ -3026,7 +3174,9 @@ export class L2RpcServer {
     // An own key only, as memberDataSpecOf reads the D1 table: a method named toString, constructor or __proto__ found
     // Object.prototype's member here, and splitting it threw before the dispatcher's try, so the caller got an HTTP 500
     // where an unknown method gets its JSON-RPC error (the review of round eight of the security fixes, 2026-10-24).
-    const where = Object.prototype.hasOwnProperty.call(L2RpcServer.WALLET_SIGNED_METHODS, method) ? L2RpcServer.WALLET_SIGNED_METHODS[method] : undefined;
+    const where = Object.prototype.hasOwnProperty.call(L2RpcServer.WALLET_SIGNED_METHODS, method)
+      ? L2RpcServer.WALLET_SIGNED_METHODS[method]
+      : undefined;
     if (!where) return undefined;
     let value: unknown = params;
     for (const key of where.split('.')) {
@@ -3071,11 +3221,21 @@ export class L2RpcServer {
     const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
     if (!walletId) return { ok: false, status: 401, message: `Unauthorized — ${method} names no wallet to speak for` };
     if (typeof req.headers['authorization'] === 'string' && req.headers['authorization'].length > 0) {
-      return { ok: false, status: 401, message: `Unauthorized — ${method} speaks for wallet ${short(walletId)}; only that wallet's signature opens it, not a bearer token` };
+      return {
+        ok: false,
+        status: 401,
+        message: `Unauthorized — ${method} speaks for wallet ${short(walletId)}; only that wallet's signature opens it, not a bearer token`,
+      };
     }
     const signerId = signerIdFromHeaders(req.headers);
-    if (!signerId) return { ok: false, status: 401, message: `Unauthorized — ${method} speaks for wallet ${short(walletId)} and must be signed by it` };
-    if (signerId !== walletId) return { ok: false, status: 401, message: `Unauthorized — signed by ${short(signerId)}, not by wallet ${short(walletId)} it speaks for` };
+    if (!signerId)
+      return { ok: false, status: 401, message: `Unauthorized — ${method} speaks for wallet ${short(walletId)} and must be signed by it` };
+    if (signerId !== walletId)
+      return {
+        ok: false,
+        status: 401,
+        message: `Unauthorized — signed by ${short(signerId)}, not by wallet ${short(walletId)} it speaks for`,
+      };
     const key = this.entityRegistry.get(walletId)?.signingPublicKeyHex;
     if (!key) return { ok: false, status: 401, message: `Unauthorized — wallet ${short(walletId)} has no signing key registered` };
     const outcome = verifySignedRequest({
@@ -3117,7 +3277,11 @@ export class L2RpcServer {
     }
     const signerId = signerIdFromHeaders(req.headers);
     if (!signerId) {
-      return { ok: false, status: 401, message: `Unauthorized — ${method} returns a member's data and answers only a signed caller: the wallet itself, the plan, the operator, or a caller presenting the member's attestation` };
+      return {
+        ok: false,
+        status: 401,
+        message: `Unauthorized — ${method} returns a member's data and answers only a signed caller: the wallet itself, the plan, the operator, or a caller presenting the member's attestation`,
+      };
     }
     if (this.blacklistedNodes.has(signerId)) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
     const nodeEntry = this.adminKeyRegistry.get(signerId);
@@ -3142,7 +3306,12 @@ export class L2RpcServer {
    * returns no member's data (a provider's directory entry, a cost estimate naming no member, an
    * unknown receipt or leaf, a malformed parameter the handler rejects itself): those stay open.
    */
-  private authorizeRead(req: IncomingMessage, method: string, params: Record<string, unknown>, body: string | undefined): AuthDecision | null {
+  private authorizeRead(
+    req: IncomingMessage,
+    method: string,
+    params: Record<string, unknown>,
+    body: string | undefined,
+  ): AuthDecision | null {
     const spec = memberDataSpecOf(method);
     if (!spec) return null;
     // 1. Whose data this call returns.
@@ -3174,7 +3343,9 @@ export class L2RpcServer {
       case 'receipt': {
         const receiptId = L2RpcServer.readParam(params, spec.param);
         const receipt = receiptId
-          ? (this.node instanceof L2Leviathan ? this.node.getReceipt(receiptId) : this.node.getSequencer().getReceipt(receiptId))
+          ? this.node instanceof L2Leviathan
+            ? this.node.getReceipt(receiptId)
+            : this.node.getSequencer().getReceipt(receiptId)
           : undefined;
         if (!receipt) return null; // the handler answers null
         subject = receipt.walletId;
@@ -3184,9 +3355,10 @@ export class L2RpcServer {
         const leafIdx = params.leafIndex;
         let found: { entry: Record<string, unknown> } | undefined;
         try {
-          found = typeof leafIdx === 'string' || typeof leafIdx === 'bigint'
-            ? (this.node.getClaimWithProof(BigInt(leafIdx)) as { entry: Record<string, unknown> } | undefined)
-            : undefined;
+          found =
+            typeof leafIdx === 'string' || typeof leafIdx === 'bigint'
+              ? (this.node.getClaimWithProof(BigInt(leafIdx)) as { entry: Record<string, unknown> } | undefined)
+              : undefined;
         } catch {
           found = undefined;
         }
@@ -3203,7 +3375,8 @@ export class L2RpcServer {
     if (!who.ok) return who;
     const p = who.principal;
     if (p.kind === 'operator' || (p.kind === 'node' && (p.role === 'insurer' || p.role === 'operator'))) return who;
-    if (enumeration) return { ok: false, status: 403, message: `Forbidden — ${method} reads across members and answers the plan or the operator only` };
+    if (enumeration)
+      return { ok: false, status: 403, message: `Forbidden — ${method} reads across members and answers the plan or the operator only` };
     if (thread) return who; // the handler returns only this caller's own messages
     const short = (id: string) => (id.length > 12 ? `${id.slice(0, 12)}…` : id);
     if (p.kind === 'wallet') {
@@ -3215,10 +3388,16 @@ export class L2RpcServer {
     if (spec.readers.includes('signed')) return who;
     const also = [
       spec.readers.includes('pcp') ? 'the primary-care prescriber it names now, while the plan keeps that prescriber active' : '',
-      spec.readers.includes('prescriber') ? 'a prescriber it consented to (its primary-care prescriber, or one its device authorized for this visit)' : '',
+      spec.readers.includes('prescriber')
+        ? 'a prescriber it consented to (its primary-care prescriber, or one its device authorized for this visit)'
+        : '',
       spec.readers.includes('attestation') ? "a caller presenting the member's attestation" : '',
     ].filter(Boolean);
-    return { ok: false, status: 403, message: `Forbidden — ${method} for wallet ${short(subject!)} answers that wallet, the plan or the operator${also.length ? ', or ' + also.join(', or ') : ''}` };
+    return {
+      ok: false,
+      status: 403,
+      message: `Forbidden — ${method} for wallet ${short(subject!)} answers that wallet, the plan or the operator${also.length ? ', or ' + also.join(', or ') : ''}`,
+    };
   }
 
   /**
@@ -3231,7 +3410,8 @@ export class L2RpcServer {
   private isPrimaryCareOf(prescriberWalletId: string, memberWalletId: string): boolean {
     if (this.latestPcpOf.get(memberWalletId) !== prescriberWalletId) return false;
     const provider = this.node.getSequencer().getProvider(prescriberWalletId);
-    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE) return false;
+    if (!provider || provider.metadata.providerType !== 'prescriber' || Number(provider.leaf.credentialState) !== ProviderLifecycle.ACTIVE)
+      return false;
     const recorded = this.memberQuoteEngine?.primaryCareOf;
     if (!recorded) return true;
     try {
@@ -3276,7 +3456,8 @@ export class L2RpcServer {
   private authorizeStream(req: IncomingMessage, url: URL, pathname: string): AuthDecision {
     const token = url.searchParams.get('token');
     if (token !== null) {
-      if (this.options.adminToken && L2RpcServer.safeEquals(token, this.options.adminToken)) return { ok: true, principal: { kind: 'operator' } };
+      if (this.options.adminToken && L2RpcServer.safeEquals(token, this.options.adminToken))
+        return { ok: true, principal: { kind: 'operator' } };
       return { ok: false, status: 401, message: 'Unauthorized' };
     }
     return this.authorize(req, { kind: 'route', method: 'GET', path: pathname }, undefined);
@@ -3286,7 +3467,8 @@ export class L2RpcServer {
     const authHeader = req.headers['authorization'];
     if (typeof authHeader === 'string' && authHeader.length > 0) {
       if (!this.options.adminToken) return { ok: false, status: 401, message: 'Unauthorized — no admin token configured' };
-      if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`)) return { ok: false, status: 401, message: 'Unauthorized' };
+      if (!L2RpcServer.safeEquals(authHeader, `Bearer ${this.options.adminToken}`))
+        return { ok: false, status: 401, message: 'Unauthorized' };
       return { ok: true, principal: { kind: 'operator' } };
     }
     const signerId = signerIdFromHeaders(req.headers);
@@ -3325,7 +3507,11 @@ export class L2RpcServer {
     const entity = this.entityRegistry.get(signerId);
     if (!entity?.signingPublicKeyHex) return { ok: false, status: 401, message: 'Unauthorized — unknown signer' };
     if (entity.type !== providerType) {
-      return { ok: false, status: 403, message: `Forbidden — ${req.method ?? 'GET'} ${pathname} takes a ${providerType}'s own signature, and the signer is registered as a ${entity.type}` };
+      return {
+        ok: false,
+        status: 403,
+        message: `Forbidden — ${req.method ?? 'GET'} ${pathname} takes a ${providerType}'s own signature, and the signer is registered as a ${entity.type}`,
+      };
     }
     let body: string | undefined;
     try {
@@ -3391,7 +3577,13 @@ export class L2RpcServer {
     const keys: Array<{ nodeId: string; publicKeyHex: string; admittedBy: string; reason: string; timestamp: number }> = [];
     for (const [nid, entry] of this.adminKeyRegistry) {
       if (entry.ephemeral) continue; // a node key registered for this boot is not state
-      keys.push({ nodeId: nid, publicKeyHex: entry.publicKeyHex, admittedBy: entry.admittedBy, reason: entry.reason, timestamp: entry.timestamp });
+      keys.push({
+        nodeId: nid,
+        publicKeyHex: entry.publicKeyHex,
+        admittedBy: entry.admittedBy,
+        reason: entry.reason,
+        timestamp: entry.timestamp,
+      });
     }
     return { keys, blacklist: [...this.blacklistedNodes], blacklistedKeys: [...this.blacklistedPublicKeys] };
   }
@@ -3444,7 +3636,7 @@ export class L2RpcServer {
     const now = Date.now();
     const windowMs = 60_000;
     let timestamps = this.proofSubmissionLog.get(ip) ?? [];
-    timestamps = timestamps.filter(t => now - t < windowMs);
+    timestamps = timestamps.filter((t) => now - t < windowMs);
     if (timestamps.length >= limit) return false;
     timestamps.push(now);
     this.proofSubmissionLog.set(ip, timestamps);

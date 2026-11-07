@@ -37,19 +37,43 @@ export const HR_TOOL_PORT = 5050;
 
 /** The secrets a secured boot needs, each made fresh by setup. Values are 32 bytes (hex) or 24 bytes (base64url). */
 export const SECRETS: ReadonlyArray<{ name: string; make: () => string; what: string }> = [
-  { name: 'ZKTRIDENT_ADMIN_TOKEN', make: () => randomBytes(32).toString('hex'), what: "the network operator's token (the sequencer's dashboard)" },
-  { name: 'ZKTRIDENT_INSURER_ADMIN_TOKEN', make: () => randomBytes(24).toString('base64url'), what: "the plan's node token (the insurer dashboard)" },
-  { name: 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN', make: () => randomBytes(24).toString('base64url'), what: "the prescriber node's token (a patient's own price, prior authorization)" },
+  {
+    name: 'ZKTRIDENT_ADMIN_TOKEN',
+    make: () => randomBytes(32).toString('hex'),
+    what: "the network operator's token (the sequencer's dashboard)",
+  },
+  {
+    name: 'ZKTRIDENT_INSURER_ADMIN_TOKEN',
+    make: () => randomBytes(24).toString('base64url'),
+    what: "the plan's node token (the insurer dashboard)",
+  },
+  {
+    name: 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN',
+    make: () => randomBytes(24).toString('base64url'),
+    what: "the prescriber node's token (a patient's own price, prior authorization)",
+  },
   // also the seed of the sequencer's NFC attestation key, read as hex
-  { name: 'ZKTRIDENT_GOSSIP_SECRET', make: () => randomBytes(32).toString('hex'), what: 'signs gossip between the sequencer and its replicas' },
+  {
+    name: 'ZKTRIDENT_GOSSIP_SECRET',
+    make: () => randomBytes(32).toString('hex'),
+    what: 'signs gossip between the sequencer and its replicas',
+  },
   { name: 'ZKTRIDENT_PROVER_API_KEY', make: () => randomBytes(24).toString('base64url'), what: "the proof delegate's API key" },
   // without a key ceremony, the insurer's attestation key; kept, so employers' attestations survive a restart (A-147)
-  { name: 'ZKTRIDENT_INSURER_SIGNING_SEED', make: () => randomBytes(32).toString('base64url'), what: "the insurer's attestation signing seed (no ceremony on one machine)" },
+  {
+    name: 'ZKTRIDENT_INSURER_SIGNING_SEED',
+    make: () => randomBytes(32).toString('base64url'),
+    what: "the insurer's attestation signing seed (no ceremony on one machine)",
+  },
 ];
 
 /** The settings for a quick first boot on one machine; `npm start` takes the explorer port from the file. */
 export const SETTINGS: ReadonlyArray<{ name: string; value: string; why: string }> = [
-  { name: 'ZKTRIDENT_FORMULARY_LIMIT', value: '100', why: '100 drugs instead of the ~30,000 of the catalog: a boot in minutes (npm start -- --full-catalog loads them all)' },
+  {
+    name: 'ZKTRIDENT_FORMULARY_LIMIT',
+    value: '100',
+    why: '100 drugs instead of the ~30,000 of the catalog: a boot in minutes (npm start -- --full-catalog loads them all)',
+  },
   { name: 'ZKTRIDENT_POOL_SIZE', value: '2', why: 'batch-proving workers, about 800 MB each' },
   { name: 'ZKTRIDENT_PROOF_POOL_SIZE', value: '4', why: "the engine's proving workers" },
   { name: 'ZKTRIDENT_OPEN_BROWSERS', value: '0', why: 'npm start prints where each dashboard is instead' },

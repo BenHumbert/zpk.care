@@ -14,22 +14,9 @@
  * limitations under the License.
  */
 
-export {
-  hashString,
-  hashStrings,
-  dateToField,
-  hashDate,
-  centsToField,
-  codeToField,
-  quantityToField,
-} from './hash-utils.js';
+export { hashString, hashStrings, dateToField, hashDate, centsToField, codeToField, quantityToField } from './hash-utils.js';
 
-export {
-  TREE_HEIGHT,
-  ForestMerkleWitness,
-  ForestDomain,
-  MerkleForest,
-} from './merkle-forest.js';
+export { TREE_HEIGHT, ForestMerkleWitness, ForestDomain, MerkleForest } from './merkle-forest.js';
 
 export {
   buildMemberData,

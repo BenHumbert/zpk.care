@@ -24,7 +24,11 @@ import fs from 'fs';
 
 const WORKER = 'src/adjudication/proof-pool-worker.ts';
 const PROGRAMS: Array<{ program: string; file: string; methods: string[] }> = [
-  { program: 'AccumulatorFulfillment', file: 'src/fulfillment/accumulator-fulfillment-program.ts', methods: ['proveFulfillmentWithAccumulator', 'proveReversalWithAccumulator'] },
+  {
+    program: 'AccumulatorFulfillment',
+    file: 'src/fulfillment/accumulator-fulfillment-program.ts',
+    methods: ['proveFulfillmentWithAccumulator', 'proveReversalWithAccumulator'],
+  },
   { program: 'StateTransition', file: 'src/engine/state-transition.ts', methods: ['proveRegistration', 'proveWalletUpdate'] },
 ];
 
@@ -34,8 +38,14 @@ function privateInputCount(src: string, method: string): number {
   if (at < 0) throw new Error(`${method} not found`);
   const start = src.indexOf('privateInputs: [', at);
   const end = src.indexOf('],', start);
-  const body = src.slice(start + 'privateInputs: ['.length, end).replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  return body.split(',').map((s) => s.trim()).filter(Boolean).length;
+  const body = src
+    .slice(start + 'privateInputs: ['.length, end)
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  return body
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean).length;
 }
 
 /** The number of argument types the worker's table lists for a program method. */
@@ -50,7 +60,7 @@ function tableArgCount(src: string, program: string, method: string): number {
   return (body.match(/'[A-Za-z]+'/g) ?? []).length;
 }
 
-describe('the proof pool worker\'s method table', () => {
+describe("the proof pool worker's method table", () => {
   const worker = fs.readFileSync(WORKER, 'utf8');
   for (const { program, file, methods } of PROGRAMS) {
     const src = fs.readFileSync(file, 'utf8');

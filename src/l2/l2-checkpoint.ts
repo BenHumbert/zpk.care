@@ -103,12 +103,15 @@ export interface L2SequencerState {
   // ── Formulary state (optional — present when formularies are published) ──
 
   /** Published formularies indexed by planIdHash */
-  formularyStore?: Record<string, {
-    formularyRoot: string;
-    entriesJson: string;
-    publishedAt: number;
-    version: number;
-  }>;
+  formularyStore?: Record<
+    string,
+    {
+      formularyRoot: string;
+      entriesJson: string;
+      publishedAt: number;
+      version: number;
+    }
+  >;
 
   // ── Plan Store state (optional — present when benefit plans have been stored) ──
 
@@ -375,12 +378,7 @@ export class L2CheckpointStore {
   async list(): Promise<string[]> {
     try {
       const entries = await fs.readdir(this.dataDir);
-      return entries
-        .filter(
-          (f) =>
-            f.startsWith(CHECKPOINT_PREFIX) && f.endsWith(CHECKPOINT_SUFFIX),
-        )
-        .sort(); // Timestamp-based names sort correctly as strings
+      return entries.filter((f) => f.startsWith(CHECKPOINT_PREFIX) && f.endsWith(CHECKPOINT_SUFFIX)).sort(); // Timestamp-based names sort correctly as strings
     } catch {
       return []; // Directory doesn't exist yet
     }

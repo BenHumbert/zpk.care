@@ -81,7 +81,10 @@ const EMPTY = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until(cond: () => boolean, ms = 5_000): Promise<boolean> {
   const t = Date.now();
-  while (Date.now() - t < ms) { if (cond()) return true; await sleep(20); }
+  while (Date.now() - t < ms) {
+    if (cond()) return true;
+    await sleep(20);
+  }
   return cond();
 }
 
@@ -90,7 +93,9 @@ async function until(cond: () => boolean, ms = 5_000): Promise<boolean> {
 class Reference {
   reg = new WalletRegistry();
   lc = new MerkleTree(WALLET_TREE_HEIGHT);
-  roots() { return { reg: this.reg.getRoot(), lc: this.lc.getRoot() }; }
+  roots() {
+    return { reg: this.reg.getRoot(), lc: this.lc.getRoot() };
+  }
   register(wid: Field) {
     this.reg.register(wid);
     this.lc.setLeaf(this.reg.getIndex(wid), lifecycleLeafCommitment(wid, LIFECYCLE_REGISTERED));
@@ -106,11 +111,17 @@ function mockProof(walletId: Field, before: { reg: Field; lc: Field }, after: { 
   return {
     publicOutput: new TransitionOutput({
       walletId,
-      oldRegistryRoot: before.reg, newRegistryRoot: after.reg,
-      oldLifecycleRoot: before.lc, newLifecycleRoot: after.lc,
+      oldRegistryRoot: before.reg,
+      newRegistryRoot: after.reg,
+      oldLifecycleRoot: before.lc,
+      newLifecycleRoot: after.lc,
     }),
-    verify() { /* no-op, as in o1js outside a circuit */ },
-    toJSON() { return {}; },
+    verify() {
+      /* no-op, as in o1js outside a circuit */
+    },
+    toJSON() {
+      return {};
+    },
   } as any;
 }
 
@@ -121,7 +132,9 @@ const NDC_HASH = Poseidon.hash([Field(11), Field(3)]);
 const DATE_OF_SERVICE = '20261024';
 
 /** What a leader accepts proofs through: an L2Node, or an L2Leviathan for the partitions it leads. */
-interface Leader { submitProof(proof: any, metadata?: ClaimSubmissionMetadata): Promise<L2Receipt> }
+interface Leader {
+  submitProof(proof: any, metadata?: ClaimSubmissionMetadata): Promise<L2Receipt>;
+}
 
 /** A member's device: its own proofs, each update sent with the metadata l2_submitProof builds for it. */
 function device(leader: Leader, ref: Reference, n: number) {
@@ -132,15 +145,21 @@ function device(leader: Leader, ref: Reference, n: number) {
     const before = ref.roots();
     ref.update(id, cred);
     // l2_submitProof sends every wallet update with its new credential root, and a committed claim beside it
-    return leader.submitProof(
-      mockProof(id, before, ref.roots()),
-      { ...claim, newCredentialInventoryRoot: cred.toString() } as unknown as ClaimSubmissionMetadata,
-    );
+    return leader.submitProof(mockProof(id, before, ref.roots()), {
+      ...claim,
+      newCredentialInventoryRoot: cred.toString(),
+    } as unknown as ClaimSubmissionMetadata);
   };
   const claim = (operationType: '1' | '2', dateOfService = DATE_OF_SERVICE): Partial<ClaimSubmissionMetadata> => ({
-    memberWalletId: id.toString(), ndcHash: NDC_HASH.toString(), pharmacyWalletId: PHARMACY.toString(),
-    prescriberWalletId: PRESCRIBER.toString(), dateOfService, patientPayCents: '1500',
-    planPayCents: '4500', operationType, fillNumber: 0,
+    memberWalletId: id.toString(),
+    ndcHash: NDC_HASH.toString(),
+    pharmacyWalletId: PHARMACY.toString(),
+    prescriberWalletId: PRESCRIBER.toString(),
+    dateOfService,
+    patientPayCents: '1500',
+    planPayCents: '4500',
+    operationType,
+    fillNumber: 0,
   });
   return {
     register: (): Promise<L2Receipt> => {
@@ -162,7 +181,10 @@ const payloadOf = (msg: GossipMessage) => msg.payload as ProofAcceptedPayload;
 function newLeader(nodeId: string, adminToken?: string): L2Node {
   const leader = new L2Node(
     { batchIntervalMs: 999_999, autoSettle: false, nodeId, role: 'sequencer', ...(adminToken ? { adminToken } : {}) },
-    new InMemoryStore(), EMPTY, EMPTY, Field(0),
+    new InMemoryStore(),
+    EMPTY,
+    EMPTY,
+    Field(0),
   );
   leader.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests(THIS_FILE));
   return leader;
@@ -171,7 +193,10 @@ function newLeader(nodeId: string, adminToken?: string): L2Node {
 function newReplica(nodeId: string, adminToken?: string): L2Node {
   return new L2Node(
     { batchIntervalMs: 999_999, autoSettle: false, nodeId, role: 'replica', ...(adminToken ? { adminToken } : {}) },
-    new InMemoryStore(), EMPTY, EMPTY, Field(0),
+    new InMemoryStore(),
+    EMPTY,
+    EMPTY,
+    Field(0),
   );
 }
 
@@ -204,7 +229,9 @@ async function wiredPair(tag: string) {
 
   // what reached the replica, as its gossip handler saw it
   const gossiped: ProofAcceptedPayload[] = [];
-  replicaNet.on((msg) => { if (msg.type === 'proof:accepted') gossiped.push(msg.payload as ProofAcceptedPayload); });
+  replicaNet.on((msg) => {
+    if (msg.type === 'proof:accepted') gossiped.push(msg.payload as ProofAcceptedPayload);
+  });
 
   /** The leader accepts a proof; resolves once the replica holds the receipt, with what was gossiped for it. */
   const land = async (submitted: Promise<L2Receipt>) => {
@@ -220,7 +247,9 @@ function keepBroadcasts(node: L2Node | L2Leviathan) {
   const sent: GossipMessage[] = [];
   // a node gossips only when it has a peer network; this one keeps what would have gone out
   (node as any).peerNetwork = {
-    broadcast: async (msg: GossipMessage) => { sent.push(l2Parse<GossipMessage>(l2Stringify(msg))); },
+    broadcast: async (msg: GossipMessage) => {
+      sent.push(l2Parse<GossipMessage>(l2Stringify(msg)));
+    },
     stop: () => {},
   };
   const sentFor = (receipt: L2Receipt): GossipMessage =>
@@ -254,7 +283,10 @@ function leviathanConfig(primaryPartition: number): LeviathanConfig {
   return {
     partitionCount: 2,
     primaryPartition,
-    failoverChain: new Map([[0, ['lev-leader', 'lev-replica']], [1, ['lev-replica', 'lev-leader']]]),
+    failoverChain: new Map([
+      [0, ['lev-leader', 'lev-replica']],
+      [1, ['lev-replica', 'lev-leader']],
+    ]),
     heartbeatIntervalMs: 999_999,
     heartbeatTimeoutMs: 999_999,
   };
@@ -269,14 +301,28 @@ function partitionZeroMembers(count: number, from = 50): number[] {
 
 /** An L2Leviathan leading partition 0, whose broadcasts are kept. */
 function capturingLeviathan(nodeId: string, l2Only = true) {
-  const lev = new L2Leviathan(leviathanConfig(0), { batchIntervalMs: 999_999, l2Only, nodeId }, new InMemoryStore(), EMPTY, EMPTY, Field(0));
+  const lev = new L2Leviathan(
+    leviathanConfig(0),
+    { batchIntervalMs: 999_999, l2Only, nodeId },
+    new InMemoryStore(),
+    EMPTY,
+    EMPTY,
+    Field(0),
+  );
   lev.getSequencer(0).setTransitionVerifier(createAcceptAllVerifierForTests(THIS_FILE));
   return { lev, ...keepBroadcasts(lev) };
 }
 
 /** An L2Leviathan that follows partition 0 by gossip, fed by hand, and what it reports. */
 function handFedLeviathan(nodeId: string) {
-  const lev = new L2Leviathan(leviathanConfig(1), { batchIntervalMs: 999_999, l2Only: true, nodeId }, new InMemoryStore(), EMPTY, EMPTY, Field(0));
+  const lev = new L2Leviathan(
+    leviathanConfig(1),
+    { batchIntervalMs: 999_999, l2Only: true, nodeId },
+    new InMemoryStore(),
+    EMPTY,
+    EMPTY,
+    Field(0),
+  );
   const errors: L2ChainEvent[] = [];
   const announced: unknown[] = [];
   lev.on((e) => {
@@ -296,11 +342,31 @@ function handFedNetwork(kind: Kind, tag: string) {
     const { leader, sent, sentFor } = capturingLeader(`leader-${tag}`);
     const { replica, errors, announced, deliver } = handFedReplica(`replica-${tag}`);
     const members = (count: number) => Array.from({ length: count }, (_, i) => 20 + i);
-    return { leader, leaderSeq: leader.getSequencer(), sent, sentFor, replicaSeq: replica.getSequencer(), errors, announced, deliver, members };
+    return {
+      leader,
+      leaderSeq: leader.getSequencer(),
+      sent,
+      sentFor,
+      replicaSeq: replica.getSequencer(),
+      errors,
+      announced,
+      deliver,
+      members,
+    };
   }
   const { lev, sent, sentFor } = capturingLeviathan(`lev-leader-${tag}`);
   const { seq, errors, announced, deliver } = handFedLeviathan(`lev-replica-${tag}`);
-  return { leader: lev, leaderSeq: lev.getSequencer(0), sent, sentFor, replicaSeq: seq, errors, announced, deliver, members: partitionZeroMembers };
+  return {
+    leader: lev,
+    leaderSeq: lev.getSequencer(0),
+    sent,
+    sentFor,
+    replicaSeq: seq,
+    errors,
+    announced,
+    deliver,
+    members: partitionZeroMembers,
+  };
 }
 
 /** Each audit event of a sequencer's chain, by the receipt it records and the hash that links it. */
@@ -340,7 +406,9 @@ describe("the leader gossips the receipt's own claim entry", () => {
   test('after a fill, a primary-care update lands whole on the replica: no duplicate-fill error is raised and swallowed', async () => {
     const { leader, replica, land } = await wiredPair('b');
     const announced: unknown[] = [];
-    replica.on((e) => { if (e.type === 'proof:accepted') announced.push(e.data.receiptId); });
+    replica.on((e) => {
+      if (e.type === 'proof:accepted') announced.push(e.data.receiptId);
+    });
     const member = device(leader, new Reference(), 2);
     await land(member.register());
     await land(member.mint());
@@ -453,7 +521,7 @@ describe('an L2Leviathan leader and its replicas do the same', () => {
     expect(errors).toHaveLength(0);
   });
 
-  test("a replica leaves out a stray entry and a misplaced one, applies each receipt whole without it, and reports the one its ledger now lacks", async () => {
+  test('a replica leaves out a stray entry and a misplaced one, applies each receipt whole without it, and reports the one its ledger now lacks', async () => {
     const { lev, sent, sentFor } = capturingLeviathan('lev-leader-g');
     const { seq: replicaSeq, errors, announced, deliver } = handFedLeviathan('lev-replica-g');
     const [a, b] = partitionZeroMembers(2);
@@ -472,8 +540,10 @@ describe('an L2Leviathan leader and its replicas do the same', () => {
     payloadOf(sentFor(primaryCare)).claimEntry = payloadOf(sentFor(fillFirst)).claimEntry;
     // and the network delivers the second fill's message before the first's
     const rest = sent.filter((m) => m !== sentFor(fillFirst) && m !== sentFor(fillSecond) && m !== sentFor(primaryCare));
-    const delivered = await deliver(...rest, sentFor(fillSecond), sentFor(fillFirst), sentFor(primaryCare))
-      .then(() => 'delivered', (err: Error) => err.message);
+    const delivered = await deliver(...rest, sentFor(fillSecond), sentFor(fillFirst), sentFor(primaryCare)).then(
+      () => 'delivered',
+      (err: Error) => err.message,
+    );
     expect(delivered).toBe('delivered'); // before: a duplicate-fill error, thrown when the stray copy of the first fill was appended after the primary-care receipt was written
 
     // each receipt is applied whole: the receipt, its own audit event once, and the leader's roots
@@ -485,8 +555,8 @@ describe('an L2Leviathan leader and its replicas do the same', () => {
     expect(replicaSeq.getCurrentRegistryRoot().toString()).toBe(lev.getSequencer(0).getCurrentRegistryRoot().toString());
     // and only the receipt's own entry at the replica's next leaf was appended
     expect(replicaSeq.getClaimAccumulator().getEntry(0n)?.metadata.receiptId).toBe(fillFirst.receiptId); // before: the second fill sat at leaf 0
-    expect(replicaSeq.getClaimLeafCount()).toBe(1n);                    // before: 2n, each fill at the other's leaf
-    expect(replicaSeq.getClaimAccumulatorRoot()).toBe(rootAfterFirst);  // before: a root the leader never had
+    expect(replicaSeq.getClaimLeafCount()).toBe(1n); // before: 2n, each fill at the other's leaf
+    expect(replicaSeq.getClaimAccumulatorRoot()).toBe(rootAfterFirst); // before: a root the leader never had
     // the misplaced entry leaves the replica's ledger short of the leader's, which it reports; the stray one does not
     expect(errors.map((e) => [e.data.receiptId, e.data.partitionIndex])).toEqual([[fillSecond.receiptId, 0]]); // before: nothing was reported
   });
@@ -497,31 +567,49 @@ describe('applyReplicatedReceipt decides about the claim entry before it writes 
   // and the leader's roots, announced, and reported as a ledger that no longer follows the leader's. Before, the
   // receipt, its audit event and the roots were written first, and the claim append then threw.
   const unappendable: Array<[string, (entry: NonNullable<ProofAcceptedPayload['claimEntry']>) => void, RegExp]> = [
-    ['that the ledger refuses as a second unreversed fill of one key', (entry) => { entry.leaf.dateOfService = DATE_OF_SERVICE; }, /already holds an unreversed fill of the same key at leaf 0/],
-    ['whose leaf does not hash', (entry) => { entry.leaf.patientPayCents = 'not-a-number'; }, /its leaf does not hash/],
+    [
+      'that the ledger refuses as a second unreversed fill of one key',
+      (entry) => {
+        entry.leaf.dateOfService = DATE_OF_SERVICE;
+      },
+      /already holds an unreversed fill of the same key at leaf 0/,
+    ],
+    [
+      'whose leaf does not hash',
+      (entry) => {
+        entry.leaf.patientPayCents = 'not-a-number';
+      },
+      /its leaf does not hash/,
+    ],
   ];
   describe.each(['L2Node', 'L2Leviathan'] as Kind[])('on an %s replica', (kind) => {
-    test.each(unappendable)('the receipt\'s own entry at the next leaf, but one %s, is left out and the receipt lands whole', async (_what, spoil, reason) => {
-      const net = handFedNetwork(kind, `h-${kind}`);
-      const [n] = net.members(1);
-      const member = device(net.leader, new Reference(), n);
-      await member.register();
-      await member.mint();
-      await member.fill();
-      const secondFill = await member.fill('20261025');   // another day, so the leader takes it
-      expect(secondFill.claimLeafIndex).toBe(1n);
-      spoil(payloadOf(net.sentFor(secondFill)).claimEntry!);
+    test.each(unappendable)(
+      "the receipt's own entry at the next leaf, but one %s, is left out and the receipt lands whole",
+      async (_what, spoil, reason) => {
+        const net = handFedNetwork(kind, `h-${kind}`);
+        const [n] = net.members(1);
+        const member = device(net.leader, new Reference(), n);
+        await member.register();
+        await member.mint();
+        await member.fill();
+        const secondFill = await member.fill('20261025'); // another day, so the leader takes it
+        expect(secondFill.claimLeafIndex).toBe(1n);
+        spoil(payloadOf(net.sentFor(secondFill)).claimEntry!);
 
-      const delivered = await net.deliver(...net.sent).then(() => 'delivered', (err: Error) => err.message);
-      expect(delivered).toBe('delivered');   // before: the claim append threw after the receipt, its audit event and the roots were written
-      expect(net.replicaSeq.getReceipt(secondFill.receiptId)).toBeDefined();
-      expect(net.replicaSeq.getAuditLog().events.filter((e) => e.receiptId === secondFill.receiptId)).toHaveLength(1);
-      expect(net.replicaSeq.getCurrentRegistryRoot().toString()).toBe(net.leaderSeq.getCurrentRegistryRoot().toString());
-      expect(net.replicaSeq.getClaimLeafCount()).toBe(1n);
-      expect(net.announced).toContain(secondFill.receiptId);   // before: the receipt was never announced
-      expect(net.errors.map((e) => e.data.receiptId)).toEqual([secondFill.receiptId]); // before: nothing was reported
-      expect(String(net.errors[0].data.error)).toMatch(reason);
-    });
+        const delivered = await net.deliver(...net.sent).then(
+          () => 'delivered',
+          (err: Error) => err.message,
+        );
+        expect(delivered).toBe('delivered'); // before: the claim append threw after the receipt, its audit event and the roots were written
+        expect(net.replicaSeq.getReceipt(secondFill.receiptId)).toBeDefined();
+        expect(net.replicaSeq.getAuditLog().events.filter((e) => e.receiptId === secondFill.receiptId)).toHaveLength(1);
+        expect(net.replicaSeq.getCurrentRegistryRoot().toString()).toBe(net.leaderSeq.getCurrentRegistryRoot().toString());
+        expect(net.replicaSeq.getClaimLeafCount()).toBe(1n);
+        expect(net.announced).toContain(secondFill.receiptId); // before: the receipt was never announced
+        expect(net.errors.map((e) => e.data.receiptId)).toEqual([secondFill.receiptId]); // before: nothing was reported
+        expect(String(net.errors[0].data.error)).toMatch(reason);
+      },
+    );
   });
 
   test('called directly, as an L2Leviathan partition or a workflow hands it gossip, it leaves out a stray or misplaced entry and returns why', async () => {
@@ -537,7 +625,14 @@ describe('applyReplicatedReceipt decides about the claim entry before it writes 
     const replica = new L2SequencerService(new InMemoryStore(), EMPTY, EMPTY, Field(0));
     const apply = (msg: GossipMessage, entry = payloadOf(msg).claimEntry) => {
       const p = payloadOf(msg);
-      return replica.applyReplicatedReceipt(p.receipt, p.auditEvent, entry, p.currentRegistryRoot, p.currentLifecycleRoot, p.currentWalletCount);
+      return replica.applyReplicatedReceipt(
+        p.receipt,
+        p.auditEvent,
+        entry,
+        p.currentRegistryRoot,
+        p.currentLifecycleRoot,
+        p.currentWalletCount,
+      );
     };
     const results = [];
     for (const msg of sent.filter((m) => ![fillFirst, fillSecond, primaryCare].some((r) => m === sentFor(r)))) results.push(apply(msg));
@@ -545,7 +640,7 @@ describe('applyReplicatedReceipt decides about the claim entry before it writes 
 
     const misplaced = apply(sentFor(fillSecond));
     expect(misplaced).toEqual({ ledgerBehind: true, message: expect.stringMatching(/its leaf is 1 and this replica's next leaf is 0/) }); // before: undefined, the entry written at leaf 0
-    expect(replica.getClaimLeafCount()).toBe(0n);   // before: 1n
+    expect(replica.getClaimLeafCount()).toBe(0n); // before: 1n
     expect(apply(sentFor(fillFirst))).toBeUndefined();
     const stray = apply(sentFor(primaryCare), payloadOf(sentFor(fillFirst)).claimEntry);
     expect(stray).toEqual({ ledgerBehind: false, message: expect.stringMatching(/which made no claim/) }); // before: the stray copy of the first fill met the duplicate check only after the receipt was written, and threw
@@ -561,7 +656,9 @@ function holdNextStoreWrite(seq: L2SequencerService) {
   const hold = { held: false, release: () => {} };
   jest.spyOn(store, 'saveProof').mockImplementationOnce(async (id: string, json: string) => {
     hold.held = true;
-    await new Promise<void>((r) => { hold.release = r; });
+    await new Promise<void>((r) => {
+      hold.release = r;
+    });
     return write(id, json);
   });
   return hold;
@@ -579,14 +676,14 @@ describe.each(['L2Node', 'L2Leviathan'] as Kind[])("an %s leader gossips each re
     const hold = holdNextStoreWrite(net.leaderSeq);
     const firstFill = first.fill();
     expect(await until(() => hold.held)).toBe(true);
-    const secondUpdate = await second.choosePrimaryCare();   // lands whole meanwhile; its audit event follows the fill's
+    const secondUpdate = await second.choosePrimaryCare(); // lands whole meanwhile; its audit event follows the fill's
     hold.release();
     const fill = await firstFill;
     expect(fill.sequenceNumber).toBeLessThan(secondUpdate.sequenceNumber);
 
     const fillEvent = payloadOf(net.sentFor(fill)).auditEvent;
-    expect(fillEvent.receiptId).toBe(fill.receiptId);      // before: the second update's, the last event of the log when the fill's gossip was built
-    expect(fillEvent.chainHash).toBe(fill.auditEventHash);  // before: the second update's chain hash
+    expect(fillEvent.receiptId).toBe(fill.receiptId); // before: the second update's, the last event of the log when the fill's gossip was built
+    expect(fillEvent.chainHash).toBe(fill.auditEventHash); // before: the second update's chain hash
     expect(payloadOf(net.sentFor(secondUpdate)).auditEvent.receiptId).toBe(secondUpdate.receiptId);
 
     // delivered in the leader's order, the replica holds the leader's audit chain
@@ -598,9 +695,16 @@ describe.each(['L2Node', 'L2Leviathan'] as Kind[])("an %s leader gossips each re
 
   test("a receipt whose audit event a failed batch rolled back while its proof was stored is not gossiped, where another receipt's event went with it", async () => {
     // a leader that settles on L1, the one mode in which a batch fails after it was built
-    const { leader, seq, sent, sentFor } = kind === 'L2Node'
-      ? (() => { const l = capturingLeader('leader-rollback'); return { ...l, seq: l.leader.getSequencer() }; })()
-      : (() => { const l = capturingLeviathan('lev-leader-rollback', false); return { leader: l.lev, seq: l.lev.getSequencer(0), sent: l.sent, sentFor: l.sentFor }; })();
+    const { leader, seq, sent, sentFor } =
+      kind === 'L2Node'
+        ? (() => {
+            const l = capturingLeader('leader-rollback');
+            return { ...l, seq: l.leader.getSequencer() };
+          })()
+        : (() => {
+            const l = capturingLeviathan('lev-leader-rollback', false);
+            return { leader: l.lev, seq: l.lev.getSequencer(0), sent: l.sent, sentFor: l.sentFor };
+          })();
     const [n] = kind === 'L2Node' ? [40] : partitionZeroMembers(1);
     const member = device(leader, new Reference(), n);
     await member.register();
@@ -610,9 +714,12 @@ describe.each(['L2Node', 'L2Leviathan'] as Kind[])("an %s leader gossips each re
     await seq.finalizeBatch({
       batchProofJson: '{"proof":"stand-in"}',
       batchOutput: {
-        oldRegistryRoot: EMPTY.toString(), newRegistryRoot: seq.getCurrentRegistryRoot().toString(),
-        oldLifecycleRoot: EMPTY.toString(), newLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
-        registrationCount: '1', transitionCount: '2',
+        oldRegistryRoot: EMPTY.toString(),
+        newRegistryRoot: seq.getCurrentRegistryRoot().toString(),
+        oldLifecycleRoot: EMPTY.toString(),
+        newLifecycleRoot: seq.getCurrentLifecycleRoot().toString(),
+        registrationCount: '1',
+        transitionCount: '2',
       },
       proveTimeMs: 1,
       workerId: 0,
@@ -626,7 +733,7 @@ describe.each(['L2Node', 'L2Leviathan'] as Kind[])("an %s leader gossips each re
       const hold = holdNextStoreWrite(seq);
       const submitted = member.choosePrimaryCare();
       expect(await until(() => hold.held)).toBe(true);
-      seq.markBatchFailed(inFlight!, 'L1 refused the batch');   // rolls the audit log back to before the batch, the update's event with it
+      seq.markBatchFailed(inFlight!, 'L1 refused the batch'); // rolls the audit log back to before the batch, the update's event with it
       hold.release();
       const update = await submitted;
       expect(seq.getAuditLog().events.map((e) => e.receiptId)).not.toContain(update.receiptId);
@@ -635,7 +742,9 @@ describe.each(['L2Node', 'L2Leviathan'] as Kind[])("an %s leader gossips each re
       expect(sentFor(mint)).toBeDefined();
       const notGossiped = warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('is not gossiped'));
       expect(notGossiped).toHaveLength(1);
-      expect(notGossiped[0]).toContain(`${update.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`);
+      expect(notGossiped[0]).toContain(
+        `${update.receiptId} is not gossiped: a failed batch rolled its audit event back before it was sent`,
+      );
       const accepted = sent.filter((m) => m.type === 'proof:accepted');
       expect(accepted.map((m) => payloadOf(m).auditEvent.receiptId)).toEqual(accepted.map((m) => payloadOf(m).receipt.receiptId));
     } finally {

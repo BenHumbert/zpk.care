@@ -87,16 +87,14 @@ export const ENGINE_BODY_LIMIT_BYTES = DEFAULT_RPC_SERVER_OPTIONS.maxBodyBytes;
  * What the 504 of a route that answers from a locked engine call adds to 'Request timeout' when its budget ran out while
  * it still waited for the proving lock: it was dropped there and changed nothing (underProvingLock).
  */
-export const TIMED_OUT_WAITING_DETAIL = 'The request waited for the proving lock past its budget and was dropped: nothing was changed, and it may be sent again.';
+export const TIMED_OUT_WAITING_DETAIL =
+  'The request waited for the proving lock past its budget and was dropped: nothing was changed, and it may be sent again.';
 
 /** What that 504 adds when the budget ran out after the request's work had started under the lock. */
-export const TIMED_OUT_RUNNING_DETAIL = 'The request had started its work when its budget ran out, and the work goes on to finish: check the outcome before sending it again.';
+export const TIMED_OUT_RUNNING_DETAIL =
+  'The request had started its work when its budget ran out, and the work goes on to finish: check the outcome before sending it again.';
 
-export function registerInteractiveRoutes(
-  server: L2RpcServer,
-  service: AdjudicationService,
-  nfcBridge?: NfcReader,
-): void {
+export function registerInteractiveRoutes(server: L2RpcServer, service: AdjudicationService, nfcBridge?: NfcReader): void {
   // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
   // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here
   // would override that policy with a wildcard, so no handler below sets it.
@@ -218,9 +216,15 @@ export function registerInteractiveRoutes(
    */
   const OPEN_POSTS = new Set(['/interactive/register-member', '/interactive/verify-credential']);
   const GATED_READS = new Set([
-    '/interactive/member-history', '/interactive/family-history', '/interactive/threads',
-    '/interactive/prescriptions-by-pharmacy', '/interactive/fill-status', '/interactive/step-therapy-check',
-    '/interactive/enroll-status', '/interactive/prior-auths', '/interactive/l2-status',
+    '/interactive/member-history',
+    '/interactive/family-history',
+    '/interactive/threads',
+    '/interactive/prescriptions-by-pharmacy',
+    '/interactive/fill-status',
+    '/interactive/step-therapy-check',
+    '/interactive/enroll-status',
+    '/interactive/prior-auths',
+    '/interactive/l2-status',
   ]);
   const OPEN_NODE_READS = new Set(['/node/chain-state', '/node/chain-proof', '/node/all-batches', '/node/formulary']);
   /**
@@ -242,18 +246,31 @@ export function registerInteractiveRoutes(
    * update it queues), as tests/engine-ready-route.test.ts checks against the code.
    */
   const PROVING_ROUTES = new Set([
-    '/interactive/enroll', '/interactive/enroll-family', '/interactive/approve-prior-auth',
-    '/interactive/prescribe', '/interactive/fill', '/interactive/prescribe-and-fill', '/interactive/reverse',
-    '/interactive/assign-pcp', '/interactive/send-message', '/interactive/create-delegation', '/interactive/generate-credential',
-    '/interactive/update-formulary', '/interactive/update-provider-network', '/interactive/plan-year-rollover',
-    '/interactive/badge/tap', '/interactive/badge/auto-tap',
+    '/interactive/enroll',
+    '/interactive/enroll-family',
+    '/interactive/approve-prior-auth',
+    '/interactive/prescribe',
+    '/interactive/fill',
+    '/interactive/prescribe-and-fill',
+    '/interactive/reverse',
+    '/interactive/assign-pcp',
+    '/interactive/send-message',
+    '/interactive/create-delegation',
+    '/interactive/generate-credential',
+    '/interactive/update-formulary',
+    '/interactive/update-provider-network',
+    '/interactive/plan-year-rollover',
+    '/interactive/badge/tap',
+    '/interactive/badge/auto-tap',
   ]);
 
   /** A proving route's handler behind the engine's readiness to prove: 503 with Retry-After until the engine is ready. */
   function untilProvingReady(method: string, path: string, handler: RouteHandler): RouteHandler {
     return async (req: IncomingMessage, res: ServerResponse) => {
       if (!service.isProvingReady()) {
-        console.log(`  [interactive] ${method} ${path} answered 503: the provers are still starting (retry after ${PROVERS_RETRY_AFTER_SECONDS} s)`);
+        console.log(
+          `  [interactive] ${method} ${path} answered 503: the provers are still starting (retry after ${PROVERS_RETRY_AFTER_SECONDS} s)`,
+        );
         res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': String(PROVERS_RETRY_AFTER_SECONDS) });
         res.end(JSON.stringify({ error: PROVERS_STARTING_MESSAGE, retryAfterSeconds: PROVERS_RETRY_AFTER_SECONDS }));
         return;
@@ -308,11 +325,17 @@ export function registerInteractiveRoutes(
       server.registerRoute(method, path, route, timeoutMs ? { providerSigned, timeoutMs } : { providerSigned });
       return;
     }
-    const adminOnly = ADMIN_ROUTES.has(path)
-      || (upper === 'POST' && !walletSigned && !OPEN_POSTS.has(path))
-      || (upper === 'GET' && GATED_READS.has(path))
-      || (path.startsWith('/node/') && !OPEN_NODE_READS.has(path));
-    server.registerRoute(method, path, route, adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined);
+    const adminOnly =
+      ADMIN_ROUTES.has(path) ||
+      (upper === 'POST' && !walletSigned && !OPEN_POSTS.has(path)) ||
+      (upper === 'GET' && GATED_READS.has(path)) ||
+      (path.startsWith('/node/') && !OPEN_NODE_READS.has(path));
+    server.registerRoute(
+      method,
+      path,
+      route,
+      adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined,
+    );
   }
 
   /** The requests whose work has started under the proving lock (underProvingLock): answered or not, each finishes. */
@@ -335,7 +358,9 @@ export function registerInteractiveRoutes(
     return service.getL2Node().withProvingLock(async () => {
       if (!startedUnderLock.has(res) && (res.writableEnded || res.destroyed)) {
         const route = `${req.method} ${new URL(req.url ?? '/', 'http://localhost').pathname}`;
-        const why = res.writableEnded ? 'it was answered 504 while it waited for the proving lock' : 'its caller went away while it waited for the proving lock';
+        const why = res.writableEnded
+          ? 'it was answered 504 while it waited for the proving lock'
+          : 'its caller went away while it waited for the proving lock';
         console.warn(`  [interactive] ${route} dropped without running: ${why}`);
         throw new Error(`${route} dropped without running: ${why}`);
       }
@@ -369,7 +394,7 @@ export function registerInteractiveRoutes(
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
     });
 
     consoleSseClients.add(res);
@@ -401,9 +426,12 @@ export function registerInteractiveRoutes(
     try {
       const readiness = service.provingReadiness();
       const summary = { ready: readiness.ready === true, compiled: readiness.compiled === true, prover: readiness.prover };
-      res.writeHead(summary.ready ? 200 : 503, summary.ready
-        ? { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
-        : { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': String(PROVERS_RETRY_AFTER_SECONDS) });
+      res.writeHead(
+        summary.ready ? 200 : 503,
+        summary.ready
+          ? { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+          : { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': String(PROVERS_RETRY_AFTER_SECONDS) },
+      );
       res.end(JSON.stringify(summary));
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
@@ -430,7 +458,11 @@ export function registerInteractiveRoutes(
 
       // B2: the identity preimage is never sent to the engine; the device sends its ownership proof.
       if (params.preimageFields !== undefined) {
-        sendError(res, 400, 'The identity preimage is never sent to the engine: send the ownership proof made on the device as ownershipProofJson (B2)');
+        sendError(
+          res,
+          400,
+          'The identity preimage is never sent to the engine: send the ownership proof made on the device as ownershipProofJson (B2)',
+        );
         return;
       }
       // A-34: the family comes from the insurer's approval, which carries the employer's opaque family hash;
@@ -483,14 +515,22 @@ export function registerInteractiveRoutes(
   reg('GET', '/interactive/wallet-updates', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const walletId = new URL(req.url ?? '/', 'http://localhost').searchParams.get('walletId') ?? '';
-      if (!/^[0-9]+$/.test(walletId)) { sendError(res, 400, 'walletId (decimal) is required'); return; }
+      if (!/^[0-9]+$/.test(walletId)) {
+        sendError(res, 400, 'walletId (decimal) is required');
+        return;
+      }
       const updates = service.walletUpdatesFor(walletId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        walletId,
-        pending: updates.filter((u) => u.status === 'pending'),
-        applied: updates.filter((u) => u.status === 'applied').slice(-20).map((u) => ({ updateId: u.updateId, reason: u.reason, receiptId: u.receiptId, appliedAt: u.appliedAt })),
-      }));
+      res.end(
+        JSON.stringify({
+          walletId,
+          pending: updates.filter((u) => u.status === 'pending'),
+          applied: updates
+            .filter((u) => u.status === 'applied')
+            .slice(-20)
+            .map((u) => ({ updateId: u.updateId, reason: u.reason, receiptId: u.receiptId, appliedAt: u.appliedAt })),
+        }),
+      );
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
@@ -498,9 +538,12 @@ export function registerInteractiveRoutes(
 
   reg('POST', '/interactive/wallet-update-applied', async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      const params = JSON.parse(await readBody(req) || '{}');
+      const params = JSON.parse((await readBody(req)) || '{}');
       for (const field of ['walletId', 'updateId', 'receiptId']) {
-        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+        if (typeof params[field] !== 'string' || params[field].length === 0) {
+          sendError(res, 400, `Missing ${field}`);
+          return;
+        }
       }
       const update = service.markWalletUpdateApplied(params.walletId, params.updateId, params.receiptId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -519,17 +562,22 @@ export function registerInteractiveRoutes(
   // calls takes the lock, which is not re-entrant: it only queues the device's update, with no proof and no batch.
   reg('POST', '/interactive/pcp-assignment', async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      const params = JSON.parse(await readBody(req) || '{}');
+      const params = JSON.parse((await readBody(req)) || '{}');
       for (const field of ['walletId', 'pcpWalletId', 'effectiveDate']) {
-        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+        if (typeof params[field] !== 'string' || params[field].length === 0) {
+          sendError(res, 400, `Missing ${field}`);
+          return;
+        }
       }
-      const result = await underProvingLock(req, res, () => service.assignPcpForDevice({
-        walletId: String(params.walletId),
-        pcpWalletId: String(params.pcpWalletId),
-        effectiveDate: String(params.effectiveDate),
-        specialty: typeof params.specialty === 'string' && params.specialty.length > 0 ? params.specialty : 'General Practice',
-        consentScopeFlags: typeof params.consentScopeFlags === 'number' ? params.consentScopeFlags : 7,
-      }));
+      const result = await underProvingLock(req, res, () =>
+        service.assignPcpForDevice({
+          walletId: String(params.walletId),
+          pcpWalletId: String(params.pcpWalletId),
+          effectiveDate: String(params.effectiveDate),
+          specialty: typeof params.specialty === 'string' && params.specialty.length > 0 ? params.specialty : 'General Practice',
+          consentScopeFlags: typeof params.consentScopeFlags === 'number' ? params.consentScopeFlags : 7,
+        }),
+      );
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (err) {
@@ -542,9 +590,12 @@ export function registerInteractiveRoutes(
   // visit. Wallet-signed: only the member's own key grants it.
   reg('POST', '/interactive/prescriber-authorization', async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      const params = JSON.parse(await readBody(req) || '{}');
+      const params = JSON.parse((await readBody(req)) || '{}');
       for (const field of ['walletId', 'prescriberWalletId']) {
-        if (typeof params[field] !== 'string' || params[field].length === 0) { sendError(res, 400, `Missing ${field}`); return; }
+        if (typeof params[field] !== 'string' || params[field].length === 0) {
+          sendError(res, 400, `Missing ${field}`);
+          return;
+        }
       }
       const result = await service.authorizePrescriber({
         walletId: String(params.walletId),
@@ -564,18 +615,28 @@ export function registerInteractiveRoutes(
   // (Step 2 commit two; admin-gated, insurer role). register-member honours only approved wallets.
   reg('POST', '/interactive/approve-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      const params = JSON.parse(await readBody(req) || '{}');
+      const params = JSON.parse((await readBody(req)) || '{}');
       const decimal = /^\d+$/;
-      if (typeof params.walletId !== 'string' || !decimal.test(params.walletId)
-        || typeof params.groupIdHash !== 'string' || !decimal.test(params.groupIdHash)
-        || typeof params.planIdHash !== 'string' || !decimal.test(params.planIdHash)
-        || typeof params.planId !== 'string' || params.planId.length === 0 || params.planId.length > 64) {
+      if (
+        typeof params.walletId !== 'string' ||
+        !decimal.test(params.walletId) ||
+        typeof params.groupIdHash !== 'string' ||
+        !decimal.test(params.groupIdHash) ||
+        typeof params.planIdHash !== 'string' ||
+        !decimal.test(params.planIdHash) ||
+        typeof params.planId !== 'string' ||
+        params.planId.length === 0 ||
+        params.planId.length > 64
+      ) {
         sendError(res, 400, 'Required: walletId, groupIdHash, planIdHash (decimal strings) and planId');
         return;
       }
       // A-34: the employer's opaque family hash from the enrollment code, or none.
-      if (params.familyIdHash !== undefined && params.familyIdHash !== null
-        && (typeof params.familyIdHash !== 'string' || !decimal.test(params.familyIdHash))) {
+      if (
+        params.familyIdHash !== undefined &&
+        params.familyIdHash !== null &&
+        (typeof params.familyIdHash !== 'string' || !decimal.test(params.familyIdHash))
+      ) {
         sendError(res, 400, 'familyIdHash, when given, is a decimal string');
         return;
       }
@@ -620,7 +681,9 @@ export function registerInteractiveRoutes(
       // Mark as pending and kick off in background
       enrollmentJobs.set(memberIndex, { status: 'pending' });
 
-      service.getL2Node().withProvingLock(() => service.enrollMember(memberIndex))
+      service
+        .getL2Node()
+        .withProvingLock(() => service.enrollMember(memberIndex))
         .then(async (result) => {
           enrollmentJobs.set(memberIndex, { status: 'complete', result });
           // Batch is now built inside enrollMember() (before admin lifecycle update)
@@ -691,7 +754,7 @@ export function registerInteractiveRoutes(
       let params: Record<string, unknown>;
       try {
         const parsed = JSON.parse(body || '{}') as unknown;
-        params = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+        params = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
       } catch {
         sendError(res, 400, 'The body is not JSON');
         return;
@@ -699,11 +762,19 @@ export function registerInteractiveRoutes(
 
       if (who?.kind === 'wallet') {
         if (params.prescriberIndex !== undefined || params.prescriberWalletId !== undefined) {
-          sendError(res, 400, "A prescriber's own request names no prescriber: the engine takes the prescriber from the wallet that signed it");
+          sendError(
+            res,
+            400,
+            "A prescriber's own request names no prescriber: the engine takes the prescriber from the wallet that signed it",
+          );
           return;
         }
-        if (typeof params.memberWalletId !== 'string' || !/^\d+$/.test(params.memberWalletId) ||
-            typeof params.ndcHash !== 'string' || !/^\d+$/.test(params.ndcHash)) {
+        if (
+          typeof params.memberWalletId !== 'string' ||
+          !/^\d+$/.test(params.memberWalletId) ||
+          typeof params.ndcHash !== 'string' ||
+          !/^\d+$/.test(params.ndcHash)
+        ) {
           sendError(res, 400, 'Missing required fields: memberWalletId and ndcHash, as decimal strings');
           return;
         }
@@ -724,13 +795,15 @@ export function registerInteractiveRoutes(
       }
 
       if (who?.kind !== 'operator' && !(who?.kind === 'node' && who.role === 'operator')) {
-        sendError(res, 403, "A prior authorization is requested by the prescriber, signed as the prescriber's own wallet, or by the operator");
+        sendError(
+          res,
+          403,
+          "A prior authorization is requested by the prescriber, signed as the prescriber's own wallet, or by the operator",
+        );
         return;
       }
       // The console's operator path: the prescriber is named by its seed index
-      if (typeof params.memberWalletId !== 'string' ||
-          typeof params.prescriberIndex !== 'number' ||
-          typeof params.ndcHash !== 'string') {
+      if (typeof params.memberWalletId !== 'string' || typeof params.prescriberIndex !== 'number' || typeof params.ndcHash !== 'string') {
         sendError(res, 400, 'Missing required fields: memberWalletId, prescriberIndex, ndcHash');
         return;
       }
@@ -787,7 +860,11 @@ export function registerInteractiveRoutes(
       } else if (who?.kind === 'operator' || (who?.kind === 'node' && who.role === 'operator')) {
         status = service.priorAuthStatusOf(memberWalletId, ndcHash);
       } else {
-        sendError(res, 403, "A member's prior authorization is read by a prescriber with the member's consent, signed as its own wallet, or by the operator");
+        sendError(
+          res,
+          403,
+          "A member's prior authorization is read by a prescriber with the member's consent, signed as its own wallet, or by the operator",
+        );
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -897,10 +974,12 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.prescriberIndex !== 'number' ||
-          typeof params.memberWalletId !== 'string' ||
-          typeof params.ndcHash !== 'string' ||
-          typeof params.pharmacyIndex !== 'number') {
+      if (
+        typeof params.prescriberIndex !== 'number' ||
+        typeof params.memberWalletId !== 'string' ||
+        typeof params.ndcHash !== 'string' ||
+        typeof params.pharmacyIndex !== 'number'
+      ) {
         sendError(res, 400, 'Missing required fields: prescriberIndex, memberWalletId, ndcHash, pharmacyIndex');
         return;
       }
@@ -912,15 +991,17 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, () => service.createPrescription({
-        prescriberIndex: params.prescriberIndex,
-        memberWalletId: params.memberWalletId,
-        ndcHash: params.ndcHash,
-        pharmacyIndex: params.pharmacyIndex,
-        quantity,
-        refills: params.refills ?? 3,
-        rxId: params.rxId,  // optional: prescriber-supplied ID for cross-node ID consistency
-      }));
+      const result = await underProvingLock(req, res, () =>
+        service.createPrescription({
+          prescriberIndex: params.prescriberIndex,
+          memberWalletId: params.memberWalletId,
+          ndcHash: params.ndcHash,
+          pharmacyIndex: params.pharmacyIndex,
+          quantity,
+          refills: params.refills ?? 3,
+          rxId: params.rxId, // optional: prescriber-supplied ID for cross-node ID consistency
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -935,7 +1016,12 @@ export function registerInteractiveRoutes(
   });
 
   // POST /interactive/fill — dispense step (backward-compat path; canonical name is dispensePrescription)
-  interface FillJob { status: 'pending' | 'complete' | 'error'; result?: unknown; error?: string; completedAt?: number; }
+  interface FillJob {
+    status: 'pending' | 'complete' | 'error';
+    result?: unknown;
+    error?: string;
+    completedAt?: number;
+  }
   const fillJobs = new Map<string, FillJob>();
   const FILL_JOB_TTL_MS = 5 * 60 * 1000; // Keep completed jobs for 5 minutes
 
@@ -975,16 +1061,24 @@ export function registerInteractiveRoutes(
 
       // Owner decision 2026-10-18: the pharmacy does not set the price. Costs in the request are only checked against
       // the engine's NADAC price; a fill that states different ones is refused before any proof.
-      service.getL2Node().withProvingLock(() => service.dispensePrescription({
-        prescriptionId: params.prescriptionId,
-        quantityDispensed: params.quantityDispensed,
-        statedIngredientCostCents: params.ingredientCostCents,
-        statedDispensingFeeCents: params.dispensingFeeCents,
-      }))
+      service
+        .getL2Node()
+        .withProvingLock(() =>
+          service.dispensePrescription({
+            prescriptionId: params.prescriptionId,
+            quantityDispensed: params.quantityDispensed,
+            statedIngredientCostCents: params.ingredientCostCents,
+            statedDispensingFeeCents: params.dispensingFeeCents,
+          }),
+        )
         .then(async (result) => {
           fillJobs.set(jobKey, { status: 'complete', result, completedAt: Date.now() });
           // Force batch to settle any pending transitions immediately
-          try { await service.forceBatch(); } catch (e) { console.warn('[fill] forceBatch after fill:', e instanceof Error ? e.message : e); }
+          try {
+            await service.forceBatch();
+          } catch (e) {
+            console.warn('[fill] forceBatch after fill:', e instanceof Error ? e.message : e);
+          }
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
@@ -1128,8 +1222,14 @@ export function registerInteractiveRoutes(
       // engine's NADAC price; checked here, before the prescription's proofs, and again at the dispense.
       if (params.ingredientCostCents != null || params.dispensingFeeCents != null) {
         const quoted = priceDispense(service.quoteFill(String(params.memberWalletId), ndcHashStr), quantityDispensed);
-        const mismatch = statedCostMismatch(quoted, { ingredientCostCents: params.ingredientCostCents, dispensingFeeCents: params.dispensingFeeCents });
-        if (mismatch) { sendError(res, 409, mismatch); return; }
+        const mismatch = statedCostMismatch(quoted, {
+          ingredientCostCents: params.ingredientCostCents,
+          dispensingFeeCents: params.dispensingFeeCents,
+        });
+        if (mismatch) {
+          sendError(res, 409, mismatch);
+          return;
+        }
       }
 
       // Build a job key from the claim data
@@ -1148,33 +1248,39 @@ export function registerInteractiveRoutes(
       fillJobs.set(jobKey, { status: 'pending' });
 
       // Run prescribe + fill in background
-      service.getL2Node().withProvingLock(async () => {
-        // Step 1: Create prescription
-        const rxResult = await service.createPrescription({
-          prescriberIndex,
-          memberWalletId: params.memberWalletId,
-          ndcHash: ndcHashStr,
-          pharmacyIndex,
-          quantity,
-          refills,
-        }) as { prescriptionId?: string };
+      service
+        .getL2Node()
+        .withProvingLock(async () => {
+          // Step 1: Create prescription
+          const rxResult = (await service.createPrescription({
+            prescriberIndex,
+            memberWalletId: params.memberWalletId,
+            ndcHash: ndcHashStr,
+            pharmacyIndex,
+            quantity,
+            refills,
+          })) as { prescriptionId?: string };
 
-        const prescriptionId = rxResult.prescriptionId;
-        if (!prescriptionId) throw new Error('Prescription creation did not return prescriptionId');
+          const prescriptionId = rxResult.prescriptionId;
+          if (!prescriptionId) throw new Error('Prescription creation did not return prescriptionId');
 
-        // Step 2: Fill the prescription
-        const fillResult = await service.dispensePrescription({
-          prescriptionId,
-          quantityDispensed,
-          statedIngredientCostCents: params.ingredientCostCents,
-          statedDispensingFeeCents: params.dispensingFeeCents,
-        });
+          // Step 2: Fill the prescription
+          const fillResult = await service.dispensePrescription({
+            prescriptionId,
+            quantityDispensed,
+            statedIngredientCostCents: params.ingredientCostCents,
+            statedDispensingFeeCents: params.dispensingFeeCents,
+          });
 
-        return fillResult;
-      })
+          return fillResult;
+        })
         .then(async (result) => {
           fillJobs.set(jobKey, { status: 'complete', result });
-          try { await service.forceBatch(); } catch (e) { console.warn('[prescribe-and-fill] forceBatch:', e instanceof Error ? e.message : e); }
+          try {
+            await service.forceBatch();
+          } catch (e) {
+            console.warn('[prescribe-and-fill] forceBatch:', e instanceof Error ? e.message : e);
+          }
         })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
@@ -1205,10 +1311,12 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.prescriptionId !== 'string' ||
-          typeof params.newStatus !== 'string' ||
-          typeof params.role !== 'string' ||
-          typeof params.actorIndex !== 'number') {
+      if (
+        typeof params.prescriptionId !== 'string' ||
+        typeof params.newStatus !== 'string' ||
+        typeof params.role !== 'string' ||
+        typeof params.actorIndex !== 'number'
+      ) {
         sendError(res, 400, 'Missing required fields: prescriptionId, newStatus, role, actorIndex');
         return;
       }
@@ -1223,13 +1331,15 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, async () => service.updateRxStatus({
-        prescriptionId: params.prescriptionId,
-        newStatus: params.newStatus,
-        role: params.role,
-        actorIndex: params.actorIndex,
-        note: params.note,
-      }));
+      const result = await underProvingLock(req, res, async () =>
+        service.updateRxStatus({
+          prescriptionId: params.prescriptionId,
+          newStatus: params.newStatus,
+          role: params.role,
+          actorIndex: params.actorIndex,
+          note: params.note,
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1251,11 +1361,13 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, () => service.reversePrescription({
-        prescriptionId: params.prescriptionId,
-        fillIndex: params.fillIndex,
-        reason: params.reason,
-      }));
+      const result = await underProvingLock(req, res, () =>
+        service.reversePrescription({
+          prescriptionId: params.prescriptionId,
+          fillIndex: params.fillIndex,
+          reason: params.reason,
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1279,10 +1391,12 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, () => service.assignPcp({
-        memberWalletId: params.memberWalletId,
-        prescriberIndex: params.prescriberIndex,
-      }));
+      const result = await underProvingLock(req, res, () =>
+        service.assignPcp({
+          memberWalletId: params.memberWalletId,
+          prescriberIndex: params.prescriberIndex,
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1375,10 +1489,12 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, async () => service.terminateMember({
-        memberWalletId: params.memberWalletId,
-        terminationDate: params.terminationDate,
-      }));
+      const result = await underProvingLock(req, res, async () =>
+        service.terminateMember({
+          memberWalletId: params.memberWalletId,
+          terminationDate: params.terminationDate,
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1395,10 +1511,13 @@ export function registerInteractiveRoutes(
   reg('POST', '/interactive/hold-member', async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const params = JSON.parse(await readBody(req)) as { walletId?: unknown; held?: unknown; reason?: unknown };
-      if (typeof params.walletId !== 'string' || !/^\d+$/.test(params.walletId)) return sendError(res, 400, 'walletId (decimal) is required');
+      if (typeof params.walletId !== 'string' || !/^\d+$/.test(params.walletId))
+        return sendError(res, 400, 'walletId (decimal) is required');
       if (typeof params.held !== 'boolean') return sendError(res, 400, 'held must be true or false');
       const reason = typeof params.reason === 'string' ? params.reason : '';
-      const result = await underProvingLock(req, res, async () => service.setMemberHold(params.walletId as string, params.held as boolean, reason));
+      const result = await underProvingLock(req, res, async () =>
+        service.setMemberHold(params.walletId as string, params.held as boolean, reason),
+      );
       if (res.writableEnded) return;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(safeJsonStringify(result));
@@ -1420,10 +1539,12 @@ export function registerInteractiveRoutes(
         return;
       }
 
-      const result = await underProvingLock(req, res, async () => service.terminateGroup({
-        groupId: params.groupId,
-        terminationDate: params.terminationDate,
-      }));
+      const result = await underProvingLock(req, res, async () =>
+        service.terminateGroup({
+          groupId: params.groupId,
+          terminationDate: params.terminationDate,
+        }),
+      );
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
@@ -1506,8 +1627,12 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (!params.delegatorWalletId || !params.delegateWalletId ||
-          typeof params.scopeFlags !== 'number' || typeof params.relationshipCode !== 'number') {
+      if (
+        !params.delegatorWalletId ||
+        !params.delegateWalletId ||
+        typeof params.scopeFlags !== 'number' ||
+        typeof params.relationshipCode !== 'number'
+      ) {
         sendError(res, 400, 'Missing required fields: delegatorWalletId, delegateWalletId, scopeFlags, relationshipCode');
         return;
       }
@@ -1554,7 +1679,9 @@ export function registerInteractiveRoutes(
       // Mark as pending and kick off in background
       credentialJobs.set(jobKey, { status: 'pending' });
 
-      service.getL2Node().withProvingLock(() => service.generateCredential(params.walletId, proofType))
+      service
+        .getL2Node()
+        .withProvingLock(() => service.generateCredential(params.walletId, proofType))
         .then((result) => {
           credentialJobs.set(jobKey, { status: 'complete', result });
         })
@@ -1638,8 +1765,7 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.ndcHash !== 'string' ||
-          !['MODIFY', 'REMOVE', 'ADD'].includes(params.action)) {
+      if (typeof params.ndcHash !== 'string' || !['MODIFY', 'REMOVE', 'ADD'].includes(params.action)) {
         sendError(res, 400, 'Missing required fields: ndcHash, action (MODIFY|REMOVE|ADD)');
         return;
       }
@@ -1661,8 +1787,7 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.prescriberWalletId !== 'string' ||
-          !['ADD', 'REMOVE'].includes(params.action)) {
+      if (typeof params.prescriberWalletId !== 'string' || !['ADD', 'REMOVE'].includes(params.action)) {
         sendError(res, 400, 'Missing required fields: prescriberWalletId, action (ADD|REMOVE)');
         return;
       }
@@ -1737,21 +1862,21 @@ export function registerInteractiveRoutes(
       ...rawStatus,
       inFlightBatch: rawStatus.inFlightBatch !== null ? Number(rawStatus.inFlightBatch) : null,
     };
-    const receipts = seq.getAllReceipts().map(r => ({
+    const receipts = seq.getAllReceipts().map((r) => ({
       ...r,
       sequenceNumber: Number(r.sequenceNumber),
       l2BlockNumber: r.l2BlockNumber !== undefined ? Number(r.l2BlockNumber) : undefined,
       l1BatchNumber: r.l1BatchNumber !== undefined ? Number(r.l1BatchNumber) : undefined,
       claimLeafIndex: r.claimLeafIndex !== undefined ? Number(r.claimLeafIndex) : undefined,
     }));
-    const batches = seq.getAllBatches().map(b => ({
+    const batches = seq.getAllBatches().map((b) => ({
       ...b,
       batchNumber: Number(b.batchNumber),
       blockNumbers: b.blockNumbers.map(Number),
       blockHeight: b.blockHeight !== undefined ? Number(b.blockHeight) : undefined,
     }));
     const auditLog = seq.getAuditLog();
-    const sanitizedEvents = auditLog.events.map(e => ({
+    const sanitizedEvents = auditLog.events.map((e) => ({
       ...e,
       sequenceNumber: Number(e.sequenceNumber),
       l2BlockNumber: e.l2BlockNumber !== undefined ? Number(e.l2BlockNumber) : undefined,
@@ -1760,12 +1885,17 @@ export function registerInteractiveRoutes(
     res.writeHead(200, {
       'Content-Type': 'application/json',
     });
-    res.end(safeJsonStringify({
-      status,
-      receipts,
-      batches,
-      auditLog: { ...auditLog, events: sanitizedEvents, eventCount: Number(auditLog.eventCount) },
-    }, 'l2-status'));
+    res.end(
+      safeJsonStringify(
+        {
+          status,
+          receipts,
+          batches,
+          auditLog: { ...auditLog, events: sanitizedEvents, eventCount: Number(auditLog.eventCount) },
+        },
+        'l2-status',
+      ),
+    );
   });
 
   // POST /interactive/force-batch
@@ -1775,11 +1905,16 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        ok: true,
-        batch: batch ? { batchNumber: Number((batch as any).batchNumber), transitionCount: (batch as any).transitionCount } : null,
-        message: batch ? 'Batch built and settled' : 'No pending proofs to batch',
-      }, 'force-batch'));
+      res.end(
+        safeJsonStringify(
+          {
+            ok: true,
+            batch: batch ? { batchNumber: Number((batch as any).batchNumber), transitionCount: (batch as any).transitionCount } : null,
+            message: batch ? 'Batch built and settled' : 'No pending proofs to batch',
+          },
+          'force-batch',
+        ),
+      );
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
@@ -1793,7 +1928,12 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({ ok: true, filename, message: filename ? `Checkpoint saved: ${filename}` : 'No checkpoint store configured' }, 'save-checkpoint'));
+      res.end(
+        safeJsonStringify(
+          { ok: true, filename, message: filename ? `Checkpoint saved: ${filename}` : 'No checkpoint store configured' },
+          'save-checkpoint',
+        ),
+      );
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
@@ -1811,7 +1951,7 @@ export function registerInteractiveRoutes(
         const body = JSON.parse(rawBody);
         batchNumber = BigInt(body.batchNumber);
       } else {
-        const failedBatch = seq.getAllBatches().find(b => b.l1Status === 'failed');
+        const failedBatch = seq.getAllBatches().find((b) => b.l1Status === 'failed');
         if (!failedBatch) throw new Error('No failed batches to retry');
         batchNumber = failedBatch.batchNumber;
       }
@@ -1819,7 +1959,12 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({ ok: true, batchNumber: Number(batch.batchNumber), l1Status: batch.l1Status, message: `Batch ${batch.batchNumber} retried` }, 'retry-batch'));
+      res.end(
+        safeJsonStringify(
+          { ok: true, batchNumber: Number(batch.batchNumber), l1Status: batch.l1Status, message: `Batch ${batch.batchNumber} retried` },
+          'retry-batch',
+        ),
+      );
     } catch (err) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }));
@@ -1838,7 +1983,7 @@ export function registerInteractiveRoutes(
         batchNumber = BigInt(body.batchNumber);
       } else {
         const allBatches = seq.getAllBatches();
-        const settledBatch = [...allBatches].reverse().find(b => b.l1Status === 'settled');
+        const settledBatch = [...allBatches].reverse().find((b) => b.l1Status === 'settled');
         if (!settledBatch) throw new Error('No settled batches to simulate failure on');
         batchNumber = settledBatch.batchNumber;
       }
@@ -1880,42 +2025,47 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        ...state,
-        prescribers: PRESCRIBERS.map((p, i) => ({
-          index: i,
-          firstName: p.firstName,
-          lastName: p.lastName,
-          credential: p.credential,
-          specialty: p.specialty,
-          npi: p.localData.prescriberId,
-          state: p.state,
-          deaNumber: p.deaNumber,
-        })),
-        pharmacies: PHARMACIES.map((p, i) => ({
-          index: i,
-          storeName: p.storeName,
-          chain: p.chain,
-          pharmacyType: p.pharmacyTypeDesc,
-          npi: p.localData.serviceProviderId,
-          ncpdpId: p.ncpdpProviderId,
-          address: p.address,
-          city: p.city,
-          state: p.state,
-          phone: p.phone,
-        })),
-        medications: MEDICATIONS.map((m, i) => ({
-          index: i,
-          brandName: m.brandName,
-          genericName: m.genericName,
-          strength: m.strength,
-          ndc: m.ndc,
-          tier: m.formularyEntry.tierLevel,
-          // what a fill is priced at: NADAC per pricing unit (EA, ML or GM); the pharmacy console's formulary lists it
-          nadacPerUnit: m.nadacPerUnit,
-          pricingUnit: m.pricingUnit,
-        })),
-      }, 'node-state'));
+      res.end(
+        safeJsonStringify(
+          {
+            ...state,
+            prescribers: PRESCRIBERS.map((p, i) => ({
+              index: i,
+              firstName: p.firstName,
+              lastName: p.lastName,
+              credential: p.credential,
+              specialty: p.specialty,
+              npi: p.localData.prescriberId,
+              state: p.state,
+              deaNumber: p.deaNumber,
+            })),
+            pharmacies: PHARMACIES.map((p, i) => ({
+              index: i,
+              storeName: p.storeName,
+              chain: p.chain,
+              pharmacyType: p.pharmacyTypeDesc,
+              npi: p.localData.serviceProviderId,
+              ncpdpId: p.ncpdpProviderId,
+              address: p.address,
+              city: p.city,
+              state: p.state,
+              phone: p.phone,
+            })),
+            medications: MEDICATIONS.map((m, i) => ({
+              index: i,
+              brandName: m.brandName,
+              genericName: m.genericName,
+              strength: m.strength,
+              ndc: m.ndc,
+              tier: m.formularyEntry.tierLevel,
+              // what a fill is priced at: NADAC per pricing unit (EA, ML or GM); the pharmacy console's formulary lists it
+              nadacPerUnit: m.nadacPerUnit,
+              pricingUnit: m.pricingUnit,
+            })),
+          },
+          'node-state',
+        ),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -2060,11 +2210,16 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        memberWalletId,
-        claims,
-        claimCount: claims.length,
-      }, 'dur'));
+      res.end(
+        safeJsonStringify(
+          {
+            memberWalletId,
+            claims,
+            claimCount: claims.length,
+          },
+          'dur',
+        ),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -2160,7 +2315,7 @@ export function registerInteractiveRoutes(
       const sanitized = {
         ...auditLog,
         eventCount: Number(auditLog.eventCount),
-        events: auditLog.events.map(e => ({
+        events: auditLog.events.map((e) => ({
           ...e,
           sequenceNumber: Number(e.sequenceNumber),
           l2BlockNumber: e.l2BlockNumber !== undefined ? Number(e.l2BlockNumber) : undefined,
@@ -2189,12 +2344,17 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        chainProofJson,
-        globalStateRoot,
-        blockHeight,
-        available: chainProofJson !== null,
-      }, 'chain-proof'));
+      res.end(
+        safeJsonStringify(
+          {
+            chainProofJson,
+            globalStateRoot,
+            blockHeight,
+            available: chainProofJson !== null,
+          },
+          'chain-proof',
+        ),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -2238,11 +2398,16 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        ok: true,
-        batch: batch ? { batchNumber: Number((batch as any).batchNumber), transitionCount: (batch as any).transitionCount } : null,
-        message: batch ? 'Batch built and settled' : 'No pending proofs to batch',
-      }, 'node-force-batch'));
+      res.end(
+        safeJsonStringify(
+          {
+            ok: true,
+            batch: batch ? { batchNumber: Number((batch as any).batchNumber), transitionCount: (batch as any).transitionCount } : null,
+            message: batch ? 'Batch built and settled' : 'No pending proofs to batch',
+          },
+          'node-force-batch',
+        ),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -2255,9 +2420,7 @@ export function registerInteractiveRoutes(
       const body = await readBody(req);
       const params = JSON.parse(body);
 
-      if (typeof params.planIdHash !== 'string' ||
-          typeof params.formularyRoot !== 'string' ||
-          typeof params.entriesJson !== 'string') {
+      if (typeof params.planIdHash !== 'string' || typeof params.formularyRoot !== 'string' || typeof params.entriesJson !== 'string') {
         sendError(res, 400, 'Missing required fields: planIdHash, formularyRoot, entriesJson');
         return;
       }
@@ -2269,10 +2432,15 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(safeJsonStringify({
-        ok: true,
-        message: `Formulary published for plan ${params.planIdHash}`,
-      }, 'publish-formulary'));
+      res.end(
+        safeJsonStringify(
+          {
+            ok: true,
+            message: `Formulary published for plan ${params.planIdHash}`,
+          },
+          'publish-formulary',
+        ),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       sendError(res, 500, message);
@@ -2347,9 +2515,11 @@ export function registerInteractiveRoutes(
             // Under the proving lock, as the verify-credential route's verification is: an engine that proves inline
             // would otherwise verify in the o1js context a fill is proving in. The verification takes no lock itself,
             // and the lock is not re-entrant.
-            verificationResult = await service.getL2Node().withProvingLock(() => service.verifyCredential(
-              typeof credentialJson === 'string' ? credentialJson : JSON.stringify(credentialJson),
-            ));
+            verificationResult = await service
+              .getL2Node()
+              .withProvingLock(() =>
+                service.verifyCredential(typeof credentialJson === 'string' ? credentialJson : JSON.stringify(credentialJson)),
+              );
           } else {
             verificationResult = { valid: false, reason: 'No credential found for this walletId' };
           }
@@ -2390,7 +2560,7 @@ export function registerInteractiveRoutes(
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        Connection: 'keep-alive',
       });
 
       // Send initial status
@@ -2518,15 +2688,17 @@ export function registerInteractiveRoutes(
       } finally {
         badgeTapInProgress = false;
       }
-      const success = events.some(e => e.type === 'badge:session');
-      const error = events.find(e => e.type === 'badge:error');
+      const success = events.some((e) => e.type === 'badge:session');
+      const error = events.find((e) => e.type === 'badge:error');
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(safeJsonStringify({
-        authenticated: success,
-        events,
-        error: error?.error,
-      }));
+      res.end(
+        safeJsonStringify({
+          authenticated: success,
+          events,
+          error: error?.error,
+        }),
+      );
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
@@ -2562,20 +2734,22 @@ export function registerInteractiveRoutes(
       } finally {
         badgeTapInProgress = false;
       }
-      const authenticated = events.filter(e => e.type === 'badge:session').length;
-      const errors = events.filter(e => e.type === 'badge:error').length;
-      const proofs = events.filter(e => e.type === 'badge:proof' && e.data?.verified).length;
+      const authenticated = events.filter((e) => e.type === 'badge:session').length;
+      const errors = events.filter((e) => e.type === 'badge:error').length;
+      const proofs = events.filter((e) => e.type === 'badge:proof' && e.data?.verified).length;
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(safeJsonStringify({
-        summary: {
-          totalProviders: authenticated + errors,
-          authenticated,
-          errors,
-          proofsGenerated: proofs,
-        },
-        events,
-      }));
+      res.end(
+        safeJsonStringify({
+          summary: {
+            totalProviders: authenticated + errors,
+            authenticated,
+            errors,
+            proofsGenerated: proofs,
+          },
+          events,
+        }),
+      );
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
     }
@@ -2600,15 +2774,17 @@ export function registerInteractiveRoutes(
 
       // Redact the encrypted key for security display
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        key,
-        badge: {
-          ...badge,
-          ek: badge.ek.slice(0, 16) + '...[encrypted]',
-        },
-        estimatedBytes: JSON.stringify(badge).length,
-        fitsNtag216: JSON.stringify(badge).length < 888,
-      }));
+      res.end(
+        JSON.stringify({
+          key,
+          badge: {
+            ...badge,
+            ek: badge.ek.slice(0, 16) + '...[encrypted]',
+          },
+          estimatedBytes: JSON.stringify(badge).length,
+          fitsNtag216: JSON.stringify(badge).length < 888,
+        }),
+      );
     } catch (err) {
       sendError(res, 500, err instanceof Error ? err.message : String(err));
     }

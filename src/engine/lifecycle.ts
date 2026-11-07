@@ -31,11 +31,11 @@ import { WALLET_TREE_HEIGHT } from '../wallets/wallet-state.js';
 /** Merkle witness for the lifecycle tree (same height as wallet registry) */
 export class LifecycleWitness extends MerkleWitness(WALLET_TREE_HEIGHT) {}
 
-export const LIFECYCLE_EMPTY      = Field(0);
+export const LIFECYCLE_EMPTY = Field(0);
 export const LIFECYCLE_REGISTERED = Field(1);
-export const LIFECYCLE_ELIGIBLE   = Field(2);
-export const LIFECYCLE_ACTIVE     = Field(3);
-export const LIFECYCLE_REVOKED    = Field(4);
+export const LIFECYCLE_ELIGIBLE = Field(2);
+export const LIFECYCLE_ACTIVE = Field(3);
+export const LIFECYCLE_REVOKED = Field(4);
 
 /**
  * Compute the lifecycle leaf commitment for the lifecycle Merkle tree.

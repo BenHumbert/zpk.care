@@ -81,9 +81,21 @@ export const WalletMigrationProgram = ZkProgram({
       privateInputs: [Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field, Field],
       async method(
         // Old preimage: [domainTag, f0, f1, f2, f3, f4, f5]
-        oldDomainTag: Field, oldF0: Field, oldF1: Field, oldF2: Field, oldF3: Field, oldF4: Field, oldF5: Field,
+        oldDomainTag: Field,
+        oldF0: Field,
+        oldF1: Field,
+        oldF2: Field,
+        oldF3: Field,
+        oldF4: Field,
+        oldF5: Field,
         // New preimage: [domainTag, f0, f1, f2, f3, f4, f5]
-        newDomainTag: Field, newF0: Field, newF1: Field, newF2: Field, newF3: Field, newF4: Field, newF5: Field,
+        newDomainTag: Field,
+        newF0: Field,
+        newF1: Field,
+        newF2: Field,
+        newF3: Field,
+        newF4: Field,
+        newF5: Field,
       ): Promise<{ publicOutput: MigrationOutput }> {
         // 1. Domain tags must match
         oldDomainTag.assertEquals(newDomainTag);

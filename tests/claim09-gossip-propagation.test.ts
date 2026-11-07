@@ -34,11 +34,7 @@ import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
 import { L2PeerNetwork, generateMessageId } from '../src/l2/l2-peer-network.js';
 import type { GossipHandler } from '../src/l2/l2-peer-network.js';
-import type {
-  GossipMessage,
-  GossipMessageType,
-  ProofAcceptedPayload,
-} from '../src/l2/l2-peer-types.js';
+import type { GossipMessage, GossipMessageType, ProofAcceptedPayload } from '../src/l2/l2-peer-types.js';
 import type { L2Receipt } from '../src/l2/l2-types.js';
 import type { AuditEvent } from '../src/audit/audit-types.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
@@ -67,13 +63,7 @@ interface TestNodeContext {
 }
 
 /** Create an L2Node + RPC server + PeerNetwork on a random port */
-async function createTestNode(
-  opts: {
-    nodeId: string;
-    gossipSecret?: string;
-    gossipRelayEnabled?: boolean;
-  },
-): Promise<TestNodeContext> {
+async function createTestNode(opts: { nodeId: string; gossipSecret?: string; gossipRelayEnabled?: boolean }): Promise<TestNodeContext> {
   const store = new InMemoryStore();
   const node = new L2Node(
     {
@@ -156,12 +146,7 @@ function mockAuditEvent(seqNum: bigint, receiptId?: string): AuditEvent {
 }
 
 /** Create a gossip message */
-function makeGossipMessage(
-  type: GossipMessageType,
-  senderId: string,
-  payload: unknown,
-  messageId?: string,
-): GossipMessage {
+function makeGossipMessage(type: GossipMessageType, senderId: string, payload: unknown, messageId?: string): GossipMessage {
   const ts = Date.now();
   return {
     messageId: messageId ?? generateMessageId(type, senderId, ts),
@@ -198,7 +183,9 @@ function rawRpc(port: number, body: string, adminToken?: string): Promise<{ stat
       },
       (res) => {
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
       },
     );
@@ -249,12 +236,16 @@ describe('Claim 9: Gossip-Replicated Proof Propagation', () => {
     const gossipMsg = makeGossipMessage('proof:accepted', 'node-A', payload, 'relay-test-001');
 
     // Send to B with fromPeerId so relay kicks in
-    const res = await rawRpc(ctxB.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'l2_gossipRelay',
-      params: { message: gossipMsg, fromPeerId: 'node-A' },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctxB.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'l2_gossipRelay',
+        params: { message: gossipMsg, fromPeerId: 'node-A' },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ result: { accepted: boolean } }>(res.body);
     expect(rpc.result.accepted).toBe(true);
@@ -296,14 +287,16 @@ describe('Claim 9: Gossip-Replicated Proof Propagation', () => {
       return (msg) => {
         if (msg.type === 'proof:accepted') {
           const p = msg.payload as ProofAcceptedPayload;
-          node.getSequencer().applyReplicatedReceipt(
-            p.receipt,
-            p.auditEvent,
-            undefined,
-            p.currentRegistryRoot,
-            p.currentLifecycleRoot,
-            p.currentWalletCount,
-          );
+          node
+            .getSequencer()
+            .applyReplicatedReceipt(
+              p.receipt,
+              p.auditEvent,
+              undefined,
+              p.currentRegistryRoot,
+              p.currentLifecycleRoot,
+              p.currentWalletCount,
+            );
         }
       };
     };
@@ -390,9 +383,7 @@ describe('Claim 9: Gossip-Replicated Proof Propagation', () => {
     ctxC.node.getSequencer().applyReplicatedReceipt(r2, a2);
 
     // C requests state sync from B
-    const snapshot = await ctxC.client.requestSnapshot.call(
-      new L2Client({ sequencerUrl: ctxB.url, adminToken: TEST_ADMIN_TOKEN }),
-    );
+    const snapshot = await ctxC.client.requestSnapshot.call(new L2Client({ sequencerUrl: ctxB.url, adminToken: TEST_ADMIN_TOKEN }));
 
     // Manually apply B's state to C — apply R1 which C doesn't have yet
     const r1FromSnapshot = snapshot.receipts.find((r: any) => r.receiptId === 'receipt-r1');
@@ -426,19 +417,25 @@ describe('Claim 9: Gossip-Replicated Proof Propagation', () => {
     msg.signature = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
 
     // Send tampered message to B via RPC
-    const res = await rawRpc(ctxB.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'l2_gossipRelay',
-      params: { message: msg },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctxB.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'l2_gossipRelay',
+        params: { message: msg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ result: { accepted: boolean } }>(res.body);
     expect(rpc.result.accepted).toBe(false);
 
     // Valid message (properly signed via broadcast) should be accepted
     let handlerCalled = false;
-    ctxB.peerNet.on(() => { handlerCalled = true; });
+    ctxB.peerNet.on(() => {
+      handlerCalled = true;
+    });
 
     // Connect A to B and broadcast properly
     await ctxA.peerNet.connectToPeer(ctxB.url);
@@ -466,8 +463,12 @@ describe('Claim 9: Gossip-Replicated Proof Propagation', () => {
 
     let handlerCallsA = 0;
     let handlerCallsB = 0;
-    ctxA.peerNet.on(() => { handlerCallsA++; });
-    ctxB.peerNet.on(() => { handlerCallsB++; });
+    ctxA.peerNet.on(() => {
+      handlerCallsA++;
+    });
+    ctxB.peerNet.on(() => {
+      handlerCallsB++;
+    });
 
     // A broadcasts
     const payload = makeProofAcceptedPayload(1n);

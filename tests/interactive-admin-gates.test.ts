@@ -37,6 +37,7 @@
  * away from disappearing.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 
 const ROUTES_FILE = 'src/adjudication/interactive-routes.ts';
 
@@ -47,15 +48,12 @@ function adminRouteSet(src: string): Set<string> {
   const end = src.indexOf(']);', start);
   expect(end).toBeGreaterThan(start);
   const block = src.slice(start, end);
-  return new Set(
-    [...block.matchAll(/'(\/interactive\/[a-z-]+)'/g)].map((m) => m[1]),
-  );
+  return new Set([...block.matchAll(/'(\/interactive\/[a-z-]+)'/g)].map((m) => m[1]));
 }
 
 /** Every path registered through the `reg` helper in this file. */
 function registeredPaths(src: string): Array<{ method: string; path: string }> {
-  return [...src.matchAll(/reg\('([A-Z]+)',\s*'(\/interactive\/[^']+)'/g)]
-    .map((m) => ({ method: m[1], path: m[2] }));
+  return [...src.matchAll(/reg\('([A-Z]+)',\s*'(\/interactive\/[^']+)'/g)].map((m) => ({ method: m[1], path: m[2] }));
 }
 
 describe('the routes A11 closes are admin-gated', () => {
@@ -89,12 +87,12 @@ describe('the routes A11 closes are admin-gated', () => {
    * closed in the same change. A-17's own note said to treat it as critical the moment A-24 was
    * fixed; this is the test that keeps it closed.
    */
-  test.each([
-    '/interactive/generate-credential',
-    '/interactive/credential-status',
-  ])('credential minting route %s requires admin', (route) => {
-    expect(admin.has(route)).toBe(true);
-  });
+  test.each(['/interactive/generate-credential', '/interactive/credential-status'])(
+    'credential minting route %s requires admin',
+    (route) => {
+      expect(admin.has(route)).toBe(true);
+    },
+  );
 
   test('the gates that were already there are still there', () => {
     for (const route of [
@@ -121,8 +119,12 @@ describe('the routes A11 closes are admin-gated', () => {
 
   test('the gating helper applies the flag, so membership in the set is sufficient', () => {
     // If this helper stops consulting ADMIN_ROUTES, every assertion above becomes decorative.
-    expect(src).toContain("const adminOnly = ADMIN_ROUTES.has(path)");
-    expect(src).toContain("adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined");
+    expect(flat(src)).toContain(flat('const adminOnly = ADMIN_ROUTES.has(path)'));
+    expect(flat(src)).toContain(
+      flat(
+        'adminOnly ? { adminOnly: true, timeoutMs } : walletSigned ? { walletSigned, timeoutMs } : timeoutMs ? { timeoutMs } : undefined',
+      ),
+    );
   });
 });
 
@@ -140,7 +142,10 @@ describe('the console stream is gated, and the set has not been emptied', () => 
     expect(admin.has('/interactive/console')).toBe(true);
     // The visualizer opens it with the operator's token in the query, since an EventSource sends no header.
     for (const f of ['visualizer/src/js/interactive/console-panel.js', 'visualizer/src/js/sequencer-dashboard.js']) {
-      expect([f, fs.readFileSync(f, 'utf-8').includes('new EventSource(withOperatorToken(`${API_BASE}/interactive/console`))')]).toEqual([f, true]);
+      expect([f, fs.readFileSync(f, 'utf-8').includes('new EventSource(withOperatorToken(`${API_BASE}/interactive/console`))')]).toEqual([
+        f,
+        true,
+      ]);
     }
   });
 
@@ -154,9 +159,7 @@ describe('the harness probes the dump unauthenticated on purpose', () => {
     // A11 switched the harness bookkeeping reads to an admin client. The sweep must NOT follow,
     // or it would stop measuring what an outsider can collect and would silently start passing.
     const run = fs.readFileSync('scripts/e2e-verify/run.ts', 'utf-8');
-    const sweepLine = run
-      .split('\n')
-      .find((l) => l.includes("sources.push(['sequencer /interactive/state'"));
+    const sweepLine = run.split('\n').find((l) => l.includes("sources.push(['sequencer /interactive/state'"));
     expect(sweepLine).toBeDefined();
     expect(sweepLine).toContain("http('GET'");
     expect(sweepLine).not.toContain('httpAdmin');

@@ -69,8 +69,14 @@ function standInEngine() {
       reached.registerMemberFromEnrollment.push(opts);
       return { walletId: opts.walletId, displayName: opts.displayName };
     },
-    verifyCredential: async (credentialJson: string) => { reached.verifyCredential.push(credentialJson); return { valid: true }; },
-    approveMember: (approval: { walletId: string }) => { reached.approveMember.push(approval); return { approved: true, alreadyApproved: false }; },
+    verifyCredential: async (credentialJson: string) => {
+      reached.verifyCredential.push(credentialJson);
+      return { valid: true };
+    },
+    approveMember: (approval: { walletId: string }) => {
+      reached.approveMember.push(approval);
+      return { approved: true, alreadyApproved: false };
+    },
   };
   return new Proxy(own, {
     get(t, p) {
@@ -88,24 +94,36 @@ async function post(p: string, body: string, headers: Record<string, string> = {
   const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = null; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
   return { status: r.status, json };
 }
 
 /** POST a body in chunks, with no Content-Length; resolves with the status and body, or the error the connection ended in. */
 function postChunked(port: number, p: string, parts: string[]): Promise<string> {
   return new Promise((resolve) => {
-    const req = http.request({ host: '127.0.0.1', port, path: p, method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => {
-      let text = '';
-      res.setEncoding('utf-8');
-      res.on('data', (c: string) => { text += c; });
-      res.on('end', () => resolve(`${res.statusCode} ${text}`));
-    });
+    const req = http.request(
+      { host: '127.0.0.1', port, path: p, method: 'POST', headers: { 'Content-Type': 'application/json' } },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf-8');
+        res.on('data', (c: string) => {
+          text += c;
+        });
+        res.on('end', () => resolve(`${res.statusCode} ${text}`));
+      },
+    );
     req.on('error', (err: NodeJS.ErrnoException) => resolve(`error ${err.code ?? err.message}`));
     let i = 0;
     const pump = (): void => {
       while (i < parts.length) {
-        if (!req.write(parts[i++])) { req.once('drain', pump); return; }
+        if (!req.write(parts[i++])) {
+          req.once('drain', pump);
+          return;
+        }
       }
       req.end();
     };
@@ -114,24 +132,36 @@ function postChunked(port: number, p: string, parts: string[]): Promise<string> 
 }
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-engine-body-limit' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-engine-body-limit' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   registerInteractiveRoutes(server, standInEngine() as any);
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
-beforeEach(() => { for (const calls of Object.values(reached)) calls.length = 0; });
+beforeEach(() => {
+  for (const calls of Object.values(reached)) calls.length = 0;
+});
 
 describe('a body longer than the engine reads', () => {
   test('register-member answers 413 before reading it, hands the engine nothing, and serves the next request', async () => {
     const big = JSON.stringify({ ...MEMBER, ownershipProofJson: OVER });
     const refused = await post('/interactive/register-member', big);
-    expect(refused.status).toBe(413);                                              // before: 200, the whole body read, parsed and handed to the engine
-    expect(refused.json?.error).toBe(`The engine reads a request body of at most ${LIMIT} bytes; this one declares ${Buffer.byteLength(big)}`); // before: undefined, the engine's answer
-    expect(reached.registerMemberFromEnrollment).toHaveLength(0);                 // before: 1, every byte of the body with it
+    expect(refused.status).toBe(413); // before: 200, the whole body read, parsed and handed to the engine
+    expect(refused.json?.error).toBe(
+      `The engine reads a request body of at most ${LIMIT} bytes; this one declares ${Buffer.byteLength(big)}`,
+    ); // before: undefined, the engine's answer
+    expect(reached.registerMemberFromEnrollment).toHaveLength(0); // before: 1, every byte of the body with it
     const next = await post('/interactive/register-member', JSON.stringify(MEMBER));
     expect(next.status).toBe(200);
     expect(reached.registerMemberFromEnrollment).toEqual([expect.objectContaining({ walletId: '1001', displayName: 'Avery' })]);
@@ -139,20 +169,20 @@ describe('a body longer than the engine reads', () => {
 
   test('verify-credential answers 413 the same way, and verifies the next credential', async () => {
     const refused = await post('/interactive/verify-credential', JSON.stringify({ credentialJson: OVER }));
-    expect(refused.status).toBe(413);                                              // before: 200, the whole body read and the credential verified under the proving lock
-    expect(reached.verifyCredential).toHaveLength(0);                             // before: 1
+    expect(refused.status).toBe(413); // before: 200, the whole body read and the credential verified under the proving lock
+    expect(reached.verifyCredential).toHaveLength(0); // before: 1
     const next = await post('/interactive/verify-credential', JSON.stringify({ credentialJson: '{"stand-in":true}' }));
     expect(next.status).toBe(200);
     expect(next.json).toEqual({ valid: true });
     expect(reached.verifyCredential).toEqual(['{"stand-in":true}']);
   });
 
-  test('the limit is every engine route\'s: the operator\'s own body to a gated write is answered 413 too', async () => {
+  test("the limit is every engine route's: the operator's own body to a gated write is answered 413 too", async () => {
     // The gate reads the body of a signed request only, so a bearer's body was the handler's to read, whole
     const approval = { walletId: '1001', groupIdHash: '777', planIdHash: '888', planId: 'PLAN-1' };
     const refused = await post('/interactive/approve-member', JSON.stringify({ ...approval, employerId: OVER }), bearer);
-    expect(refused.status).toBe(413);                                              // before: 200, the whole body read and the approval kept
-    expect(reached.approveMember).toHaveLength(0);                                // before: 1, its employerId twenty megabytes long
+    expect(refused.status).toBe(413); // before: 200, the whole body read and the approval kept
+    expect(reached.approveMember).toHaveLength(0); // before: 1, its employerId twenty megabytes long
     expect((await post('/interactive/approve-member', JSON.stringify(approval), bearer)).status).toBe(200);
     expect(reached.approveMember).toHaveLength(1);
   });
@@ -160,10 +190,17 @@ describe('a body longer than the engine reads', () => {
   test('a body sent in chunks, with no length to answer from, is read no further than the limit, and the next request is served', async () => {
     // The handler the engine registers for register-member, as the sequencer calls it for a route that needs no credential
     const routes = new Map<string, Handler>();
-    const capture = { registerRoute: (method: string, p: string, handler: Handler) => { routes.set(`${method}:${p}`, handler); }, setMemberCostQuoteProvider: () => {} };
+    const capture = {
+      registerRoute: (method: string, p: string, handler: Handler) => {
+        routes.set(`${method}:${p}`, handler);
+      },
+      setMemberCostQuoteProvider: () => {},
+    };
     registerInteractiveRoutes(capture as any, standInEngine() as any);
     const registerMember = routes.get('POST:/interactive/register-member')!;
-    const plain = http.createServer((req, res) => { void registerMember(req, res); });
+    const plain = http.createServer((req, res) => {
+      void registerMember(req, res);
+    });
     await new Promise<void>((resolve) => plain.listen(0, '127.0.0.1', resolve));
     const port = (plain.address() as AddressInfo).port;
     try {
@@ -171,8 +208,8 @@ describe('a body longer than the engine reads', () => {
       const chunk = 'x'.repeat(64 * 1024);
       const parts = [head, ...Array.from({ length: Math.ceil(LIMIT / chunk.length) + 16 }, () => chunk), '"}'];
       const outcome = await postChunked(port, '/interactive/register-member', parts);
-      expect(outcome).toMatch(/^error /);                                          // before: 200, the whole body read, parsed and handed to the engine
-      expect(reached.registerMemberFromEnrollment).toHaveLength(0);               // before: 1
+      expect(outcome).toMatch(/^error /); // before: 200, the whole body read, parsed and handed to the engine
+      expect(reached.registerMemberFromEnrollment).toHaveLength(0); // before: 1
       expect(await postChunked(port, '/interactive/register-member', [JSON.stringify(MEMBER)])).toMatch(/^200 /);
       expect(reached.registerMemberFromEnrollment).toHaveLength(1);
     } finally {
@@ -190,7 +227,7 @@ describe('register-member', () => {
       const shown = String(walletId).slice(0, 12);
       expect([shown, r.status, r.json?.error]).toEqual([shown, 400, expect.stringMatching(/^walletId must be /)]); // before: 200, handed to the engine
     }
-    expect(reached.registerMemberFromEnrollment).toEqual([]);                    // before: all eight reached it
+    expect(reached.registerMemberFromEnrollment).toEqual([]); // before: all eight reached it
     expect((await post('/interactive/register-member', JSON.stringify(MEMBER))).status).toBe(200);
   });
 });

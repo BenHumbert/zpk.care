@@ -51,7 +51,9 @@ export function attachNodeKeyring(server: NautilusAppServer, keyring: NodeKeyrin
     if (derived !== expected) {
       // cannot happen for a master that passed the record's check, since the record's signatures cover both; if it
       // does, the node signs nothing rather than sign as an insurer the sequencer does not pin
-      console.error(`  [keys] REFUSED: the insurer key made from the master (${derived}) is not the one ceremony ${k.status().ceremonyId} names (${expected}); attestations stay unsigned`);
+      console.error(
+        `  [keys] REFUSED: the insurer key made from the master (${derived}) is not the one ceremony ${k.status().ceremonyId} names (${expected}); attestations stay unsigned`,
+      );
       return;
     }
     server.getConfig().insurerSigningSeed = seed;
@@ -79,7 +81,13 @@ export function buildKeyRoutes(server: NautilusAppServer): RouteRegistration[] {
         const source = server.callerKey(req);
         if (refusedPerSource.count(source) >= REFUSED_RELEASES_PER_SOURCE_PER_MINUTE) {
           res.setHeader('Retry-After', '60');
-          return server.sendResponse(res, 429, false, undefined, 'Too many refused releases from this address in the last minute. Try again in a minute.');
+          return server.sendResponse(
+            res,
+            429,
+            false,
+            undefined,
+            'Too many refused releases from this address in the last minute. Try again in a minute.',
+          );
         }
         const result = await keyring.acceptRelease(body as ShareRelease);
         if (!result.accepted) {

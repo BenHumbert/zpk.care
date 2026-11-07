@@ -27,21 +27,18 @@
  */
 
 import {
-  API_BASE, formatCents,
-  updateChainState, renderCredentialCard, renderForestCard, renderZkDataSection,
+  API_BASE,
+  formatCents,
+  updateChainState,
+  renderCredentialCard,
+  renderForestCard,
+  renderZkDataSection,
 } from '../interactive-app.js';
-import {
-  renderSectionCard, renderMetricRow, renderSortableTable,
-  truncHash,
-} from '../node-common.js';
+import { renderSectionCard, renderMetricRow, renderSortableTable, truncHash } from '../node-common.js';
 import { nadacPerUnitLabel } from './nadac-price.js';
 import { escapeHtml, renderMessageBubbles } from './message-thread.js';
 
-const PCP_ELIGIBLE_SPECIALTIES = [
-  'Internal Medicine',
-  'Family Medicine',
-  'Nurse Practitioner - Family',
-];
+const PCP_ELIGIBLE_SPECIALTIES = ['Internal Medicine', 'Family Medicine', 'Nurse Practitioner - Family'];
 
 export class MemberPhase {
   constructor(app) {
@@ -109,9 +106,13 @@ export class MemberPhase {
             <label>Select Member</label>
             <select id="member-select">
               <option value="">\u2014 Choose a member \u2014</option>
-              ${members.map((m, i) => `
+              ${members
+                .map(
+                  (m, i) => `
                 <option value="${i}">${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)} (${escapeHtml(m.cardholderId)}) \u2014 ${escapeHtml(m.relationship)}</option>
-              `).join('')}
+              `,
+                )
+                .join('')}
             </select>
           </div>
           <div id="member-details" class="hidden">
@@ -249,7 +250,6 @@ export class MemberPhase {
 
       // Poll every 15 seconds for enrollment status
       this._pollEnrollStatus(btn, this.selectedMemberIndex);
-
     } catch (err) {
       const resultDiv = document.getElementById('enroll-result');
       resultDiv.classList.remove('hidden');
@@ -359,7 +359,7 @@ export class MemberPhase {
 
     // Show most recently enrolled member (or first one)
     const member = enrolled[enrolled.length - 1];
-    const memberRxs = prescriptions.filter(rx => rx.memberWalletId === member.walletId);
+    const memberRxs = prescriptions.filter((rx) => rx.memberWalletId === member.walletId);
 
     this.container.innerHTML = `
       <!-- Member Summary -->
@@ -369,7 +369,9 @@ export class MemberPhase {
           ${member.lifecycle === 'REVOKED' ? '<span class="rx-status-badge rx-status-cancelled" style="margin-left: 8px; font-size: 11px;">TERMINATED</span>' : ''}
         </div>
         <div class="card-body">
-          ${member.lifecycle === 'REVOKED' ? `
+          ${
+            member.lifecycle === 'REVOKED'
+              ? `
           <div style="padding: 10px 14px; margin-bottom: 12px; background: rgba(239, 83, 80, 0.08); border: 1px solid rgba(239, 83, 80, 0.25); border-radius: 6px;">
             <div style="font-size: 13px; color: var(--accent-red); font-weight: 600;">Coverage Terminated</div>
             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
@@ -377,7 +379,9 @@ export class MemberPhase {
               Active prescriptions have been auto-cancelled.
             </div>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div class="data-grid">
             <div class="label">Wallet ID</div><div class="value mono" style="font-size: 11px;">${escapeHtml(member.walletIdDisplay || member.walletId)}</div>
             <div class="label">Plan</div><div class="value">${escapeHtml(member.planId)}</div>
@@ -407,14 +411,15 @@ export class MemberPhase {
 
           <!-- PCP Status -->
           <div style="margin-top: 16px;">
-            ${member.pcpAssignment
-              ? `<div class="data-grid">
+            ${
+              member.pcpAssignment
+                ? `<div class="data-grid">
                   <div class="label">Primary Care</div>
                   <div class="value" style="color: var(--accent-green);">
                     ${escapeHtml(member.pcpAssignment.prescriberName)}, ${escapeHtml(member.pcpAssignment.specialty)}
                   </div>
                 </div>`
-              : `<div style="font-size: 12px; color: var(--text-muted);">No PCP assigned yet. Select one below.</div>`
+                : `<div style="font-size: 12px; color: var(--text-muted);">No PCP assigned yet. Select one below.</div>`
             }
           </div>
         </div>
@@ -424,18 +429,21 @@ export class MemberPhase {
       ${this.renderCredentialSection(member)}
 
       <!-- Prescriptions -->
-      ${memberRxs.length > 0 ? `
+      ${
+        memberRxs.length > 0
+          ? `
       <div class="section-card">
         <div class="card-header member">Your Prescriptions</div>
         <div class="card-body">
           <table class="insurer-table">
             <thead><tr><th>Rx ID</th><th>Medication</th><th>Qty</th><th>Dispensed</th><th>Status</th><th>Payment</th></tr></thead>
             <tbody>
-              ${memberRxs.map(rx => {
-                const statusClass = `rx-status-${(rx.status || 'ACTIVE').toLowerCase().replace('_', '-')}`;
-                const statusLabel = (rx.status || 'ACTIVE').replace('_', ' ');
-                const payment = rx.patientPayCents != null ? formatCents(rx.patientPayCents) : '\u2014';
-                return `
+              ${memberRxs
+                .map((rx) => {
+                  const statusClass = `rx-status-${(rx.status || 'ACTIVE').toLowerCase().replace('_', '-')}`;
+                  const statusLabel = (rx.status || 'ACTIVE').replace('_', ' ');
+                  const payment = rx.patientPayCents != null ? formatCents(rx.patientPayCents) : '\u2014';
+                  return `
                 <tr>
                   <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
                   <td>${escapeHtml(rx.medication)}${rx.medicationStrength ? ' ' + escapeHtml(rx.medicationStrength) : ''}</td>
@@ -444,12 +452,15 @@ export class MemberPhase {
                   <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(statusLabel)}</span></td>
                   <td>${payment}</td>
                 </tr>`;
-              }).join('')}
+                })
+                .join('')}
             </tbody>
           </table>
         </div>
       </div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <!-- Claims & Fill History -->
       ${this.renderClaimsSection(state, member, memberRxs)}
@@ -489,10 +500,12 @@ export class MemberPhase {
             <label>Select Member</label>
             <select id="member-select-dashboard">
               <option value="">\u2014 Choose a member \u2014</option>
-              ${state.demoData.members.map((m, i) => {
-                const alreadyEnrolled = enrolled.some(e => e.memberIndex === i);
-                return `<option value="${i}" ${alreadyEnrolled ? 'disabled' : ''}>${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)} (${escapeHtml(m.cardholderId)}) ${alreadyEnrolled ? '(enrolled)' : ''}</option>`;
-              }).join('')}
+              ${state.demoData.members
+                .map((m, i) => {
+                  const alreadyEnrolled = enrolled.some((e) => e.memberIndex === i);
+                  return `<option value="${i}" ${alreadyEnrolled ? 'disabled' : ''}>${escapeHtml(m.firstName)} ${escapeHtml(m.lastName)} (${escapeHtml(m.cardholderId)}) ${alreadyEnrolled ? '(enrolled)' : ''}</option>`;
+                })
+                .join('')}
             </select>
           </div>
           <button id="btn-enroll-another" class="btn-action member" disabled>
@@ -509,37 +522,38 @@ export class MemberPhase {
 
   renderClaimsSection(state, member, memberRxs) {
     const fulfillments = state.fulfillments || [];
-    const memberRxIds = new Set(memberRxs.map(rx => rx.id));
+    const memberRxIds = new Set(memberRxs.map((rx) => rx.id));
 
     // Join fulfillments to this member's prescriptions
     const memberClaims = fulfillments
-      .filter(f => memberRxIds.has(f.prescriptionId))
+      .filter((f) => memberRxIds.has(f.prescriptionId))
       .sort((a, b) => (a.prescriptionId + a.fillIndex).localeCompare(b.prescriptionId + b.fillIndex));
 
     if (memberClaims.length === 0) return '';
 
-    const rows = memberClaims.map(f => {
-      const rx = memberRxs.find(r => r.id === f.prescriptionId);
-      const drug = rx ? `${rx.medication}${rx.medicationStrength ? ' ' + rx.medicationStrength : ''}` : f.prescriptionId;
-      const pharmacy = rx ? (state.demoData.pharmacies[rx.pharmacyIndex]?.storeName || '\u2014') : '\u2014';
+    const rows = memberClaims
+      .map((f) => {
+        const rx = memberRxs.find((r) => r.id === f.prescriptionId);
+        const drug = rx ? `${rx.medication}${rx.medicationStrength ? ' ' + rx.medicationStrength : ''}` : f.prescriptionId;
+        const pharmacy = rx ? state.demoData.pharmacies[rx.pharmacyIndex]?.storeName || '\u2014' : '\u2014';
 
-      // Service date from fulfillment data (YYYYMMDD as bigint string)
-      let fillDate = '\u2014';
-      if (f.serviceDateStr && f.serviceDateStr.length === 8) {
-        const s = f.serviceDateStr;
-        fillDate = `${s.slice(4,6)}/${s.slice(6,8)}/${s.slice(0,4)}`;
-      } else if (f.serviceDateStr) {
-        fillDate = f.serviceDateStr;
-      }
+        // Service date from fulfillment data (YYYYMMDD as bigint string)
+        let fillDate = '\u2014';
+        if (f.serviceDateStr && f.serviceDateStr.length === 8) {
+          const s = f.serviceDateStr;
+          fillDate = `${s.slice(4, 6)}/${s.slice(6, 8)}/${s.slice(0, 4)}`;
+        } else if (f.serviceDateStr) {
+          fillDate = f.serviceDateStr;
+        }
 
-      const reversedBadge = f.reversed
-        ? '<span class="rx-status-badge rx-status-cancelled" style="font-size: 10px; margin-left: 4px;">REVERSED</span>'
-        : '';
-      const settlement = f.settlementCommitment
-        ? f.settlementCommitment.slice(0, 8) + '\u2026' + f.settlementCommitment.slice(-8)
-        : '\u2014';
+        const reversedBadge = f.reversed
+          ? '<span class="rx-status-badge rx-status-cancelled" style="font-size: 10px; margin-left: 4px;">REVERSED</span>'
+          : '';
+        const settlement = f.settlementCommitment
+          ? f.settlementCommitment.slice(0, 8) + '\u2026' + f.settlementCommitment.slice(-8)
+          : '\u2014';
 
-      return `
+        return `
         <tr class="claims-row" data-dos="${escapeHtml(f.serviceDateStr || '')}"${f.reversed ? ' style="opacity: 0.5;"' : ''}>
           <td>${escapeHtml(drug)}</td>
           <td>${escapeHtml(pharmacy)}</td>
@@ -550,11 +564,12 @@ export class MemberPhase {
           <td>${formatCents(f.totalCostCents)}</td>
           <td class="mono" style="font-size: 10px;" title="${escapeHtml(f.settlementCommitment || '')}">${escapeHtml(settlement)}</td>
         </tr>`;
-    }).join('');
+      })
+      .join('');
 
-    const totalPatient = memberClaims.filter(f => !f.reversed).reduce((s, f) => s + f.patientPayCents, 0);
-    const totalPlan = memberClaims.filter(f => !f.reversed).reduce((s, f) => s + f.planPayCents, 0);
-    const totalCost = memberClaims.filter(f => !f.reversed).reduce((s, f) => s + f.totalCostCents, 0);
+    const totalPatient = memberClaims.filter((f) => !f.reversed).reduce((s, f) => s + f.patientPayCents, 0);
+    const totalPlan = memberClaims.filter((f) => !f.reversed).reduce((s, f) => s + f.planPayCents, 0);
+    const totalCost = memberClaims.filter((f) => !f.reversed).reduce((s, f) => s + f.totalCostCents, 0);
 
     return `
       <div class="section-card">
@@ -584,14 +599,18 @@ export class MemberPhase {
             </tbody>
           </table>
 
-          ${memberClaims.some(f => f.newEligForestRoot) ? `
+          ${
+            memberClaims.some((f) => f.newEligForestRoot)
+              ? `
           <div style="margin-top: 12px; padding: 10px 14px; background: rgba(79, 195, 247, 0.06); border: 1px solid rgba(79, 195, 247, 0.2); border-radius: 6px; font-size: 12px;">
             <strong style="color: var(--accent-blue);">Eligibility Credential Updated</strong>
             <span style="color: var(--text-secondary); margin-left: 8px;">
               Forest root: <span class="mono" style="font-size: 10px;">${memberClaims[memberClaims.length - 1].newEligForestRoot}</span>
             </span>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       </div>
     `;
@@ -601,9 +620,7 @@ export class MemberPhase {
     const allPrescribers = state.demoData.prescribers;
     const hasNetwork = member.inNetworkPrescribers && member.inNetworkPrescribers.length > 0;
     const inNetworkSet = new Set(member.inNetworkPrescribers || []);
-    const prescribers = hasNetwork
-      ? allPrescribers.filter(p => inNetworkSet.has(p.index))
-      : allPrescribers;
+    const prescribers = hasNetwork ? allPrescribers.filter((p) => inNetworkSet.has(p.index)) : allPrescribers;
 
     return `
       <div class="section-card">
@@ -613,9 +630,10 @@ export class MemberPhase {
             ${hasNetwork ? `Showing ${prescribers.length} in-network prescribers for ${escapeHtml(member.planId)}.` : 'All prescribers shown.'} Recommended PCP specialties are highlighted.
           </p>
           <div class="entity-grid" id="pcp-prescriber-grid">
-            ${prescribers.map(p => {
-              const isPcpEligible = PCP_ELIGIBLE_SPECIALTIES.includes(p.specialty);
-              return `
+            ${prescribers
+              .map((p) => {
+                const isPcpEligible = PCP_ELIGIBLE_SPECIALTIES.includes(p.specialty);
+                return `
                 <div class="entity-card ${isPcpEligible ? 'pcp-eligible' : ''}" data-index="${p.index}">
                   ${isPcpEligible ? '<span class="pcp-badge">Recommended PCP</span>' : ''}
                   ${hasNetwork ? '<span class="network-badge">In-Network</span>' : ''}
@@ -624,7 +642,8 @@ export class MemberPhase {
                   <div class="entity-detail">NPI: ${escapeHtml(p.npi)} | ${escapeHtml(p.state)}</div>
                 </div>
               `;
-            }).join('')}
+              })
+              .join('')}
           </div>
 
           <!-- Consent Declaration (hidden until prescriber selected) -->
@@ -656,48 +675,53 @@ export class MemberPhase {
     const familyId = member.familyId;
     if (!familyId) return '';
 
-    const familyMembers = state.demoData.members.filter(m => m.familyId === familyId);
+    const familyMembers = state.demoData.members.filter((m) => m.familyId === familyId);
     if (familyMembers.length <= 1) return '';
 
-    const allFamilyEnrolled = familyMembers.every(fm =>
-      enrolled.some(e => e.memberIndex === fm.index)
-    );
+    const allFamilyEnrolled = familyMembers.every((fm) => enrolled.some((e) => e.memberIndex === fm.index));
 
     return `
       <div class="section-card">
         <div class="card-header member">Your Family \u2014 ${escapeHtml(familyId)}</div>
         <div class="card-body">
           <div class="family-member-cards">
-            ${familyMembers.map(fm => {
-              const enrolledMember = enrolled.find(e => e.memberIndex === fm.index);
-              const isRevoked = enrolledMember && enrolledMember.lifecycle === 'REVOKED';
-              return `
+            ${familyMembers
+              .map((fm) => {
+                const enrolledMember = enrolled.find((e) => e.memberIndex === fm.index);
+                const isRevoked = enrolledMember && enrolledMember.lifecycle === 'REVOKED';
+                return `
                 <div class="family-member-card"${isRevoked ? ' style="opacity: 0.5;"' : ''}>
                   <div class="family-member-name">${escapeHtml(fm.firstName)} ${escapeHtml(fm.lastName)}</div>
                   <div class="family-member-detail">
                     <span class="family-badge ${escapeHtml(fm.relationship.toLowerCase())}">${escapeHtml(fm.relationship)}</span>
-                    ${isRevoked
-                      ? `<span style="color: var(--accent-red); font-size: 10px; margin-left: 8px;">TERMINATED</span>`
-                      : enrolledMember
-                        ? `<span style="color: var(--accent-green); font-size: 10px; margin-left: 8px;">ENROLLED</span>`
-                        : `<span style="color: var(--text-muted); font-size: 10px; margin-left: 8px;">Not enrolled</span>`
+                    ${
+                      isRevoked
+                        ? `<span style="color: var(--accent-red); font-size: 10px; margin-left: 8px;">TERMINATED</span>`
+                        : enrolledMember
+                          ? `<span style="color: var(--accent-green); font-size: 10px; margin-left: 8px;">ENROLLED</span>`
+                          : `<span style="color: var(--text-muted); font-size: 10px; margin-left: 8px;">Not enrolled</span>`
                     }
                   </div>
                 </div>
               `;
-            }).join('')}
+              })
+              .join('')}
           </div>
 
           <!-- Family Accumulators -->
           ${this.renderFamilyAccumulators(state, enrolled, familyId)}
 
-          ${!allFamilyEnrolled ? `
+          ${
+            !allFamilyEnrolled
+              ? `
             <button id="btn-enroll-family" class="btn-enroll-family">
               <span class="spinner"></span>
               Enroll All Family Members
             </button>
             <div id="family-enroll-result"></div>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       </div>
     `;
@@ -705,10 +729,11 @@ export class MemberPhase {
 
   renderFamilyAccumulators(state, enrolled, familyId) {
     const plan = state.demoData.plan;
-    const familyEnrolled = enrolled.filter(e => e.familyId === familyId);
+    const familyEnrolled = enrolled.filter((e) => e.familyId === familyId);
     if (familyEnrolled.length <= 1) return '';
 
-    let totalDeductible = 0, totalOop = 0;
+    let totalDeductible = 0,
+      totalOop = 0;
     for (const e of familyEnrolled) {
       totalDeductible += e.accumulator.deductiblePaidCents;
       totalOop += e.accumulator.oopPaidCents;
@@ -740,22 +765,22 @@ export class MemberPhase {
 
   renderMessagingSection(state, member, enrolled) {
     if (member.lifecycle === 'REVOKED') return '';
-    const messages = (state.messaging?.messages || []).filter(m =>
-      m.senderWalletId === member.walletId || m.recipientWalletId === member.walletId
+    const messages = (state.messaging?.messages || []).filter(
+      (m) => m.senderWalletId === member.walletId || m.recipientWalletId === member.walletId,
     );
     const dir = state.walletDirectory || {};
-    const MSG_LABELS = { 1:'Rx', 2:'PA Req', 3:'PA Resp', 4:'Notice', 5:'General', 6:'Support', 7:'Summary' };
+    const MSG_LABELS = { 1: 'Rx', 2: 'PA Req', 3: 'PA Resp', 4: 'Notice', 5: 'General', 6: 'Support', 7: 'Summary' };
 
     // Group messages by threadId
     const threadMap = new Map();
-    messages.forEach(m => {
+    messages.forEach((m) => {
       const tid = m.threadId || `msg-${m.messageIndex}`;
       if (!threadMap.has(tid)) threadMap.set(tid, []);
       threadMap.get(tid).push(m);
     });
     // Sort threads by latest timestamp descending
     const threads = Array.from(threadMap.entries())
-      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map(m => m.timestamp || 0)) }))
+      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map((m) => m.timestamp || 0)) }))
       .sort((a, b) => b.latest - a.latest);
 
     // Build recipient options — members can only contact PCP and family members
@@ -764,14 +789,16 @@ export class MemberPhase {
     // 1. Assigned PCP (if any)
     if (member.pcpAssignment) {
       const p = state.demoData.prescribers[member.pcpAssignment.prescriberIndex];
-      recipientOptions.push(`<option value="prescriber:${member.pcpAssignment.prescriberIndex}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (My PCP)</option>`);
+      recipientOptions.push(
+        `<option value="prescriber:${member.pcpAssignment.prescriberIndex}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)} (My PCP)</option>`,
+      );
     }
 
     // 2. Family members (same familyId, enrolled, not self, not revoked)
     if (member.familyId) {
       (enrolled || [])
-        .filter(e => e.familyId === member.familyId && e.walletId !== member.walletId && e.lifecycle !== 'REVOKED')
-        .forEach(fm => {
+        .filter((e) => e.familyId === member.familyId && e.walletId !== member.walletId && e.lifecycle !== 'REVOKED')
+        .forEach((fm) => {
           recipientOptions.push(`<option value="member:${escapeHtml(fm.walletId)}">${escapeHtml(fm.displayName)} (Family)</option>`);
         });
     }
@@ -802,17 +829,20 @@ export class MemberPhase {
             <div class="msg-privacy-note">End-to-end encrypted (X25519-ECDH + AES-256-GCM). ZK proof generated on send.</div>
           </div>
           <div id="send-message-result" class="hidden"></div>
-          ${threads.length > 0 ? `
+          ${
+            threads.length > 0
+              ? `
           <div class="msg-thread-list">
-            ${threads.map(t => {
-              const lastMsg = t.messages[t.messages.length - 1];
-              const isSent = lastMsg.senderWalletId === member.walletId;
-              const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
-              const otherName = dir[otherWid]?.displayName || otherWid.slice(0,8) + '\u2026';
-              const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
-              const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
-              return `
-              <div class="msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(member.walletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
+            ${threads
+              .map((t) => {
+                const lastMsg = t.messages[t.messages.length - 1];
+                const isSent = lastMsg.senderWalletId === member.walletId;
+                const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
+                const otherName = dir[otherWid]?.displayName || otherWid.slice(0, 8) + '\u2026';
+                const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
+                const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
+                return `
+              <div class="msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(member.walletId)}" data-indices="${escapeHtml(t.messages.map((m) => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
                     <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
@@ -824,9 +854,12 @@ export class MemberPhase {
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
                 <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
-            }).join('')}
+              })
+              .join('')}
           </div>
-          ` : '<div style="color: var(--text-muted); font-size: 13px;">No messages yet. Send a message to your PCP, pharmacy, or insurer.</div>'}
+          `
+              : '<div style="color: var(--text-muted); font-size: 13px;">No messages yet. Send a message to your PCP, pharmacy, or insurer.</div>'
+          }
         </div>
       </div>
     `;
@@ -834,26 +867,28 @@ export class MemberPhase {
 
   renderDelegationSection(state, member, enrolled) {
     if (member.lifecycle === 'REVOKED') return '';
-    const delegations = (state.messaging?.delegations || []).filter(d =>
-      d.delegatorWalletId === member.walletId || d.delegateWalletId === member.walletId
+    const delegations = (state.messaging?.delegations || []).filter(
+      (d) => d.delegatorWalletId === member.walletId || d.delegateWalletId === member.walletId,
     );
-    const otherMembers = enrolled.filter(e => e.walletId !== member.walletId && e.lifecycle !== 'REVOKED');
+    const otherMembers = enrolled.filter((e) => e.walletId !== member.walletId && e.lifecycle !== 'REVOKED');
     if (otherMembers.length === 0 && delegations.length === 0) return '';
 
-    const REL_LABELS = { 1:'Parent', 2:'Spouse', 3:'Power of Attorney', 4:'Guardian', 5:'Migration', 6:'Appointed Rep' };
+    const REL_LABELS = { 1: 'Parent', 2: 'Spouse', 3: 'Power of Attorney', 4: 'Guardian', 5: 'Migration', 6: 'Appointed Rep' };
     const dir = state.walletDirectory || {};
 
     return `
       <div class="section-card">
         <div class="card-header member">Data Sharing \u2014 Delegations (${delegations.length})</div>
         <div class="card-body">
-          ${otherMembers.length > 0 ? `
+          ${
+            otherMembers.length > 0
+              ? `
           <div class="msg-compose">
             <div style="font-size: 12px; font-weight: 600; color: var(--accent-blue); margin-bottom: 8px;">Create Delegation</div>
             <label>Delegate To</label>
             <select id="delegate-select">
               <option value="">\u2014 Select member \u2014</option>
-              ${otherMembers.map(m => `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${escapeHtml(m.relationship)})</option>`).join('')}
+              ${otherMembers.map((m) => `<option value="${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)} (${escapeHtml(m.relationship)})</option>`).join('')}
             </select>
             <div style="display: flex; gap: 12px; margin: 8px 0;">
               <label style="display: flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer;"><input type="checkbox" id="scope-read" checked> Read</label>
@@ -871,30 +906,41 @@ export class MemberPhase {
               <span class="spinner"></span> Create Delegation (ZK Proof)
             </button>
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div id="delegation-result" class="hidden"></div>
-          ${delegations.length > 0 ? `
+          ${
+            delegations.length > 0
+              ? `
           <table class="insurer-table">
             <thead><tr><th>Direction</th><th>Party</th><th>Scope</th><th>Relationship</th></tr></thead>
             <tbody>
-              ${delegations.map(d => {
-                const isGranted = d.delegatorWalletId === member.walletId;
-                const otherWid = isGranted ? d.delegateWalletId : d.delegatorWalletId;
-                const otherName = dir[otherWid]?.displayName || enrolled.find(e => e.walletId === otherWid)?.displayName || otherWid.slice(0,8) + '\u2026';
-                const scopeLabels = [];
-                if (d.scopeFlags & 1) scopeLabels.push('READ');
-                if (d.scopeFlags & 2) scopeLabels.push('WRITE');
-                if (d.scopeFlags & 4) scopeLabels.push('PICKUP');
-                return `<tr>
+              ${delegations
+                .map((d) => {
+                  const isGranted = d.delegatorWalletId === member.walletId;
+                  const otherWid = isGranted ? d.delegateWalletId : d.delegatorWalletId;
+                  const otherName =
+                    dir[otherWid]?.displayName ||
+                    enrolled.find((e) => e.walletId === otherWid)?.displayName ||
+                    otherWid.slice(0, 8) + '\u2026';
+                  const scopeLabels = [];
+                  if (d.scopeFlags & 1) scopeLabels.push('READ');
+                  if (d.scopeFlags & 2) scopeLabels.push('WRITE');
+                  if (d.scopeFlags & 4) scopeLabels.push('PICKUP');
+                  return `<tr>
                   <td>${isGranted ? 'Granted \u2192' : '\u2190 Received'}</td>
                   <td>${escapeHtml(otherName)}</td>
                   <td>${scopeLabels.join(', ')}</td>
                   <td>${escapeHtml(REL_LABELS[d.relationshipCode] || d.relationshipCode)}</td>
                 </tr>`;
-              }).join('')}
+                })
+                .join('')}
             </tbody>
           </table>
-          ` : ''}
+          `
+              : ''
+          }
         </div>
       </div>
     `;
@@ -902,15 +948,17 @@ export class MemberPhase {
 
   renderActivitySection(state, member, memberRxs) {
     const fulfillments = state.fulfillments || [];
-    const memberRxIds = new Set(memberRxs.map(rx => rx.id));
-    const memberClaims = fulfillments.filter(f => memberRxIds.has(f.prescriptionId));
+    const memberRxIds = new Set(memberRxs.map((rx) => rx.id));
+    const memberClaims = fulfillments.filter((f) => memberRxIds.has(f.prescriptionId));
     if (memberClaims.length === 0) return '';
 
-    const activeClaims = memberClaims.filter(f => !f.reversed);
-    const reversals = memberClaims.filter(f => f.reversed);
+    const activeClaims = memberClaims.filter((f) => !f.reversed);
+    const reversals = memberClaims.filter((f) => f.reversed);
     const totalPatientPay = activeClaims.reduce((s, f) => s + (f.patientPayCents || 0), 0);
     const totalPlanPay = activeClaims.reduce((s, f) => s + (f.planPayCents || 0), 0);
-    const uniqueMeds = new Set(memberRxs.filter(rx => memberClaims.some(f => f.prescriptionId === rx.id)).map(rx => rx.medicationIndex));
+    const uniqueMeds = new Set(
+      memberRxs.filter((rx) => memberClaims.some((f) => f.prescriptionId === rx.id)).map((rx) => rx.medicationIndex),
+    );
 
     const content = `
       ${renderMetricRow([
@@ -932,16 +980,15 @@ export class MemberPhase {
     const medications = state.demoData.medications;
     if (!medications || medications.length === 0) return '';
 
-    const rows = medications.map((m, i) => {
-      const tier = m.currentTierLevel ?? m.tier;
-      const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
-      const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
-      const active = m.active !== false;
-      const paBadge = pa
-        ? '<span class="pa-badge pa-required">PA</span>'
-        : '<span style="color: var(--text-muted);">No</span>';
-      const removedClass = !active ? ' formulary-removed' : '';
-      return `
+    const rows = medications
+      .map((m, i) => {
+        const tier = m.currentTierLevel ?? m.tier;
+        const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
+        const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
+        const active = m.active !== false;
+        const paBadge = pa ? '<span class="pa-badge pa-required">PA</span>' : '<span style="color: var(--text-muted);">No</span>';
+        const removedClass = !active ? ' formulary-removed' : '';
+        return `
         <tr data-med-index="${i}" class="${removedClass}" style="cursor: pointer;">
           <td>${escapeHtml(m.brandName)}${!active ? ' <span class="removed-badge">Removed</span>' : ''}</td>
           <td>${escapeHtml(m.genericName)}</td>
@@ -952,7 +999,8 @@ export class MemberPhase {
           <td>${m.maxQuantityPerFill}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -988,9 +1036,10 @@ export class MemberPhase {
     const pa = med.currentRequiresPriorAuth ?? med.requiresPriorAuth;
     const step = med.currentStepTherapyRequired ?? med.stepTherapyRequired;
     const active = med.active !== false;
-    const deaDisplay = med.deaSchedule === 0
-      ? 'Non-controlled'
-      : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
+    const deaDisplay =
+      med.deaSchedule === 0
+        ? 'Non-controlled'
+        : `<span class="dea-badge dea-schedule-${med.deaSchedule}">Schedule ${med.deaSchedule}</span>`;
 
     document.getElementById('member-formulary-detail-body').innerHTML = `
       ${!active ? '<div style="padding: 8px 12px; background: rgba(244, 67, 54, 0.08); border: 1px solid rgba(244, 67, 54, 0.3); border-radius: 6px; margin-bottom: 12px; font-size: 12px; color: var(--accent-red);">This medication has been removed from the formulary.</div>' : ''}
@@ -1067,19 +1116,21 @@ export class MemberPhase {
       const receipts = data.receipts || [];
 
       if (receipts.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">No receipts yet.</div>';
+        container.innerHTML =
+          '<div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 12px;">No receipts yet.</div>';
         return;
       }
 
-      const rows = receipts.map(r => {
-        const id = r.receiptId || r.id || '';
-        const truncId = id.length > 16 ? id.slice(0, 8) + '\u2026' + id.slice(-6) : id;
-        const ts = r.acceptedAt || r.timestamp;
-        const timeStr = ts ? new Date(ts).toLocaleString() : '\u2014';
-        const type = r.type || 'transition';
-        const seq = r.sequenceNumber ?? '\u2014';
-        const statusColor = r.status === 'settled' ? 'var(--accent-green)' : 'var(--accent-yellow)';
-        return `
+      const rows = receipts
+        .map((r) => {
+          const id = r.receiptId || r.id || '';
+          const truncId = id.length > 16 ? id.slice(0, 8) + '\u2026' + id.slice(-6) : id;
+          const ts = r.acceptedAt || r.timestamp;
+          const timeStr = ts ? new Date(ts).toLocaleString() : '\u2014';
+          const type = r.type || 'transition';
+          const seq = r.sequenceNumber ?? '\u2014';
+          const statusColor = r.status === 'settled' ? 'var(--accent-green)' : 'var(--accent-yellow)';
+          return `
           <tr>
             <td class="mono" style="font-size: 11px;" title="${escapeHtml(id)}">${escapeHtml(truncId)}</td>
             <td>${escapeHtml(type)}</td>
@@ -1087,7 +1138,8 @@ export class MemberPhase {
             <td>${timeStr}</td>
             <td><span style="color: ${statusColor}; font-weight: 600; font-size: 11px;">${escapeHtml(r.status || 'pending')}</span></td>
           </tr>`;
-      }).join('');
+        })
+        .join('');
 
       container.innerHTML = `
         <table class="insurer-table">
@@ -1125,18 +1177,33 @@ export class MemberPhase {
       if (!res.ok) throw new Error('Failed to fetch chain state');
       const cs = await res.json();
 
-      const truncate = (s) => s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014');
+      const truncate = (s) => (s && String(s).length > 16 ? String(s).slice(0, 8) + '\u2026' + String(s).slice(-6) : String(s || '\u2014'));
 
       const entries = [];
       entries.push(`<div class="label">Sequencer URL</div><div class="value mono">http://127.0.0.1:3030</div>`);
       entries.push(`<div class="label">Health</div><div class="value"><span style="color: var(--accent-green);">Connected</span></div>`);
-      if (cs.registryRoot) entries.push(`<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`);
-      if (cs.lifecycleRoot) entries.push(`<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`);
+      if (cs.registryRoot)
+        entries.push(
+          `<div class="label">Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.registryRoot)}</div>`,
+        );
+      if (cs.lifecycleRoot)
+        entries.push(
+          `<div class="label">Lifecycle Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.lifecycleRoot)}</div>`,
+        );
       if (cs.walletCount != null) entries.push(`<div class="label">Wallet Count</div><div class="value">${cs.walletCount}</div>`);
-      if (cs.benefitPlanRoot) entries.push(`<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`);
-      if (cs.nftRegistryRoot) entries.push(`<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`);
+      if (cs.benefitPlanRoot)
+        entries.push(
+          `<div class="label">Benefit Plan Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.benefitPlanRoot)}</div>`,
+        );
+      if (cs.nftRegistryRoot)
+        entries.push(
+          `<div class="label">Credential Registry Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.nftRegistryRoot)}</div>`,
+        );
       if (cs.blockHeight != null) entries.push(`<div class="label">Block Height</div><div class="value">${cs.blockHeight}</div>`);
-      if (cs.globalStateRoot) entries.push(`<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`);
+      if (cs.globalStateRoot)
+        entries.push(
+          `<div class="label">Global State Root</div><div class="value mono" style="font-size: 11px;">${truncate(cs.globalStateRoot)}</div>`,
+        );
 
       container.innerHTML = `<div class="data-grid">${entries.join('')}</div>`;
     } catch (err) {
@@ -1155,7 +1222,7 @@ export class MemberPhase {
     const cred = inv.nfts && inv.nfts[0];
     const isRevoked = member.lifecycle === 'REVOKED';
     const credTypeLabel = cred?.nftType === '1' ? 'ELIGIBILITY' : cred?.nftType === '2' ? 'PRESCRIPTION' : cred?.nftType;
-    const truncate = (s) => s && s.length > 16 ? s.slice(0, 8) + '\u2026' + s.slice(-6) : s;
+    const truncate = (s) => (s && s.length > 16 ? s.slice(0, 8) + '\u2026' + s.slice(-6) : s);
 
     return `
       <div class="section-card">
@@ -1166,7 +1233,9 @@ export class MemberPhase {
             <span style="margin-left: 8px; color: var(--text-muted);">root: ${truncate(inv.inventoryRoot)}</span>
           </div>
 
-          ${cred ? `
+          ${
+            cred
+              ? `
           <div class="data-grid" style="margin-bottom: 12px;">
             <div class="label">Credential Type</div><div class="value">${credTypeLabel} (${cred.nftType})</div>
             <div class="label">Forest Root</div><div class="value mono" style="font-size: 11px;">${truncate(cred.forestRoot)}</div>
@@ -1176,7 +1245,9 @@ export class MemberPhase {
             <div class="label">Commitment</div><div class="value mono" style="font-size: 11px;">${truncate(cred.commitment)}</div>
           </div>
 
-          ${!isRevoked ? `
+          ${
+            !isRevoked
+              ? `
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
             <label style="font-size: 12px; color: var(--text-secondary);">Proof Type:</label>
             <select id="credential-proof-type" style="font-size: 12px; padding: 4px 8px;">
@@ -1187,16 +1258,20 @@ export class MemberPhase {
           <button id="btn-generate-credential" class="btn-action member" ${!this.app.isCompiled() ? 'disabled' : ''}>
             <span class="spinner"></span> <span class="btn-text">Generate Portable Credential</span>
           </button>
-          ` : `
+          `
+              : `
           <div style="font-size: 12px; color: var(--accent-red); margin-top: 8px;">
             Credential revoked \u2014 cannot generate credentials for terminated members.
           </div>
-          `}
+          `
+          }
 
           <div id="credential-result" class="hidden"></div>
-          ` : `
+          `
+              : `
           <div style="font-size: 12px; color: var(--text-muted);">No credentials in inventory.</div>
-          `}
+          `
+          }
         </div>
       </div>
     `;
@@ -1235,7 +1310,6 @@ export class MemberPhase {
 
       // Poll every 15s, up to 10 minutes (40 polls)
       this._pollCredentialStatus(btn, member.walletId, proofType);
-
     } catch (err) {
       const resultDiv = document.getElementById('credential-result');
       resultDiv.classList.remove('hidden');
@@ -1255,7 +1329,9 @@ export class MemberPhase {
     const poll = async () => {
       pollCount++;
       try {
-        const res = await fetch(`${API_BASE}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}&proofType=${encodeURIComponent(proofType)}`);
+        const res = await fetch(
+          `${API_BASE}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}&proofType=${encodeURIComponent(proofType)}`,
+        );
         const data = await res.json();
 
         if (data.status === 'complete') {
@@ -1299,7 +1375,7 @@ export class MemberPhase {
     // Store for re-generation
     this._lastCredentialJson = data.credentialJson;
 
-    const truncate = (s) => s && s.length > 16 ? s.slice(0, 8) + '\u2026' + s.slice(-6) : s;
+    const truncate = (s) => (s && s.length > 16 ? s.slice(0, 8) + '\u2026' + s.slice(-6) : s);
     const cred = data.credential;
     const credJson = data.credentialJson || '';
 
@@ -1348,20 +1424,28 @@ export class MemberPhase {
     // Copy button with fallback
     document.getElementById('btn-copy-credential').addEventListener('click', () => {
       const copyBtn = document.getElementById('btn-copy-credential');
-      navigator.clipboard.writeText(credJson).then(() => {
-        copyBtn.textContent = 'Copied!';
-        copyBtn.style.background = '#66bb6a';
-        setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; copyBtn.style.background = ''; }, 2000);
-      }).catch(() => {
-        // Fallback: select textarea and execCommand
-        const textarea = document.getElementById('credential-json-output');
-        if (textarea) {
-          textarea.select();
-          document.execCommand('copy');
+      navigator.clipboard
+        .writeText(credJson)
+        .then(() => {
           copyBtn.textContent = 'Copied!';
-          setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
-        }
-      });
+          copyBtn.style.background = '#66bb6a';
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy to Clipboard';
+            copyBtn.style.background = '';
+          }, 2000);
+        })
+        .catch(() => {
+          // Fallback: select textarea and execCommand
+          const textarea = document.getElementById('credential-json-output');
+          if (textarea) {
+            textarea.select();
+            document.execCommand('copy');
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyBtn.textContent = 'Copy to Clipboard';
+            }, 2000);
+          }
+        });
     });
 
     // Update button to show completion but allow re-generation
@@ -1385,7 +1469,7 @@ export class MemberPhase {
       pcpGrid.addEventListener('click', (e) => {
         const card = e.target.closest('.entity-card');
         if (!card) return;
-        pcpGrid.querySelectorAll('.entity-card').forEach(c => c.classList.remove('selected'));
+        pcpGrid.querySelectorAll('.entity-card').forEach((c) => c.classList.remove('selected'));
         card.classList.add('selected');
         this.pcpSelectedPrescriber = parseInt(card.dataset.index, 10);
 
@@ -1402,15 +1486,9 @@ export class MemberPhase {
     // Family enrollment button
     const familyBtn = document.getElementById('btn-enroll-family');
     if (familyBtn) {
-      const subscriberMember = state.demoData.members.find(
-        m => m.familyId === member.familyId && m.relationship === 'SELF'
-      );
-      const subscriberEnrolled = subscriberMember
-        ? enrolled.find(e => e.memberIndex === subscriberMember.index)
-        : null;
-      const subscriberIndex = subscriberEnrolled
-        ? subscriberEnrolled.memberIndex
-        : member.memberIndex;
+      const subscriberMember = state.demoData.members.find((m) => m.familyId === member.familyId && m.relationship === 'SELF');
+      const subscriberEnrolled = subscriberMember ? enrolled.find((e) => e.memberIndex === subscriberMember.index) : null;
+      const subscriberIndex = subscriberEnrolled ? subscriberEnrolled.memberIndex : member.memberIndex;
 
       familyBtn.addEventListener('click', () => this.doEnrollFamily(familyBtn, subscriberIndex));
     }
@@ -1434,11 +1512,14 @@ export class MemberPhase {
         document.getElementById('msg-thread-id').value = '';
         document.getElementById('msg-reply-banner').classList.add('hidden');
         if (msgSubject) msgSubject.value = '';
-        if (msgRecipient) { msgRecipient.value = ''; msgRecipient.disabled = false; }
+        if (msgRecipient) {
+          msgRecipient.value = '';
+          msgRecipient.disabled = false;
+        }
       });
     }
     // Thread click handlers
-    document.querySelectorAll('.msg-thread-item').forEach(el => {
+    document.querySelectorAll('.msg-thread-item').forEach((el) => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.msg-reply-btn')) return; // handled separately
         this.doExpandThread(el, member, state);
@@ -1469,7 +1550,7 @@ export class MemberPhase {
     if (formSearch && formBody) {
       formSearch.addEventListener('input', () => {
         const q = formSearch.value.toLowerCase();
-        formBody.querySelectorAll('tr').forEach(row => {
+        formBody.querySelectorAll('tr').forEach((row) => {
           row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
         });
       });
@@ -1515,7 +1596,9 @@ export class MemberPhase {
         }
       };
       btnVerify.addEventListener('click', doVerify);
-      leafInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doVerify(); });
+      leafInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doVerify();
+      });
     }
 
     // Claims date filter
@@ -1525,10 +1608,13 @@ export class MemberPhase {
       const filterClaims = () => {
         const startVal = claimsStart.value ? claimsStart.value.replace(/-/g, '') : '00000000';
         const endVal = claimsEnd.value ? claimsEnd.value.replace(/-/g, '') : '99999999';
-        document.querySelectorAll('#claims-history-table .claims-row').forEach(row => {
+        document.querySelectorAll('#claims-history-table .claims-row').forEach((row) => {
           const dos = row.dataset.dos || '';
-          if (!dos) { row.style.display = ''; return; }
-          row.style.display = (dos >= startVal && dos <= endVal) ? '' : 'none';
+          if (!dos) {
+            row.style.display = '';
+            return;
+          }
+          row.style.display = dos >= startVal && dos <= endVal ? '' : 'none';
         });
       };
       claimsStart.addEventListener('change', filterClaims);
@@ -1610,7 +1696,6 @@ export class MemberPhase {
           this.render(this.app.state);
         });
       }, 1500);
-
     } catch (err) {
       const resultDiv = document.getElementById('pcp-result');
       resultDiv.classList.remove('hidden');
@@ -1645,11 +1730,15 @@ export class MemberPhase {
           <div style="font-size: 13px; font-weight: 600; color: var(--accent-green); margin-bottom: 8px;">
             Family Enrolled: ${result.memberCount} members
           </div>
-          ${result.members.map(m => `
+          ${result.members
+            .map(
+              (m) => `
             <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">
               ${escapeHtml(m.displayName || 'Member')} \u2014 ${m.status === 'already_enrolled' ? 'Already enrolled' : `Wallet: ${escapeHtml(m.walletIdDisplay || m.walletId)}`}
             </div>
-          `).join('')}
+          `,
+            )
+            .join('')}
         </div>
       `;
       btn.style.display = 'none';
@@ -1661,7 +1750,6 @@ export class MemberPhase {
           this.render(this.app.state);
         });
       }, 1000);
-
     } catch (err) {
       const resultDiv = document.getElementById('family-enroll-result');
       resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; margin-top: 8px;">${escapeHtml(err.message)}</div>`;
@@ -1694,12 +1782,17 @@ export class MemberPhase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageIndices: indices, walletId }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const decrypted = await res.json();
       const dir = state.walletDirectory || {};
 
       // every value in a message came over the network and is escaped (message-thread.js)
-      bodyDiv.innerHTML = renderMessageBubbles(decrypted, member.walletId, dir) + `
+      bodyDiv.innerHTML =
+        renderMessageBubbles(decrypted, member.walletId, dir) +
+        `
         <button class="msg-reply-btn" data-thread-id="${escapeHtml(threadId)}" style="margin-top: 8px; font-size: 11px; background: var(--accent-blue); color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer;">Reply</button>
       `;
 
@@ -1785,7 +1878,10 @@ export class MemberPhase {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       const resultDiv = document.getElementById('send-message-result');
@@ -1813,7 +1909,9 @@ export class MemberPhase {
 
       if (result.chainState) updateChainState(result.chainState);
       this.app.setStatus('ready', 'Message sent');
-      setTimeout(() => { this.app.fetchState().then(() => this.render(this.app.state)); }, 1500);
+      setTimeout(() => {
+        this.app.fetchState().then(() => this.render(this.app.state));
+      }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('send-message-result');
       resultDiv.classList.remove('hidden');
@@ -1829,9 +1927,10 @@ export class MemberPhase {
     const delegateSelect = document.getElementById('delegate-select');
     if (!delegateSelect?.value) return;
 
-    const scopeFlags = (document.getElementById('scope-read')?.checked ? 1 : 0) |
-                       (document.getElementById('scope-write')?.checked ? 2 : 0) |
-                       (document.getElementById('scope-pickup')?.checked ? 4 : 0);
+    const scopeFlags =
+      (document.getElementById('scope-read')?.checked ? 1 : 0) |
+      (document.getElementById('scope-write')?.checked ? 2 : 0) |
+      (document.getElementById('scope-pickup')?.checked ? 4 : 0);
     const relationshipCode = parseInt(document.getElementById('relationship-select')?.value || '1', 10);
 
     btn.classList.add('loading');
@@ -1849,7 +1948,10 @@ export class MemberPhase {
           relationshipCode,
         }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       const resultDiv = document.getElementById('delegation-result');
@@ -1867,7 +1969,9 @@ export class MemberPhase {
       `;
       if (result.chainState) updateChainState(result.chainState);
       this.app.setStatus('ready', 'Delegation created');
-      setTimeout(() => { this.app.fetchState().then(() => this.render(this.app.state)); }, 1500);
+      setTimeout(() => {
+        this.app.fetchState().then(() => this.render(this.app.state));
+      }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('delegation-result');
       resultDiv.classList.remove('hidden');
@@ -1910,7 +2014,6 @@ export class MemberPhase {
 
       // Poll every 15 seconds
       this._pollEnrollAnotherStatus(btn, this.selectedMemberIndex);
-
     } catch (err) {
       const resultDiv = document.getElementById('enroll-another-result');
       resultDiv.classList.remove('hidden');
@@ -1991,10 +2094,14 @@ export class MemberPhase {
 
   renderL2Receipts(receipts) {
     if (!receipts || receipts.length === 0) return '';
-    const rows = receipts.map(r => `
+    const rows = receipts
+      .map(
+        (r) => `
       <div class="rl">${escapeHtml(r.type || 'transition')}</div>
       <div class="rv">${escapeHtml(r.receiptId.slice(0, 20))}... (seq #${escapeHtml(r.sequenceNumber)})</div>
-    `).join('');
+    `,
+      )
+      .join('');
     return `
       <div class="l2-receipt-card">
         <div class="receipt-title">L2 Receipts (${receipts.length})</div>
@@ -2014,5 +2121,5 @@ function formatDate(ccyymmdd) {
 
 function pct(current, max) {
   if (max === 0) return 0;
-  return Math.min(100, (current / max * 100)).toFixed(1);
+  return Math.min(100, (current / max) * 100).toFixed(1);
 }

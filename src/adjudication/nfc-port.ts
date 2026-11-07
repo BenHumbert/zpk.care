@@ -46,8 +46,7 @@ export interface NfcTagEvent {
 
 /** What a tag may carry: a bare wallet ID (legacy) or a credential attestation. */
 export type NdefPayload =
-  | { type: 'member-id'; walletId: string }
-  | { type: 'credential-attestation'; attestation: Record<string, unknown> };
+  { type: 'member-id'; walletId: string } | { type: 'credential-attestation'; attestation: Record<string, unknown> };
 
 export type NfcTagEventName = NfcTagEvent['type'];
 

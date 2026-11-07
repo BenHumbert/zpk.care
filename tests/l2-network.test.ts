@@ -24,12 +24,7 @@
  */
 import http from 'http';
 import { Field, MerkleTree } from 'o1js';
-import {
-  bigintReplacer,
-  bigintReviver,
-  l2Stringify,
-  l2Parse,
-} from '../src/l2/l2-json.js';
+import { bigintReplacer, bigintReviver, l2Stringify, l2Parse } from '../src/l2/l2-json.js';
 import { L2RpcServer, RPC_METHOD_NOT_FOUND, RPC_PARSE_ERROR, RPC_INVALID_REQUEST } from '../src/l2/l2-rpc-server.js';
 import type { RpcRequest, RpcResponse } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
@@ -56,7 +51,9 @@ function rawRpc(port: number, body: string, headers: Record<string, string> = {}
       { hostname: '127.0.0.1', port, path: '/rpc', method: 'POST', headers: { 'Content-Type': 'application/json', ...headers } },
       (res) => {
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
       },
     );
@@ -73,11 +70,15 @@ function rawGet(
   headers: http.OutgoingHttpHeaders = {},
 ): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    http.get({ hostname: '127.0.0.1', port, path, headers }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers }));
-    }).on('error', reject);
+    http
+      .get({ hostname: '127.0.0.1', port, path, headers }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers }));
+      })
+      .on('error', reject);
   });
 }
 
@@ -158,13 +159,7 @@ describe('L2RpcServer', () => {
 
   beforeEach(async () => {
     const store = new InMemoryStore();
-    node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN }); // Random port
     await server.start();
@@ -228,7 +223,9 @@ describe('L2RpcServer', () => {
 
   test('RPC l2_getReceipt returns null for unknown receipt', async () => {
     const rpcReq: RpcRequest = {
-      jsonrpc: '2.0', id: 1, method: 'l2_getReceipt',
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_getReceipt',
       params: { receiptId: 'nonexistent' },
     };
     const res = await rawRpc(port, l2Stringify(rpcReq), asOperator);
@@ -238,7 +235,9 @@ describe('L2RpcServer', () => {
 
   test('RPC l2_getBlock returns null for unknown block', async () => {
     const rpcReq: RpcRequest = {
-      jsonrpc: '2.0', id: 1, method: 'l2_getBlock',
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_getBlock',
       params: { blockNumber: '999' },
     };
     const res = await rawRpc(port, l2Stringify(rpcReq));
@@ -248,7 +247,9 @@ describe('L2RpcServer', () => {
 
   test('RPC l2_getBatch returns null for unknown batch', async () => {
     const rpcReq: RpcRequest = {
-      jsonrpc: '2.0', id: 1, method: 'l2_getBatch',
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_getBatch',
       params: { batchNumber: '999' },
     };
     const res = await rawRpc(port, l2Stringify(rpcReq));
@@ -344,7 +345,9 @@ describe('L2RpcServer', () => {
 
   test('RPC l2_getReceiptsByWallet returns empty array for unknown wallet', async () => {
     const rpcReq: RpcRequest = {
-      jsonrpc: '2.0', id: 1, method: 'l2_getReceiptsByWallet',
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'l2_getReceiptsByWallet',
       params: { walletId: 'nonexistent-wallet' },
     };
     const res = await rawRpc(port, l2Stringify(rpcReq), asOperator);
@@ -393,13 +396,7 @@ describe('L2Client', () => {
 
   beforeEach(async () => {
     const store = new InMemoryStore();
-    node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
     server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });
@@ -498,13 +495,7 @@ describe('SSE Event Streaming', () => {
 
   beforeEach(async () => {
     const store = new InMemoryStore();
-    node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });
     await server.start();
@@ -639,13 +630,7 @@ describe('L2 Client-Server Integration', () => {
 
   beforeEach(async () => {
     const store = new InMemoryStore();
-    node = new L2Node(
-      { batchIntervalMs: 60_000, autoSettle: false },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    node = new L2Node({ batchIntervalMs: 60_000, autoSettle: false }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-network.test.ts'));
     node.start();
     server = new L2RpcServer(node, { port: 0, adminToken: NET_ADMIN });

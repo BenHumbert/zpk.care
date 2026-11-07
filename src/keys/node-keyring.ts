@@ -125,7 +125,9 @@ export class NodeKeyring {
         const file = JSON.parse(fs.readFileSync(this.sealedFile, 'utf8')) as SealedMasterFile;
         master = await this.seal.open(Buffer.from(String(file.blob), 'base64'), this.sealContext);
       } catch {
-        this.awaitShares('the sealed master could not be opened on this machine (a replaced machine, or another account): the key holders provision it again');
+        this.awaitShares(
+          'the sealed master could not be opened on this machine (a replaced machine, or another account): the key holders provision it again',
+        );
         return this.status();
       }
       if (master.length !== 32 || masterCheckHex(master) !== this.entry.masterCheckHex) {
@@ -136,9 +138,7 @@ export class NodeKeyring {
       this.unlock(master, `unlocked by this machine's seal (${this.seal.description}); no key holder was needed`);
       return this.status();
     }
-    const others = fs.existsSync(this.dir)
-      ? fs.readdirSync(this.dir).filter((f) => f.endsWith(`.${this.nodeId}.sealed.json`))
-      : [];
+    const others = fs.existsSync(this.dir) ? fs.readdirSync(this.dir).filter((f) => f.endsWith(`.${this.nodeId}.sealed.json`)) : [];
     if (others.length > 0) {
       const held = others.map((f) => f.slice(0, -`.${this.nodeId}.sealed.json`.length)).join(', ');
       this.state = 'refused';
@@ -199,7 +199,8 @@ export class NodeKeyring {
       };
       const used = new Set(subset.map((share) => share.index));
       for (const index of this.received.keys()) {
-        if (!used.has(index)) this.log(`the share from ${this.record.holders[index - 1]?.label ?? `slot ${index}`} did not agree with the others`);
+        if (!used.has(index))
+          this.log(`the share from ${this.record.holders[index - 1]?.label ?? `slot ${index}`} did not agree with the others`);
       }
       fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
       const tmp = `${this.sealedFile}.tmp-${process.pid}`;

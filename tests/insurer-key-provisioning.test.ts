@@ -26,18 +26,28 @@ import { buildKeyRoutes, attachNodeKeyring } from '../src/nodes/routes/key-route
 import { insurerPublicKeyFromSeed } from '../src/onboarding/employer-attestation.js';
 
 const PASS = 'correct horse battery staple';
-interface Holder { card: HolderCard; unlocked: UnlockedHolder }
+interface Holder {
+  card: HolderCard;
+  unlocked: UnlockedHolder;
+}
 const holders: Holder[] = Array.from({ length: 5 }, (_, i) => {
   const { file, card } = createHolderKey(`holder-${i + 1}`, PASS, { scryptN: 2 ** 12 });
   return { card, unlocked: unlockHolderKey(file, PASS) };
 });
-const made = runCeremony({ holders: holders.map((h) => h.card), threshold: 3, nodes: [{ nodeId: 'insurer', role: 'insurer' }], programSourceSha256: 'a'.repeat(64) });
+const made = runCeremony({
+  holders: holders.map((h) => h.card),
+  threshold: 3,
+  nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+  programSourceSha256: 'a'.repeat(64),
+});
 const record: CeremonyRecord = holders.slice(0, 3).reduce((r, h) => addRecordSignature(r, signCeremonyRecord(r, h.unlocked)), made.record);
 const shareOf = (h: Holder): ShareFile => made.shares.find((s) => s.holder === h.card.signPublicKeyHex)!;
 
 let dir: string;
 const running: NautilusAppServer[] = [];
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insurer-keys-')); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insurer-keys-'));
+});
 afterEach(async () => {
   for (const s of running.splice(0)) await s.stop();
   fs.rmSync(dir, { recursive: true, force: true });
@@ -45,8 +55,15 @@ afterEach(async () => {
 
 async function insurer(seal: MachineSeal, withKeyring = true) {
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:9', stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'insurer-token',
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:9',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'insurer-token',
   } as unknown as NautilusAppConfig);
   server.registerRoutes(buildKeyRoutes(server));
   let keyring: NodeKeyring | null = null;
@@ -66,20 +83,34 @@ async function status(url: string) {
 }
 
 async function post(url: string, body: unknown) {
-  const r = await fetch(`${url}/keys/release`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(`${url}/keys/release`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   return { code: r.status, json: (await r.json()) as any };
 }
 
 async function releaseFrom(url: string, h: Holder) {
   const { json } = await status(url);
-  return releaseShare(shareOf(h), h.unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: json.data.bootPublicKeyHex });
+  return releaseShare(shareOf(h), h.unlocked, {
+    ceremonyId: record.ceremonyId,
+    nodeId: 'insurer',
+    bootPublicKeyHex: json.data.bootPublicKeyHex,
+  });
 }
 
-test('the plan\'s node waits for three holders, then signs as the insurer the record names', async () => {
+test("the plan's node waits for three holders, then signs as the insurer the record names", async () => {
   const { server, url } = await insurer(testOnlyMachineSeal());
   const before = await status(url);
   expect(before.code).toBe(200);
-  expect(before.json.data).toMatchObject({ state: 'awaiting-shares', ceremonyId: record.ceremonyId, nodeId: 'insurer', threshold: 3, received: 0 });
+  expect(before.json.data).toMatchObject({
+    state: 'awaiting-shares',
+    ceremonyId: record.ceremonyId,
+    nodeId: 'insurer',
+    threshold: 3,
+    received: 0,
+  });
   expect(before.json.data.bootFingerprint).toMatch(/^[0-9A-F]{4}(-[0-9A-F]{4}){3}$/);
   expect(server.getConfig().insurerSigningSeed).toBeUndefined();
 
@@ -93,7 +124,14 @@ test('the plan\'s node waits for three holders, then signs as the insurer the re
   const after = await status(url);
   expect(after.json.data.state).toBe('unlocked');
   expect(after.json.data.bootPublicKeyHex).toBeUndefined();
-  const late = await post(url, releaseShare(shareOf(holders[1]), holders[1].unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: before.json.data.bootPublicKeyHex }));
+  const late = await post(
+    url,
+    releaseShare(shareOf(holders[1]), holders[1].unlocked, {
+      ceremonyId: record.ceremonyId,
+      nodeId: 'insurer',
+      bootPublicKeyHex: before.json.data.bootPublicKeyHex,
+    }),
+  );
   expect(late.code).toBe(409);
   expect(late.json.error).toMatch(/already unlocked/);
 });
@@ -101,7 +139,11 @@ test('the plan\'s node waits for three holders, then signs as the insurer the re
 test('a release that does not check out is refused and changes nothing', async () => {
   const { url } = await insurer(testOnlyMachineSeal());
   expect((await post(url, { v: 1, kind: 'zpk.care share release' })).code).toBe(400);
-  const elsewhere = releaseShare(shareOf(holders[0]), holders[0].unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: generateBoxKeyPair().publicKeyHex });
+  const elsewhere = releaseShare(shareOf(holders[0]), holders[0].unlocked, {
+    ceremonyId: record.ceremonyId,
+    nodeId: 'insurer',
+    bootPublicKeyHex: generateBoxKeyPair().publicKeyHex,
+  });
   const refused = await post(url, elsewhere);
   expect(refused.code).toBe(400);
   expect(refused.json.error).toMatch(/another start/);

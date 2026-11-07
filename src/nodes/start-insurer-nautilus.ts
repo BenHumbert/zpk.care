@@ -160,7 +160,11 @@ async function main(): Promise<void> {
       record = JSON.parse(fs.readFileSync(ceremonyRecordPath, 'utf8')) as CeremonyRecord;
       verifyCeremonyRecord(record);
     } catch (err) {
-      console.error('  [FATAL] the key ceremony record at %s is not valid: %s', ceremonyRecordPath, err instanceof Error ? err.message : String(err));
+      console.error(
+        '  [FATAL] the key ceremony record at %s is not valid: %s',
+        ceremonyRecordPath,
+        err instanceof Error ? err.message : String(err),
+      );
       process.exit(1);
     }
     if (config.insurerSigningSeed) {
@@ -187,18 +191,26 @@ async function main(): Promise<void> {
       }
       try {
         tenantRegistry = SealedRecordStore.open<TenantRegistration>({
-          dir: path.join(config.stateDir, 'plan-records'), name: 'tenants', key: k.subkey(SUBKEYS.planStore('tenants')),
+          dir: path.join(config.stateDir, 'plan-records'),
+          name: 'tenants',
+          key: k.subkey(SUBKEYS.planStore('tenants')),
         });
         configureTenantKeys({ keys: k, registry: tenantRegistry, stateDir: config.stateDir });
       } catch (err) {
-        console.error("  [keys] the plan's registry of employer tenants could not be opened: %s; no tenant is brought back or started", err instanceof Error ? err.message : String(err));
+        console.error(
+          "  [keys] the plan's registry of employer tenants could not be opened: %s; no tenant is brought back or started",
+          err instanceof Error ? err.message : String(err),
+        );
         return;
       }
       if (serverReady) void bringBackTenants();
     });
     await keyring.start();
   } else {
-    console.warn('  [keys] no key ceremony record: the insurer signs with %s', config.insurerSigningSeed ? 'the seed it was given' : 'nothing (no seed was given)');
+    console.warn(
+      '  [keys] no key ceremony record: the insurer signs with %s',
+      config.insurerSigningSeed ? 'the seed it was given' : 'nothing (no seed was given)',
+    );
   }
 
   // ── Start Server ──
@@ -223,7 +235,7 @@ async function main(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     });
-    const json = await res.json() as any;
+    const json = (await res.json()) as any;
     if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
     return json.result;
   }
@@ -235,7 +247,9 @@ async function main(): Promise<void> {
       await fetch(seqUrl + '/health');
       seqReady = true;
       break;
-    } catch { await new Promise((r) => setTimeout(r, 1000)); }
+    } catch {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
   if (seqReady) {
@@ -357,7 +371,9 @@ async function main(): Promise<void> {
     try {
       const { shutdownAllTenants } = await import('./employer-orchestrator.js');
       shutdownAllTenants();
-    } catch { /* orchestrator module may not be loaded — ignore */ }
+    } catch {
+      /* orchestrator module may not be loaded — ignore */
+    }
     await server.stop();
     tenantRegistry?.close();
     closePlanRecords(server);

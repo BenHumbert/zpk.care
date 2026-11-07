@@ -69,7 +69,10 @@ export function stableCatalogOrder(previousNdcs: readonly string[], currentNdcs:
  * subset does not hold yet. The subset keeps its positions, its tier mix and its run through the catalog, instead of
  * collecting near-duplicates (other package codes of one drug).
  */
-export function refreshSubset<T extends { ndc: string; tierLevel: number; otc: boolean; description?: string }>(previous: readonly T[], catalog: readonly T[]): T[] {
+export function refreshSubset<T extends { ndc: string; tierLevel: number; otc: boolean; description?: string }>(
+  previous: readonly T[],
+  catalog: readonly T[],
+): T[] {
   const position = new Map(catalog.map((r, i) => [r.ndc, i] as const));
   const continuing = previous.filter((r) => position.has(r.ndc));
   const used = new Set(continuing.map((r) => r.ndc));

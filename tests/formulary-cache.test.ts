@@ -62,8 +62,7 @@ function buildFresh(recs: Rec[]): { svc: FormularyService; cache: FormularyTreeC
   return { svc, cache: cache! };
 }
 
-const clone = (c: FormularyTreeCache): FormularyTreeCache =>
-  JSON.parse(JSON.stringify(c)) as FormularyTreeCache;
+const clone = (c: FormularyTreeCache): FormularyTreeCache => JSON.parse(JSON.stringify(c)) as FormularyTreeCache;
 
 const RECS = records(40);
 
@@ -90,8 +89,7 @@ describe('a cache hit reproduces the built tree exactly', () => {
       expect(restored.getLeafIndex(ndcHash)).toBe(svc.getLeafIndex(ndcHash));
       const w = restored.getWitness(ndcHash);
       expect(w).not.toBeNull();
-      expect(w!.calculateRoot(restored.getLeaf(ndcHash)!).toString())
-        .toBe(restored.getRootString());
+      expect(w!.calculateRoot(restored.getLeaf(ndcHash)!).toString()).toBe(restored.getRootString());
     }
   });
 
@@ -120,8 +118,7 @@ describe('a cache that does not describe the data is refused', () => {
     // And the rebuilt tree is actually usable, not just equal at the root.
     const probe = hashString(recs[0].ndc).toString();
     expect(svc.getLeafIndex(probe)).toBe(0n);
-    expect(svc.getWitness(probe)!.calculateRoot(svc.getLeaf(probe)!).toString())
-      .toBe(svc.getRootString());
+    expect(svc.getWitness(probe)!.calculateRoot(svc.getLeaf(probe)!).toString()).toBe(svc.getRootString());
   }
 
   test('a leaf-determining field changed', () => {
@@ -211,8 +208,7 @@ describe('a cache that does not describe the data is refused', () => {
       expect(drug!.ndc).toBe(r.ndc);
       expect(drug!.defaultTier).toBe(r.tierLevel);
       expect(drug!.defaultCopay).toBe(r.copayAmount);
-      expect(restored.getWitness(ndcHash)!.calculateRoot(restored.getLeaf(ndcHash)!).toString())
-        .toBe(svc.getRootString());
+      expect(restored.getWitness(ndcHash)!.calculateRoot(restored.getLeaf(ndcHash)!).toString()).toBe(svc.getRootString());
     }
   });
 

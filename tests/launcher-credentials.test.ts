@@ -12,6 +12,7 @@
  * network the launcher booted.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 import path from 'path';
 
 const REPO = path.resolve(__dirname, '..');
@@ -21,7 +22,9 @@ describe('start-leviathan.ts', () => {
   const boot = read('src/nodes/start-leviathan.ts');
 
   test('keys each child and registers the key with its role before spawning it', () => {
-    expect(boot).toMatch(/const nodeKey = generateNodeKey\(name\);\s*\n\s*rpcServer\.registerNodeKey\(nodeKey\.nodeId, nodeKey\.publicKeyHex, role/);
+    expect(boot).toMatch(
+      /const nodeKey = generateNodeKey\(name\);\s*\n\s*rpcServer\.registerNodeKey\(nodeKey\.nodeId, nodeKey\.publicKeyHex, role/,
+    );
     expect(boot).toMatch(/\[NODE_ID_ENV\]: nodeKey\.nodeId/);
     expect(boot).toMatch(/\[NODE_KEY_SEED_ENV\]: nodeKey\.seedHex/);
     expect(boot).toMatch(/childEnvironment\(process\.env, \{/);
@@ -31,15 +34,18 @@ describe('start-leviathan.ts', () => {
     expect(boot).not.toMatch(/ZKTRIDENT_ADMIN_TOKEN: adminToken/);
     expect(boot).toMatch(/ZKTRIDENT_ADMIN_TOKEN: insurerAdminToken/);
     expect(boot).toMatch(/env\.ZKTRIDENT_INSURER_ADMIN_TOKEN\s*\n?\s*\?\? \(adminToken \? deriveNodeAdminToken\(adminToken, 'insurer'\)/);
-    const spawnCall = (role: string) => boot.slice(boot.indexOf(`spawnEntity('${role}'`), boot.indexOf('});', boot.indexOf(`spawnEntity('${role}'`)));
+    const spawnCall = (role: string) =>
+      boot.slice(boot.indexOf(`spawnEntity('${role}'`), boot.indexOf('});', boot.indexOf(`spawnEntity('${role}'`)));
     // the prescriber's own token, explicit or derived from the operator's as the insurer's is
-    expect(spawnCall('prescriber')).toMatch(/ZKTRIDENT_ADMIN_TOKEN: prescriberAdminToken/);   // before: no token, every patient route 401
-    expect(boot).toMatch(/env\.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN\s*\n?\s*\?\? \(adminToken \? deriveNodeAdminToken\(adminToken, 'prescriber'\)/);
+    expect(spawnCall('prescriber')).toMatch(/ZKTRIDENT_ADMIN_TOKEN: prescriberAdminToken/); // before: no token, every patient route 401
+    expect(boot).toMatch(
+      /env\.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN\s*\n?\s*\?\? \(adminToken \? deriveNodeAdminToken\(adminToken, 'prescriber'\)/,
+    );
     // the two nodes without admin routes get no token at all
     for (const role of ['pharmacy', 'member']) expect(spawnCall(role)).not.toMatch(/ADMIN_TOKEN/);
   });
 
-  test('a node\'s own token variable is a secret that no child inherits', async () => {
+  test("a node's own token variable is a secret that no child inherits", async () => {
     const { SECRET_ENV_KEYS, childEnvironment } = await import('../src/security/node-roles.js');
     for (const key of ['ZKTRIDENT_INSURER_ADMIN_TOKEN', 'ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN']) {
       expect(SECRET_ENV_KEYS).toContain(key);
@@ -49,10 +55,16 @@ describe('start-leviathan.ts', () => {
 
   test('a secret is held back whatever the case of its name (Windows reads names case-insensitively)', async () => {
     const { childEnvironment } = await import('../src/security/node-roles.js');
-    const env = childEnvironment({
-      zktrident_node_key_seed: 'a'.repeat(64), Zktrident_Admin_Token: 'operator', zktrident_gossip_secret: 'gossip', PATH: '/bin',
-    }, {});
-    expect(env).toEqual({ PATH: '/bin' });                              // before: the three lower- and mixed-case names came through
+    const env = childEnvironment(
+      {
+        zktrident_node_key_seed: 'a'.repeat(64),
+        Zktrident_Admin_Token: 'operator',
+        zktrident_gossip_secret: 'gossip',
+        PATH: '/bin',
+      },
+      {},
+    );
+    expect(env).toEqual({ PATH: '/bin' }); // before: the three lower- and mixed-case names came through
   });
 
   test('spawns children under this Node with tsx, without a shell, and names itself as the parent', () => {
@@ -63,7 +75,11 @@ describe('start-leviathan.ts', () => {
   });
 
   test('the explorer gets a scrubbed environment and no key', () => {
-    const explorer = boot.slice(boot.indexOf("spawn(process.execPath, ['--import', 'tsx', explorerScript]"), boot.indexOf('entityChildren.push({ name: \'explorer\''));
+    const code = flat(boot);
+    const explorer = code.slice(
+      code.indexOf(flat("spawn(process.execPath, ['--import', 'tsx', explorerScript]")),
+      code.indexOf(flat("entityChildren.push({ name: 'explorer'")),
+    );
     expect(explorer).toMatch(/childEnvironment\(process\.env, \{ ZKTRIDENT_EXPLORER_PORT/);
     expect(explorer).not.toMatch(/NODE_KEY_SEED|ADMIN_TOKEN/);
   });
@@ -80,13 +96,22 @@ describe('the start scripts', () => {
   }
 
   test('no node presents a bearer token to the sequencer any more', () => {
-    const nodeFiles = fs.readdirSync(path.join(REPO, 'src/nodes')).filter((f) => f.endsWith('.ts')).map((f) => `src/nodes/${f}`)
-      .concat(fs.readdirSync(path.join(REPO, 'src/nodes/routes')).filter((f) => f.endsWith('.ts')).map((f) => `src/nodes/routes/${f}`));
+    const nodeFiles = fs
+      .readdirSync(path.join(REPO, 'src/nodes'))
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => `src/nodes/${f}`)
+      .concat(
+        fs
+          .readdirSync(path.join(REPO, 'src/nodes/routes'))
+          .filter((f) => f.endsWith('.ts'))
+          .map((f) => `src/nodes/routes/${f}`),
+      );
     const offenders: string[] = [];
     for (const rel of nodeFiles) {
       const src = read(rel);
       if (/clientOptions: [^\n]*adminToken/.test(src)) offenders.push(`${rel}: clientOptions carries adminToken`);
-      if (/Bearer \$\{(adminToken|insurerAdminToken)\}|'Bearer ' \+ adminToken/.test(src)) offenders.push(`${rel}: hand-built bearer header`);
+      if (/Bearer \$\{(adminToken|insurerAdminToken)\}|'Bearer ' \+ adminToken/.test(src))
+        offenders.push(`${rel}: hand-built bearer header`);
     }
     expect(offenders).toEqual([]);
   });

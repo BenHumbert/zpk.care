@@ -36,25 +36,11 @@
  *   Total:       ~8-12 min
  */
 import { Field, MerkleTree, Poseidon } from 'o1js';
-import {
-  StateTransitionProgram,
-  EMPTY_CREDENTIAL_ROOT,
-} from '../src/engine/state-transition.js';
-import {
-  BatchProgram,
-  BatchProof,
-  BatchOutput,
-} from '../src/l2/batch-program.js';
-import {
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
+import { StateTransitionProgram, EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { BatchProgram, BatchProof, BatchOutput } from '../src/l2/batch-program.js';
+import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { LifecycleWitness, LIFECYCLE_REGISTERED, lifecycleLeafCommitment } from '../src/engine/lifecycle.js';
-import {
-  deriveMemberWalletId,
-  memberWalletPreimage,
-  DOMAIN_TAG_MEMBER,
-} from '../src/wallets/wallet-derivation.js';
+import { deriveMemberWalletId, memberWalletPreimage, DOMAIN_TAG_MEMBER } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import { fixtureIdentitySalt } from '../src/data/index.js';
 
@@ -100,8 +86,8 @@ const ENROLLMENT_KEY_3 = 'cD5!fH8^gJ1kL4mN6pQ9';
 
 describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
   // Store proofs generated in earlier tests for use in merge tests
-  let pairBatchProof1: BatchProof;   // test 1: 2 registrations
-  let pairBatchProof2: BatchProof;   // test 2: registration + wallet update
+  let pairBatchProof1: BatchProof; // test 1: 2 registrations
+  let pairBatchProof2: BatchProof; // test 2: registration + wallet update
 
   // Track tree state across tests
   let regTree: MerkleTree;
@@ -146,7 +132,12 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult1 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
+      preimage1[0]!,
+      preimage1[1]!,
+      preimage1[2]!,
+      preimage1[3]!,
+      preimage1[4]!,
+      preimage1[5]!,
       regWitness1,
       lcWitness1,
       regTree.getRoot(),
@@ -171,7 +162,12 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult2 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage2[0]!, preimage2[1]!, preimage2[2]!, preimage2[3]!, preimage2[4]!, preimage2[5]!,
+      preimage2[0]!,
+      preimage2[1]!,
+      preimage2[2]!,
+      preimage2[3]!,
+      preimage2[4]!,
+      preimage2[5]!,
       regWitness2,
       lcWitness2,
       regTree.getRoot(),
@@ -219,7 +215,12 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult3 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage3[0]!, preimage3[1]!, preimage3[2]!, preimage3[3]!, preimage3[4]!, preimage3[5]!,
+      preimage3[0]!,
+      preimage3[1]!,
+      preimage3[2]!,
+      preimage3[3]!,
+      preimage3[4]!,
+      preimage3[5]!,
       regWitness3,
       lcWitness3,
       regTree.getRoot(),
@@ -245,10 +246,15 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
 
     const stResult4 = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,
-      preimage1[0]!, preimage1[1]!, preimage1[2]!, preimage1[3]!, preimage1[4]!, preimage1[5]!,
-      EMPTY_CREDENTIAL_ROOT,   // oldCredentialRoot
-      Field(0),                // oldNonce
-      newCredentialRoot,       // newCredentialRoot
+      preimage1[0]!,
+      preimage1[1]!,
+      preimage1[2]!,
+      preimage1[3]!,
+      preimage1[4]!,
+      preimage1[5]!,
+      EMPTY_CREDENTIAL_ROOT, // oldCredentialRoot
+      Field(0), // oldNonce
+      newCredentialRoot, // newCredentialRoot
       regWitness4,
       lcWitness4,
       regTree.getRoot(),
@@ -287,38 +293,23 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     const out1 = pairBatchProof1.publicOutput as unknown as BatchOutput;
     const out2 = pairBatchProof2.publicOutput as unknown as BatchOutput;
 
-    expect(out1.newRegistryRoot.toString()).toBe(
-      out2.oldRegistryRoot.toString(),
-    );
-    expect(out1.newLifecycleRoot.toString()).toBe(
-      out2.oldLifecycleRoot.toString(),
-    );
+    expect(out1.newRegistryRoot.toString()).toBe(out2.oldRegistryRoot.toString());
+    expect(out1.newLifecycleRoot.toString()).toBe(out2.oldLifecycleRoot.toString());
 
     // Merge
     console.log(`[test3] Merging two BatchProofs...`);
     const s = Date.now();
-    const mergedResult = await BatchProgram.mergeBatches(
-      pairBatchProof1,
-      pairBatchProof2,
-    );
+    const mergedResult = await BatchProgram.mergeBatches(pairBatchProof1, pairBatchProof2);
     console.log(`[test3] mergeBatches done in ${secs(s)}s`);
 
     const mergedProof = mergedResult.proof as BatchProof;
     const output = mergedProof.publicOutput as unknown as BatchOutput;
 
     // A→C: old from pair1, new from pair2
-    expect(output.oldRegistryRoot.toString()).toBe(
-      out1.oldRegistryRoot.toString(),
-    );
-    expect(output.newRegistryRoot.toString()).toBe(
-      out2.newRegistryRoot.toString(),
-    );
-    expect(output.oldLifecycleRoot.toString()).toBe(
-      out1.oldLifecycleRoot.toString(),
-    );
-    expect(output.newLifecycleRoot.toString()).toBe(
-      out2.newLifecycleRoot.toString(),
-    );
+    expect(output.oldRegistryRoot.toString()).toBe(out1.oldRegistryRoot.toString());
+    expect(output.newRegistryRoot.toString()).toBe(out2.newRegistryRoot.toString());
+    expect(output.oldLifecycleRoot.toString()).toBe(out1.oldLifecycleRoot.toString());
+    expect(output.newLifecycleRoot.toString()).toBe(out2.newLifecycleRoot.toString());
 
     // Counts: 2 + 1 = 3 registrations, 2 + 2 = 4 transitions
     expect(output.registrationCount.toString()).toBe('3');
@@ -336,12 +327,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     console.log(`[test4] Attempting merge with wrong order (should fail)...`);
 
     // This should throw a constraint failure during proof generation
-    await expect(
-      BatchProgram.mergeBatches(
-        pairBatchProof2,
-        pairBatchProof1,
-      ),
-    ).rejects.toThrow();
+    await expect(BatchProgram.mergeBatches(pairBatchProof2, pairBatchProof1)).rejects.toThrow();
 
     console.log(`✓ Test 4/5 PASSED in ${secs(t)}s (${mem()})\n`);
   }, 600_000);

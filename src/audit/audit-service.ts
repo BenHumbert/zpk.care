@@ -121,9 +121,7 @@ export class AuditService {
       isValid: brokenLinks.length === 0,
       totalEvents: log.events.length,
       brokenLinks,
-      reason: brokenLinks.length > 0
-        ? `Chain broken at sequence numbers: ${brokenLinks.join(', ')}`
-        : undefined,
+      reason: brokenLinks.length > 0 ? `Chain broken at sequence numbers: ${brokenLinks.join(', ')}` : undefined,
     };
   }
 
@@ -151,7 +149,8 @@ export class AuditService {
       if (event.patientPayCents === undefined || event.planPayCents === undefined) continue;
       const reversal = event.operationType === 2;
       const sign = reversal ? -1 : 1;
-      if (reversal) reversals++; else totalClaims++;
+      if (reversal) reversals++;
+      else totalClaims++;
       totalPatientPayCents += sign * event.patientPayCents;
       totalPlanPayCents += sign * event.planPayCents;
       const ctx = event.claimContext;
@@ -171,9 +170,7 @@ export class AuditService {
       totalPlanPayCents,
       totalIngredientCostCents,
       totalDispensingFeeCents,
-      reason: imbalancedClaims.length > 0
-        ? `${imbalancedClaims.length} claim(s) with imbalanced amounts`
-        : undefined,
+      reason: imbalancedClaims.length > 0 ? `${imbalancedClaims.length} claim(s) with imbalanced amounts` : undefined,
     };
   }
 
@@ -204,9 +201,7 @@ export class AuditService {
       }
     }
 
-    const totalDuplicates = duplicateGroups.reduce(
-      (sum, g) => sum + g.receiptIds.length, 0,
-    );
+    const totalDuplicates = duplicateGroups.reduce((sum, g) => sum + g.receiptIds.length, 0);
 
     return {
       hasDuplicates: duplicateGroups.length > 0,
@@ -225,9 +220,7 @@ export class AuditService {
       return { hasGaps: false, gaps: [], totalGaps: 0 };
     }
 
-    const sorted = [...events].sort(
-      (a, b) => Number(a.sequenceNumber - b.sequenceNumber),
-    );
+    const sorted = [...events].sort((a, b) => Number(a.sequenceNumber - b.sequenceNumber));
 
     const gaps: { expected: bigint; actual: bigint }[] = [];
     for (let i = 1; i < sorted.length; i++) {
@@ -260,7 +253,7 @@ export class AuditService {
     const orphanedReceiptIds: string[] = [];
 
     for (const event of events) {
-      if (event.l1Status === 'pending' && (now - event.timestamp) > thresholdMs) {
+      if (event.l1Status === 'pending' && now - event.timestamp > thresholdMs) {
         orphanedReceiptIds.push(event.receiptId);
       }
     }
@@ -281,10 +274,7 @@ export class AuditService {
    *   - How many batches are settled/pending/failed
    *   - Whether the latest settled batch root matches on-chain state
    */
-  static verifyL1Settlement(
-    batches: L2Batch[],
-    onChainState: OnChainState,
-  ): SettlementResult {
+  static verifyL1Settlement(batches: L2Batch[], onChainState: OnChainState): SettlementResult {
     if (batches.length === 0) {
       return {
         isComplete: true,
@@ -301,24 +291,26 @@ export class AuditService {
 
     for (const batch of batches) {
       switch (batch.l1Status) {
-        case 'settled': settledBatches++; break;
+        case 'settled':
+          settledBatches++;
+          break;
         case 'pending':
-        case 'batched': pendingBatches++; break;
-        case 'failed': failedBatches++; break;
+        case 'batched':
+          pendingBatches++;
+          break;
+        case 'failed':
+          failedBatches++;
+          break;
       }
     }
 
     // Find the latest settled batch by batch number
-    const settledBatchList = batches
-      .filter(b => b.l1Status === 'settled')
-      .sort((a, b) => Number(b.batchNumber - a.batchNumber));
+    const settledBatchList = batches.filter((b) => b.l1Status === 'settled').sort((a, b) => Number(b.batchNumber - a.batchNumber));
 
     let rootConsistent = true;
     if (settledBatchList.length > 0) {
       const latest = settledBatchList[0];
-      rootConsistent =
-        latest.newRegistryRoot === onChainState.walletRegistryRoot &&
-        latest.newLifecycleRoot === onChainState.lifecycleRoot;
+      rootConsistent = latest.newRegistryRoot === onChainState.walletRegistryRoot && latest.newLifecycleRoot === onChainState.lifecycleRoot;
     }
 
     const isComplete = pendingBatches === 0 && failedBatches === 0 && rootConsistent;
@@ -329,9 +321,7 @@ export class AuditService {
       pendingBatches,
       failedBatches,
       rootConsistent,
-      reason: !isComplete
-        ? `${pendingBatches} pending, ${failedBatches} failed${!rootConsistent ? ', root mismatch' : ''}`
-        : undefined,
+      reason: !isComplete ? `${pendingBatches} pending, ${failedBatches} failed${!rootConsistent ? ', root mismatch' : ''}` : undefined,
     };
   }
 
@@ -343,10 +333,7 @@ export class AuditService {
    * Compares wallet IDs from L2 registration events (isRegistration=true)
    * against wallet IDs in the roster. Reports mismatches in both directions.
    */
-  static verifyEnrollmentConsistency(
-    events: AuditEvent[],
-    rosterEntries: { walletId: string }[],
-  ): EnrollmentConsistencyResult {
+  static verifyEnrollmentConsistency(events: AuditEvent[], rosterEntries: { walletId: string }[]): EnrollmentConsistencyResult {
     const registeredWallets = new Set<string>();
     for (const event of events) {
       if (event.isRegistration) {
@@ -382,9 +369,7 @@ export class AuditService {
       mismatchCount,
       unregisteredWallets,
       unrosteredWallets,
-      reason: mismatchCount > 0
-        ? `${unregisteredWallets.length} unregistered, ${unrosteredWallets.length} unrostered`
-        : undefined,
+      reason: mismatchCount > 0 ? `${unregisteredWallets.length} unregistered, ${unrosteredWallets.length} unrostered` : undefined,
     };
   }
 
@@ -411,13 +396,9 @@ export class AuditService {
     const financialBalance = AuditService.verifyFinancialBalance(log.events);
     const duplicateDetection = AuditService.detectDuplicateClaims(log.events);
     const sequenceGaps = AuditService.detectSequenceGaps(log.events);
-    const orphanedReceipts = AuditService.detectOrphanedReceipts(
-      log.events, orphanNow, orphanThresholdMs,
-    );
+    const orphanedReceipts = AuditService.detectOrphanedReceipts(log.events, orphanNow, orphanThresholdMs);
     const settlement = AuditService.verifyL1Settlement(batches, onChainState);
-    const enrollmentConsistency = AuditService.verifyEnrollmentConsistency(
-      log.events, rosterEntries,
-    );
+    const enrollmentConsistency = AuditService.verifyEnrollmentConsistency(log.events, rosterEntries);
 
     // Critical checks — orphaned receipts and incomplete settlement excluded
     const overallHealthy =

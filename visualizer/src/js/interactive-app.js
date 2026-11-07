@@ -31,7 +31,7 @@ export function formatCents(cents) {
 
 // ─── Shared ZK Rendering Helpers ──────────────────────────
 
-const CREDENTIAL_TYPE_LABELS = { '1': 'ELIGIBILITY', '2': 'PRESCRIPTION' };
+const CREDENTIAL_TYPE_LABELS = { 1: 'ELIGIBILITY', 2: 'PRESCRIPTION' };
 const FOREST_DOMAIN_LABELS = {
   memberRoot: 'MEMBER',
   prescriberRoot: 'PRESCRIBER',
@@ -112,9 +112,13 @@ export function renderCredentialCard(title, nftData, colorClass) {
  */
 export function renderForestCard(title, forestRoots, colorClass) {
   if (!forestRoots) return '';
-  const rows = Object.entries(FOREST_DOMAIN_LABELS).map(([key, label]) => `
+  const rows = Object.entries(FOREST_DOMAIN_LABELS)
+    .map(
+      ([key, label]) => `
     <div class="zk-label">${label}</div><div class="zk-value">${escapeHtml(forestRoots[key])}</div>
-  `).join('');
+  `,
+    )
+    .join('');
 
   return `
     <div class="zk-section collapsed">
@@ -147,11 +151,16 @@ export function renderForestCard(title, forestRoots, colorClass) {
  */
 export function renderZkDataSection(title, data, colorClass, commitLabel, commitValue) {
   if (!data) return '';
-  const rows = Object.entries(data).map(([key, val]) => `
+  const rows = Object.entries(data)
+    .map(
+      ([key, val]) => `
     <div class="zk-label">${escapeHtml(key)}</div><div class="zk-value">${escapeHtml(val)}</div>
-  `).join('');
+  `,
+    )
+    .join('');
 
-  const hashFlow = commitLabel ? `
+  const hashFlow = commitLabel
+    ? `
     <div class="hash-flow">
       <span class="hf-op">Poseidon.hash</span>
       <span class="hf-arrow">(</span>
@@ -160,7 +169,8 @@ export function renderZkDataSection(title, data, colorClass, commitLabel, commit
       <span class="hf-arrow">=</span>
       <span class="hf-output">${escapeHtml(commitValue || '')}</span>
     </div>
-  ` : '';
+  `
+    : '';
 
   return `
     <div class="zk-section collapsed">
@@ -248,7 +258,8 @@ class InteractiveApp {
   async waitForServerUp() {
     this.setStatus('compiling', 'Waiting for server...');
 
-    for (let i = 0; i < 120; i++) { // 2 minutes max for server to start
+    for (let i = 0; i < 120; i++) {
+      // 2 minutes max for server to start
       try {
         const data = await loadInteractiveState(API_BASE);
         if (data) {
@@ -281,7 +292,8 @@ class InteractiveApp {
   async pollForCompilation() {
     this.setStatus('compiling', 'Compiling ZkPrograms...');
 
-    for (let i = 0; i < 600; i++) { // 10 minutes max
+    for (let i = 0; i < 600; i++) {
+      // 10 minutes max
       await sleep(2000);
       try {
         const data = await loadInteractiveState(API_BASE);
@@ -336,10 +348,11 @@ class InteractiveApp {
       const batchCount = this.state.chainState?.totalBatchesBuilt ?? 0;
       const fulfillmentCount = this.state.fulfillments?.length ?? 0;
 
-      const changed = enrolledCount !== lastEnrolledCount
-        || rxCount !== lastRxCount
-        || batchCount !== lastBatchCount
-        || fulfillmentCount !== lastFulfillmentCount;
+      const changed =
+        enrolledCount !== lastEnrolledCount ||
+        rxCount !== lastRxCount ||
+        batchCount !== lastBatchCount ||
+        fulfillmentCount !== lastFulfillmentCount;
 
       if (changed) {
         lastEnrolledCount = enrolledCount;
@@ -407,7 +420,7 @@ class InteractiveApp {
 }
 
 function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // Boot

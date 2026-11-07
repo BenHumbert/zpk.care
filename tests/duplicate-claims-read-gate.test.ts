@@ -104,12 +104,32 @@ const insurerNodeKey = generateNodeKey('insurer-node');
 const operatorNodeKey = generateNodeKey('operator-node');
 
 function mockProof(walletId: string, oldRoot: Field, newRoot: Field) {
-  return { verify: () => {}, publicOutput: { walletId: Field(BigInt(walletId)), oldRegistryRoot: oldRoot, newRegistryRoot: newRoot, oldLifecycleRoot: LC_ROOT, newLifecycleRoot: LC_ROOT }, toJSON: () => ({}) } as any;
+  return {
+    verify: () => {},
+    publicOutput: {
+      walletId: Field(BigInt(walletId)),
+      oldRegistryRoot: oldRoot,
+      newRegistryRoot: newRoot,
+      oldLifecycleRoot: LC_ROOT,
+      newLifecycleRoot: LC_ROOT,
+    },
+    toJSON: () => ({}),
+  } as any;
 }
 function fill(overrides: Partial<ClaimSubmissionMetadata>): ClaimSubmissionMetadata {
   return {
-    ndcHash: ABACAVIR, memberWalletId: MEMBER, pharmacyWalletId: PHARMACY_A, prescriberWalletId: PRESCRIBER, dateOfService: DAY,
-    patientPayCents: '1000', planPayCents: '3700', operationType: '1', ingredientCostCents: 4500, dispensingFeeCents: 200, quantityDispensed: 30, fillNumber: 0,
+    ndcHash: ABACAVIR,
+    memberWalletId: MEMBER,
+    pharmacyWalletId: PHARMACY_A,
+    prescriberWalletId: PRESCRIBER,
+    dateOfService: DAY,
+    patientPayCents: '1000',
+    planPayCents: '3700',
+    operationType: '1',
+    ingredientCostCents: 4500,
+    dispensingFeeCents: 200,
+    quantityDispensed: 30,
+    fillNumber: 0,
     ...overrides,
   };
 }
@@ -128,15 +148,30 @@ async function rpcWith(headers: Record<string, string>, body: string) {
   return (await r.json()) as { result?: any; error?: { code: number; message: string } };
 }
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
-const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) => signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
+const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) =>
+  signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
 const byMember = (body: string) => signRequest({ ...walletSigner(EK_MEMBER, MEMBER), method: 'POST', path: '/rpc', body });
 const duplicates = () => envelope('l2_detectDuplicateClaims');
 const balance = () => envelope('l2_verifyFinancialBalance');
 /** What the balance check answers over the three fills: two that add up, and one whose plan pay is 700 short. */
-const TOTALS = { balanced: false, reconciled: true, totalClaims: 3, totalPatientPayCents: 3000, totalPlanPayCents: 10400, totalIngredientCostCents: 13500, totalDispensingFeeCents: 600 };
+const TOTALS = {
+  balanced: false,
+  reconciled: true,
+  totalClaims: 3,
+  totalPatientPayCents: 3000,
+  totalPlanPayCents: 10400,
+  totalIngredientCostCents: 13500,
+  totalDispensingFeeCents: 600,
+};
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-duplicate-claims' }, new InMemoryStore(), REG_ROOT[0], LC_ROOT, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-duplicate-claims' },
+    new InMemoryStore(),
+    REG_ROOT[0],
+    LC_ROOT,
+    Field(0),
+  );
   node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/duplicate-claims-read-gate.test.ts'));
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNodeKey.nodeId, memberNodeKey.publicKeyHex, 'member');
@@ -146,7 +181,12 @@ beforeAll(async () => {
   server.registerNodeKey(operatorNodeKey.nodeId, operatorNodeKey.publicKeyHex, 'operator');
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
-  const register = envelope('l2_registerEntity', { walletId: MEMBER, displayName: 'Member', type: 'member', signingPublicKeyHex: deriveWalletSigningKey(EK_MEMBER).publicKeyHex });
+  const register = envelope('l2_registerEntity', {
+    walletId: MEMBER,
+    displayName: 'Member',
+    type: 'member',
+    signingPublicKeyHex: deriveWalletSigningKey(EK_MEMBER).publicKeyHex,
+  });
   const registered = await rpcWith(byNode(memberNodeKey, register), register);
   if (registered.error) throw new Error(`fixture registration of the member failed: ${registered.error.message}`);
   // The same fill at two pharmacies on one day: the ledger takes both, since its key holds the pharmacy, and the audit
@@ -154,16 +194,21 @@ beforeAll(async () => {
   const seq = node.getSequencer();
   await seq.submitProof(mockProof(MEMBER, REG_ROOT[0], REG_ROOT[1]), fill({ pharmacyWalletId: PHARMACY_A }));
   await seq.submitProof(mockProof(MEMBER, REG_ROOT[1], REG_ROOT[2]), fill({ pharmacyWalletId: PHARMACY_B }));
-  const imbalanced = await seq.submitProof(mockProof(MEMBER, REG_ROOT[2], REG_ROOT[3]), fill({ ndcHash: LAMIVUDINE, planPayCents: '3000' }));
+  const imbalanced = await seq.submitProof(
+    mockProof(MEMBER, REG_ROOT[2], REG_ROOT[3]),
+    fill({ ndcHash: LAMIVUDINE, planPayCents: '3000' }),
+  );
   imbalancedReceipt = imbalanced.receiptId;
 });
 
-afterAll(async () => { await server?.stop(); });
+afterAll(async () => {
+  await server?.stop();
+});
 
 describe('the D1 table', () => {
-  test('the duplicate-claims and balance checks are enumerations, as the audit log they read is; the chain check is not a read of a member\'s data', () => {
+  test("the duplicate-claims and balance checks are enumerations, as the audit log they read is; the chain check is not a read of a member's data", () => {
     expect(MEMBER_DATA_METHODS.l2_detectDuplicateClaims).toEqual({ subject: 'enumeration', readers: [] }); // before: undefined, so the read gate never saw the call
-    expect(MEMBER_DATA_METHODS.l2_detectDuplicateClaims).toEqual(MEMBER_DATA_METHODS.l2_getAuditLog);       // before: undefined
+    expect(MEMBER_DATA_METHODS.l2_detectDuplicateClaims).toEqual(MEMBER_DATA_METHODS.l2_getAuditLog); // before: undefined
     expect(callReadsMemberData('l2_detectDuplicateClaims', {})).toBe(true); // before: false, so a node's proxy forwarded it for anyone
     expect(MEMBER_DATA_METHODS.l2_verifyFinancialBalance).toEqual({ subject: 'enumeration', readers: [] }); // before: undefined, so the read gate never saw the call
     expect(callReadsMemberData('l2_verifyFinancialBalance', {})).toBe(true); // before: false
@@ -174,20 +219,20 @@ describe('the D1 table', () => {
 describe('l2_detectDuplicateClaims at the sequencer', () => {
   test('answers no anonymous caller and no wrong bearer, and names nothing of the member, the drug or the day', async () => {
     const anonymous = await rpcWith({}, duplicates());
-    expect(anonymous.result).toBeUndefined();             // before: { hasDuplicates: true, duplicates: [{ key: wallet|drug|day|fill, receiptIds }] }
+    expect(anonymous.result).toBeUndefined(); // before: { hasDuplicates: true, duplicates: [{ key: wallet|drug|day|fill, receiptIds }] }
     expect(anonymous.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     expect(JSON.stringify(anonymous)).not.toContain(MEMBER); // before: the member's wallet, in the group's key
     expect(JSON.stringify(anonymous)).not.toContain(ABACAVIR); // before: the drug, beside it
     const wrong = await rpcWith({ Authorization: 'Bearer not-the-operator' }, duplicates());
-    expect(wrong.result).toBeUndefined();                 // before: the group; the method checked no credential
-    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED);     // before: no error
+    expect(wrong.result).toBeUndefined(); // before: the group; the method checked no credential
+    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
   });
 
   test('answers neither the member itself nor a pharmacy, a prescriber or a member node: it reads across members', async () => {
     const own = duplicates();
     const member = await rpcWith(byMember(own), own);
-    expect(member.result).toBeUndefined();                // before: the group, as for anyone
-    expect(member.error?.code).toBe(RPC_FORBIDDEN);       // before: no error
+    expect(member.result).toBeUndefined(); // before: the group, as for anyone
+    expect(member.error?.code).toBe(RPC_FORBIDDEN); // before: no error
     expect(member.error?.message).toMatch(/across members and answers the plan or the operator only$/); // before: no error
     for (const key of [pharmacyNodeKey, prescriberNodeKey, memberNodeKey]) {
       const body = duplicates();
@@ -214,16 +259,16 @@ describe('l2_detectDuplicateClaims at the sequencer', () => {
 describe('l2_verifyFinancialBalance at the sequencer', () => {
   test('answers no anonymous caller and no wrong bearer, and gives none of the totals or the receipt that does not add up', async () => {
     const anonymous = await rpcWith({}, balance());
-    expect(anonymous.result).toBeUndefined();             // before: the totals over every claim and the receipt of the fill that does not add up
+    expect(anonymous.result).toBeUndefined(); // before: the totals over every claim and the receipt of the fill that does not add up
     expect(anonymous.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
     expect(JSON.stringify(anonymous)).not.toContain(imbalancedReceipt); // before: the receipt, in imbalancedClaims
     expect(JSON.stringify(anonymous)).not.toContain('totalPatientPayCents'); // before: the running total of patient pay
     const wrong = await rpcWith({ Authorization: 'Bearer not-the-operator' }, balance());
-    expect(wrong.result).toBeUndefined();                 // before: the totals; the method checked no credential
-    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED);     // before: no error
+    expect(wrong.result).toBeUndefined(); // before: the totals; the method checked no credential
+    expect(wrong.error?.code).toBe(RPC_UNAUTHORIZED); // before: no error
   });
 
-  test('answers no pharmacy key, which may open the event stream that names each claim\'s wallet, nor a prescriber key, a member node or the member itself', async () => {
+  test("answers no pharmacy key, which may open the event stream that names each claim's wallet, nor a prescriber key, a member node or the member itself", async () => {
     // The key the review used: it may subscribe to the stream, so the totals read around each event it sees would be
     // that event's wallet's claim amounts.
     expect(roleMayCall('pharmacy', { kind: 'route', method: 'GET', path: '/events' })).toBe(true);
@@ -232,12 +277,15 @@ describe('l2_verifyFinancialBalance at the sequencer', () => {
       const r = await rpcWith(byNode(key, body), body);
       expect([key.nodeId, r.result]).toEqual([key.nodeId, undefined]); // before: the totals
       expect([key.nodeId, r.error?.code]).toEqual([key.nodeId, RPC_FORBIDDEN]); // before: no error
-      expect([key.nodeId, r.error?.message]).toEqual([key.nodeId, 'Forbidden — l2_verifyFinancialBalance reads across members and answers the plan or the operator only']); // before: no error
+      expect([key.nodeId, r.error?.message]).toEqual([
+        key.nodeId,
+        'Forbidden — l2_verifyFinancialBalance reads across members and answers the plan or the operator only',
+      ]); // before: no error
     }
     const own = balance();
     const member = await rpcWith(byMember(own), own);
-    expect(member.result).toBeUndefined();                // before: the totals over every member's claims
-    expect(member.error?.code).toBe(RPC_FORBIDDEN);       // before: no error
+    expect(member.result).toBeUndefined(); // before: the totals over every member's claims
+    expect(member.error?.code).toBe(RPC_FORBIDDEN); // before: no error
   });
 
   test('answers the plan and the operator, the bearer or an operator key, with the totals and the receipt of the fill that does not add up', async () => {
@@ -249,7 +297,7 @@ describe('l2_verifyFinancialBalance at the sequencer', () => {
     expect((await rpcWith(byNode(operatorNodeKey, ops), ops)).result).toEqual(asPlan.result);
   });
 
-  test('a receipt ID it names opens nothing of the member to an anonymous caller: the receipt is a read of the member\'s data', async () => {
+  test("a receipt ID it names opens nothing of the member to an anonymous caller: the receipt is a read of the member's data", async () => {
     const receipt = await rpcWith({}, envelope('l2_getReceipt', { receiptId: imbalancedReceipt }));
     expect(receipt.result).toBeUndefined();
     expect(receipt.error?.code).toBe(RPC_UNAUTHORIZED);
@@ -268,14 +316,22 @@ describe('the chain-integrity check', () => {
 });
 
 describe('the explorer', () => {
-  interface Explorer { child: ChildProcess; port: number; stderr: () => string }
+  interface Explorer {
+    child: ChildProcess;
+    port: number;
+    stderr: () => string;
+  }
   let explorer: Explorer | null = null;
 
   async function freePort(): Promise<number> {
     return await new Promise<number>((resolve, reject) => {
       const s = net.createServer();
       s.on('error', reject);
-      s.listen(0, '127.0.0.1', () => { const a = s.address(); const p = typeof a === 'object' && a ? a.port : 0; s.close(() => resolve(p)); });
+      s.listen(0, '127.0.0.1', () => {
+        const a = s.address();
+        const p = typeof a === 'object' && a ? a.port : 0;
+        s.close(() => resolve(p));
+      });
     });
   }
 
@@ -289,36 +345,60 @@ describe('the explorer', () => {
       windowsHide: true,
     });
     let stderr = '';
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+    child.stderr?.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
     explorer = { child, port, stderr: () => stderr };
     const deadline = Date.now() + 60_000;
     for (;;) {
-      try { const r = await fetch(`http://127.0.0.1:${port}/index.html`); if (r.status > 0) break; } catch { /* not yet */ }
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/index.html`);
+        if (r.status > 0) break;
+      } catch {
+        /* not yet */
+      }
       if (child.exitCode !== null || Date.now() > deadline) throw new Error('explorer did not start: ' + stderr);
       await new Promise((r) => setTimeout(r, 300));
     }
   }, 90_000);
 
   afterAll(() => {
-    if (explorer && explorer.child.exitCode === null) { try { explorer.child.kill(); } catch { /* best effort */ } }
+    if (explorer && explorer.child.exitCode === null) {
+      try {
+        explorer.child.kill();
+      } catch {
+        /* best effort */
+      }
+    }
   });
 
   /** The explorer's rpc.js as its page loads it from the explorer's origin, keeping the headers of each request it sends. */
   function explorerPage() {
     const sent: Array<Record<string, string>> = [];
-    const recording = (target: string, init: { headers: Record<string, string> }) => { sent.push(init.headers); return fetch(target, init as RequestInit); };
-    const RPC = new Function('location', 'fetch', 'EventSource', `${fs.readFileSync(path.join(REPO, 'explorer', 'rpc.js'), 'utf8')}\nreturn RPC;`)(
-      { origin: `http://127.0.0.1:${explorer!.port}` }, recording, undefined);
+    const recording = (target: string, init: { headers: Record<string, string> }) => {
+      sent.push(init.headers);
+      return fetch(target, init as RequestInit);
+    };
+    const RPC = new Function(
+      'location',
+      'fetch',
+      'EventSource',
+      `${fs.readFileSync(path.join(REPO, 'explorer', 'rpc.js'), 'utf8')}\nreturn RPC;`,
+    )({ origin: `http://127.0.0.1:${explorer!.port}` }, recording, undefined);
     return { RPC, sent };
   }
 
   /** A request to the explorer's /rpc carrying the given headers, as any client that reaches the explorer may send one. */
   async function throughExplorer(headers: Record<string, string>, body: string) {
-    const r = await fetch(`http://127.0.0.1:${explorer!.port}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body });
+    const r = await fetch(`http://127.0.0.1:${explorer!.port}/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body,
+    });
     return (await r.json()) as { result?: any; error?: { code: number; message: string } };
   }
 
-  test('its proxy relays a credential a request carries: the operator\'s bearer sent through it is answered with the group, the totals and the audit log', async () => {
+  test("its proxy relays a credential a request carries: the operator's bearer sent through it is answered with the group, the totals and the audit log", async () => {
     const groups = await throughExplorer(bearer, duplicates());
     expect(groups.result.duplicates.map((g: { key: string }) => g.key)).toEqual([GROUP_KEY]);
     expect((await throughExplorer(bearer, balance())).result).toMatchObject({ ...TOTALS, imbalancedClaims: [imbalancedReceipt] });
@@ -327,7 +407,7 @@ describe('the explorer', () => {
     expect((await throughExplorer({ Authorization: 'Bearer not-the-operator' }, duplicates())).error?.code).toBe(RPC_UNAUTHORIZED);
   });
 
-  test('a page with no token gets the refusals through the proxy, not the member\'s group or the totals, and the chain check\'s answer', async () => {
+  test("a page with no token gets the refusals through the proxy, not the member's group or the totals, and the chain check's answer", async () => {
     const { RPC, sent } = explorerPage();
     await expect(RPC.detectDuplicateClaims()).rejects.toThrow(/Unauthorized/); // before: the group, to any page that reached the explorer
     await expect(RPC.verifyFinancialBalance()).rejects.toThrow(/Unauthorized/); // before: the totals, to any page that reached the explorer
@@ -360,9 +440,13 @@ describe('the explorer', () => {
       parent: Stand | null = null;
       children: Stand[] = [];
       clicks: Array<(this: Stand) => unknown> = [];
-      constructor(className = '') { this.className = className; }
+      constructor(className = '') {
+        this.className = className;
+      }
       /** The one selector form the tab's code uses: a class name. */
-      matches(selector: string): boolean { return this.className.split(/\s+/).includes(selector.replace(/^\./, '')); }
+      matches(selector: string): boolean {
+        return this.className.split(/\s+/).includes(selector.replace(/^\./, ''));
+      }
       closest(selector: string): Stand | null {
         for (let n: Stand | null = this; n; n = n.parent) if (n.matches(selector)) return n;
         return null;
@@ -374,12 +458,18 @@ describe('the explorer', () => {
         }
         return null;
       }
-      appendChild(child: Stand): Stand { child.parent = this; this.children.push(child); return child; }
+      appendChild(child: Stand): Stand {
+        child.parent = this;
+        this.children.push(child);
+        return child;
+      }
       remove(): void {
         if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this);
         this.parent = null;
       }
-      addEventListener(type: string, fn: (this: Stand) => unknown): void { if (type === 'click') this.clicks.push(fn); }
+      addEventListener(type: string, fn: (this: Stand) => unknown): void {
+        if (type === 'click') this.clicks.push(fn);
+      }
     }
 
     type Check = 'chain' | 'finance' | 'dup';
@@ -399,8 +489,15 @@ describe('the explorer', () => {
       els['audit-log-container'] = new Stand('panel-body flush');
       els['audit-proof-container'] = new Stand('panel-body');
       const helpers = ['esc', 'shortHash', 'fmtTime', 'fmtCents', 'typeBadge', 'detailRow'].map(lift);
-      const tab = new Function('$', 'RPC', 'document', `'use strict';\n${helpers.join('\n')}\n${auditSection()}\nreturn { loadAudit, setupAuditChecks };`)(
-        (id: string) => els[id], RPC, { createElement: () => new Stand() }) as { loadAudit: () => Promise<void>; setupAuditChecks: () => void };
+      const tab = new Function(
+        '$',
+        'RPC',
+        'document',
+        `'use strict';\n${helpers.join('\n')}\n${auditSection()}\nreturn { loadAudit, setupAuditChecks };`,
+      )((id: string) => els[id], RPC, { createElement: () => new Stand() }) as {
+        loadAudit: () => Promise<void>;
+        setupAuditChecks: () => void;
+      };
       tab.setupAuditChecks();
       /** What a check card shows: its value, its classes, and the note beneath the value when it carries one. */
       const card = (check: Check) => {
@@ -420,7 +517,7 @@ describe('the explorer', () => {
       return { loadAudit: tab.loadAudit, click, card, log: () => els['audit-log-container'].innerHTML };
     }
 
-    test('holding no token, as the page never does, it says the balance and duplicate checks are the plan\'s and the operator\'s and where they run them, not ERROR; the chain check still answers', async () => {
+    test("holding no token, as the page never does, it says the balance and duplicate checks are the plan's and the operator's and where they run them, not ERROR; the chain check still answers", async () => {
       // nothing in the page sets a token and the explorer adds none, so every viewer, the operator included, asks anonymously
       for (const file of ['index.html', 'app.js']) {
         expect([file, fs.readFileSync(path.join(REPO, 'explorer', file), 'utf8').includes('setAdminToken')]).toEqual([file, false]);
@@ -429,10 +526,13 @@ describe('the explorer', () => {
       const tab = auditTab(page.RPC);
       for (const check of ['finance', 'dup'] as const) {
         const shown = await tab.click(check);
-        expect([check, shown.value]).toEqual([check, 'Plan & operator']);              // before: 'ERROR', to every viewer, as though the check had broken
-        expect([check, shown.classes]).toEqual([check, 'stat-card stat-clickable']);   // before: 'stat-card stat-clickable check-fail', a failed check's red
+        expect([check, shown.value]).toEqual([check, 'Plan & operator']); // before: 'ERROR', to every viewer, as though the check had broken
+        expect([check, shown.classes]).toEqual([check, 'stat-card stat-clickable']); // before: 'stat-card stat-clickable check-fail', a failed check's red
         expect([check, shown.note]).toEqual([check, expect.stringContaining('the sequencer answers it to the plan and the operator only')]); // before: null, nothing said whose check it is
-        expect([check, shown.note]).toEqual([check, expect.stringContaining('the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain')]); // before: null, nor where they run it
+        expect([check, shown.note]).toEqual([
+          check,
+          expect.stringContaining('the plan runs it on its Audit tab, the operator on its network screen, under Audit & Chain'),
+        ]); // before: null, nor where they run it
       }
       expect(await tab.click('chain')).toEqual({ value: 'PASS', classes: 'stat-card stat-clickable check-pass', note: null });
       expect(page.sent.map((h) => h.Authorization)).toEqual([undefined, undefined, undefined]);
@@ -446,29 +546,40 @@ describe('the explorer', () => {
       expect(tab.log()).not.toContain(MEMBER);
     });
 
-    test('a card that says so keeps saying it through the tab\'s refresh, which resets an answered check, and asking again clears it once the check answers', async () => {
+    test("a card that says so keeps saying it through the tab's refresh, which resets an answered check, and asking again clears it once the check answers", async () => {
       const real = explorerPage().RPC;
       let answers = false;
-      const tab = auditTab({ ...real, verifyFinancialBalance: () => (answers ? Promise.resolve({ balanced: true }) : real.verifyFinancialBalance()) });
+      const tab = auditTab({
+        ...real,
+        verifyFinancialBalance: () => (answers ? Promise.resolve({ balanced: true }) : real.verifyFinancialBalance()),
+      });
       await tab.click('finance');
       await tab.click('chain');
-      await tab.loadAudit();                               // the refresh the page runs on this tab every three seconds
-      expect(tab.card('finance')).toEqual({ value: 'Plan & operator', classes: 'stat-card stat-clickable', note: expect.stringContaining('the plan and the operator only') }); // before: { value: 'Check', note: null }, gone within three seconds
+      await tab.loadAudit(); // the refresh the page runs on this tab every three seconds
+      expect(tab.card('finance')).toEqual({
+        value: 'Plan & operator',
+        classes: 'stat-card stat-clickable',
+        note: expect.stringContaining('the plan and the operator only'),
+      }); // before: { value: 'Check', note: null }, gone within three seconds
       expect(tab.card('chain')).toEqual({ value: 'Check', classes: 'stat-card stat-clickable', note: null });
       answers = true;
       expect(await tab.click('finance')).toEqual({ value: 'PASS', classes: 'stat-card stat-clickable check-pass', note: null });
     });
 
     test('a refusal to a credential whose role does not reach a check says the same; any other failure is still ERROR, and the log still unavailable', async () => {
-      const failing = (message: string, code?: number) => () => Promise.reject(Object.assign(new Error(message), code === undefined ? {} : { code }));
+      const failing = (message: string, code?: number) => () =>
+        Promise.reject(Object.assign(new Error(message), code === undefined ? {} : { code }));
       const tab = auditTab({
-        verifyFinancialBalance: failing('Forbidden — l2_verifyFinancialBalance reads across members and answers the plan or the operator only', RPC_FORBIDDEN),
-        detectDuplicateClaims: failing('"Sequencer unreachable: fetch failed"'),   // the explorer's 502, which carries no code
+        verifyFinancialBalance: failing(
+          'Forbidden — l2_verifyFinancialBalance reads across members and answers the plan or the operator only',
+          RPC_FORBIDDEN,
+        ),
+        detectDuplicateClaims: failing('"Sequencer unreachable: fetch failed"'), // the explorer's 502, which carries no code
         verifyChainIntegrity: failing('Internal error', RPC_INTERNAL_ERROR),
         getAuditLog: failing('Method not available through the explorer: l2_getAuditLog', RPC_METHOD_NOT_FOUND),
         getChainProof: () => Promise.resolve(null),
       });
-      expect((await tab.click('finance')).value).toBe('Plan & operator');     // before: 'ERROR'
+      expect((await tab.click('finance')).value).toBe('Plan & operator'); // before: 'ERROR'
       expect(await tab.click('dup')).toEqual({ value: 'ERROR', classes: 'stat-card stat-clickable check-fail', note: null });
       expect(await tab.click('chain')).toEqual({ value: 'ERROR', classes: 'stat-card stat-clickable check-fail', note: null });
       await tab.loadAudit();
@@ -481,9 +592,16 @@ describe('the network screen', () => {
   /** The network screen's rpc.js as the sequencer serves it, from the sequencer's own origin, keeping the headers of each request it sends. */
   function networkScreen() {
     const sent: Array<Record<string, string>> = [];
-    const recording = (target: string, init: { headers: Record<string, string> }) => { sent.push(init.headers); return fetch(target, init as RequestInit); };
-    const RPC = new Function('location', 'fetch', 'EventSource', `${fs.readFileSync(path.join(REPO, 'dashboard-leviathan', 'rpc.js'), 'utf8')}\nreturn RPC;`)(
-      { origin: url }, recording, undefined);
+    const recording = (target: string, init: { headers: Record<string, string> }) => {
+      sent.push(init.headers);
+      return fetch(target, init as RequestInit);
+    };
+    const RPC = new Function(
+      'location',
+      'fetch',
+      'EventSource',
+      `${fs.readFileSync(path.join(REPO, 'dashboard-leviathan', 'rpc.js'), 'utf8')}\nreturn RPC;`,
+    )({ origin: url }, recording, undefined);
     return { RPC, sent };
   }
 
@@ -499,7 +617,7 @@ describe('the network screen', () => {
     expect((await RPC.getAuditLog(10)).events).toHaveLength(3);
   });
 
-  test('without a token it gets both checks\' refusals and the chain check\'s answer', async () => {
+  test("without a token it gets both checks' refusals and the chain check's answer", async () => {
     const { RPC, sent } = networkScreen();
     await expect(RPC.detectDuplicateClaims()).rejects.toThrow(/Unauthorized/);
     await expect(RPC.verifyFinancialBalance()).rejects.toThrow(/Unauthorized/); // before: the totals over every claim

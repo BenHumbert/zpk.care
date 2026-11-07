@@ -36,35 +36,41 @@ export function overlayScript(opts) {
   const hideCursor = !!(opts && opts.hideCursor);
   const cardTop = !!(opts && opts.cardAt === 'top-right');
   // stacking, top down: the caption, the cursor, a click ripple and the badge, the lower-third card
-  const CSS = ''
-    + '#__demoCursor{position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483646;pointer-events:none;transform:translate(-200px,-200px);will-change:transform' + (hideCursor ? ';display:none!important' : '') + '}'
-    + '#__demoCursor svg{transition:transform .12s ease-out;transform-origin:6px 4px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}'
-    + '#__demoCursor.down svg{transform:scale(.82)}'
+  const CSS =
+    '' +
+    '#__demoCursor{position:fixed;left:0;top:0;width:40px;height:40px;z-index:2147483646;pointer-events:none;transform:translate(-200px,-200px);will-change:transform' +
+    (hideCursor ? ';display:none!important' : '') +
+    '}' +
+    '#__demoCursor svg{transition:transform .12s ease-out;transform-origin:6px 4px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))}' +
+    '#__demoCursor.down svg{transform:scale(.82)}' +
     // centred by auto margins: left:50% with a translate would cap the caption at half the screen, under its max-width
-    + '#__demoCaption{position:fixed;left:0;right:0;bottom:22px;margin:0 auto;width:fit-content;z-index:2147483647;pointer-events:none;max-width:82%;'
-    + 'background:rgba(12,12,14,.94);color:#f4f4f5;font:500 19px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 18px;border-radius:12px;'
-    + 'border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 24px rgba(0,0,0,.35);display:none}'
-    + '#__demoCaption b{font-weight:700;margin-right:10px}'
-    + '#__demoBadge{position:fixed;left:14px;bottom:22px;z-index:2147483645;pointer-events:none;display:none;align-items:center;gap:8px;'
-    + 'background:rgba(12,12,14,.9);color:#f4f4f5;font:600 14px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:9px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}'
-    + '#__demoBadge i{width:10px;height:10px;border-radius:50%;display:inline-block}'
-    + '#__demoBadge span{color:#a1a1aa;font-weight:500}'
-    + '#__demoCard{position:fixed;left:18px;bottom:96px;z-index:2147483644;pointer-events:none;max-width:min(560px,46%);display:none;'
-    + 'background:rgba(12,12,14,.92);color:#f4f4f5;font:500 15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 16px 13px;border-radius:10px;'
-    + 'border:1px solid rgba(255,255,255,.14);border-left:4px solid #9b9bff;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:__demoCardIn .35s ease-out both;transition:bottom .25s ease-out}'
-    + '#__demoCard.__top{left:auto;right:40px;top:24px;bottom:auto;max-width:440px}'
-    + '#__demoCard h4{margin:0 0 5px;font:700 11px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#a5a5ff}'
-    + '#__demoCard p{margin:2px 0}'
-    + '@keyframes __demoCardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'
-    + '.__demoRipple{position:fixed;z-index:2147483645;pointer-events:none;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #9b9bff;animation:__demoRip .6s ease-out forwards}'
-    + '@keyframes __demoRip{from{transform:scale(.25);opacity:1}to{transform:scale(1.45);opacity:0}}'
-    + '#toast-container{transition:bottom .25s ease-out}';
+    '#__demoCaption{position:fixed;left:0;right:0;bottom:22px;margin:0 auto;width:fit-content;z-index:2147483647;pointer-events:none;max-width:82%;' +
+    'background:rgba(12,12,14,.94);color:#f4f4f5;font:500 19px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 18px;border-radius:12px;' +
+    'border:1px solid rgba(255,255,255,.14);box-shadow:0 8px 24px rgba(0,0,0,.35);display:none}' +
+    '#__demoCaption b{font-weight:700;margin-right:10px}' +
+    '#__demoBadge{position:fixed;left:14px;bottom:22px;z-index:2147483645;pointer-events:none;display:none;align-items:center;gap:8px;' +
+    'background:rgba(12,12,14,.9);color:#f4f4f5;font:600 14px/1 system-ui,-apple-system,"Segoe UI",sans-serif;padding:9px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}' +
+    '#__demoBadge i{width:10px;height:10px;border-radius:50%;display:inline-block}' +
+    '#__demoBadge span{color:#a1a1aa;font-weight:500}' +
+    '#__demoCard{position:fixed;left:18px;bottom:96px;z-index:2147483644;pointer-events:none;max-width:min(560px,46%);display:none;' +
+    'background:rgba(12,12,14,.92);color:#f4f4f5;font:500 15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:12px 16px 13px;border-radius:10px;' +
+    'border:1px solid rgba(255,255,255,.14);border-left:4px solid #9b9bff;box-shadow:0 8px 24px rgba(0,0,0,.35);animation:__demoCardIn .35s ease-out both;transition:bottom .25s ease-out}' +
+    '#__demoCard.__top{left:auto;right:40px;top:24px;bottom:auto;max-width:440px}' +
+    '#__demoCard h4{margin:0 0 5px;font:700 11px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#a5a5ff}' +
+    '#__demoCard p{margin:2px 0}' +
+    '@keyframes __demoCardIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' +
+    '.__demoRipple{position:fixed;z-index:2147483645;pointer-events:none;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #9b9bff;animation:__demoRip .6s ease-out forwards}' +
+    '@keyframes __demoRip{from{transform:scale(.25);opacity:1}to{transform:scale(1.45);opacity:0}}' +
+    '#toast-container{transition:bottom .25s ease-out}';
   let x = -200;
   let y = -200;
   // the take renders each page at 1920x1080 with html { zoom: 1.5 } (a 1280x720 layout, drawn crisp): mouse
   // coordinates are in screen pixels, while lengths inside the zoomed page are multiplied by the zoom
   const Z = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
-  const place = (c) => { const z = Z(); c.style.transform = 'translate(' + (x / z - 6) + 'px,' + (y / z - 4) + 'px)'; };
+  const place = (c) => {
+    const z = Z();
+    c.style.transform = 'translate(' + (x / z - 6) + 'px,' + (y / z - 4) + 'px)';
+  };
   const state = { say: null, badge: null, card: null };
   // the dashboards' toasts (#toast-container, fixed bottom right) would slide under the caption: while a line shows
   // they sit just above it, and they come down a moment after the last line, not in the pause between two lines
@@ -82,7 +88,10 @@ export function overlayScript(opts) {
       const css = '#toast-container{bottom:' + px + 'px!important}';
       if (lift.textContent !== css) lift.textContent = css;
     } else if (lift && !toastDrop) {
-      toastDrop = setTimeout(() => { toastDrop = null; lift.remove(); }, 1500);
+      toastDrop = setTimeout(() => {
+        toastDrop = null;
+        lift.remove();
+      }, 1500);
     }
   }
   function render() {
@@ -151,7 +160,8 @@ export function overlayScript(opts) {
     if (!document.getElementById('__demoCursor')) {
       const c = document.createElement('div');
       c.id = '__demoCursor';
-      c.innerHTML = '<svg width="40" height="40" viewBox="0 0 24 24"><path d="M3 2l7 19 2.6-7.4L20 11z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+      c.innerHTML =
+        '<svg width="40" height="40" viewBox="0 0 24 24"><path d="M3 2l7 19 2.6-7.4L20 11z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
       place(c);
       document.body.appendChild(c);
     }
@@ -175,36 +185,48 @@ export function overlayScript(opts) {
     render();
   };
   window.__demoCard = (title, lines, color) => {
-    state.card = title ? { title, lines: Array.isArray(lines) ? lines : (lines ? [String(lines)] : []), color } : null;
+    state.card = title ? { title, lines: Array.isArray(lines) ? lines : lines ? [String(lines)] : [], color } : null;
     install();
     render();
   };
-  document.addEventListener('mousemove', (e) => {
-    x = e.clientX;
-    y = e.clientY;
-    const c = document.getElementById('__demoCursor');
-    if (c) place(c);
-  }, true);
-  document.addEventListener('mousedown', (e) => {
-    const c = document.getElementById('__demoCursor');
-    if (c) c.classList.add('down');
-    if (hideCursor) return;
-    const r = document.createElement('div');
-    r.className = '__demoRipple';
-    r.style.left = (e.clientX / Z()) + 'px';
-    r.style.top = (e.clientY / Z()) + 'px';
-    document.body.appendChild(r);
-    setTimeout(() => r.remove(), 700);
-  }, true);
-  document.addEventListener('mouseup', () => {
-    const c = document.getElementById('__demoCursor');
-    if (c) c.classList.remove('down');
-  }, true);
+  document.addEventListener(
+    'mousemove',
+    (e) => {
+      x = e.clientX;
+      y = e.clientY;
+      const c = document.getElementById('__demoCursor');
+      if (c) place(c);
+    },
+    true,
+  );
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      const c = document.getElementById('__demoCursor');
+      if (c) c.classList.add('down');
+      if (hideCursor) return;
+      const r = document.createElement('div');
+      r.className = '__demoRipple';
+      r.style.left = e.clientX / Z() + 'px';
+      r.style.top = e.clientY / Z() + 'px';
+      document.body.appendChild(r);
+      setTimeout(() => r.remove(), 700);
+    },
+    true,
+  );
+  document.addEventListener(
+    'mouseup',
+    () => {
+      const c = document.getElementById('__demoCursor');
+      if (c) c.classList.remove('down');
+    },
+    true,
+  );
   window.__demoRipple = (px, py) => {
     const r = document.createElement('div');
     r.className = '__demoRipple';
-    r.style.left = (px / Z()) + 'px';
-    r.style.top = (py / Z()) + 'px';
+    r.style.left = px / Z() + 'px';
+    r.style.top = py / Z() + 'px';
     document.body.appendChild(r);
     setTimeout(() => r.remove(), 700);
   };
@@ -256,13 +278,19 @@ async function centerOf(loc, timeout) {
   const box = await loc.boundingBox({ timeout: left() }).catch(() => null);
   if (box && box.width > 0 && box.height > 0) return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   // a hidden control (a file input inside its drop zone): aim at the nearest visible ancestor instead
-  const r = await loc.evaluate((el) => {
-    for (let p = el.parentElement; p; p = p.parentElement) {
-      const b = p.getBoundingClientRect();
-      if (b.width > 0 && b.height > 0) return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
-    }
-    return null;
-  }, undefined, { timeout: left() }).catch(() => null);
+  const r = await loc
+    .evaluate(
+      (el) => {
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const b = p.getBoundingClientRect();
+          if (b.width > 0 && b.height > 0) return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        }
+        return null;
+      },
+      undefined,
+      { timeout: left() },
+    )
+    .catch(() => null);
   return r;
 }
 /** The action's own options once it has aimed: what is left of the caller's timeout (at least a second). */
@@ -311,7 +339,9 @@ function patchLocators(page) {
     const { paste, ...rest } = o || {};
     const to = await centerOf(this, rest.timeout);
     if (to) await glide(pg, to);
-    const type = await this.evaluate((el) => (el.tagName === 'INPUT' ? String(el.type || 'text').toLowerCase() : el.tagName.toLowerCase())).catch(() => 'text');
+    const type = await this.evaluate((el) =>
+      el.tagName === 'INPUT' ? String(el.type || 'text').toLowerCase() : el.tagName.toLowerCase(),
+    ).catch(() => 'text');
     if (paste || STAGED.get(pg).fast || PICKER_TYPES.has(type)) {
       await click.call(this, { timeout: rest.timeout ?? 5000 }).catch(() => {});
       await dwell(pg, 120);
@@ -403,8 +433,12 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
       await page.mouse.click(to.x, to.y);
     },
     setBadge,
-    setFast(on) { STAGED.get(page).fast = !!on; },
-    get fast() { return STAGED.get(page).fast; },
+    setFast(on) {
+      STAGED.get(page).fast = !!on;
+    },
+    get fast() {
+      return STAGED.get(page).fast;
+    },
     /** The "behind this click" lower-third. { ms } hides it again after that long. */
     async card(title, lines = [], { ms, color } = {}) {
       if (cardTimer) clearTimeout(cardTimer);
@@ -425,8 +459,9 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
       if (to) await glide(page, to);
       await loc.__unstagedClick({ timeout: 5000 }).catch(() => {});
       await loc.evaluate((el) => {
-        const masked = (el.tagName === 'INPUT' && String(el.type).toLowerCase() === 'password')
-          || getComputedStyle(el).getPropertyValue('-webkit-text-security').trim() === 'disc';
+        const masked =
+          (el.tagName === 'INPUT' && String(el.type).toLowerCase() === 'password') ||
+          getComputedStyle(el).getPropertyValue('-webkit-text-security').trim() === 'disc';
         if (!masked) el.style.setProperty('-webkit-text-security', 'disc', 'important');
         el.value = '';
         el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -436,7 +471,13 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
       for (let i = step; i <= v.length + step - 1; i += step) {
         const n = Math.min(i, v.length);
         // the value travels inside page.evaluate; it is never sent as key presses and never logged
-        await loc.evaluate((el, s) => { el.value = s; el.dispatchEvent(new Event('input', { bubbles: true })); }, v.slice(0, n));
+        await loc.evaluate(
+          (el, s) => {
+            el.value = s;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          },
+          v.slice(0, n),
+        );
         if (!STAGED.get(page).fast) await sleep(charMs + Math.round(Math.random() * 40));
       }
       await loc.evaluate((el) => el.dispatchEvent(new Event('change', { bubbles: true })));
@@ -446,7 +487,10 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
       const to = await centerOf(loc);
       if (to) await glide(page, to);
       if (STAGED.get(page).fast) {
-        await loc.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+        await loc.evaluate((el) => {
+          el.scrollTop = el.scrollHeight;
+          el.dispatchEvent(new Event('scroll'));
+        });
         return;
       }
       for (let i = 0; i < maxSteps; i++) {
@@ -456,7 +500,10 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
         await sleep(240 + Math.round(Math.random() * 120));
       }
       // the page listens for the scroll event to unlock signing; make sure the last one fired at the bottom
-      await loc.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
+      await loc.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+        el.dispatchEvent(new Event('scroll'));
+      });
     },
     /** Clicks a visible upload button (or drop zone) and answers the browser's file chooser with `files`. */
     async uploadVia(buttonLoc, files) {
@@ -467,7 +514,7 @@ export async function stage(page, { viewport, badge, fast = false, hideCursor = 
       }
       const [chooser] = await Promise.all([page.waitForEvent('filechooser', { timeout: 15000 }), buttonLoc.__unstagedClick()]);
       await chooser.setFiles(files);
-    }
+    },
   };
   return api;
 }

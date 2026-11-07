@@ -30,10 +30,7 @@
  * answers only a request signed by the wallet it names, and states the lifecycle the ledger holds
  * instead of a constant.
  */
-import {
-  SequencerAttestationAuthority,
-  type NfcCredentialAttestation,
-} from '../src/credentials/nfc-attestation.js';
+import { SequencerAttestationAuthority, type NfcCredentialAttestation } from '../src/credentials/nfc-attestation.js';
 
 /** The real authority: the one a pharmacy would learn about from the sequencer. */
 const authority = new SequencerAttestationAuthority();
@@ -42,10 +39,7 @@ const attacker = new SequencerAttestationAuthority();
 
 const WALLET = '20558123456789012345678901234567890';
 
-function attestFrom(
-  auth: SequencerAttestationAuthority,
-  walletId = WALLET,
-): NfcCredentialAttestation {
+function attestFrom(auth: SequencerAttestationAuthority, walletId = WALLET): NfcCredentialAttestation {
   return auth.createAttestation({
     walletId,
     credentialCommitment: '111222333444555666777888999',
@@ -116,10 +110,7 @@ describe('a verifier with no trusted key refuses rather than trusting the tag', 
 
   test('undefined is refused, which is what an un-updated caller would pass', () => {
     const att = attestFrom(authority);
-    const res = SequencerAttestationAuthority.verifyAttestation(
-      att,
-      undefined as unknown as string,
-    );
+    const res = SequencerAttestationAuthority.verifyAttestation(att, undefined as unknown as string);
     expect(res.valid).toBe(false);
   });
 
@@ -128,8 +119,7 @@ describe('a verifier with no trusted key refuses rather than trusting the tag', 
     expect(SequencerAttestationAuthority.verifyAttestation(att, '').valid).toBe(false);
     // And works the moment the right key is supplied, so the refusal is about the key and not
     // about the attestation.
-    expect(SequencerAttestationAuthority.verifyAttestation(att, authority.publicKeyHex).valid)
-      .toBe(true);
+    expect(SequencerAttestationAuthority.verifyAttestation(att, authority.publicKeyHex).valid).toBe(true);
   });
 });
 
@@ -174,8 +164,7 @@ describe('the pharmacy pins the key rather than reading it from the tag', () => 
   });
 
   test('the engine verifies against its own authority key', () => {
-    const src = require('fs')
-      .readFileSync('src/adjudication/interactive-service.ts', 'utf-8') as string;
+    const src = require('fs').readFileSync('src/adjudication/interactive-service.ts', 'utf-8') as string;
     expect(src).toContain('this.attestationAuthority.publicKeyHex');
   });
 });

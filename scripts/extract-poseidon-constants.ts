@@ -48,7 +48,7 @@ const vectors = [
 ];
 
 for (const v of vectors) {
-  const result = Poseidon.hash(v.input.map(x => Field(x)));
+  const result = Poseidon.hash(v.input.map((x) => Field(x)));
   console.log(`${v.label} = ${result.toString()}`);
 }
 

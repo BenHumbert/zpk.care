@@ -11,26 +11,29 @@
  * (stage.fillSecret) or storageState, never as key presses.
  */
 const MASK = '-webkit-text-security:disc!important;';
-const REDACT = 'color:transparent!important;text-shadow:none!important;-webkit-text-stroke:0!important;user-select:none!important;'
-  + 'background:repeating-linear-gradient(135deg,rgba(100,116,139,.55) 0 6px,rgba(148,163,184,.35) 6px 12px)!important;border-radius:4px!important;';
+const REDACT =
+  'color:transparent!important;text-shadow:none!important;-webkit-text-stroke:0!important;user-select:none!important;' +
+  'background:repeating-linear-gradient(135deg,rgba(100,116,139,.55) 0 6px,rgba(148,163,184,.35) 6px 12px)!important;border-radius:4px!important;';
 const BLUR = 'filter:blur(6px)!important;';
 
 export const MASKS = Object.freeze({
   insurer: `#admin-token-input{${MASK}}`,
   marketplace: `#activate-content code{${REDACT}} #activation-code{${REDACT}} #sign-appid{${MASK}}`,
   employer: `#admin-token-input{${MASK}}`,
-  hrtool: `#setup-token,#setup-passphrase,#setup-confirm,#unlock-passphrase,#reveal-passphrase{${MASK}}`
-    + ` #csv-results-panel .table-wrap td,#codes-table td,#pins-table td{${REDACT}}`
+  hrtool:
+    `#setup-token,#setup-passphrase,#setup-confirm,#unlock-passphrase,#reveal-passphrase{${MASK}}` +
+    ` #csv-results-panel .table-wrap td,#codes-table td,#pins-table td{${REDACT}}` +
     // the birth date column of the roster preview and the employee list (fictional people; blurred on principle)
-    + ` #csv-preview-panel td:nth-child(5),.emp-row td:nth-child(4){${BLUR}}`,
-  member: `#ob-pin,#ob-pin-confirm,#ob-token,#ob-enroll-pin,#ob-recovery-pin,#restore-pin,#backup-pin,#backup-pin-confirm{${MASK}}`
-    + ` #ob-cid,#ob-fn,#ob-ln,#ob-dob{${BLUR}}`
+    ` #csv-preview-panel td:nth-child(5),.emp-row td:nth-child(4){${BLUR}}`,
+  member:
+    `#ob-pin,#ob-pin-confirm,#ob-token,#ob-enroll-pin,#ob-recovery-pin,#restore-pin,#backup-pin,#backup-pin-confirm{${MASK}}` +
+    ` #ob-cid,#ob-fn,#ob-ln,#ob-dob{${BLUR}}` +
     // renderRecoveryCards: the yellow box; each card is a 'margin:6px 0' block holding its id line and its JSON
-    + ` #onboard-body div[style*="var(--yellow)"] div[style*="margin:6px 0"] > div{${REDACT}}`
-    + ` #restore-json{${BLUR}}`,
+    ` #onboard-body div[style*="var(--yellow)"] div[style*="margin:6px 0"] > div{${REDACT}}` +
+    ` #restore-json{${BLUR}}`,
   prescriber: `#admin-token-input{${MASK}}`,
   pharmacy: '',
-  network: `#admin-token-input{${MASK}}`
+  network: `#admin-token-input{${MASK}}`,
 });
 
 /** The init script that installs a style sheet as soon as the document has a head or body. */
@@ -48,9 +51,18 @@ export function maskScript(css) {
   };
   if (add()) return;
   // the init script can run before the document element exists: add the sheet the moment it does
-  const mo = new MutationObserver(() => { if (add()) mo.disconnect(); });
+  const mo = new MutationObserver(() => {
+    if (add()) mo.disconnect();
+  });
   mo.observe(document, { childList: true, subtree: true });
-  document.addEventListener('DOMContentLoaded', () => { add(); mo.disconnect(); }, { once: true });
+  document.addEventListener(
+    'DOMContentLoaded',
+    () => {
+      add();
+      mo.disconnect();
+    },
+    { once: true },
+  );
 }
 
 /**

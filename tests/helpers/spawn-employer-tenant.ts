@@ -29,9 +29,21 @@ import { createRequire, syncBuiltinESMExports } from 'module';
 
 const RESULT_MARKER = '@@tenant-spawn ';
 
-interface TenantRequest { employerId: string; employerPubKeyHex: string; sequencerUrl: string; insurerUrl: string }
-interface Spawned { command: string; args: string[]; env: Record<string, string | undefined> }
-interface Registration { employerId: string; adminTokenFingerprint: string }
+interface TenantRequest {
+  employerId: string;
+  employerPubKeyHex: string;
+  sequencerUrl: string;
+  insurerUrl: string;
+}
+interface Spawned {
+  command: string;
+  args: string[];
+  env: Record<string, string | undefined>;
+}
+interface Registration {
+  employerId: string;
+  adminTokenFingerprint: string;
+}
 
 const requests = JSON.parse(process.argv[2] ?? '[]') as TenantRequest[];
 const spawned: Spawned[] = [];
@@ -45,7 +57,10 @@ function recordingSpawn(command: string, args: string[], options: { env?: NodeJS
     killed: false,
     stdout: new EventEmitter(),
     stderr: new EventEmitter(),
-    kill(): boolean { child.killed = true; return true; },
+    kill(): boolean {
+      child.killed = true;
+      return true;
+    },
   });
   return child;
 }
@@ -82,7 +97,9 @@ try {
   const orchestrator = await import('../../src/nodes/employer-orchestrator.js');
   const results = [];
   for (const request of requests) {
-    results.push(await orchestrator.spawnEmployerTenant({ ...request, signSequencerRequest: () => ({ 'x-admin-signature': 'insurer:stand-in' }) }));
+    results.push(
+      await orchestrator.spawnEmployerTenant({ ...request, signSequencerRequest: () => ({ 'x-admin-signature': 'insurer:stand-in' }) }),
+    );
   }
   orchestrator.shutdownAllTenants();
   process.stdout.write(RESULT_MARKER + JSON.stringify({ pid: process.pid, results, spawned, registrations }) + '\n', () => process.exit(0));

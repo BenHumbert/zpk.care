@@ -45,29 +45,71 @@ let publishedTermsFrom: any;
 let hashString: (s: string) => Field;
 const tempDirs: string[] = [];
 
-interface Captured { status: number; payload: any }
+interface Captured {
+  status: number;
+  payload: any;
+}
 async function callRoute(method: string, p: string, args: { params?: Record<string, string>; body?: unknown } = {}): Promise<Captured> {
   const route = insurerRoutes.find((r) => r.method === method && r.path === p);
   if (!route) throw new Error(`route not registered: ${method} ${p}`);
   let status = 0;
   let payload: any = {};
   const res = {
-    writeHead(code: number) { status = code; return this; },
-    setHeader() { return this; },
-    end(body?: string) { if (body) { try { payload = JSON.parse(body); } catch { payload = { raw: body }; } } return this; },
-    get writableEnded() { return status !== 0; },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    setHeader() {
+      return this;
+    },
+    end(body?: string) {
+      if (body) {
+        try {
+          payload = JSON.parse(body);
+        } catch {
+          payload = { raw: body };
+        }
+      }
+      return this;
+    },
+    get writableEnded() {
+      return status !== 0;
+    },
   };
-  await route.handler({ url: p, headers: {}, socket: { remoteAddress: '127.0.0.1' } } as any, res as any, args.params ?? {}, new URLSearchParams(), args.body);
+  await route.handler(
+    { url: p, headers: {}, socket: { remoteAddress: '127.0.0.1' } } as any,
+    res as any,
+    args.params ?? {},
+    new URLSearchParams(),
+    args.body,
+  );
   return { status, payload };
 }
 async function rpc(method: string, params: Record<string, unknown>): Promise<any> {
-  const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const r = await fetch(`${url}/rpc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPERATOR}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
   return r.json();
 }
 const planOf = (planId: string, over: Record<string, unknown> = {}) => ({
-  planId, name: planId, coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
-  familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, formularyNdcs: [], networkProviderWalletIds: [],
-  published: false, createdAt: 0, updatedAt: 0, ...over,
+  planId,
+  name: planId,
+  coverageType: 1,
+  copayAmountCents: 1000,
+  deductibleAmountCents: 50000,
+  oopMaxCents: 780000,
+  annualBenefitMaxCents: 0,
+  familyDeductibleAmountCents: 0,
+  familyOopMaxCents: 0,
+  familyAnnualBenefitMaxCents: 0,
+  formularyNdcs: [],
+  networkProviderWalletIds: [],
+  published: false,
+  createdAt: 0,
+  updatedAt: 0,
+  ...over,
 });
 
 beforeAll(async () => {
@@ -84,7 +126,13 @@ beforeAll(async () => {
   ({ hashString } = await import('../src/zkp/hash-utils.js'));
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-dispensing-fee' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-dispensing-fee' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
   seq.getFormularyService().loadFromNadac(formularyRaw);
   rpcServer = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
@@ -95,8 +143,15 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispensing-fee-'));
   tempDirs.push(dir);
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: dir, enableSSE: false,
-    maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-tests',
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'admin-token-for-tests',
   } as any);
   server.setEntityNode(new InsurerNode({ role: 'insurer', sequencerUrl: 'http://127.0.0.1:1', displayName: 'Insurer' } as any));
   insurerRoutes = buildInsurerRoutes(server);
@@ -104,7 +159,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await rpcServer?.stop();
-  for (const dir of tempDirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of tempDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 describe('the insurer routes', () => {
@@ -140,28 +201,57 @@ describe('the sequencer', () => {
   });
 
   test('l2_getPlanLimits says what fee a fill is charged and where it came from', async () => {
-    expect((await rpc('l2_getPlanLimits', { planId: 'P-1250' })).result).toMatchObject({ dispensingFeeCents: 1250, dispensingFeeSource: 'plan' });
-    expect((await rpc('l2_getPlanLimits', { planId: 'P-ZERO' })).result).toMatchObject({ dispensingFeeCents: 0, dispensingFeeSource: 'plan' });
+    expect((await rpc('l2_getPlanLimits', { planId: 'P-1250' })).result).toMatchObject({
+      dispensingFeeCents: 1250,
+      dispensingFeeSource: 'plan',
+    });
+    expect((await rpc('l2_getPlanLimits', { planId: 'P-ZERO' })).result).toMatchObject({
+      dispensingFeeCents: 0,
+      dispensingFeeSource: 'plan',
+    });
     await rpc('l2_storePlan', { plan: planOf('P-NONE') });
     await rpc('l2_storePlan', { plan: planOf('P-NULL', { dispensingFeeCents: null }) });
     for (const planId of ['P-NONE', 'P-NULL']) {
-      expect((await rpc('l2_getPlanLimits', { planId })).result).toMatchObject({ dispensingFeeCents: 1000, dispensingFeeSource: 'network-default' });
+      expect((await rpc('l2_getPlanLimits', { planId })).result).toMatchObject({
+        dispensingFeeCents: 1000,
+        dispensingFeeSource: 'network-default',
+      });
     }
   });
 
-  test('a published plan is reported at its published fee and limits, not a draft\'s', async () => {
+  test("a published plan is reported at its published fee and limits, not a draft's", async () => {
     const published = planOf('P-PUB', { dispensingFeeCents: 1250, published: true });
-    const draft = { ...published, dispensingFeeCents: 2500, deductibleAmountCents: 1, published: false, publishedTerms: publishedTermsFrom(published, '123', '0', 1) };
+    const draft = {
+      ...published,
+      dispensingFeeCents: 2500,
+      deductibleAmountCents: 1,
+      published: false,
+      publishedTerms: publishedTermsFrom(published, '123', '0', 1),
+    };
     expect((await rpc('l2_storePlan', { plan: draft })).error).toBeUndefined();
-    expect((await rpc('l2_getPlanLimits', { planId: 'P-PUB' })).result).toMatchObject({ dispensingFeeCents: 1250, dispensingFeeSource: 'plan', deductibleAmountCents: 50000 });
+    expect((await rpc('l2_getPlanLimits', { planId: 'P-PUB' })).result).toMatchObject({
+      dispensingFeeCents: 1250,
+      dispensingFeeSource: 'plan',
+      deductibleAmountCents: 50000,
+    });
   });
 
-  test('l2_estimateCost prices with the fill\'s code: NADAC x quantity + the plan\'s fee, and ignores a fee the caller sends', async () => {
+  test("l2_estimateCost prices with the fill's code: NADAC x quantity + the plan's fee, and ignores a fee the caller sends", async () => {
     const ndcHash = hashString(ABACAVIR).toString();
     const withPlan = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, planId: 'P-1250' })).result;
-    expect(withPlan).toMatchObject({ ingredientCostCents: 1925, dispensingFeeCents: 1250, dispensingFeeSource: 'plan', totalCostCents: 3175 });
+    expect(withPlan).toMatchObject({
+      ingredientCostCents: 1925,
+      dispensingFeeCents: 1250,
+      dispensingFeeSource: 'plan',
+      totalCostCents: 3175,
+    });
     const noPlan = (await rpc('l2_estimateCost', { ndcHash, quantity: 30 })).result;
-    expect(noPlan).toMatchObject({ ingredientCostCents: 1925, dispensingFeeCents: 1000, dispensingFeeSource: 'network-default', totalCostCents: 2925 });
+    expect(noPlan).toMatchObject({
+      ingredientCostCents: 1925,
+      dispensingFeeCents: 1000,
+      dispensingFeeSource: 'network-default',
+      totalCostCents: 2925,
+    });
     const callerFee = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, dispensingFeeCents: 1 })).result;
     expect(callerFee).toMatchObject({ dispensingFeeCents: 1000, totalCostCents: 2925 });
     const published = (await rpc('l2_estimateCost', { ndcHash, quantity: 30, planId: 'P-PUB' })).result;

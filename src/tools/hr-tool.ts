@@ -66,11 +66,7 @@ import {
   groupPaths,
   hashWithSeed,
 } from './hr-tool-core.js';
-import type {
-  CorrelationTable,
-  CorrelationEntry,
-  TokenDistributionRecord,
-} from './hr-tool-core.js';
+import type { CorrelationTable, CorrelationEntry, TokenDistributionRecord } from './hr-tool-core.js';
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -124,11 +120,7 @@ function parseArgs(argv: string[]): { command: string; flags: Record<string, str
 }
 
 /** HTTP helper — call employer node REST API */
-async function callEmployerNode(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<{ status: number; data: any }> {
+async function callEmployerNode(method: string, path: string, body?: unknown): Promise<{ status: number; data: any }> {
   const baseUrl = process.env.EMPLOYER_NODE_URL || 'http://localhost:4005';
   const url = `${baseUrl}${path}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -195,8 +187,10 @@ async function cmdInit(flags: Record<string, string>): Promise<void> {
  * server does: run it and import there.
  */
 async function cmdImport(_flags: Record<string, string>): Promise<void> {
-  die('The command-line import cannot issue a working invite: the PIN of each invite is texted straight to its employee, ' +
-    'which the HR Tool does. Start it with npm run start:hr-tool and import there.');
+  die(
+    'The command-line import cannot issue a working invite: the PIN of each invite is texted straight to its employee, ' +
+      'which the HR Tool does. Start it with npm run start:hr-tool and import there.',
+  );
 }
 
 /** lookup — Find an employee by ID or hash */
@@ -219,31 +213,37 @@ async function cmdLookup(flags: Record<string, string>): Promise<void> {
   let found: CorrelationEntry | undefined;
 
   if (hash) {
-    found = table.entries.find(e => e.employeeIdHash === hash);
+    found = table.entries.find((e) => e.employeeIdHash === hash);
   } else if (employeeId) {
     // Hash the employeeId with groupSeed to find the entry
     const seed = loadGroupSeed(paths.seedFile, passphrase);
     const computedHash = hashWithSeed(employeeId, seed);
-    found = table.entries.find(e => e.employeeIdHash === computedHash);
+    found = table.entries.find((e) => e.employeeIdHash === computedHash);
   }
 
   if (!found) {
     die('Employee not found in correlation table');
   }
 
-  console.log(JSON.stringify({
-    employeeId: found.employeeId,
-    familyId: found.familyId,
-    name: `${found.firstName} ${found.lastName}`,
-    dob: found.dob,
-    email: found.email ?? null,
-    employeeIdHash: found.employeeIdHash,
-    familyIdHash: found.familyIdHash,
-    tokenId: found.tokenId ?? null,
-    tokenIdHash: found.tokenIdHash ?? null,
-    status: found.status,
-    createdAt: found.createdAt,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        employeeId: found.employeeId,
+        familyId: found.familyId,
+        name: `${found.firstName} ${found.lastName}`,
+        dob: found.dob,
+        email: found.email ?? null,
+        employeeIdHash: found.employeeIdHash,
+        familyIdHash: found.familyIdHash,
+        tokenId: found.tokenId ?? null,
+        tokenIdHash: found.tokenIdHash ?? null,
+        status: found.status,
+        createdAt: found.createdAt,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 /** reconcile — Hash-set comparison between local table and node roster */
@@ -278,7 +278,7 @@ async function cmdReconcile(flags: Record<string, string>): Promise<void> {
   if (result.missingFromNode.length > 0) {
     warn(`${result.missingFromNode.length} entries in local table but NOT on node:`);
     for (const hash of result.missingFromNode) {
-      const entry = table.entries.find(e => e.employeeIdHash === hash);
+      const entry = table.entries.find((e) => e.employeeIdHash === hash);
       info(`  ${entry?.employeeId ?? 'unknown'} → ${hash.slice(0, 16)}...`);
     }
     info('');
@@ -295,7 +295,7 @@ async function cmdReconcile(flags: Record<string, string>): Promise<void> {
   if (result.statusMismatches.length > 0) {
     warn(`${result.statusMismatches.length} status mismatches:`);
     for (const m of result.statusMismatches) {
-      const entry = table.entries.find(e => e.employeeIdHash === m.employeeIdHash);
+      const entry = table.entries.find((e) => e.employeeIdHash === m.employeeIdHash);
       info(`  ${entry?.employeeId ?? m.employeeIdHash.slice(0, 16)}: local=${m.localStatus} node=${m.nodeStatus}`);
     }
     info('');
@@ -308,7 +308,7 @@ async function cmdReconcile(flags: Record<string, string>): Promise<void> {
   // Update local table with enrollment status from node
   let synced = 0;
   for (const nodeEntry of nodeRoster) {
-    const local = table.entries.find(e => e.employeeIdHash === nodeEntry.employeeIdHash);
+    const local = table.entries.find((e) => e.employeeIdHash === nodeEntry.employeeIdHash);
     if (local && nodeEntry.status === 'enrolled' && local.status !== 'enrolled') {
       local.status = 'enrolled';
       synced++;
@@ -342,9 +342,7 @@ async function cmdExport(flags: Record<string, string>): Promise<void> {
   if (output) {
     // Write plaintext token list to specified file
     // WARNING: This file contains token IDs — handle with care
-    const lines = tokens.map(t =>
-      `${t.displayName}\t${t.tokenId}\t${t.validUntil}`
-    );
+    const lines = tokens.map((t) => `${t.displayName}\t${t.tokenId}\t${t.validUntil}`);
     const header = 'Name\tTokenID\tValidUntil';
     writeFileSync(output, [header, ...lines].join('\n') + '\n');
     info(`Token list written to: ${output}`);
@@ -374,10 +372,10 @@ async function cmdStatus(flags: Record<string, string>): Promise<void> {
   const passphrase = await getPassphrase();
   const table = loadCorrelationTable(paths.tableFile, passphrase);
 
-  const pending = table.entries.filter(e => e.status === 'pending').length;
-  const tokenGenerated = table.entries.filter(e => e.status === 'token_generated').length;
-  const enrolled = table.entries.filter(e => e.status === 'enrolled').length;
-  const terminated = table.entries.filter(e => e.status === 'terminated').length;
+  const pending = table.entries.filter((e) => e.status === 'pending').length;
+  const tokenGenerated = table.entries.filter((e) => e.status === 'token_generated').length;
+  const enrolled = table.entries.filter((e) => e.status === 'enrolled').length;
+  const terminated = table.entries.filter((e) => e.status === 'terminated').length;
 
   info(`Group: ${table.groupId}`);
   info(`Plan:  ${table.planId}`);

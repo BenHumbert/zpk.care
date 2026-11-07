@@ -98,9 +98,7 @@ export class MessagingVerificationService {
    * Checks that the message is well-formed, committed to the registry,
    * and the messaging root is valid.
    */
-  async verifyMessage(
-    proof: InstanceType<typeof MessagingProof>,
-  ): Promise<MessageVerificationResult> {
+  async verifyMessage(proof: InstanceType<typeof MessagingProof>): Promise<MessageVerificationResult> {
     try {
       const ok = await MessagingProgram.verify(proof);
       if (!ok) {
@@ -149,10 +147,7 @@ export class MessagingVerificationService {
    * @param proof — the delegation proof to verify
    * @param currentMessagingRoot — optional current on-chain messagingRoot for freshness check
    */
-  async verifyDelegation(
-    proof: InstanceType<typeof MessagingProof>,
-    currentMessagingRoot?: Field,
-  ): Promise<DelegationVerificationResult> {
+  async verifyDelegation(proof: InstanceType<typeof MessagingProof>, currentMessagingRoot?: Field): Promise<DelegationVerificationResult> {
     try {
       const ok = await MessagingProgram.verify(proof);
       if (!ok) {
@@ -217,10 +212,7 @@ export class MessagingVerificationService {
    * @param proof — the delegation proof to check
    * @param currentMessagingRoot — the current on-chain messagingRoot
    */
-  checkDelegationFreshness(
-    proof: InstanceType<typeof MessagingProof>,
-    currentMessagingRoot: Field,
-  ): RootFreshnessResult {
+  checkDelegationFreshness(proof: InstanceType<typeof MessagingProof>, currentMessagingRoot: Field): RootFreshnessResult {
     const proofRoot = proof.publicOutput.messagingRoot.toString();
     const currentRoot = currentMessagingRoot.toString();
     return {
@@ -273,9 +265,7 @@ export class MessagingVerificationService {
     }
 
     // 3. Overall: message valid AND (no delegation needed OR delegation valid)
-    const overallValid =
-      msgResult.isValid &&
-      (delegationValid === undefined || delegationValid === true);
+    const overallValid = msgResult.isValid && (delegationValid === undefined || delegationValid === true);
 
     return {
       messageValid: msgResult.isValid,

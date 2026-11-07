@@ -34,18 +34,26 @@
 const STORAGE_KEY = 'zkt_operator_token';
 
 export function getOperatorToken() {
-  try { return localStorage.getItem(STORAGE_KEY) || ''; } catch { return ''; }
+  try {
+    return localStorage.getItem(STORAGE_KEY) || '';
+  } catch {
+    return '';
+  }
 }
 
 export function setOperatorToken(token) {
   try {
     if (token) localStorage.setItem(STORAGE_KEY, token);
     else localStorage.removeItem(STORAGE_KEY);
-  } catch { /* storage unavailable: the token lives for this page load only */ }
+  } catch {
+    /* storage unavailable: the token lives for this page load only */
+  }
   memoryToken = token || '';
 }
 
-export function clearOperatorToken() { setOperatorToken(''); }
+export function clearOperatorToken() {
+  setOperatorToken('');
+}
 
 let memoryToken = getOperatorToken();
 let prompting = null;
@@ -56,7 +64,7 @@ function askForToken() {
   prompting = Promise.resolve().then(() => {
     const entered = window.prompt(
       'This console reads member state as the network operator.\n' +
-      'Paste the operator token (ZKTRIDENT_ADMIN_TOKEN of this network). It is kept in this browser only.',
+        'Paste the operator token (ZKTRIDENT_ADMIN_TOKEN of this network). It is kept in this browser only.',
     );
     prompting = null;
     const token = (entered || '').trim();

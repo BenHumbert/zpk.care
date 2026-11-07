@@ -47,8 +47,18 @@ beforeAll(async () => {
   ({ CredentialData } = await import('../src/credentials/credential-data.js'));
   LC = await import('../src/engine/lifecycle.js');
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-ledger-gate' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
-  svc = new AdjudicationService(() => {}, () => {}, node) as any;
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-ledger-gate' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
+  svc = new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  ) as any;
   svc.compiled = true;
   seq = node.getSequencer();
   ndcHash = svc.medByNdcHash.keys().next().value;
@@ -60,11 +70,27 @@ beforeAll(async () => {
  */
 function member(copy: 'ELIGIBLE' | 'REVOKED', ledgerState: Field | undefined, memberIndex = -1) {
   const wid = Field(next++);
-  if (ledgerState) seq.adminMutate('test', ({ provision }: any) => { provision(wid, ledgerState); });
+  if (ledgerState)
+    seq.adminMutate('test', ({ provision }: any) => {
+      provision(wid, ledgerState);
+    });
   const m: any = {
-    memberIndex, walletId: wid, walletIdStr: wid.toString(), displayName: `Member ${wid.toString()}`, lifecycle: copy,
-    credentialData: new CredentialData({ credentialType: Field(1), forestRoot: Field(0), issuerWalletId: Field(0), subjectWalletId: wid, issuedAt: Field(0), expiresAt: Field(0), revoked: Field(0) }),
-    inNetworkPrescriberIndices: [0], inNetworkPharmacyIndices: [0],
+    memberIndex,
+    walletId: wid,
+    walletIdStr: wid.toString(),
+    displayName: `Member ${wid.toString()}`,
+    lifecycle: copy,
+    credentialData: new CredentialData({
+      credentialType: Field(1),
+      forestRoot: Field(0),
+      issuerWalletId: Field(0),
+      subjectWalletId: wid,
+      issuedAt: Field(0),
+      expiresAt: Field(0),
+      revoked: Field(0),
+    }),
+    inNetworkPrescriberIndices: [0],
+    inNetworkPharmacyIndices: [0],
   };
   svc.enrolledMembers.set(m.walletIdStr, m);
   return m;
@@ -72,7 +98,9 @@ function member(copy: 'ELIGIBLE' | 'REVOKED', ledgerState: Field | undefined, me
 
 /** The ledger revokes the wallet; the engine copy is not told. */
 function revokeOnLedgerOnly(m: { walletId: Field }) {
-  seq.adminMutate('test', ({ setLifecycle }: any) => { setLifecycle(m.walletId, LC.LIFECYCLE_REVOKED); });
+  seq.adminMutate('test', ({ setLifecycle }: any) => {
+    setLifecycle(m.walletId, LC.LIFECYCLE_REVOKED);
+  });
 }
 
 const prescribe = (m: { walletIdStr: string }) =>
@@ -83,21 +111,39 @@ describe('the ledger lifecycle gate', () => {
     const m = member('ELIGIBLE', LC.LIFECYCLE_ELIGIBLE);
     revokeOnLedgerOnly(m);
     expect(seq.lifecycleStateOf(m.walletIdStr)?.name).toBe('revoked');
-    await expect(prescribe(m)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terminated; no prescription can be written/) });
+    await expect(prescribe(m)).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/terminated; no prescription can be written/),
+    });
     expect(m.lifecycle).toBe('REVOKED');
   });
 
   test('dispense refuses it before any other check', async () => {
     const m = member('ELIGIBLE', LC.LIFECYCLE_REVOKED, 0);
-    svc.prescriptions.set('RX-LEDGER-1', { memberWalletId: m.walletIdStr, ndcHash, pharmacyIndex: 0, prescriberIndex: 0, quantity: 30, quantityDispensed: 0, status: 'FILLED', statusHistory: [] });
+    svc.prescriptions.set('RX-LEDGER-1', {
+      memberWalletId: m.walletIdStr,
+      ndcHash,
+      pharmacyIndex: 0,
+      prescriberIndex: 0,
+      quantity: 30,
+      quantityDispensed: 0,
+      status: 'FILLED',
+      statusHistory: [],
+    });
     // 31 of 30 would be refused by the quantity check, so nothing could prove even if this gate were missing
-    await expect(svc.dispensePrescription({ prescriptionId: 'RX-LEDGER-1', quantityDispensed: 31 })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terminated; the prescription cannot be dispensed/) });
+    await expect(svc.dispensePrescription({ prescriptionId: 'RX-LEDGER-1', quantityDispensed: 31 })).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/terminated; the prescription cannot be dispensed/),
+    });
     expect(m.lifecycle).toBe('REVOKED');
   });
 
   test('a member the ledger shows only registered, or does not hold, is refused', async () => {
     for (const m of [member('ELIGIBLE', LC.LIFECYCLE_REGISTERED), member('ELIGIBLE', undefined)]) {
-      await expect(prescribe(m)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/ledger does not show this member eligible/) });
+      await expect(prescribe(m)).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringMatching(/ledger does not show this member eligible/),
+      });
       expect(m.lifecycle).toBe('ELIGIBLE');
     }
   });
@@ -105,12 +151,24 @@ describe('the ledger lifecycle gate', () => {
   test('an eligible member gets past the ledger check, and an engine copy that says terminated still refuses', async () => {
     // past the gate, a member with a device and no PCP or authorization is refused at the consent check
     await expect(prescribe(member('ELIGIBLE', LC.LIFECYCLE_ELIGIBLE))).rejects.toMatchObject({ status: 403 });
-    await expect(prescribe(member('REVOKED', LC.LIFECYCLE_ELIGIBLE))).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/terminated/) });
+    await expect(prescribe(member('REVOKED', LC.LIFECYCLE_ELIGIBLE))).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringMatching(/terminated/),
+    });
   });
 
   test('a copy brought into step can still be terminated', async () => {
     const m = member('ELIGIBLE', LC.LIFECYCLE_ELIGIBLE);
-    svc.prescriptions.set('RX-LEDGER-OPEN', { memberWalletId: m.walletIdStr, ndcHash, pharmacyIndex: 0, prescriberIndex: 0, quantity: 30, quantityDispensed: 0, status: 'ADJUDICATED', statusHistory: [] });
+    svc.prescriptions.set('RX-LEDGER-OPEN', {
+      memberWalletId: m.walletIdStr,
+      ndcHash,
+      pharmacyIndex: 0,
+      prescriberIndex: 0,
+      quantity: 30,
+      quantityDispensed: 0,
+      status: 'ADJUDICATED',
+      statusHistory: [],
+    });
     revokeOnLedgerOnly(m);
     await expect(prescribe(m)).rejects.toMatchObject({ status: 409 });
     expect(m.lifecycle).toBe('REVOKED');

@@ -100,6 +100,20 @@ export function nadacIngredientPreview(med, quantity) {
 export function engineFillPriceLine(pricing) {
   if (!pricing || typeof pricing.nadacUnitPriceE5 !== 'number' || typeof pricing.totalCostCents !== 'number') return '';
   const source = pricing.dispensingFeeSource === 'plan' ? 'plan' : 'network default';
-  return 'NADAC ' + formatNadacE5(pricing.nadacUnitPriceE5) + '/' + pricing.pricingUnit + ' x ' + pricing.quantity + ' = ' + dollars(pricing.ingredientCostCents)
-    + ' + dispensing fee ' + dollars(pricing.dispensingFeeCents) + ' (' + source + ') = ' + dollars(pricing.totalCostCents);
+  return (
+    'NADAC ' +
+    formatNadacE5(pricing.nadacUnitPriceE5) +
+    '/' +
+    pricing.pricingUnit +
+    ' x ' +
+    pricing.quantity +
+    ' = ' +
+    dollars(pricing.ingredientCostCents) +
+    ' + dispensing fee ' +
+    dollars(pricing.dispensingFeeCents) +
+    ' (' +
+    source +
+    ') = ' +
+    dollars(pricing.totalCostCents)
+  );
 }

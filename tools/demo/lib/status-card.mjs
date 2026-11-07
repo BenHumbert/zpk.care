@@ -91,15 +91,27 @@ window.card = {
 };
 </script></body></html>`;
 
-export async function openStatusCard({ browser, context, recordVideoDir, viewport = SCREEN.viewport, deviceScaleFactor = SCREEN.deviceScaleFactor,
-  videoSize = SCREEN.video, zoom = SCREEN.zoom, label = STATUS_LABEL, log = () => {}, captions = true }) {
+export async function openStatusCard({
+  browser,
+  context,
+  recordVideoDir,
+  viewport = SCREEN.viewport,
+  deviceScaleFactor = SCREEN.deviceScaleFactor,
+  videoSize = SCREEN.video,
+  zoom = SCREEN.zoom,
+  label = STATUS_LABEL,
+  log = () => {},
+  captions = true,
+}) {
   const own = !context;
-  const ctx = context || await directorContext(browser, { recordVideoDir, viewport, deviceScaleFactor, videoSize });
+  const ctx = context || (await directorContext(browser, { recordVideoDir, viewport, deviceScaleFactor, videoSize }));
   const page = await ctx.newPage();
   const startedAt = Date.now();
   page.on('pageerror', (e) => log(`status card page error: ${e.message}`));
   await page.setContent(PAGE, { waitUntil: 'load' });
-  await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, zoom);
+  await page.evaluate((z) => {
+    document.documentElement.style.zoom = String(z);
+  }, zoom);
   await page.evaluate((t) => window.card.setOrigin(t), label);
   if (captions) await stage(page, { viewport, hideCursor: true, now: true, cardAt: 'top-right' });
   return {
@@ -115,6 +127,6 @@ export async function openStatusCard({ browser, context, recordVideoDir, viewpor
       await page.close();
       if (own) await ctx.close();
       return { video, startedAt };
-    }
+    },
   };
 }

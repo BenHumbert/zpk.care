@@ -18,11 +18,7 @@ import { Field } from 'o1js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION } from '../credentials/credential-data.js';
 import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } from '../credentials/credential-program.js';
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import {
-  PrescriptionData,
-  PrescriptionStatusData,
-  EMERGENCY_FILL_HASH,
-} from './prescription-data.js';
+import { PrescriptionData, PrescriptionStatusData, EMERGENCY_FILL_HASH } from './prescription-data.js';
 import { PrescriptionProgram, PrescriptionProof } from './prescription-program.js';
 
 // ─── Result Types ───────────────────────────────────────────────
@@ -104,9 +100,7 @@ export class PrescriptionVerificationService {
    *
    * Checks: CredentialProgram proof is valid, operation type is VERIFY.
    */
-  async verifyPharmacyHolding(
-    holdingProof: InstanceType<typeof CredentialOperationProof>,
-  ): Promise<PrescriptionHoldingResult> {
+  async verifyPharmacyHolding(holdingProof: InstanceType<typeof CredentialOperationProof>): Promise<PrescriptionHoldingResult> {
     try {
       const ok = await CredentialProgram.verify(holdingProof);
       if (!ok) {
@@ -224,11 +218,7 @@ export class PrescriptionVerificationService {
    * For full status tracking, the pharmacy maintains a local list of
    * PrescriptionStatusData objects alongside the forest.
    */
-  extractStatusHistory(
-    forest: MerkleForest,
-    statusCount: number,
-    statusEntries: PrescriptionStatusData[],
-  ): StatusHistoryEntry[] {
+  extractStatusHistory(forest: MerkleForest, statusCount: number, statusEntries: PrescriptionStatusData[]): StatusHistoryEntry[] {
     const history: StatusHistoryEntry[] = [];
 
     for (let i = 0; i < statusCount && i < statusEntries.length; i++) {
@@ -260,10 +250,7 @@ export class PrescriptionVerificationService {
    * Reads the initial status entry (leaf 0) in the TRANSACTION tree
    * and checks if its notesHash matches EMERGENCY_FILL_HASH.
    */
-  isEmergencyPrescription(
-    forest: MerkleForest,
-    initialStatus: PrescriptionStatusData,
-  ): boolean {
+  isEmergencyPrescription(forest: MerkleForest, initialStatus: PrescriptionStatusData): boolean {
     // Verify the initial status is at leaf 0
     const treeLeaf = forest.getLeaf(ForestDomain.TRANSACTION, 0n);
     if (treeLeaf.toString() !== initialStatus.commitment().toString()) {
@@ -290,24 +277,12 @@ export class PrescriptionVerificationService {
 
     // 1. Verify credential holding
     const holdingResult = await this.verifyPharmacyHolding(holdingProof);
-    details.push(
-      holdingResult.isValid
-        ? 'Credential holding: verified'
-        : `Credential holding: FAILED (${holdingResult.reason})`,
-    );
+    details.push(holdingResult.isValid ? 'Credential holding: verified' : `Credential holding: FAILED (${holdingResult.reason})`);
 
     // 2. Verify prescription data
-    const dataResult = this.verifyPrescriptionData(
-      credentialData,
-      prescriptionData,
-      forest,
-      rxLeafIndex,
-      currentDate,
-    );
+    const dataResult = this.verifyPrescriptionData(credentialData, prescriptionData, forest, rxLeafIndex, currentDate);
     details.push(
-      dataResult.isValid
-        ? `Prescription data: verified (NDC: ${dataResult.ndcHash})`
-        : `Prescription data: FAILED (${dataResult.reason})`,
+      dataResult.isValid ? `Prescription data: verified (NDC: ${dataResult.ndcHash})` : `Prescription data: FAILED (${dataResult.reason})`,
     );
 
     const overallValid = holdingResult.isValid && dataResult.isValid;

@@ -69,9 +69,7 @@ export class BenefitPlanRegistry {
    */
   addPlan(eligData: EligibilityData): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_PLANS)) {
-      throw new Error(
-        `Benefit plan registry full: cannot exceed ${MAX_PLANS} plans`,
-      );
+      throw new Error(`Benefit plan registry full: cannot exceed ${MAX_PLANS} plans`);
     }
 
     const index = this.nextIndex++;

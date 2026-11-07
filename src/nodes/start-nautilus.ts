@@ -65,7 +65,9 @@ const port = parseInt(env.ZKTRIDENT_PORT ?? '3031', 10);
 const host = resolveBindHost(env, 'replica');
 const nodeId = env.ZKTRIDENT_NODE_ID;
 const seedPeers = env.ZKTRIDENT_SEED_PEERS
-  ? env.ZKTRIDENT_SEED_PEERS.split(',').map((s) => s.trim()).filter(Boolean)
+  ? env.ZKTRIDENT_SEED_PEERS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
   : [];
 const adminToken = env.ZKTRIDENT_ADMIN_TOKEN;
 const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
@@ -98,9 +100,7 @@ const rpcOptions: Partial<L2RpcServerOptions> = {
   maxSseConnections,
   allowedOrigins,
   ...(adminToken ? { adminToken } : {}),
-  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY
-    ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY }
-    : {}),
+  ...(env.ZKTRIDENT_TLS_CERT && env.ZKTRIDENT_TLS_KEY ? { tlsCert: env.ZKTRIDENT_TLS_CERT, tlsKey: env.ZKTRIDENT_TLS_KEY } : {}),
 };
 
 // ─── Main ─────────────────────────────────────────────────────

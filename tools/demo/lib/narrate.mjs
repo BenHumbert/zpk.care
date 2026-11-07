@@ -50,12 +50,33 @@ export const VOICES = Object.freeze({
   'en_US-john-medium': 'public domain (LibriVox)',
   'en_US-norman-medium': 'public domain (LibriVox)',
   'en_US-bryce-medium': 'public domain',
-  'en_US-joe-medium': 'CC0'
+  'en_US-joe-medium': 'CC0',
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+const ONES = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+];
 const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
 const upTo99 = (n) => (n < 20 ? ONES[n] : TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : ''));
 const under1000 = (n) => (n < 100 ? upTo99(n) : `${ONES[Math.floor(n / 100)]} hundred${n % 100 ? ' ' + upTo99(n % 100) : ''}`);
@@ -66,7 +87,11 @@ export function sayNumber(n) {
   if (!Number.isFinite(v) || v < 0) return String(n);
   if (v === 0) return 'zero';
   const parts = [];
-  for (const [size, word] of [[1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']]) {
+  for (const [size, word] of [
+    [1e9, 'billion'],
+    [1e6, 'million'],
+    [1e3, 'thousand'],
+  ]) {
     if (v >= size) {
       parts.push(`${under1000(Math.floor(v / size))} ${word}`);
       v %= size;
@@ -102,73 +127,120 @@ export function sayDollars(whole, cents) {
   return d ? `${dw} and ${cw}` : cw;
 }
 
-const digitsOf = (s) => String(s).split('').map((d) => ONES[Number(d)]).join(' ');
+const digitsOf = (s) =>
+  String(s)
+    .split('')
+    .map((d) => ONES[Number(d)])
+    .join(' ');
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth', 'thirteenth', 'fourteenth',
-  'fifteenth', 'sixteenth', 'seventeenth', 'eighteenth', 'nineteenth', 'twentieth', 'twenty-first', 'twenty-second', 'twenty-third', 'twenty-fourth', 'twenty-fifth',
-  'twenty-sixth', 'twenty-seventh', 'twenty-eighth', 'twenty-ninth', 'thirtieth', 'thirty-first'];
+const ORDINAL = [
+  '',
+  'first',
+  'second',
+  'third',
+  'fourth',
+  'fifth',
+  'sixth',
+  'seventh',
+  'eighth',
+  'ninth',
+  'tenth',
+  'eleventh',
+  'twelfth',
+  'thirteenth',
+  'fourteenth',
+  'fifteenth',
+  'sixteenth',
+  'seventeenth',
+  'eighteenth',
+  'nineteenth',
+  'twentieth',
+  'twenty-first',
+  'twenty-second',
+  'twenty-third',
+  'twenty-fourth',
+  'twenty-fifth',
+  'twenty-sixth',
+  'twenty-seventh',
+  'twenty-eighth',
+  'twenty-ninth',
+  'thirtieth',
+  'thirty-first',
+];
 
 /**
  * Spoken forms of the words a TTS engine reads badly; the caption keeps the written form. Order matters: codes
  * (NDC, EIN) and CCYYMMDD dates first, money before the decimal rule, terms before the bare-number rule.
  */
 export function toSpeech(text) {
-  return String(text)
-    // an NDC (00378-0137-01) and an EIN (00-4417321) are read digit by digit
-    .replace(/\b(\d{4,5})-(\d{3,4})-(\d{1,2})\b/g, (m, a, b, c) => [a, b, c].map(digitsOf).join(', '))
-    .replace(/\b(\d{2})-(\d{7})\b/g, (m, a, b) => `${digitsOf(a)}, ${digitsOf(b)}`)
-    // a CCYYMMDD date: 20260201 -> February first, twenty twenty-six
-    .replace(/\b(19|20)(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/g, (m, cc, yy, mm, dd) => `${MONTHS[Number(mm) - 1]} ${ORDINAL[Number(dd)]}, ${sayAmount(Number(cc + yy))}`)
-    // product and crypto terms
-    .replace(/\bzpk\.care\b/gi, 'Z P K dot care')
-    .replace(/\bo1js\b/gi, 'oh one J S')
-    .replace(/\bEd25519\b/gi, 'E D twenty-five five nineteen')
-    .replace(/\bX25519\b/gi, 'X twenty-five five nineteen')
-    .replace(/\bSHA-?256\b/gi, 'shah two fifty-six')
-    .replace(/\bHKDF\b/g, 'H K D F')
-    .replace(/\bscrypt\b/gi, 'ess crypt')
-    .replace(/\bzk-?SNARKs?\b/gi, (m) => (/s$/i.test(m) ? 'zee kay snarks' : 'zee kay snark'))
-    .replace(/\bZK\b|\bzk\b/g, 'zee kay')
-    .replace(/\bPoseidon\b/g, 'Po-sigh-don')
-    .replace(/\bMerkle\b/g, 'Merkel')
-    .replace(/\bNADAC\b/g, 'nay dack')
-    .replace(/\bNDCs\b/g, 'N D Cs')
-    .replace(/\bNDC\b/g, 'N D C')
-    .replace(/\bNPI\b/g, 'N P I')
-    .replace(/\bEIN\b/g, 'E I N')
-    .replace(/\bCP ?575\b/g, 'C P five seventy-five')
-    .replace(/\bPCP\b/g, 'P C P')
-    .replace(/\bOOP\b/g, 'out-of-pocket')
-    .replace(/\bPIN\b/g, 'pin')
-    .replace(/\bPINs\b/g, 'pins')
-    .replace(/\bHR\b/g, 'H R')
-    .replace(/\bNFC\b/g, 'N F C')
-    .replace(/\bRx\b|\bRX\b/g, 'R X')
-    .replace(/\beScripts?\b|\be-scripts?\b/gi, (m) => (/s$/i.test(m) ? 'e-scripts' : 'e-script'))
-    .replace(/\bwallet ID(s?)\b/gi, (m, s) => `wallet I D${s ? 's' : ''}`)
-    .replace(/\bIDs\b/g, 'I Ds')
-    .replace(/\bID\b/g, 'I D')
-    .replace(/\bL2\b/g, 'layer two')
-    .replace(/\bRPC\b/g, 'R P C')
-    .replace(/\bCSV\b/g, 'C S V')
-    .replace(/\bPDF\b/g, 'P D F')
-    .replace(/\bJSON\b/g, 'jason')
-    .replace(/\benc\b/g, 'enk')
-    .replace(/\bChi\b/g, 'Kai')
-    .replace(/\bA-(\d+)\b/g, (m, n) => `A ${sayNumber(Number(n))}`)
-    // money: $12.40 -> twelve dollars and forty cents (before the decimal rule)
-    .replace(/\$(\d{1,3}(?:,\d{3})+|\d+)\.(\d{1,2})\b/g, (m, a, b) => sayDollars(a, b))
-    .replace(/\$(\d{1,3}(?:,\d{3})+|\d+)\b/g, (m, n) => sayDollars(n))
-    // decimals: 0.1 -> point one, 9.5 -> nine point five
-    .replace(/\b(\d+)\.(\d+)\b/g, (m, a, b) => `${a === '0' ? '' : sayAmount(Number(a)) + ' '}point ${b.split('').map((d) => ONES[Number(d)]).join(' ')}`)
-    // 2^23 -> two to the twenty-three
-    .replace(/\b(\d+)\^(\d+)\b/g, (m, a, b) => `${sayNumber(Number(a))} to the ${sayNumber(Number(b))}`)
-    // numbers (the caption keeps the digits): a grouped count in full (1,024 -> one thousand twenty-four), a plain
-    // number the way people say a price or a year (1418 -> fourteen eighteen, 2026 -> twenty twenty-six)
-    .replace(/\b\d{1,3}(?:,\d{3})+\b/g, (m) => sayNumber(Number(m.replace(/,/g, ''))))
-    .replace(/\b\d+\b/g, (m) => sayAmount(Number(m)))
-    .replace(/\s{2,}/g, ' ')
-    .trim();
+  return (
+    String(text)
+      // an NDC (00378-0137-01) and an EIN (00-4417321) are read digit by digit
+      .replace(/\b(\d{4,5})-(\d{3,4})-(\d{1,2})\b/g, (m, a, b, c) => [a, b, c].map(digitsOf).join(', '))
+      .replace(/\b(\d{2})-(\d{7})\b/g, (m, a, b) => `${digitsOf(a)}, ${digitsOf(b)}`)
+      // a CCYYMMDD date: 20260201 -> February first, twenty twenty-six
+      .replace(
+        /\b(19|20)(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\b/g,
+        (m, cc, yy, mm, dd) => `${MONTHS[Number(mm) - 1]} ${ORDINAL[Number(dd)]}, ${sayAmount(Number(cc + yy))}`,
+      )
+      // product and crypto terms
+      .replace(/\bzpk\.care\b/gi, 'Z P K dot care')
+      .replace(/\bo1js\b/gi, 'oh one J S')
+      .replace(/\bEd25519\b/gi, 'E D twenty-five five nineteen')
+      .replace(/\bX25519\b/gi, 'X twenty-five five nineteen')
+      .replace(/\bSHA-?256\b/gi, 'shah two fifty-six')
+      .replace(/\bHKDF\b/g, 'H K D F')
+      .replace(/\bscrypt\b/gi, 'ess crypt')
+      .replace(/\bzk-?SNARKs?\b/gi, (m) => (/s$/i.test(m) ? 'zee kay snarks' : 'zee kay snark'))
+      .replace(/\bZK\b|\bzk\b/g, 'zee kay')
+      .replace(/\bPoseidon\b/g, 'Po-sigh-don')
+      .replace(/\bMerkle\b/g, 'Merkel')
+      .replace(/\bNADAC\b/g, 'nay dack')
+      .replace(/\bNDCs\b/g, 'N D Cs')
+      .replace(/\bNDC\b/g, 'N D C')
+      .replace(/\bNPI\b/g, 'N P I')
+      .replace(/\bEIN\b/g, 'E I N')
+      .replace(/\bCP ?575\b/g, 'C P five seventy-five')
+      .replace(/\bPCP\b/g, 'P C P')
+      .replace(/\bOOP\b/g, 'out-of-pocket')
+      .replace(/\bPIN\b/g, 'pin')
+      .replace(/\bPINs\b/g, 'pins')
+      .replace(/\bHR\b/g, 'H R')
+      .replace(/\bNFC\b/g, 'N F C')
+      .replace(/\bRx\b|\bRX\b/g, 'R X')
+      .replace(/\beScripts?\b|\be-scripts?\b/gi, (m) => (/s$/i.test(m) ? 'e-scripts' : 'e-script'))
+      .replace(/\bwallet ID(s?)\b/gi, (m, s) => `wallet I D${s ? 's' : ''}`)
+      .replace(/\bIDs\b/g, 'I Ds')
+      .replace(/\bID\b/g, 'I D')
+      .replace(/\bL2\b/g, 'layer two')
+      .replace(/\bRPC\b/g, 'R P C')
+      .replace(/\bCSV\b/g, 'C S V')
+      .replace(/\bPDF\b/g, 'P D F')
+      .replace(/\bJSON\b/g, 'jason')
+      .replace(/\benc\b/g, 'enk')
+      .replace(/\bChi\b/g, 'Kai')
+      .replace(/\bA-(\d+)\b/g, (m, n) => `A ${sayNumber(Number(n))}`)
+      // money: $12.40 -> twelve dollars and forty cents (before the decimal rule)
+      .replace(/\$(\d{1,3}(?:,\d{3})+|\d+)\.(\d{1,2})\b/g, (m, a, b) => sayDollars(a, b))
+      .replace(/\$(\d{1,3}(?:,\d{3})+|\d+)\b/g, (m, n) => sayDollars(n))
+      // decimals: 0.1 -> point one, 9.5 -> nine point five
+      .replace(
+        /\b(\d+)\.(\d+)\b/g,
+        (m, a, b) =>
+          `${a === '0' ? '' : sayAmount(Number(a)) + ' '}point ${b
+            .split('')
+            .map((d) => ONES[Number(d)])
+            .join(' ')}`,
+      )
+      // 2^23 -> two to the twenty-three
+      .replace(/\b(\d+)\^(\d+)\b/g, (m, a, b) => `${sayNumber(Number(a))} to the ${sayNumber(Number(b))}`)
+      // numbers (the caption keeps the digits): a grouped count in full (1,024 -> one thousand twenty-four), a plain
+      // number the way people say a price or a year (1418 -> fourteen eighteen, 2026 -> twenty twenty-six)
+      .replace(/\b\d{1,3}(?:,\d{3})+\b/g, (m) => sayNumber(Number(m.replace(/,/g, ''))))
+      .replace(/\b\d+\b/g, (m) => sayAmount(Number(m)))
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+  );
 }
 
 /** Duration and layout of a PCM WAV file, from its header. */
@@ -195,7 +267,9 @@ function run(cmd, args, { input } = {}) {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, { windowsHide: true });
     let err = '';
-    p.stderr.on('data', (d) => { err += d; });
+    p.stderr.on('data', (d) => {
+      err += d;
+    });
     p.on('error', reject);
     p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${path.basename(cmd)} exited ${code}: ${err.slice(-600)}`))));
     if (input !== undefined) p.stdin.end(input);
@@ -209,7 +283,7 @@ const ENGINES = Object.freeze({
   chatterbox: { py: path.join(TTS, 'venv', 'Scripts', 'python.exe'), script: path.join(TTS, 'worker_chatterbox.py') },
   turbo: { py: path.join(TTS, 'venv', 'Scripts', 'python.exe'), script: path.join(TTS, 'worker_turbo.py') },
   maya: { py: path.join(TTS, 'maya', 'venv', 'Scripts', 'python.exe'), script: path.join(TTS, 'worker_maya.py') },
-  orpheus: { py: path.join(TTS, 'maya', 'venv', 'Scripts', 'python.exe'), script: path.join(TTS, 'worker_orpheus.py') }
+  orpheus: { py: path.join(TTS, 'maya', 'venv', 'Scripts', 'python.exe'), script: path.join(TTS, 'worker_orpheus.py') },
 });
 
 /** Orpheus 3B's own voices. */
@@ -220,17 +294,22 @@ export const ORPHEUS_VOICES = Object.freeze(['tara', 'leah', 'jess', 'leo', 'dan
  * They are plain descriptions on purpose: no real person is named or imitated.
  */
 export const MAYA_VOICES = Object.freeze({
-  narrator: 'Male, late 30s, American, a nerdy systems engineer, precise and articulate, warm and curious, dry understated delivery, measured explanatory pacing',
+  narrator:
+    'Male, late 30s, American, a nerdy systems engineer, precise and articulate, warm and curious, dry understated delivery, measured explanatory pacing',
   hr: 'Female, mid 40s, American Midwest, meticulous HR administrator, organized and friendly, crisp diction, brisk office pacing, matter-of-fact',
   analyst: 'Male, early 30s, American, dry and exact insurance analyst, quiet, even pacing, slightly formal, understated',
   member: 'Female, early 30s, American, friendly and polite, a little anxious about cost, slightly hesitant, natural conversational pacing',
   prescriber: 'Female, mid 50s, American, busy but kind family physician, calm clinical authority, short clipped sentences',
-  pharmacist: 'Male, early 50s, American, seen-it-all independent pharmacist, efficient and unhurried, wry, steady pacing'
+  pharmacist: 'Male, early 50s, American, seen-it-all independent pharmacist, efficient and unhurried, wry, steady pacing',
 });
 
 /** Inline cues a line may carry ("{chuckle}"): performed by turbo, maya and orpheus, dropped elsewhere, never captioned. */
 const CUE = /\s*\{(laugh|chuckle|sigh|gasp|giggle|cough|excited|sarcastic|whisper|curious|exhale)\}\s*/g;
-export const stripCues = (s) => String(s).replace(CUE, ' ').replace(/\s{2,}/g, ' ').trim();
+export const stripCues = (s) =>
+  String(s)
+    .replace(CUE, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 function withCues(engine, text) {
   if (engine === 'turbo') return String(text).replace(/\{(\w+)\}/g, '[$1]');
   if (engine === 'maya' || engine === 'orpheus') return String(text).replace(/\{(\w+)\}/g, '<$1>');
@@ -259,7 +338,7 @@ export const MOODS = Object.freeze({
   anxious: { exaggeration: 0.55, cfg: 0.45, speed: 1.02, temperature: 0.75 },
   relieved: { exaggeration: 0.5, cfg: 0.5, speed: 0.98, temperature: 0.7 },
   kind: { exaggeration: 0.45, cfg: 0.5, speed: 1.0, temperature: 0.7 },
-  wry: { exaggeration: 0.45, cfg: 0.5, speed: 0.98, temperature: 0.7 }
+  wry: { exaggeration: 0.45, cfg: 0.5, speed: 0.98, temperature: 0.7 },
 });
 
 /** One long-lived worker per engine: JSON request per line on stdin, one JSON answer per line on stdout. */
@@ -274,14 +353,19 @@ class EngineWorker {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: TTS,
-      env: { ...process.env, HF_HUB_OFFLINE: process.env.HF_HUB_OFFLINE ?? '1' }
+      env: { ...process.env, HF_HUB_OFFLINE: process.env.HF_HUB_OFFLINE ?? '1' },
     });
     this.err = '';
-    this.p.stderr.on('data', (d) => { this.err = (this.err + d).slice(-2000); });
+    this.p.stderr.on('data', (d) => {
+      this.err = (this.err + d).slice(-2000);
+    });
     let buf = '';
     let readyResolve;
     let readyReject;
-    this.ready = new Promise((a, b) => { readyResolve = a; readyReject = b; });
+    this.ready = new Promise((a, b) => {
+      readyResolve = a;
+      readyReject = b;
+    });
     this.p.stdout.on('data', (d) => {
       buf += d;
       let nl;
@@ -310,7 +394,9 @@ class EngineWorker {
   }
 
   stop() {
-    try { this.p.kill(); } catch {}
+    try {
+      this.p.kill();
+    } catch {}
   }
 }
 const workers = new Map();
@@ -363,7 +449,11 @@ function engineParams(ev, mood) {
 function cacheKey(ev, params, spoken) {
   const p = { ...params };
   if (p.ref) p.ref = path.basename(p.ref);
-  return crypto.createHash('sha1').update(`zpk1|${ev.engine}|${JSON.stringify(p)}|${spoken}`).digest('hex').slice(0, 16);
+  return crypto
+    .createHash('sha1')
+    .update(`zpk1|${ev.engine}|${JSON.stringify(p)}|${spoken}`)
+    .digest('hex')
+    .slice(0, 16);
 }
 
 const NORMALISE = (trimFirst) => {
@@ -373,7 +463,22 @@ const NORMALISE = (trimFirst) => {
 
 async function normaliseTo24k(raw, file) {
   const tmp = `${file}.part.wav`;
-  await run(FFMPEG, ['-y', '-v', 'error', '-i', raw, '-af', NORMALISE(true), '-ac', '1', '-ar', String(ENGINE_RATE), '-c:a', 'pcm_s16le', tmp]);
+  await run(FFMPEG, [
+    '-y',
+    '-v',
+    'error',
+    '-i',
+    raw,
+    '-af',
+    NORMALISE(true),
+    '-ac',
+    '1',
+    '-ar',
+    String(ENGINE_RATE),
+    '-c:a',
+    'pcm_s16le',
+    tmp,
+  ]);
   fs.rmSync(raw, { force: true });
   fs.renameSync(tmp, file);
 }
@@ -394,12 +499,22 @@ export function speechChunks(engine, spoken) {
   const limit = CHUNK_WORDS[engine];
   const count = (s) => s.split(/\s+/).filter(Boolean).length;
   if (!limit || count(spoken) <= limit) return [spoken];
-  const split = (s, re) => s.split(re).map((x) => x.trim()).filter(Boolean);
+  const split = (s, re) =>
+    s
+      .split(re)
+      .map((x) => x.trim())
+      .filter(Boolean);
   const pieces = [];
   for (const sentence of split(spoken, /(?<=[.!?;:])\s+/)) {
-    if (count(sentence) <= limit) { pieces.push(sentence); continue; }
+    if (count(sentence) <= limit) {
+      pieces.push(sentence);
+      continue;
+    }
     for (const clause of split(sentence, /(?<=,)\s+/)) {
-      if (count(clause) <= limit) { pieces.push(clause); continue; }
+      if (count(clause) <= limit) {
+        pieces.push(clause);
+        continue;
+      }
       const words = clause.split(/\s+/).filter(Boolean);
       for (let i = 0; i < words.length; i += limit) pieces.push(words.slice(i, i + limit).join(' '));
     }
@@ -417,7 +532,8 @@ export function speechChunks(engine, spoken) {
 function joinWavs(files, out, pauseMs) {
   const infos = files.map((f) => ({ f, ...wavInfo(f) }));
   const { channels, rate, bits } = infos[0];
-  if (infos.some((x) => x.channels !== channels || x.rate !== rate || x.bits !== bits)) throw new Error(`pieces of ${path.basename(out)} differ in format`);
+  if (infos.some((x) => x.channels !== channels || x.rate !== rate || x.bits !== bits))
+    throw new Error(`pieces of ${path.basename(out)} differ in format`);
   const blockAlign = channels * (bits / 8);
   const gap = Buffer.alloc(Math.round((rate * pauseMs) / 1000) * blockAlign);
   const parts = [];
@@ -428,10 +544,19 @@ function joinWavs(files, out, pauseMs) {
   });
   const data = Buffer.concat(parts);
   const h = Buffer.alloc(44);
-  h.write('RIFF', 0, 'ascii'); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8, 'ascii');
-  h.write('fmt ', 12, 'ascii'); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(channels, 22);
-  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * blockAlign, 28); h.writeUInt16LE(blockAlign, 32); h.writeUInt16LE(bits, 34);
-  h.write('data', 36, 'ascii'); h.writeUInt32LE(data.length, 40);
+  h.write('RIFF', 0, 'ascii');
+  h.writeUInt32LE(36 + data.length, 4);
+  h.write('WAVE', 8, 'ascii');
+  h.write('fmt ', 12, 'ascii');
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(channels, 22);
+  h.writeUInt32LE(rate, 24);
+  h.writeUInt32LE(rate * blockAlign, 28);
+  h.writeUInt16LE(blockAlign, 32);
+  h.writeUInt16LE(bits, 34);
+  h.write('data', 36, 'ascii');
+  h.writeUInt32LE(data.length, 40);
   const tmp = `${out}.part.wav`;
   fs.writeFileSync(tmp, Buffer.concat([h, data]));
   fs.renameSync(tmp, out);
@@ -457,7 +582,7 @@ export function clipPath(text, { voice, mood = 'warm', lengthScale = 1, sentence
 export function wordTimes(file) {
   try {
     const j = JSON.parse(fs.readFileSync(`${file}.words.json`, 'utf8'));
-    return Array.isArray(j) ? j : (j.words || []);
+    return Array.isArray(j) ? j : j.words || [];
   } catch {
     return [];
   }
@@ -467,7 +592,10 @@ export function wordTimes(file) {
  * Speaks `text` with a voice to a cached WAV; resolves { file, ms, words }. { cacheOnly: true } refuses to
  * synthesise: during a take every clip must already exist (rendered and checked before T0).
  */
-export async function synth(text, { voice, mood = 'warm', lengthScale = 1, sentenceSilence = 0.25, cacheDir = VOICE_CACHE, cacheOnly = false }) {
+export async function synth(
+  text,
+  { voice, mood = 'warm', lengthScale = 1, sentenceSilence = 0.25, cacheDir = VOICE_CACHE, cacheOnly = false },
+) {
   fs.mkdirSync(cacheDir, { recursive: true });
   const c = clipPath(text, { voice, mood, lengthScale, sentenceSilence, cacheDir });
   if (!fs.existsSync(c.file)) {
@@ -497,7 +625,11 @@ export async function synth(text, { voice, mood = 'warm', lengthScale = 1, sente
       if (!fs.existsSync(PIPER)) throw new Error(`Piper is not installed at ${PIPER}`);
       if (!fs.existsSync(model)) throw new Error(`voice model missing: ${model}`);
       const raw = `${c.file}.raw.wav`;
-      await run(PIPER, ['--model', model, '--output_file', raw, '--length_scale', String(lengthScale), '--sentence_silence', String(sentenceSilence)], { input: c.spoken });
+      await run(
+        PIPER,
+        ['--model', model, '--output_file', raw, '--length_scale', String(lengthScale), '--sentence_silence', String(sentenceSilence)],
+        { input: c.spoken },
+      );
       // Piper writes 22,050 Hz; every clip on the track must share the engines' 24 kHz
       await normaliseTo24k(raw, c.file);
     }
@@ -535,7 +667,13 @@ export class Narrator {
   /** estMs: a rehearsal's stand-in length for this line (the script may give one for long board explanations). */
   async clipFor(persona, text, mood, estMs) {
     if (this.silent) return { file: null, ms: Number(estMs) || estimateMs(text), words: [] };
-    return synth(text, { voice: persona.voice, mood, lengthScale: persona.lengthScale ?? 1, cacheDir: this.cacheDir, cacheOnly: this.cacheOnly });
+    return synth(text, {
+      voice: persona.voice,
+      mood,
+      lengthScale: persona.lengthScale ?? 1,
+      cacheDir: this.cacheDir,
+      cacheOnly: this.cacheOnly,
+    });
   }
 
   async say(page, persona, line, { wait = true, mood, during } = {}) {
@@ -546,20 +684,45 @@ export class Narrator {
       this.busy = true;
       const at = Date.now();
       if (this.onTurnStart) {
-        try { this.onTurnStart(at); } catch {}
+        try {
+          this.onTurnStart(at);
+        } catch {}
       }
       const caption = stripCues(text);
       const pg = typeof page === 'function' ? page() : page;
-      this.lines.push({ at, persona: persona.key, name: persona.name, voice: persona.voice, mood: feel, text: caption, file: clip.file, ms: clip.ms, page: pg?.__shotKey || null });
+      this.lines.push({
+        at,
+        persona: persona.key,
+        name: persona.name,
+        voice: persona.voice,
+        mood: feel,
+        text: caption,
+        file: clip.file,
+        ms: clip.ms,
+        page: pg?.__shotKey || null,
+      });
       this.log(`${persona.name}: "${caption}"`);
-      if (pg) await pg.evaluate(([who, t, color]) => window.__demoSay && window.__demoSay(who, t, color), [persona.name, caption, persona.color || '#9b9bff']).catch(() => {});
+      if (pg)
+        await pg
+          .evaluate(
+            ([who, t, color]) => window.__demoSay && window.__demoSay(who, t, color),
+            [persona.name, caption, persona.color || '#9b9bff'],
+          )
+          .catch(() => {});
       const both = [sleep(clip.ms + this.breathMs)];
-      if (during) both.push(Promise.resolve().then(() => during({ at, ms: clip.ms, file: clip.file, words: clip.words || [] })).catch((e) => this.log(`during() failed: ${e.message}`)));
+      if (during)
+        both.push(
+          Promise.resolve()
+            .then(() => during({ at, ms: clip.ms, file: clip.file, words: clip.words || [] }))
+            .catch((e) => this.log(`during() failed: ${e.message}`)),
+        );
       await Promise.all(both);
       if (pg) await pg.evaluate(() => window.__demoSay && window.__demoSay(null)).catch(() => {});
       this.busy = false;
     });
-    this.stick = turn.catch(() => { this.busy = false; });
+    this.stick = turn.catch(() => {
+      this.busy = false;
+    });
     if (wait) await turn;
     return turn;
   }

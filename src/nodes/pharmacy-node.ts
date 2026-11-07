@@ -34,13 +34,8 @@
  * therapy detection at point of service.
  */
 import { Field } from 'o1js';
-import {
-  StateTransitionProgram,
-  type StateTransitionProof,
-} from '../engine/state-transition.js';
-import {
-  pharmacyTransitionPreimage,
-} from '../wallets/wallet-derivation.js';
+import { StateTransitionProgram, type StateTransitionProof } from '../engine/state-transition.js';
+import { pharmacyTransitionPreimage } from '../wallets/wallet-derivation.js';
 import type { PharmacyLocalData } from '../models/pharmacy.js';
 import { WalletRegistryWitness } from '../wallets/wallet-state.js';
 import { LifecycleWitness } from '../engine/lifecycle.js';
@@ -99,8 +94,13 @@ export class PharmacyNode extends EntityNodeBase {
     }
     const start = Date.now();
     const result = await StateTransitionProgram.proveRegistration(
-      preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5], preimage[6],
+      preimage[0],
+      preimage[1],
+      preimage[2],
+      preimage[3],
+      preimage[4],
+      preimage[5],
+      preimage[6],
       registryWitness,
       lifecycleWitness,
       currentRegistryRoot,
@@ -126,12 +126,20 @@ export class PharmacyNode extends EntityNodeBase {
     }
     const start = Date.now();
     const result = await StateTransitionProgram.proveWalletUpdate(
-      preimage[0], preimage[1], preimage[2],
-      preimage[3], preimage[4], preimage[5], preimage[6],
-      oldCredentialRoot, oldNonce, newCredentialRoot,
+      preimage[0],
+      preimage[1],
+      preimage[2],
+      preimage[3],
+      preimage[4],
+      preimage[5],
+      preimage[6],
+      oldCredentialRoot,
+      oldNonce,
+      newCredentialRoot,
       registryWitness,
       lifecycleWitness,
-      currentRegistryRoot, currentLifecycleRoot,
+      currentRegistryRoot,
+      currentLifecycleRoot,
       currentLifecycle,
     );
     this.proofTimings.set('proveWalletUpdate', Date.now() - start);
@@ -142,16 +150,10 @@ export class PharmacyNode extends EntityNodeBase {
    * Submit a proof to the sequencer.
    * Routes to the member wallet's partition (fills modify the MEMBER's wallet).
    */
-  async submitProof(
-    proof: StateTransitionProof,
-    memberWalletId?: string,
-  ): Promise<L2Receipt> {
+  async submitProof(proof: StateTransitionProof, memberWalletId?: string): Promise<L2Receipt> {
     // Fulfillment proofs target the MEMBER's wallet, not the pharmacy's
     const targetWallet = memberWalletId ?? this.config.walletId!;
-    return this.withPartitionRetry(
-      targetWallet,
-      (client) => client.submitProof(proof),
-    );
+    return this.withPartitionRetry(targetWallet, (client) => client.submitProof(proof));
   }
 
   getProofTimings(): ProofTimingEstimate[] {
@@ -166,10 +168,7 @@ export class PharmacyNode extends EntityNodeBase {
 
   /** Get all claims this pharmacy dispensed */
   async getDispensingHistory(): Promise<EntityClaimView[]> {
-    const entries = await this.client.getClaimsByPharmacy(
-      this.config.walletId!,
-      this.walletSigner() ?? undefined,
-    );
+    const entries = await this.client.getClaimsByPharmacy(this.config.walletId!, this.walletSigner() ?? undefined);
     return this.toClaimViews(entries);
   }
 
@@ -187,18 +186,13 @@ export class PharmacyNode extends EntityNodeBase {
   }
 
   /** Get dispensing history within a date range */
-  async getDispensingHistoryByDateRange(
-    start: string,
-    end: string,
-  ): Promise<EntityClaimView[]> {
+  async getDispensingHistoryByDateRange(start: string, end: string): Promise<EntityClaimView[]> {
     const views = await this.getDispensingHistory();
     return this.filterByDateRange(views, start, end);
   }
 
   /** Claims this pharmacy dispensed for a specific patient */
-  async getPatientHistory(
-    memberWalletId: string,
-  ): Promise<EntityClaimView[]> {
+  async getPatientHistory(memberWalletId: string): Promise<EntityClaimView[]> {
     const views = await this.getDispensingHistory();
     return views.filter((v) => v.memberWalletId === memberWalletId);
   }
@@ -214,10 +208,7 @@ export class PharmacyNode extends EntityNodeBase {
    *   - Duplicate therapy detection
    *   - Therapeutic substitution verification
    */
-  async getPatientFullDrugHistory(
-    memberWalletId: string,
-    memberAttestation?: Record<string, unknown>,
-  ): Promise<EntityClaimView[]> {
+  async getPatientFullDrugHistory(memberWalletId: string, memberAttestation?: Record<string, unknown>): Promise<EntityClaimView[]> {
     // D1: signed as this pharmacy and carrying the member's tapped attestation; the sequencer refuses otherwise.
     const entries = await this.client.getClaimsByMember(memberWalletId, this.walletSigner() ?? undefined, memberAttestation);
     return this.toClaimViews(entries);
@@ -227,11 +218,7 @@ export class PharmacyNode extends EntityNodeBase {
    * Check if a patient has an active (non-reversed) claim for a medication.
    * An active claim is a fulfillment that has no corresponding reversal.
    */
-  async hasActiveClaim(
-    memberWalletId: string,
-    ndcHash: string,
-    memberAttestation?: Record<string, unknown>,
-  ): Promise<boolean> {
+  async hasActiveClaim(memberWalletId: string, ndcHash: string, memberAttestation?: Record<string, unknown>): Promise<boolean> {
     const views = await this.getPatientFullDrugHistory(memberWalletId, memberAttestation);
     const forMed = views.filter((v) => v.ndcHash === ndcHash);
     const fills = forMed.filter((v) => v.operationType === 'fulfillment').length;
@@ -243,10 +230,7 @@ export class PharmacyNode extends EntityNodeBase {
    * Get a patient's active medications (non-reversed fills).
    * Groups by NDC hash and returns only those with more fills than reversals.
    */
-  async getPatientActiveMedications(
-    memberWalletId: string,
-    memberAttestation?: Record<string, unknown>,
-  ): Promise<EntityClaimView[]> {
+  async getPatientActiveMedications(memberWalletId: string, memberAttestation?: Record<string, unknown>): Promise<EntityClaimView[]> {
     return PharmacyNode.activeMedicationsOf(await this.getPatientFullDrugHistory(memberWalletId, memberAttestation));
   }
 
@@ -284,9 +268,7 @@ export class PharmacyNode extends EntityNodeBase {
   // ─── Filtered Queries ───────────────────────────────────
 
   /** Get claims prescribed by a specific prescriber */
-  async getClaimsByPrescriber(
-    prescriberWalletId: string,
-  ): Promise<EntityClaimView[]> {
+  async getClaimsByPrescriber(prescriberWalletId: string): Promise<EntityClaimView[]> {
     const views = await this.getDispensingHistory();
     return views.filter((v) => v.prescriberWalletId === prescriberWalletId);
   }
@@ -391,10 +373,7 @@ export class PharmacyNode extends EntityNodeBase {
 
   // ─── Convenience ────────────────────────────────────────
 
-  static buildPreimage(
-    local: PharmacyLocalData,
-    enrollmentKey: string,
-  ): Field[] {
+  static buildPreimage(local: PharmacyLocalData, enrollmentKey: string): Field[] {
     return pharmacyTransitionPreimage(local, enrollmentKey);
   }
 }

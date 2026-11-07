@@ -51,10 +51,7 @@ const DOMAIN_TAG_PRESCRIBER = 1;
  * @param server — NautilusAppServer reference (captured in closures)
  * @param networkRegistry — optional ProviderNetworkRegistry for in-network queries
  */
-export function buildPrescriberRoutes(
-  server: NautilusAppServer,
-  networkRegistry?: ProviderNetworkRegistry,
-): RouteRegistration[] {
+export function buildPrescriberRoutes(server: NautilusAppServer, networkRegistry?: ProviderNetworkRegistry): RouteRegistration[] {
   // CORS is applied once by L2RpcServer.handleRequest, from the deployment's origin
   // allowlist. Naming Access-Control-Allow-Origin in a writeHead header object here
   // would override that policy with a wildcard, so no handler below sets it.
@@ -77,7 +74,9 @@ export function buildPrescriberRoutes(
       const node = server.getEntityNode() as PrescriberNode | null;
       const key = node ? await node.getClient().getEncryptionKey(recipientWalletId, node.walletSigner() ?? undefined) : null;
       recipientPubKeyHex = key?.encryptionPublicKeyHex ?? null;
-    } catch { /* sequencer unreachable or refused */ }
+    } catch {
+      /* sequencer unreachable or refused */
+    }
 
     if (!recipientPubKeyHex) {
       throw new Error('Cannot send eScript: recipient encryption key not registered');
@@ -120,13 +119,15 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getNetworkProviders', params: { role: 'prescriber' } }),
         });
-        const json = await res.json() as any;
+        const json = (await res.json()) as any;
         if (json.result && Array.isArray(json.result)) {
           for (const p of json.result) {
             if (p.walletId && !walletsToCheck.includes(p.walletId)) walletsToCheck.push(p.walletId);
           }
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       if (walletsToCheck.length === 0) return;
 
@@ -146,7 +147,9 @@ export function buildPrescriberRoutes(
               }
             }
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
 
       // Also scan inbox for PCP_ASSIGN messages (type '6') if node is ready
@@ -164,9 +167,13 @@ export function buildPrescriberRoutes(
               }
             }
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
-    } catch { /* sequencer not ready */ }
+    } catch {
+      /* sequencer not ready */
+    }
   }
 
   // Poll sequencer every 10s for PCP assignments
@@ -258,9 +265,7 @@ export function buildPrescriberRoutes(
         prescriberIdQualifier: b.prescriberIdQualifier,
         prescriberId: b.prescriberId,
       };
-      const result = state.useEnrollmentKey((key) =>
-        securePrescriberDerivation(localData, key),
-      );
+      const result = state.useEnrollmentKey((key) => securePrescriberDerivation(localData, key));
       const walletId = result.walletId.toString();
       const preimageFields = result.preimage.map((f) => f.toString());
 
@@ -434,17 +439,19 @@ export function buildPrescriberRoutes(
       const walletId = node.getWalletId();
       if (!walletId) return server.sendResponse(res, 409, false, undefined, 'No wallet ID');
 
-      const b = body as {
-        memberWalletId?: string;
-        pharmacyWalletId?: string;
-        ndcHash?: string;
-        brandName?: string;
-        quantity?: number;
-        daysSupply?: number;
-        refills?: number;
-        directions?: string;
-        diagnosis?: string;
-      } | undefined;
+      const b = body as
+        | {
+            memberWalletId?: string;
+            pharmacyWalletId?: string;
+            ndcHash?: string;
+            brandName?: string;
+            quantity?: number;
+            daysSupply?: number;
+            refills?: number;
+            directions?: string;
+            diagnosis?: string;
+          }
+        | undefined;
 
       if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
       if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
@@ -522,13 +529,16 @@ export function buildPrescriberRoutes(
   // ══════════════════════════════════════════════════════════
 
   // In-memory job map for async prescription proof tracking
-  const prescribeJobs = new Map<string, {
-    status: 'pending' | 'complete' | 'error';
-    result?: unknown;
-    error?: string;
-    rxId?: string;
-    createdAt: number;
-  }>();
+  const prescribeJobs = new Map<
+    string,
+    {
+      status: 'pending' | 'complete' | 'error';
+      result?: unknown;
+      error?: string;
+      rxId?: string;
+      createdAt: number;
+    }
+  >();
 
   routes.push({
     method: 'POST',
@@ -539,17 +549,19 @@ export function buildPrescriberRoutes(
       const walletId = node.getWalletId();
       if (!walletId) return server.sendResponse(res, 409, false, undefined, 'No wallet ID');
 
-      const b = body as {
-        memberWalletId?: string;
-        pharmacyWalletId?: string;
-        ndcHash?: string;
-        brandName?: string;
-        quantity?: number;
-        daysSupply?: number;
-        refills?: number;
-        directions?: string;
-        diagnosis?: string;
-      } | undefined;
+      const b = body as
+        | {
+            memberWalletId?: string;
+            pharmacyWalletId?: string;
+            ndcHash?: string;
+            brandName?: string;
+            quantity?: number;
+            daysSupply?: number;
+            refills?: number;
+            directions?: string;
+            diagnosis?: string;
+          }
+        | undefined;
 
       if (!b?.memberWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing memberWalletId');
       if (!b?.pharmacyWalletId) return server.sendResponse(res, 400, false, undefined, 'Missing pharmacyWalletId');
@@ -572,19 +584,43 @@ export function buildPrescriberRoutes(
           body: JSON.stringify({ prescriberWalletId: walletId, pharmacyWalletId: b.pharmacyWalletId }),
         });
         if (!resolveResp.ok) {
-          return server.sendResponse(res, 502, false, undefined, `The engine could not resolve the providers (HTTP ${resolveResp.status}); nothing was sent`);
+          return server.sendResponse(
+            res,
+            502,
+            false,
+            undefined,
+            `The engine could not resolve the providers (HTTP ${resolveResp.status}); nothing was sent`,
+          );
         }
-        const indices = await resolveResp.json() as { prescriberIndex?: number; pharmacyIndex?: number };
+        const indices = (await resolveResp.json()) as { prescriberIndex?: number; pharmacyIndex?: number };
         if (typeof indices.prescriberIndex !== 'number' || indices.prescriberIndex < 0) {
-          return server.sendResponse(res, 409, false, undefined, `This prescriber (wallet ${walletId}) is not a provider the engine can adjudicate for; nothing was sent`);
+          return server.sendResponse(
+            res,
+            409,
+            false,
+            undefined,
+            `This prescriber (wallet ${walletId}) is not a provider the engine can adjudicate for; nothing was sent`,
+          );
         }
         if (typeof indices.pharmacyIndex !== 'number' || indices.pharmacyIndex < 0) {
-          return server.sendResponse(res, 409, false, undefined, `Pharmacy ${b.pharmacyWalletId} is not a provider the engine can adjudicate for; nothing was sent`);
+          return server.sendResponse(
+            res,
+            409,
+            false,
+            undefined,
+            `Pharmacy ${b.pharmacyWalletId} is not a provider the engine can adjudicate for; nothing was sent`,
+          );
         }
         prescriberIndex = indices.prescriberIndex;
         pharmacyIndex = indices.pharmacyIndex;
       } catch (err) {
-        return server.sendResponse(res, 502, false, undefined, 'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)));
+        return server.sendResponse(
+          res,
+          502,
+          false,
+          undefined,
+          'The engine could not be reached to resolve the providers: ' + (err instanceof Error ? err.message : String(err)),
+        );
       }
 
       const rxId = `RX-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -623,8 +659,13 @@ export function buildPrescriberRoutes(
           { ...memberPayload2, timestamp: Date.now() },
         );
       } catch (err) {
-        return server.sendResponse(res, 500, false, undefined,
-          'Failed to send eScript: ' + (err instanceof Error ? err.message : String(err)));
+        return server.sendResponse(
+          res,
+          500,
+          false,
+          undefined,
+          'Failed to send eScript: ' + (err instanceof Error ? err.message : String(err)),
+        );
       }
 
       // 2. Fire-and-forget: call sequencer /interactive/prescribe for ZK proofs. While the engine is still starting its
@@ -640,27 +681,45 @@ export function buildPrescriberRoutes(
             pharmacyIndex,
             quantity,
             refills: b!.refills ?? 0,
-            rxId,  // pass prescriber-generated ID so both sides use the same prescription ID
+            rxId, // pass prescriber-generated ID so both sides use the same prescription ID
           });
-          const proveResp = await sendWhileEngineStarts(() => server.signedFetch(`${seqUrl}/interactive/prescribe`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: proveBody,
-          }), {
-            onWait: (ms, next) => console.log('  [prescriber] the claims engine is still starting its provers; the prescription job waits %d s before try %d', Math.round(ms / 1000), next),
-          });
+          const proveResp = await sendWhileEngineStarts(
+            () =>
+              server.signedFetch(`${seqUrl}/interactive/prescribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: proveBody,
+              }),
+            {
+              onWait: (ms, next) =>
+                console.log(
+                  '  [prescriber] the claims engine is still starting its provers; the prescription job waits %d s before try %d',
+                  Math.round(ms / 1000),
+                  next,
+                ),
+            },
+          );
 
-          const proveResult = await proveResp.json() as Record<string, unknown>;
+          const proveResult = (await proveResp.json()) as Record<string, unknown>;
           if (!proveResp.ok) {
             const job = prescribeJobs.get(jobKey);
-            if (job) { job.status = 'error'; job.error = (proveResult.error as string) || `HTTP ${proveResp.status}`; }
+            if (job) {
+              job.status = 'error';
+              job.error = (proveResult.error as string) || `HTTP ${proveResp.status}`;
+            }
           } else {
             const job = prescribeJobs.get(jobKey);
-            if (job) { job.status = 'complete'; job.result = proveResult; }
+            if (job) {
+              job.status = 'complete';
+              job.result = proveResult;
+            }
           }
         } catch (err) {
           const job = prescribeJobs.get(jobKey);
-          if (job) { job.status = 'error'; job.error = err instanceof Error ? err.message : String(err); }
+          if (job) {
+            job.status = 'error';
+            job.error = err instanceof Error ? err.message : String(err);
+          }
         }
       })();
 
@@ -892,7 +951,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyCategories', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -920,7 +979,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyPage', params: { filter, offset, limit } }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -940,7 +999,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getDrugDetail', params: { ndcHash: params.ndcHash } }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -960,7 +1019,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyRoutes', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -980,7 +1039,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyDrugCount', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -1000,7 +1059,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyRoot', params: {} }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -1020,7 +1079,7 @@ export function buildPrescriberRoutes(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getFormularyWitness', params: { ndcHash: params.ndcHash } }),
         });
-        const json = await resp.json() as any;
+        const json = (await resp.json()) as any;
         if (json.error) throw new Error(json.error.message);
         server.sendResponse(res, 200, true, json.result);
       } catch (err: any) {
@@ -1052,7 +1111,7 @@ export function buildPrescriberRoutes(
             params: roleFilter ? { role: roleFilter } : {},
           }),
         });
-        const json = await resp.json() as { result?: unknown; error?: { message?: string } };
+        const json = (await resp.json()) as { result?: unknown; error?: { message?: string } };
         if (json.error) {
           return server.sendResponse(res, 502, false, undefined, json.error.message ?? 'Sequencer error');
         }
@@ -1186,17 +1245,30 @@ export function buildPrescriberRoutes(
       const node = server.getEntityNode() as PrescriberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
       const b = (body ?? {}) as { ndcHash?: unknown; walletId?: unknown; quantity?: unknown; planId?: unknown };
-      if (typeof b.ndcHash !== 'string' || b.ndcHash.length === 0) return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
+      if (typeof b.ndcHash !== 'string' || b.ndcHash.length === 0)
+        return server.sendResponse(res, 400, false, undefined, 'Missing ndcHash');
       if (b.quantity !== undefined) {
         const quantityProblem = quantityError(b.quantity);
         if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
       }
-      const params: { ndcHash: string; quantity?: number; walletId?: string; memberAttestation?: Record<string, unknown>; planId?: string } = { ndcHash: b.ndcHash };
+      const params: {
+        ndcHash: string;
+        quantity?: number;
+        walletId?: string;
+        memberAttestation?: Record<string, unknown>;
+        planId?: string;
+      } = { ndcHash: b.ndcHash };
       if (b.quantity !== undefined) params.quantity = b.quantity as number;
       const forMember = typeof b.walletId === 'string' && b.walletId.length > 0;
       if (forMember) {
         if (!carriesNodeAdminCredential(req)) {
-          return server.sendResponse(res, 401, false, undefined, "A patient's own price answers this node's administrator: send this node's admin token");
+          return server.sendResponse(
+            res,
+            401,
+            false,
+            undefined,
+            "A patient's own price answers this node's administrator: send this node's admin token",
+          );
         }
         params.walletId = b.walletId as string;
         const attestation = estimateAttestationOf(req);
@@ -1206,13 +1278,19 @@ export function buildPrescriberRoutes(
       }
       try {
         // signed as the prescriber's wallet: the read gate decides by the member's consent to this prescriber
-        const result = await node.getClient().estimateCost(params, forMember ? node.walletSigner() ?? undefined : undefined);
+        const result = await node.getClient().estimateCost(params, forMember ? (node.walletSigner() ?? undefined) : undefined);
         server.sendResponse(res, 200, true, result);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (/Unauthorized|Forbidden/.test(message)) {
-          return server.sendResponse(res, 403, false, undefined,
-            "The patient's own price answers her primary-care prescriber, a prescriber her phone authorized for this visit, or a caller with the member's tapped attestation (X-Member-Attestation): " + message);
+          return server.sendResponse(
+            res,
+            403,
+            false,
+            undefined,
+            "The patient's own price answers her primary-care prescriber, a prescriber her phone authorized for this visit, or a caller with the member's tapped attestation (X-Member-Attestation): " +
+              message,
+          );
         }
         server.sendResponse(res, /RPC error -32602/.test(message) ? 400 : 502, false, undefined, message);
       }
@@ -1240,12 +1318,19 @@ export function buildPrescriberRoutes(
     }
     const text = await upstream.text();
     let json: Record<string, unknown> = {};
-    try { json = JSON.parse(text) as Record<string, unknown>; } catch { /* not JSON */ }
+    try {
+      json = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      /* not JSON */
+    }
     if (upstream.ok) return server.sendResponse(res, 200, true, json);
     const error = typeof json.error === 'string' ? json.error : `The engine answered HTTP ${upstream.status}`;
-    const status = upstream.status === 401 || upstream.status === 403 ? 403
-      : upstream.status === 400 || upstream.status === 404 || upstream.status === 409 ? upstream.status
-        : 502;
+    const status =
+      upstream.status === 401 || upstream.status === 403
+        ? 403
+        : upstream.status === 400 || upstream.status === 404 || upstream.status === 409
+          ? upstream.status
+          : 502;
     server.sendResponse(res, status, false, undefined, error);
   }
 
@@ -1256,12 +1341,21 @@ export function buildPrescriberRoutes(
     handler: async (_req, res, _params, _query, body) => {
       const node = server.getEntityNode() as PrescriberNode | null;
       if (!node) return server.sendResponse(res, 503, false, undefined, 'Node not initialized');
-      const b = (body ?? {}) as { walletId?: unknown; ndcHash?: unknown; quantity?: unknown; reason?: unknown; prescriberIndex?: unknown; prescriberWalletId?: unknown };
+      const b = (body ?? {}) as {
+        walletId?: unknown;
+        ndcHash?: unknown;
+        quantity?: unknown;
+        reason?: unknown;
+        prescriberIndex?: unknown;
+        prescriberWalletId?: unknown;
+      };
       if (b.prescriberIndex !== undefined || b.prescriberWalletId !== undefined) {
         return server.sendResponse(res, 400, false, undefined, 'The prescriber is this node; the request names none');
       }
-      if (typeof b.walletId !== 'string' || !/^\d+$/.test(b.walletId)) return server.sendResponse(res, 400, false, undefined, "Missing walletId: the member's wallet ID, decimal");
-      if (typeof b.ndcHash !== 'string' || !/^\d+$/.test(b.ndcHash)) return server.sendResponse(res, 400, false, undefined, "Missing ndcHash: the drug's NDC hash, decimal");
+      if (typeof b.walletId !== 'string' || !/^\d+$/.test(b.walletId))
+        return server.sendResponse(res, 400, false, undefined, "Missing walletId: the member's wallet ID, decimal");
+      if (typeof b.ndcHash !== 'string' || !/^\d+$/.test(b.ndcHash))
+        return server.sendResponse(res, 400, false, undefined, "Missing ndcHash: the drug's NDC hash, decimal");
       const quantityProblem = quantityError(b.quantity);
       if (quantityProblem) return server.sendResponse(res, 400, false, undefined, quantityProblem);
       if (b.reason !== undefined && (typeof b.reason !== 'string' || b.reason.length > 500)) {
@@ -1272,11 +1366,13 @@ export function buildPrescriberRoutes(
       const reasonProblem = reason === undefined ? null : plainTextError(reason);
       if (reasonProblem) return server.sendResponse(res, 400, false, undefined, reasonProblem);
       const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
-      await relayEngine(res, () => server.walletSignedFetch(`${seqUrl}/interactive/request-prior-auth`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberWalletId: b.walletId, ndcHash: b.ndcHash, quantity: b.quantity, ...(reason ? { reason } : {}) }),
-      }));
+      await relayEngine(res, () =>
+        server.walletSignedFetch(`${seqUrl}/interactive/request-prior-auth`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ memberWalletId: b.walletId, ndcHash: b.ndcHash, quantity: b.quantity, ...(reason ? { reason } : {}) }),
+        }),
+      );
     },
   });
 
@@ -1314,14 +1410,14 @@ export function buildPrescriberRoutes(
       try {
         const dataDir = process.env.ZKP_DATA_DIR || path.join(process.cwd(), 'src', 'data');
         rawData = JSON.parse(fs.readFileSync(path.join(dataDir, 'prescribers.json'), 'utf-8'));
-      } catch { /* fall back to empty */ }
+      } catch {
+        /* fall back to empty */
+      }
 
       const list = PRESCRIBERS.map((p, i) => ({
         index: i,
         npi: p.localData.prescriberId,
-        name: (p.credential === 'NP' || p.credential === 'PA')
-          ? `${p.firstName} ${p.lastName}`
-          : `${prescriberDisplayName(p)}`,
+        name: p.credential === 'NP' || p.credential === 'PA' ? `${p.firstName} ${p.lastName}` : `${prescriberDisplayName(p)}`,
         firstName: p.firstName,
         lastName: p.lastName,
         credential: p.credential,
@@ -1349,7 +1445,16 @@ export function buildPrescriberRoutes(
         return server.sendResponse(res, 400, false, undefined, 'This node only handles prescriber badges');
       }
 
-      const events: Array<{ type: string; providerIndex: number; providerType: string; displayName: string; timestamp: number; elapsedMs?: number; data?: Record<string, unknown>; error?: string }> = [];
+      const events: Array<{
+        type: string;
+        providerIndex: number;
+        providerType: string;
+        displayName: string;
+        timestamp: number;
+        elapsedMs?: number;
+        data?: Record<string, unknown>;
+        error?: string;
+      }> = [];
       const start = Date.now();
 
       try {
@@ -1377,13 +1482,21 @@ export function buildPrescriberRoutes(
         // Step 3: badge:derive — derive walletId
         const walletId = derivePrescriberWalletId(prescriber.localData, enrollmentKey).toString();
         events.push({
-          type: 'badge:derive', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:derive',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { walletId },
         });
 
         // Step 4: badge:proof — skip ZK proof in standalone mode (programs not compiled)
         events.push({
-          type: 'badge:proof', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:proof',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { skipped: true, reason: 'Standalone mode — ZK proof not required in standalone mode' },
         });
 
@@ -1397,7 +1510,7 @@ export function buildPrescriberRoutes(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getProvider', params: { walletId } }),
           });
-          const json = await resp.json() as any;
+          const json = (await resp.json()) as any;
           if (json.result) {
             const states = ['PENDING', 'SUSPENDED', 'ACTIVE', 'TERMINATED'];
             credentialState = states[json.result.credentialState] ?? 'UNKNOWN';
@@ -1426,34 +1539,50 @@ export function buildPrescriberRoutes(
           console.warn(`[badge:tap] Sequencer check/register failed: ${regErr?.message ?? regErr}`);
         }
         events.push({
-          type: 'badge:verify', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:verify',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { credentialState, walletId, isNewWallet },
         });
 
         // Step 6: badge:session — issue session
         events.push({
-          type: 'badge:session', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:session',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           data: { sessionDuration: '8h', walletId, isNewWallet },
         });
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          authenticated: true,
-          events,
-          elapsedMs: Date.now() - start,
-        }));
+        res.end(
+          JSON.stringify({
+            authenticated: true,
+            events,
+            elapsedMs: Date.now() - start,
+          }),
+        );
       } catch (err: any) {
         const displayName = 'Unknown';
         events.push({
-          type: 'badge:error', providerIndex, providerType, displayName, timestamp: Date.now(),
+          type: 'badge:error',
+          providerIndex,
+          providerType,
+          displayName,
+          timestamp: Date.now(),
           error: err?.message ?? String(err),
         });
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          authenticated: false,
-          events,
-          error: err?.message ?? String(err),
-        }));
+        res.end(
+          JSON.stringify({
+            authenticated: false,
+            events,
+            error: err?.message ?? String(err),
+          }),
+        );
       }
     },
   });

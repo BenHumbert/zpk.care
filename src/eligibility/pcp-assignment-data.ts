@@ -115,9 +115,7 @@ export function buildPcpAssignmentData(local: PcpAssignmentLocalData): PcpAssign
     memberWalletId: Field(BigInt(local.memberWalletId)),
     pcpWalletId: Field(BigInt(local.pcpWalletId)),
     effectiveDate: dateToField(local.effectiveDate),
-    terminationDate: local.terminationDate
-      ? dateToField(local.terminationDate)
-      : Field(0),
+    terminationDate: local.terminationDate ? dateToField(local.terminationDate) : Field(0),
     specialtyHash: hashString(local.specialty),
     consentTimestamp: dateToField(local.consentTimestamp),
     consentScopeFlags: Field(BigInt(local.consentScopeFlags)),

@@ -13,13 +13,20 @@
  * release; the node accepts only a release signed by a holder in the record, for its own key and its own slot.
  */
 import { randomBytes } from 'crypto';
-import {
-  createHolderKey, unlockHolderKey, holderFingerprint, isHolderCard, verifyHolderSignature,
-} from '../src/keys/holder-key.js';
+import { createHolderKey, unlockHolderKey, holderFingerprint, isHolderCard, verifyHolderSignature } from '../src/keys/holder-key.js';
 import type { HolderCard, HolderKeyFile, UnlockedHolder } from '../src/keys/holder-key.js';
 import {
-  runCeremony, signCeremonyRecord, addRecordSignature, verifyCeremonyRecord, verifyRecordSuccession, recordHashOf,
-  openHolderShare, releaseShare, acceptShareRelease, canonicalJson, CeremonyRecordError,
+  runCeremony,
+  signCeremonyRecord,
+  addRecordSignature,
+  verifyCeremonyRecord,
+  verifyRecordSuccession,
+  recordHashOf,
+  openHolderShare,
+  releaseShare,
+  acceptShareRelease,
+  canonicalJson,
+  CeremonyRecordError,
 } from '../src/keys/ceremony.js';
 import type { CeremonyRecord, ShareFile } from '../src/keys/ceremony.js';
 import { combineShares } from '../src/keys/shamir.js';
@@ -31,7 +38,11 @@ const FAST = { scryptN: 2 ** 12 };
 const PASS = 'correct horse battery staple';
 const PROGRAM = 'a'.repeat(64);
 
-interface Holder { file: HolderKeyFile; card: HolderCard; unlocked: UnlockedHolder }
+interface Holder {
+  file: HolderKeyFile;
+  card: HolderCard;
+  unlocked: UnlockedHolder;
+}
 
 function makeHolders(n: number, groups?: string[], prefix = 'holder'): Holder[] {
   return Array.from({ length: n }, (_, i) => {
@@ -57,7 +68,12 @@ function signedBy(record: CeremonyRecord, holders: Holder[]): CeremonyRecord {
 }
 
 function sharesFor(shares: ShareFile[], holders: Holder[]) {
-  return holders.map((h) => openHolderShare(shares.find((s) => s.holder === h.card.signPublicKeyHex)!, h.unlocked));
+  return holders.map((h) =>
+    openHolderShare(
+      shares.find((s) => s.holder === h.card.signPublicKeyHex)!,
+      h.unlocked,
+    ),
+  );
 }
 
 describe('holder keys', () => {
@@ -72,9 +88,18 @@ describe('holder keys', () => {
     const envelope = sealTo(card.boxPublicKeyHex, Buffer.from('x'), 'zpk.care/test');
     expect(openSealed(unlocked.boxPrivateKey, envelope, 'zpk.care/test').toString()).toBe('x');
     // the file keeps the private halves only inside its one ciphertext
-    expect(Object.keys(file).sort()).toEqual(
-      ['boxPublicKeyHex', 'ciphertext', 'createdAt', 'iv', 'kdf', 'kind', 'label', 'signPublicKeyHex', 'tag', 'v'],
-    );
+    expect(Object.keys(file).sort()).toEqual([
+      'boxPublicKeyHex',
+      'ciphertext',
+      'createdAt',
+      'iv',
+      'kdf',
+      'kind',
+      'label',
+      'signPublicKeyHex',
+      'tag',
+      'v',
+    ]);
     expect(file.kdf.N).toBe(2 ** 12);
   });
 
@@ -240,9 +265,17 @@ describe('releasing a share to a node being provisioned', () => {
     const boot = generateBoxKeyPair();
     const other = generateBoxKeyPair();
     const share = shares[0];
-    const release = releaseShare(share, holders[0].unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: other.publicKeyHex });
+    const release = releaseShare(share, holders[0].unlocked, {
+      ceremonyId: record.ceremonyId,
+      nodeId: 'insurer',
+      bootPublicKeyHex: other.publicKeyHex,
+    });
     expect(() => acceptShareRelease(release, record, boot, 'insurer')).toThrow(/another start/);
-    const good = releaseShare(share, holders[0].unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: boot.publicKeyHex });
+    const good = releaseShare(share, holders[0].unlocked, {
+      ceremonyId: record.ceremonyId,
+      nodeId: 'insurer',
+      bootPublicKeyHex: boot.publicKeyHex,
+    });
     expect(() => acceptShareRelease(good, record, boot, 'sequencer-1')).toThrow(/another node/);
     const forged = { ...good, signatureHex: signCeremonyRecord(record, holders[0].unlocked).signatureHex };
     expect(() => acceptShareRelease(forged, record, boot, 'insurer')).toThrow(/signature/);
@@ -254,13 +287,19 @@ describe('releasing a share to a node being provisioned', () => {
     const boot = generateBoxKeyPair();
     const outsider = makeHolders(1)[0];
     const share = { ...shares[0], holder: outsider.card.signPublicKeyHex };
-    expect(() => releaseShare(share, outsider.unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: boot.publicKeyHex })).toThrow();
+    expect(() =>
+      releaseShare(share, outsider.unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: boot.publicKeyHex }),
+    ).toThrow();
   });
 
   test('the release carries no share in the clear', () => {
     const boot = generateBoxKeyPair();
     const share = openHolderShare(shares[0], holders[0].unlocked);
-    const release = releaseShare(shares[0], holders[0].unlocked, { ceremonyId: record.ceremonyId, nodeId: 'insurer', bootPublicKeyHex: boot.publicKeyHex });
+    const release = releaseShare(shares[0], holders[0].unlocked, {
+      ceremonyId: record.ceremonyId,
+      nodeId: 'insurer',
+      bootPublicKeyHex: boot.publicKeyHex,
+    });
     expect(JSON.stringify(release)).not.toContain(share.value.toString('hex'));
     expect(JSON.stringify(release)).not.toContain(randomBytes(0).toString('hex') + share.value.toString('base64'));
   });

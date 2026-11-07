@@ -38,9 +38,20 @@ jest.setTimeout(240_000);
 
 const REPO = path.resolve(__dirname, '..');
 const TERMS = {
-  copayAmountCents: 1500, coverageType: 1, deductibleAmountCents: 50000, oopMaxCents: 780000, annualBenefitMaxCents: 0,
-  familyDeductibleAmountCents: 100000, familyOopMaxCents: 1600000, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-  formularyNdcs: [], networkProviderWalletIds: [], formularyRoot: '12345', networkRoot: '0', publishedAt: 1,
+  copayAmountCents: 1500,
+  coverageType: 1,
+  deductibleAmountCents: 50000,
+  oopMaxCents: 780000,
+  annualBenefitMaxCents: 0,
+  familyDeductibleAmountCents: 100000,
+  familyOopMaxCents: 1600000,
+  familyAnnualBenefitMaxCents: 0,
+  dispensingFeeCents: 1250,
+  formularyNdcs: [],
+  networkProviderWalletIds: [],
+  formularyRoot: '12345',
+  networkRoot: '0',
+  publishedAt: 1,
 };
 const PLANS = [
   // published before the terms were kept: the overlay version as its formularyRoot. Its name tries to forge a log line.
@@ -58,7 +69,9 @@ const asked: string[] = [];
 beforeAll(async () => {
   sequencer = http.createServer((req, res) => {
     let raw = '';
-    req.on('data', (c) => { raw += c; });
+    req.on('data', (c) => {
+      raw += c;
+    });
     req.on('end', () => {
       if (req.method === 'GET' && (req.url ?? '').startsWith('/health')) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -66,13 +79,22 @@ beforeAll(async () => {
         return;
       }
       let method = '';
-      try { method = String((JSON.parse(raw || '{}') as { method?: string }).method ?? ''); } catch { method = ''; }
+      try {
+        method = String((JSON.parse(raw || '{}') as { method?: string }).method ?? '');
+      } catch {
+        method = '';
+      }
       asked.push(method);
-      const result = method === 'l2_getPlans' ? PLANS
-        : method === 'l2_getFormularyDrugCount' ? { count: 100 }
-          : method === 'l2_publishPlanOverlay' ? { success: true, version: 1 }
-            : method === 'l2_credentialProvider' ? { success: true }
-              : null;
+      const result =
+        method === 'l2_getPlans'
+          ? PLANS
+          : method === 'l2_getFormularyDrugCount'
+            ? { count: 100 }
+            : method === 'l2_publishPlanOverlay'
+              ? { success: true, version: 1 }
+              : method === 'l2_credentialProvider'
+                ? { success: true }
+                : null;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result }));
     });
@@ -86,14 +108,26 @@ beforeAll(async () => {
     if (process.env[k] !== undefined) env[k] = process.env[k];
   }
   Object.assign(env, {
-    ZKTRIDENT_PORT: '0', ZKTRIDENT_HOST: '127.0.0.1', ZKTRIDENT_SEQUENCER_URL: seqUrl, ZKTRIDENT_STATE_DIR: stateDir,
-    ZKTRIDENT_SSE: 'false', ZKTRIDENT_ADMIN_TOKEN: 'insurer-admin-token-for-boot-test', ZKTRIDENT_FORMULARY_LIMIT: '100',
+    ZKTRIDENT_PORT: '0',
+    ZKTRIDENT_HOST: '127.0.0.1',
+    ZKTRIDENT_SEQUENCER_URL: seqUrl,
+    ZKTRIDENT_STATE_DIR: stateDir,
+    ZKTRIDENT_SSE: 'false',
+    ZKTRIDENT_ADMIN_TOKEN: 'insurer-admin-token-for-boot-test',
+    ZKTRIDENT_FORMULARY_LIMIT: '100',
   });
   child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'nodes', 'start-insurer-nautilus.ts')], {
-    cwd: REPO, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    cwd: REPO,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
   });
-  child.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
-  child.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
+  child.stdout?.on('data', (d: Buffer) => {
+    output += d.toString();
+  });
+  child.stderr?.on('data', (d: Buffer) => {
+    output += d.toString();
+  });
   const deadline = Date.now() + 200_000;
   while (!output.includes('Credentialing complete')) {
     if (child.exitCode !== null) throw new Error('the insurer node exited during boot:\n' + output);
@@ -109,7 +143,11 @@ afterAll(async () => {
     await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
   }
   await new Promise<void>((resolve) => sequencer.close(() => resolve()));
-  try { fs.rmSync(stateDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 describe('the insurer boot names the plans that must be published again', () => {

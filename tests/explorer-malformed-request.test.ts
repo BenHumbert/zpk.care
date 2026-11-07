@@ -61,13 +61,21 @@ jest.setTimeout(120_000);
 
 const REPO = path.resolve(__dirname, '..');
 
-interface Explorer { child: ChildProcess; port: number; stderr: () => string }
+interface Explorer {
+  child: ChildProcess;
+  port: number;
+  stderr: () => string;
+}
 
 async function freePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
     const s = net.createServer();
     s.on('error', reject);
-    s.listen(0, '127.0.0.1', () => { const a = s.address(); const p = typeof a === 'object' && a ? a.port : 0; s.close(() => resolve(p)); });
+    s.listen(0, '127.0.0.1', () => {
+      const a = s.address();
+      const p = typeof a === 'object' && a ? a.port : 0;
+      s.close(() => resolve(p));
+    });
   });
 }
 
@@ -81,10 +89,17 @@ async function startExplorer(sequencerUrl: string): Promise<Explorer> {
     windowsHide: true,
   });
   let stderr = '';
-  child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+  child.stderr?.on('data', (d: Buffer) => {
+    stderr += d.toString();
+  });
   const deadline = Date.now() + 60_000;
   for (;;) {
-    try { const r = await fetch(`http://127.0.0.1:${port}/index.html`); if (r.status > 0) break; } catch { /* not yet */ }
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/index.html`);
+      if (r.status > 0) break;
+    } catch {
+      /* not yet */
+    }
     if (child.exitCode !== null || Date.now() > deadline) throw new Error('explorer did not start: ' + stderr);
     await new Promise((r) => setTimeout(r, 300));
   }
@@ -92,7 +107,13 @@ async function startExplorer(sequencerUrl: string): Promise<Explorer> {
 }
 
 function stop(explorer: Explorer | null): void {
-  if (explorer && explorer.child.exitCode === null) { try { explorer.child.kill(); } catch { /* best effort */ } }
+  if (explorer && explorer.child.exitCode === null) {
+    try {
+      explorer.child.kill();
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 /** Sends `text` to `port` as it is and returns all of the answer, or '' when the connection closed without one. */
@@ -101,9 +122,13 @@ function raw(port: number, text: string): Promise<string> {
     const socket = net.connect(port, '127.0.0.1');
     let answer = '';
     socket.setTimeout(10_000, () => socket.destroy());
-    socket.on('data', (d) => { answer += d.toString(); });
+    socket.on('data', (d) => {
+      answer += d.toString();
+    });
     socket.on('close', () => resolve(answer));
-    socket.on('error', () => { /* the close that follows answers */ });
+    socket.on('error', () => {
+      /* the close that follows answers */
+    });
     socket.write(text);
   });
 }
@@ -119,27 +144,36 @@ async function waitFor(check: () => boolean, ms: number): Promise<void> {
   while (!check() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
 }
 
-interface Page { received: () => string; leave: () => void }
+interface Page {
+  received: () => string;
+  leave: () => void;
+}
 
 /** A page's one connection to the explorer: it asks for each target in turn, keeps what comes back, and can leave. */
 function openPage(port: number, targets: string[]): Page {
   const socket = net.connect(port, '127.0.0.1');
   let received = '';
-  socket.on('data', (d) => { received += d.toString(); });
-  socket.on('error', () => { /* the page is leaving */ });
+  socket.on('data', (d) => {
+    received += d.toString();
+  });
+  socket.on('error', () => {
+    /* the page is leaving */
+  });
   socket.write(targets.map((target) => `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`).join(''));
   return { received: () => received, leave: () => socket.destroy() };
 }
 
 describe('a malformed request', () => {
   let explorer: Explorer | null = null;
-  beforeAll(async () => { explorer = await startExplorer('http://127.0.0.1:1'); }, 90_000);
+  beforeAll(async () => {
+    explorer = await startExplorer('http://127.0.0.1:1');
+  }, 90_000);
   afterAll(() => stop(explorer));
 
   test('a Host header that is not a host is answered, and the explorer keeps serving', async () => {
     const { port, child } = explorer!;
     const status = statusLine(await raw(port, 'GET /index.html HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n'));
-    expect(status).toBe('HTTP/1.1 421 Misdirected Request');                  // before: '' — the process had exited
+    expect(status).toBe('HTTP/1.1 421 Misdirected Request'); // before: '' — the process had exited
     expect(child.exitCode).toBeNull();
     const page = await fetch(`http://127.0.0.1:${port}/index.html`);
     expect(page.status).toBe(200);
@@ -149,7 +183,7 @@ describe('a malformed request', () => {
     const { port, child } = explorer!;
     for (const target of ['http://[', 'http://a%zz/', '//[/x']) {
       const status = statusLine(await raw(port, `GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`));
-      expect([target, status]).toEqual([target, 'HTTP/1.1 400 Bad Request']);  // before: '' — the process had exited
+      expect([target, status]).toEqual([target, 'HTTP/1.1 400 Bad Request']); // before: '' — the process had exited
     }
     expect(child.exitCode).toBeNull();
     const page = await fetch(`http://127.0.0.1:${port}/index.html`);
@@ -165,7 +199,10 @@ describe('a malformed request', () => {
     const events = await fetch(`http://127.0.0.1:${port}/events`);
     expect([events.status, await events.text()]).toEqual([502, 'data: {"error":"Sequencer unreachable"}\n\n']);
     const viz = await fetch(`http://127.0.0.1:${port}/viz/events`);
-    expect([viz.status, (await viz.json() as { error?: string }).error]).toEqual([502, expect.stringMatching(/^Sequencer unreachable: /)]);
+    expect([viz.status, ((await viz.json()) as { error?: string }).error]).toEqual([
+      502,
+      expect.stringMatching(/^Sequencer unreachable: /),
+    ]);
     expect(child.exitCode).toBeNull();
   });
 });
@@ -182,7 +219,10 @@ describe('a sequencer that drops an event stream part-way', () => {
       if (req.url?.startsWith('/events') || req.url?.startsWith('/viz/events')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         res.write('data: {"type":"connected"}\n\n');
-        setTimeout(() => { droppedAt = Date.now(); res.socket?.destroy(); }, 200);
+        setTimeout(() => {
+          droppedAt = Date.now();
+          res.socket?.destroy();
+        }, 200);
         return;
       }
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -213,10 +253,10 @@ describe('a sequencer that drops an event stream part-way', () => {
       expect(statusLine(answer)).toBe('HTTP/1.1 200 OK');
       expect(answer).toContain('data: {"type":"connected"}');
       // The page asked to close, so the explorer says the connection will close, and closes it as the stream ends.
-      expect(head(answer)).toContain('\r\nConnection: close\r\n');   // before: absent, the head said 'Connection: keep-alive'
-      expect(closedAt - droppedAt).toBeLessThan(1_500);               // before: about 6,000, Node's keep-alive timeout ran out first
+      expect(head(answer)).toContain('\r\nConnection: close\r\n'); // before: absent, the head said 'Connection: keep-alive'
+      expect(closedAt - droppedAt).toBeLessThan(1_500); // before: about 6,000, Node's keep-alive timeout ran out first
       await new Promise((r) => setTimeout(r, 1_500));
-      expect([child.exitCode, stderr()]).toEqual([null, expect.not.stringContaining('terminated')]);   // before: [1, "...TypeError: terminated..."]
+      expect([child.exitCode, stderr()]).toEqual([null, expect.not.stringContaining('terminated')]); // before: [1, "...TypeError: terminated..."]
       const page = await fetch(`http://127.0.0.1:${port}/index.html`);
       expect(page.status).toBe(200);
     });
@@ -226,9 +266,15 @@ describe('a sequencer that drops an event stream part-way', () => {
       const socket = net.connect(port, '127.0.0.1');
       let received = '';
       let closed = false;
-      socket.on('data', (d) => { received += d.toString(); });
-      socket.on('close', () => { closed = true; });
-      socket.on('error', () => { /* the close that follows answers */ });
+      socket.on('data', (d) => {
+        received += d.toString();
+      });
+      socket.on('close', () => {
+        closed = true;
+      });
+      socket.on('error', () => {
+        /* the close that follows answers */
+      });
       socket.write(`GET ${stream}?token=t HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\n\r\n`);
       // The event, then the last chunk the explorer sends when the sequencer drops the stream.
       await waitFor(() => received.endsWith('\r\n0\r\n\r\n'), 5_000);
@@ -271,13 +317,20 @@ describe('a page that leaves an event stream', () => {
       const seen = { url, answeredAt: 0, closedAt: 0 };
       opened.push(seen);
       let heartbeat: NodeJS.Timeout | undefined;
-      const answer = setTimeout(() => {
-        seen.answeredAt = Date.now();
-        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-        res.write('data: {"type":"connected"}\n\n');
-        heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 200);
-      }, url.includes('slow=1') ? 600 : 0);
-      req.on('close', () => { seen.closedAt = Date.now(); clearTimeout(answer); clearInterval(heartbeat); });
+      const answer = setTimeout(
+        () => {
+          seen.answeredAt = Date.now();
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.write('data: {"type":"connected"}\n\n');
+          heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 200);
+        },
+        url.includes('slow=1') ? 600 : 0,
+      );
+      req.on('close', () => {
+        seen.closedAt = Date.now();
+        clearTimeout(answer);
+        clearInterval(heartbeat);
+      });
     });
     const server = upstream;
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -314,7 +367,7 @@ describe('a page that leaves an event stream', () => {
       expect(seen).toMatchObject({ url: target, answeredAt: 0, closedAt: 0 });
       page.leave();
       await waitFor(() => seen.closedAt > 0, 2_000);
-      expect(seen.closedAt).toBeGreaterThan(0);   // before: 0 — the explorer held the sequencer's stream open for good
+      expect(seen.closedAt).toBeGreaterThan(0); // before: 0 — the explorer held the sequencer's stream open for good
       // Past the moment the sequencer would have answered, when the relay used to start writing into the gone page.
       await new Promise((r) => setTimeout(r, 700));
       await stillServing();
@@ -345,7 +398,7 @@ describe('a page that leaves an event stream', () => {
     page.leave();
     await waitFor(() => opened.every((s) => s.closedAt > 0), 2_000);
     const closed = Object.fromEntries(opened.map((s) => [s.url, s.closedAt > 0]));
-    expect(closed).toEqual({ [targets[0]]: true, [targets[1]]: true });   // before: both false — neither stream was closed
+    expect(closed).toEqual({ [targets[0]]: true, [targets[1]]: true }); // before: both false — neither stream was closed
     await new Promise((r) => setTimeout(r, 700));
     await stillServing();
   });

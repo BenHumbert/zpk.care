@@ -30,26 +30,12 @@
  * It never imports L2SequencerService or any state-management code.
  */
 import { Field } from 'o1js';
-import {
-  BatchProgram,
-  BatchProof,
-} from './batch-program.js';
+import { BatchProgram, BatchProof } from './batch-program.js';
 import type { BatchOutput } from './batch-program.js';
-import {
-  ChainProgram,
-  ChainProof,
-} from './chain-program.js';
+import { ChainProgram, ChainProof } from './chain-program.js';
 import type { ChainOutput } from './global-state.js';
-import {
-  StateTransitionProgram,
-  StateTransitionProof,
-} from '../engine/state-transition.js';
-import type {
-  CoordinatorMessage,
-  WorkerMessage,
-  ProvingJobRequest,
-  ProvingJobResult,
-} from './l2-proving-pool-types.js';
+import { StateTransitionProgram, StateTransitionProof } from '../engine/state-transition.js';
+import type { CoordinatorMessage, WorkerMessage, ProvingJobRequest, ProvingJobResult } from './l2-proving-pool-types.js';
 
 // ─── IPC Send Helper ──────────────────────────────────────
 
@@ -76,10 +62,7 @@ async function handleCompile(): Promise<void> {
 
 // ─── Proving ──────────────────────────────────────────────
 
-async function handleProve(
-  jobId: string,
-  request: ProvingJobRequest,
-): Promise<void> {
+async function handleProve(jobId: string, request: ProvingJobRequest): Promise<void> {
   if (!compiled) {
     send({ type: 'error', jobId, message: 'Worker not compiled — call compile first' });
     return;
@@ -91,9 +74,7 @@ async function handleProve(
     // 1. Deserialize StateTransitionProofs
     const proofs: InstanceType<typeof StateTransitionProof>[] = [];
     for (const json of request.transitionProofJsons) {
-      const proof = await StateTransitionProof.fromJSON(
-        json as Parameters<typeof StateTransitionProof.fromJSON>[0],
-      );
+      const proof = await StateTransitionProof.fromJSON(json as Parameters<typeof StateTransitionProof.fromJSON>[0]);
       proofs.push(proof);
     }
 
@@ -124,10 +105,7 @@ async function handleProve(
         const nextLevel: BatchProof[] = [];
         for (let i = 0; i < currentLevel.length; i += 2) {
           if (i + 1 < currentLevel.length) {
-            const merged = await BatchProgram.mergeBatches(
-              currentLevel[i],
-              currentLevel[i + 1],
-            );
+            const merged = await BatchProgram.mergeBatches(currentLevel[i], currentLevel[i + 1]);
             nextLevel.push(merged.proof as BatchProof);
           } else {
             nextLevel.push(currentLevel[i]);

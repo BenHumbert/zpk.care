@@ -31,13 +31,8 @@ import {
   isValidStatusTransition,
   assertValidStatusTransition,
 } from '../src/prescription/prescription-data.js';
-import type {
-  PrescriptionLocalData,
-  PrescriptionStatusLocalData,
-} from '../src/prescription/prescription-data.js';
-import {
-  PrescriptionProgram,
-} from '../src/prescription/prescription-program.js';
+import type { PrescriptionLocalData, PrescriptionStatusLocalData } from '../src/prescription/prescription-data.js';
+import { PrescriptionProgram } from '../src/prescription/prescription-program.js';
 import { PrescriptionService } from '../src/prescription/prescription-service.js';
 import { PrescriptionVerificationService } from '../src/prescription/prescription-verification-service.js';
 import { CredentialData, CREDENTIAL_TYPE_PRESCRIPTION, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
@@ -49,19 +44,10 @@ import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import { ForestRoots } from '../src/eligibility/forest-roots.js';
 import { hashString, dateToField, quantityToField } from '../src/zkp/hash-utils.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WalletRegistry,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
+import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
-import {
-  deriveEncryptionKeyPair,
-} from '../src/messaging/encryption.js';
-import {
-  MessageRegistry,
-  DelegationRegistry,
-  KeyRegistry,
-} from '../src/messaging/message-registry.js';
+import { deriveEncryptionKeyPair } from '../src/messaging/encryption.js';
+import { MessageRegistry, DelegationRegistry, KeyRegistry } from '../src/messaging/message-registry.js';
 import { MessagingProgram } from '../src/messaging/messaging-program.js';
 import { MessagingService } from '../src/messaging/messaging-service.js';
 import { MSG_TYPE_PRESCRIPTION, MSG_TYPE_NOTIFICATION } from '../src/messaging/message-data.js';
@@ -69,7 +55,7 @@ import { MSG_TYPE_PRESCRIPTION, MSG_TYPE_NOTIFICATION } from '../src/messaging/m
 // ─── Test Data ──────────────────────────────────────────────
 
 const sampleRxLocal: PrescriptionLocalData = {
-  ndcCode: '00071015523',       // Lisinopril 10mg
+  ndcCode: '00071015523', // Lisinopril 10mg
   prescriberWalletId: '111222333444555666',
   memberWalletId: '999888777666555444',
   writtenDate: '20260201',
@@ -79,7 +65,7 @@ const sampleRxLocal: PrescriptionLocalData = {
 };
 
 const sampleStatusLocal: PrescriptionStatusLocalData = {
-  prescriptionHash: '12345',  // placeholder, will be overridden
+  prescriptionHash: '12345', // placeholder, will be overridden
   status: 1,
   updatedByWalletId: '111222333444555666',
   updatedAt: '20260201120000',
@@ -136,7 +122,6 @@ function createTestWalletRegistry(): {
 // ─── Tests ──────────────────────────────────────────────────
 
 describe('Layer 8 — Prescription Flow (Use Case D)', () => {
-
   // ── PrescriptionData Model ──────────────────────────────
 
   describe('PrescriptionData Model', () => {
@@ -259,18 +244,32 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
   describe('Status Transition Validation', () => {
     const LIFECYCLE: Array<[bigint, bigint]> = [
-      [1n, 3n], [1n, 4n], [1n, 5n], [1n, 7n],           // ADJUDICATED -> FILLED, CANCELLED, REJECTED, TRANSFERRED
-      [2n, 2n], [2n, 3n], [2n, 4n], [2n, 6n], [2n, 7n], // PARTIALLY_FILLED -> itself, FILLED, CANCELLED, REVERSED, TRANSFERRED
-      [2n, 8n],                                          // PARTIALLY_FILLED -> DISPENSED (the last part, A-148)
-      [3n, 8n], [3n, 4n],                                // FILLED -> DISPENSED, CANCELLED
-      [3n, 2n],                                          // FILLED -> PARTIALLY_FILLED (the first part, A-148)
-      [8n, 6n],                                          // DISPENSED -> REVERSED
-      [6n, 1n],                                          // REVERSED -> ADJUDICATED
+      [1n, 3n],
+      [1n, 4n],
+      [1n, 5n],
+      [1n, 7n], // ADJUDICATED -> FILLED, CANCELLED, REJECTED, TRANSFERRED
+      [2n, 2n],
+      [2n, 3n],
+      [2n, 4n],
+      [2n, 6n],
+      [2n, 7n], // PARTIALLY_FILLED -> itself, FILLED, CANCELLED, REVERSED, TRANSFERRED
+      [2n, 8n], // PARTIALLY_FILLED -> DISPENSED (the last part, A-148)
+      [3n, 8n],
+      [3n, 4n], // FILLED -> DISPENSED, CANCELLED
+      [3n, 2n], // FILLED -> PARTIALLY_FILLED (the first part, A-148)
+      [8n, 6n], // DISPENSED -> REVERSED
+      [6n, 1n], // REVERSED -> ADJUDICATED
     ];
     const inLifecycle = (from: bigint, to: bigint) => LIFECYCLE.some(([f, t]) => f === from && t === to);
     const STATUSES = [
-      RX_STATUS_ADJUDICATED, RX_STATUS_PARTIALLY_FILLED, RX_STATUS_FILLED, RX_STATUS_CANCELLED,
-      RX_STATUS_REJECTED, RX_STATUS_REVERSED, RX_STATUS_TRANSFERRED, RX_STATUS_DISPENSED,
+      RX_STATUS_ADJUDICATED,
+      RX_STATUS_PARTIALLY_FILLED,
+      RX_STATUS_FILLED,
+      RX_STATUS_CANCELLED,
+      RX_STATUS_REJECTED,
+      RX_STATUS_REVERSED,
+      RX_STATUS_TRANSFERRED,
+      RX_STATUS_DISPENSED,
     ];
 
     it("accepts exactly the lifecycle's transitions, off the circuit", () => {
@@ -312,11 +311,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const result = createTestWalletRegistry();
       registry = result.registry;
       lifecycleTree = result.lifecycleTree;
-      service = new PrescriptionService(
-        new InMemoryStore(),
-        registry,
-        lifecycleTree,
-      );
+      service = new PrescriptionService(new InMemoryStore(), registry, lifecycleTree);
     });
 
     it('buildPrescriptionCredential creates correct CredentialData', () => {
@@ -376,8 +371,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       const inventory = new CredentialInventory();
-      const { credentialIndex, newInventoryRoot } =
-        service.mintPrescriptionToPharmacy(pharmacyWalletId, credentialData, inventory);
+      const { credentialIndex, newInventoryRoot } = service.mintPrescriptionToPharmacy(pharmacyWalletId, credentialData, inventory);
 
       expect(credentialIndex).toBe(0n);
       expect(newInventoryRoot.toString()).not.toBe(EMPTY_CREDENTIAL_ROOT.toString());
@@ -481,11 +475,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
       const { registry, lifecycleTree } = createTestWalletRegistry();
-      const service = new PrescriptionService(
-        new InMemoryStore(),
-        registry,
-        lifecycleTree,
-      );
+      const service = new PrescriptionService(new InMemoryStore(), registry, lifecycleTree);
 
       // Build and mint initial prescription
       const { initialStatus } = service.buildPrescriptionCredential(
@@ -523,12 +513,9 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       forest.setLeaf(ForestDomain.TRANSACTION, 2n, destActive.commitment());
 
       // Verify all 3 status entries in TRANSACTION tree
-      expect(forest.getLeaf(ForestDomain.TRANSACTION, 0n).toString())
-        .toBe(initialStatus.commitment().toString());
-      expect(forest.getLeaf(ForestDomain.TRANSACTION, 1n).toString())
-        .toBe(transferStatus.commitment().toString());
-      expect(forest.getLeaf(ForestDomain.TRANSACTION, 2n).toString())
-        .toBe(destActive.commitment().toString());
+      expect(forest.getLeaf(ForestDomain.TRANSACTION, 0n).toString()).toBe(initialStatus.commitment().toString());
+      expect(forest.getLeaf(ForestDomain.TRANSACTION, 1n).toString()).toBe(transferStatus.commitment().toString());
+      expect(forest.getLeaf(ForestDomain.TRANSACTION, 2n).toString()).toBe(destActive.commitment().toString());
     });
   });
 
@@ -541,11 +528,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
       const { registry, lifecycleTree } = createTestWalletRegistry();
-      const service = new PrescriptionService(
-        new InMemoryStore(),
-        registry,
-        lifecycleTree,
-      );
+      const service = new PrescriptionService(new InMemoryStore(), registry, lifecycleTree);
       const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
@@ -556,13 +539,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         dateToField('20260201'),
       );
 
-      const result = verifier.verifyPrescriptionData(
-        credentialData,
-        rxData,
-        forest,
-        0n,
-        dateToField('20260601'),
-      );
+      const result = verifier.verifyPrescriptionData(credentialData, rxData, forest, 0n, dateToField('20260601'));
       expect(result.isValid).toBe(true);
       expect(result.ndcHash!.toString()).toBe(rxData.ndcHash.toString());
     });
@@ -571,11 +548,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
       const { registry, lifecycleTree } = createTestWalletRegistry();
-      const service = new PrescriptionService(
-        new InMemoryStore(),
-        registry,
-        lifecycleTree,
-      );
+      const service = new PrescriptionService(new InMemoryStore(), registry, lifecycleTree);
       const { credentialData } = service.buildPrescriptionCredential(
         prescriberWalletId,
         memberWalletId,
@@ -592,20 +565,14 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         ...credentialData,
         credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
       });
-      expect(verifier.verifyPrescriptionData(
-        wrongType, rxData, forest, 0n, dateToField('20260601'),
-      ).isValid).toBe(false);
+      expect(verifier.verifyPrescriptionData(wrongType, rxData, forest, 0n, dateToField('20260601')).isValid).toBe(false);
 
       // Revoked
       const revoked = new CredentialData({ ...credentialData, revoked: Field(1) });
-      expect(verifier.verifyPrescriptionData(
-        revoked, rxData, forest, 0n, dateToField('20260601'),
-      ).isValid).toBe(false);
+      expect(verifier.verifyPrescriptionData(revoked, rxData, forest, 0n, dateToField('20260601')).isValid).toBe(false);
 
       // Expired (date past expiresAt)
-      expect(verifier.verifyPrescriptionData(
-        credentialData, rxData, forest, 0n, dateToField('20280601'),
-      ).isValid).toBe(false);
+      expect(verifier.verifyPrescriptionData(credentialData, rxData, forest, 0n, dateToField('20280601')).isValid).toBe(false);
     });
 
     it('extractStatusHistory returns ordered entries', () => {
@@ -644,11 +611,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const rxData = createTestPrescriptionData();
       const forest = createTestForest();
       const { registry, lifecycleTree } = createTestWalletRegistry();
-      const service = new PrescriptionService(
-        new InMemoryStore(),
-        registry,
-        lifecycleTree,
-      );
+      const service = new PrescriptionService(new InMemoryStore(), registry, lifecycleTree);
 
       // Standard prescription
       const { initialStatus: stdStatus } = service.buildPrescriptionCredential(
@@ -795,7 +758,11 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         const result = await PrescriptionProgram.proveStatusUpdate(
-          credentialData, rxData, oldStatus, newStatus, forestRoots,
+          credentialData,
+          rxData,
+          oldStatus,
+          newStatus,
+          forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
@@ -813,50 +780,58 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       it.each([
         ['the first part of a prepared script', RX_STATUS_FILLED, RX_STATUS_PARTIALLY_FILLED],
         ['the last part of a partly filled script', RX_STATUS_PARTIALLY_FILLED, RX_STATUS_DISPENSED],
-      ])('a partial fill proves and verifies: %s', async (_label, from, to) => {
-        const rxData = createTestPrescriptionData();
-        const forest = createTestForest();
-        forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
-        const oldStatus = new PrescriptionStatusData({
-          prescriptionHash: rxData.commitment(),
-          status: from,
-          updatedByWalletId: pharmacyWalletId,
-          updatedAt: Field(20260205100000n),
-          pharmacyWalletId,
-          fillQuantity: Field(0),
-          notesHash: Field(0),
-        });
-        forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
-        const credentialData = new CredentialData({
-          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
-          forestRoot: forest.getForestRoot(),
-          issuerWalletId: prescriberWalletId,
-          subjectWalletId: pharmacyWalletId,
-          issuedAt: dateToField('20260201'),
-          expiresAt: dateToField('20270201'),
-          revoked: Field(0),
-        });
-        const newStatus = new PrescriptionStatusData({
-          prescriptionHash: rxData.commitment(),
-          status: to,
-          updatedByWalletId: pharmacyWalletId,
-          updatedAt: Field(20260206100000n),
-          pharmacyWalletId,
-          fillQuantity: quantityToField(10),
-          notesHash: Field(0),
-        });
-        const result = await PrescriptionProgram.proveStatusUpdate(
-          credentialData, rxData, oldStatus, newStatus, ForestRoots.fromForest(forest),
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        );
-        expect(await PrescriptionProgram.verify(result.proof)).toBe(true);
-        expect(result.proof.publicOutput.statusCode.toString()).toBe(to.toString());
-      }, 120_000);
+      ])(
+        'a partial fill proves and verifies: %s',
+        async (_label, from, to) => {
+          const rxData = createTestPrescriptionData();
+          const forest = createTestForest();
+          forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
+          const oldStatus = new PrescriptionStatusData({
+            prescriptionHash: rxData.commitment(),
+            status: from,
+            updatedByWalletId: pharmacyWalletId,
+            updatedAt: Field(20260205100000n),
+            pharmacyWalletId,
+            fillQuantity: Field(0),
+            notesHash: Field(0),
+          });
+          forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
+          const credentialData = new CredentialData({
+            credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+            forestRoot: forest.getForestRoot(),
+            issuerWalletId: prescriberWalletId,
+            subjectWalletId: pharmacyWalletId,
+            issuedAt: dateToField('20260201'),
+            expiresAt: dateToField('20270201'),
+            revoked: Field(0),
+          });
+          const newStatus = new PrescriptionStatusData({
+            prescriptionHash: rxData.commitment(),
+            status: to,
+            updatedByWalletId: pharmacyWalletId,
+            updatedAt: Field(20260206100000n),
+            pharmacyWalletId,
+            fillQuantity: quantityToField(10),
+            notesHash: Field(0),
+          });
+          const result = await PrescriptionProgram.proveStatusUpdate(
+            credentialData,
+            rxData,
+            oldStatus,
+            newStatus,
+            ForestRoots.fromForest(forest),
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          );
+          expect(await PrescriptionProgram.verify(result.proof)).toBe(true);
+          expect(result.proof.publicOutput.statusCode.toString()).toBe(to.toString());
+        },
+        120_000,
+      );
 
       it('rejects invalid transition (FILLED→ACTIVE)', async () => {
         const rxData = createTestPrescriptionData();
@@ -897,15 +872,21 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
 
         const forestRoots = ForestRoots.fromForest(forest);
-        await expect(PrescriptionProgram.proveStatusUpdate(
-          credentialData, rxData, oldStatus, newStatus, forestRoots,
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        )).rejects.toThrow();
+        await expect(
+          PrescriptionProgram.proveStatusUpdate(
+            credentialData,
+            rxData,
+            oldStatus,
+            newStatus,
+            forestRoots,
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          ),
+        ).rejects.toThrow();
       }, 60_000);
 
       it('rejects wrong prescriptionHash', async () => {
@@ -946,15 +927,21 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
 
         const forestRoots = ForestRoots.fromForest(forest);
-        await expect(PrescriptionProgram.proveStatusUpdate(
-          credentialData, rxData, oldStatus, newStatus, forestRoots,
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        )).rejects.toThrow();
+        await expect(
+          PrescriptionProgram.proveStatusUpdate(
+            credentialData,
+            rxData,
+            oldStatus,
+            newStatus,
+            forestRoots,
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          ),
+        ).rejects.toThrow();
       }, 60_000);
 
       it('rejects non-empty new slot', async () => {
@@ -997,15 +984,21 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
 
         const forestRoots = ForestRoots.fromForest(forest);
-        await expect(PrescriptionProgram.proveStatusUpdate(
-          credentialData, rxData, oldStatus, newStatus, forestRoots,
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        )).rejects.toThrow();
+        await expect(
+          PrescriptionProgram.proveStatusUpdate(
+            credentialData,
+            rxData,
+            oldStatus,
+            newStatus,
+            forestRoots,
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          ),
+        ).rejects.toThrow();
       }, 60_000);
     });
 
@@ -1050,7 +1043,11 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         const result = await PrescriptionProgram.proveTransfer(
-          credentialData, rxData, oldStatus, transferStatus, forestRoots,
+          credentialData,
+          rxData,
+          oldStatus,
+          transferStatus,
+          forestRoots,
           forest.getWitness(ForestDomain.MEDICATION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 0n),
           forest.getWitness(ForestDomain.TRANSACTION, 1n),
@@ -1104,16 +1101,22 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         });
 
         const forestRoots = ForestRoots.fromForest(forest);
-        await expect(PrescriptionProgram.proveTransfer(
-          credentialData, rxData, oldStatus, transferStatus, forestRoots,
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          pharmacy2WalletId,
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        )).rejects.toThrow();
+        await expect(
+          PrescriptionProgram.proveTransfer(
+            credentialData,
+            rxData,
+            oldStatus,
+            transferStatus,
+            forestRoots,
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            pharmacy2WalletId,
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          ),
+        ).rejects.toThrow();
       }, 60_000);
 
       it('rejects mismatched dest pharmacy wallet ID', async () => {
@@ -1155,16 +1158,22 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const forestRoots = ForestRoots.fromForest(forest);
         // Pass wrong dest wallet ID (Field(999))
-        await expect(PrescriptionProgram.proveTransfer(
-          credentialData, rxData, oldStatus, transferStatus, forestRoots,
-          forest.getWitness(ForestDomain.MEDICATION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 0n),
-          forest.getWitness(ForestDomain.TRANSACTION, 1n),
-          Field(999),
-          PRESCRIBER_QUAL,
-          PRESCRIBER_ID_HASH,
-          PRESCRIBER_EK_HASH,
-        )).rejects.toThrow();
+        await expect(
+          PrescriptionProgram.proveTransfer(
+            credentialData,
+            rxData,
+            oldStatus,
+            transferStatus,
+            forestRoots,
+            forest.getWitness(ForestDomain.MEDICATION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 0n),
+            forest.getWitness(ForestDomain.TRANSACTION, 1n),
+            Field(999),
+            PRESCRIBER_QUAL,
+            PRESCRIBER_ID_HASH,
+            PRESCRIBER_EK_HASH,
+          ),
+        ).rejects.toThrow();
       }, 60_000);
     });
   });
@@ -1181,11 +1190,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       // Set up pharmacy wallet
       const enrollmentKey = 'pharmacy-enroll-key-123';
       const { hashString: hs } = await import('../src/zkp/hash-utils.js');
-      const pharmacyPreimage = [
-        hs('PHARM-001'),
-        hs('Test Pharmacy'),
-        hs(enrollmentKey),
-      ];
+      const pharmacyPreimage = [hs('PHARM-001'), hs('Test Pharmacy'), hs(enrollmentKey)];
       const pharmacyId = Poseidon.hash([Field(2), ...pharmacyPreimage]);
 
       // Build prescription credential
@@ -1218,12 +1223,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       inventory.mint(credentialData);
 
       // Generate ProofGateProof for pharmacy
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyId,
-        pharmacyPreimage[0]!,
-        pharmacyPreimage[1]!,
-        pharmacyPreimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyId, pharmacyPreimage[0]!, pharmacyPreimage[1]!, pharmacyPreimage[2]!);
 
       // Prove holding
       const holdingResult = await CredentialProgram.proveHolding(
@@ -1241,11 +1241,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     it('pharmacy proveHoldingByType for CREDENTIAL_TYPE_PRESCRIPTION', async () => {
       const enrollmentKey = 'pharmacy-enroll-key-456';
       const { hashString: hs } = await import('../src/zkp/hash-utils.js');
-      const pharmacyPreimage = [
-        hs('PHARM-002'),
-        hs('Another Pharmacy'),
-        hs(enrollmentKey),
-      ];
+      const pharmacyPreimage = [hs('PHARM-002'), hs('Another Pharmacy'), hs(enrollmentKey)];
       const pharmacyId = Poseidon.hash([Field(2), ...pharmacyPreimage]);
 
       const rxData = createTestPrescriptionData();
@@ -1275,12 +1271,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const inventory = new CredentialInventory();
       inventory.mint(credentialData);
 
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyId,
-        pharmacyPreimage[0]!,
-        pharmacyPreimage[1]!,
-        pharmacyPreimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyId, pharmacyPreimage[0]!, pharmacyPreimage[1]!, pharmacyPreimage[2]!);
 
       const result = await CredentialProgram.proveHoldingByType(
         pgResult.proof,
@@ -1290,18 +1281,13 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         CREDENTIAL_TYPE_PRESCRIPTION,
       );
 
-      expect(result.proof.publicOutput.credentialCommitment.toString())
-        .toBe(credentialData.commitment().toString());
+      expect(result.proof.publicOutput.credentialCommitment.toString()).toBe(credentialData.commitment().toString());
     }, 120_000);
 
     it('fullPrescriptionCheck end-to-end with real proofs', async () => {
       const enrollmentKey = 'pharmacy-enroll-key-789';
       const { hashString: hs } = await import('../src/zkp/hash-utils.js');
-      const pharmacyPreimage = [
-        hs('PHARM-003'),
-        hs('Final Pharmacy'),
-        hs(enrollmentKey),
-      ];
+      const pharmacyPreimage = [hs('PHARM-003'), hs('Final Pharmacy'), hs(enrollmentKey)];
       const pharmacyId = Poseidon.hash([Field(2), ...pharmacyPreimage]);
 
       const rxData = createTestPrescriptionData();
@@ -1331,12 +1317,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       const inventory = new CredentialInventory();
       inventory.mint(credentialData);
 
-      const pgResult = await ProofGateProgram.verifyPharmacy(
-        pharmacyId,
-        pharmacyPreimage[0]!,
-        pharmacyPreimage[1]!,
-        pharmacyPreimage[2]!,
-      );
+      const pgResult = await ProofGateProgram.verifyPharmacy(pharmacyId, pharmacyPreimage[0]!, pharmacyPreimage[1]!, pharmacyPreimage[2]!);
 
       const holdingResult = await CredentialProgram.proveHolding(
         pgResult.proof,
@@ -1346,14 +1327,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
       );
 
       const verifier = new PrescriptionVerificationService();
-      const check = await verifier.fullPrescriptionCheck(
-        holdingResult.proof,
-        credentialData,
-        rxData,
-        forest,
-        0n,
-        dateToField('20260601'),
-      );
+      const check = await verifier.fullPrescriptionCheck(holdingResult.proof, credentialData, rxData, forest, 0n, dateToField('20260601'));
 
       expect(check.holdingValid).toBe(true);
       expect(check.dataValid).toBe(true);
@@ -1370,12 +1344,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
     it('prescriber sends encrypted prescription message to pharmacy', async () => {
       const store = new InMemoryStore();
-      const msgService = new MessagingService(
-        store,
-        new MessageRegistry(),
-        new DelegationRegistry(),
-        new KeyRegistry(),
-      );
+      const msgService = new MessagingService(store, new MessageRegistry(), new DelegationRegistry(), new KeyRegistry());
 
       // Set up encryption keys
       const prescriberKeys = deriveEncryptionKeyPair('prescriber-enroll-001');
@@ -1389,9 +1358,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         drugName: 'Lisinopril 10mg Tablet',
         ndc: '00071015523',
         sig: 'Take 1 tablet by mouth daily',
-        interactions: [
-          { drug: 'Ibuprofen', severity: 'Moderate', note: 'May reduce lisinopril effectiveness' },
-        ],
+        interactions: [{ drug: 'Ibuprofen', severity: 'Moderate', note: 'May reduce lisinopril effectiveness' }],
       });
 
       // Send prescription message
@@ -1411,12 +1378,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
     it('pharmacy sends status notification to member', async () => {
       const store = new InMemoryStore();
-      const msgService = new MessagingService(
-        store,
-        new MessageRegistry(),
-        new DelegationRegistry(),
-        new KeyRegistry(),
-      );
+      const msgService = new MessagingService(store, new MessageRegistry(), new DelegationRegistry(), new KeyRegistry());
 
       const pharmacyKeys = deriveEncryptionKeyPair('pharmacy-enroll-002');
       const memberKeys = deriveEncryptionKeyPair('member-enroll-002');

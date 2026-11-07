@@ -30,8 +30,17 @@ import vm from 'vm';
 
 const RPC_JS = 'dashboard-pharmacy/rpc.js';
 const att = {
-  v: 2, t: 'credential-attestation', w: '1001', cc: '1', ls: 3, fr: '2', ts: 1, exp: 4102444800,
-  n: 'ab'.repeat(16), pk: 'cd'.repeat(32), sig: 'ef'.repeat(64),
+  v: 2,
+  t: 'credential-attestation',
+  w: '1001',
+  cc: '1',
+  ls: 3,
+  fr: '2',
+  ts: 1,
+  exp: 4102444800,
+  n: 'ab'.repeat(16),
+  pk: 'cd'.repeat(32),
+  sig: 'ef'.repeat(64),
 };
 
 type Call = { url: string; headers: Record<string, string> };
@@ -41,7 +50,13 @@ type Answer = { status?: number; data?: unknown; error?: string };
 function loadApi(answer: (url: string) => Answer) {
   const calls: Call[] = [];
   const stored: string[] = [];
-  const storage = { setItem: (k: string) => { stored.push(k); }, getItem: () => null, removeItem: () => undefined };
+  const storage = {
+    setItem: (k: string) => {
+      stored.push(k);
+    },
+    getItem: () => null,
+    removeItem: () => undefined,
+  };
   const context: Record<string, any> = {
     location: { origin: 'http://127.0.0.1:4003' },
     window: {},

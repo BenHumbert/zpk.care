@@ -71,12 +71,7 @@ export function gfInv(a: number): number {
  * Split `secret` into `count` shares, any `threshold` of which rebuild it. `rng` is injectable for
  * tests only; it must return exactly the bytes asked for.
  */
-export function splitSecret(
-  secret: Uint8Array,
-  threshold: number,
-  count: number,
-  rng: (n: number) => Buffer = randomBytes,
-): SecretShare[] {
+export function splitSecret(secret: Uint8Array, threshold: number, count: number, rng: (n: number) => Buffer = randomBytes): SecretShare[] {
   if (!(secret instanceof Uint8Array) || secret.length === 0 || secret.length > MAX_SECRET_BYTES) {
     throw new Error(`splitSecret: the secret must be 1 to ${MAX_SECRET_BYTES} bytes`);
   }

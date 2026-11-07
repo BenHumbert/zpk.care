@@ -38,7 +38,13 @@ jest.setTimeout(120_000);
 
 const EMPTY_ROOT = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
 const node = (): L2Node =>
-  new L2Node({ batchIntervalMs: 999_999, autoSettle: false, settlementDelayMs: 0, maxBatchRetries: 0, l2Only: true }, new InMemoryStore(), EMPTY_ROOT, EMPTY_ROOT, Field(0));
+  new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, settlementDelayMs: 0, maxBatchRetries: 0, l2Only: true },
+    new InMemoryStore(),
+    EMPTY_ROOT,
+    EMPTY_ROOT,
+    Field(0),
+  );
 
 const HEX_A = 'a1'.repeat(32);
 const HEX_B = 'B2'.repeat(32);
@@ -47,7 +53,14 @@ describe('the gossip secret as the attestation seed', () => {
   test('takes 32 bytes of hex, and nothing else', () => {
     expect(attestationSeedError(HEX_A)).toBeNull();
     expect(attestationSeedError(HEX_B)).toBeNull();
-    for (const bad of ['replace-with-64-hex', 'c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldC0xMjM0NQ==', 'a1'.repeat(31), 'a1'.repeat(33), 'a1'.repeat(31) + 'zz', '']) {
+    for (const bad of [
+      'replace-with-64-hex',
+      'c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldC0xMjM0NQ==',
+      'a1'.repeat(31),
+      'a1'.repeat(33),
+      'a1'.repeat(31) + 'zz',
+      '',
+    ]) {
       expect(attestationSeedError(bad)).toMatch(/64 hex characters/);
     }
   });
@@ -79,7 +92,12 @@ describe('the gossip secret as the attestation seed', () => {
     const root = path.resolve(__dirname, '..');
     const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'nodes', 'start-leviathan.ts')], {
       cwd: root,
-      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, ZKTRIDENT_GOSSIP_SECRET: 'replace-with-64-hex', ZKTRIDENT_OPEN_BROWSERS: '0' },
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        ZKTRIDENT_GOSSIP_SECRET: 'replace-with-64-hex',
+        ZKTRIDENT_OPEN_BROWSERS: '0',
+      },
       encoding: 'utf8',
       timeout: 100_000,
     });

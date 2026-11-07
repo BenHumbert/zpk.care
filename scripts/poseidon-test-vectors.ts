@@ -25,7 +25,10 @@ const TEST_SALT = 'ab'.repeat(32); // C1: member derivation takes the identity s
 const wid = deriveMemberWalletId(testMember, testKey, Field(0), TEST_SALT);
 console.log('memberWalletId:', wid.toString());
 const preimage = memberWalletPreimage(testMember, testKey, Field(0), TEST_SALT);
-console.log('memberPreimage:', preimage.map(x => x.toString()));
+console.log(
+  'memberPreimage:',
+  preimage.map((x) => x.toString()),
+);
 
 // Individual hash steps
 console.log('hashString(TEST001):', hashString('TEST001').toString());
@@ -35,10 +38,22 @@ console.log('hashString(Doe):', hashString('Doe').toString());
 console.log('hashString(enrollmentKey):', hashString(testKey).toString());
 
 // stringToFields encoding (how strings become Fields before Poseidon)
-console.log('stringToFields(TEST001):', Encoding.stringToFields('TEST001').map(x => x.toString()));
-console.log('stringToFields(John):', Encoding.stringToFields('John').map(x => x.toString()));
-console.log('stringToFields(hello):', Encoding.stringToFields('hello').map(x => x.toString()));
-console.log('stringToFields(a):', Encoding.stringToFields('a').map(x => x.toString()));
+console.log(
+  'stringToFields(TEST001):',
+  Encoding.stringToFields('TEST001').map((x) => x.toString()),
+);
+console.log(
+  'stringToFields(John):',
+  Encoding.stringToFields('John').map((x) => x.toString()),
+);
+console.log(
+  'stringToFields(hello):',
+  Encoding.stringToFields('hello').map((x) => x.toString()),
+);
+console.log(
+  'stringToFields(a):',
+  Encoding.stringToFields('a').map((x) => x.toString()),
+);
 
 // Primitive Poseidon test vectors
 console.log('Poseidon([0]):', Poseidon.hash([Field(0)]).toString());

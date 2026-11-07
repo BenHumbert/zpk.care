@@ -115,16 +115,16 @@ export class ReplayCache {
     return false;
   }
 
-  get size(): number { return this.expiry.size; }
+  get size(): number {
+    return this.expiry.size;
+  }
 
   private sweep(now: number): void {
     for (const [k, until] of this.expiry) if (until <= now) this.expiry.delete(k);
   }
 }
 
-export type VerifyOutcome =
-  | { ok: true; signerId: string; timestamp: number }
-  | { ok: false; reason: string };
+export type VerifyOutcome = { ok: true; signerId: string; timestamp: number } | { ok: false; reason: string };
 
 /** Header names are case-insensitive; Node lower-cases them on the wire, a client-built map may not. */
 function headerValue(headers: Record<string, string | string[] | undefined>, name: string): string | undefined {
@@ -231,7 +231,7 @@ export function verifySignedRequest(opts: {
 export function signerIdFromHeaders(headers: Record<string, string | string[] | undefined>): string | undefined {
   const sigHeader = headerValue(headers, SIGNATURE_HEADER);
   if (!sigHeader) return undefined;
-  const parts = sigHeader.split(":");
+  const parts = sigHeader.split(':');
   if (parts.length < 3 || !parts[0]) return undefined;
   return parts[0];
 }

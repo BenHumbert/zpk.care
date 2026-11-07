@@ -99,17 +99,17 @@ const MEMBER_SECTIONS = [
 // ─── Provider activity metric definitions ────────────
 
 const PRESCRIBER_METRICS = [
-  { id: 'rxWritten',   label: 'Rx Written',    icon: '\u{1F48A}' },
+  { id: 'rxWritten', label: 'Rx Written', icon: '\u{1F48A}' },
   { id: 'eScriptsSent', label: 'eScripts Sent', icon: '\u{1F4E4}' },
-  { id: 'paRequests',  label: 'PA Requests',   icon: '\u{1F510}' },
-  { id: 'messages',    label: 'Messages',      icon: '\u{1F4E8}' },
+  { id: 'paRequests', label: 'PA Requests', icon: '\u{1F510}' },
+  { id: 'messages', label: 'Messages', icon: '\u{1F4E8}' },
 ];
 
 const PHARMACY_METRICS = [
-  { id: 'rxReceived',    label: 'Rx Received',    icon: '\u{1F48A}' },
-  { id: 'fillsStarted',  label: 'Fills Started',  icon: '\u{2697}\u{FE0F}' },
+  { id: 'rxReceived', label: 'Rx Received', icon: '\u{1F48A}' },
+  { id: 'fillsStarted', label: 'Fills Started', icon: '\u{2697}\u{FE0F}' },
   { id: 'claimsSettled', label: 'Claims Settled', icon: '\u{2705}' },
-  { id: 'messages',      label: 'Messages',       icon: '\u{1F4E8}' },
+  { id: 'messages', label: 'Messages', icon: '\u{1F4E8}' },
 ];
 
 // ─── NodeView Class ──────────────────────────────────
@@ -535,11 +535,12 @@ export class NodeView {
       this.incrementCounter(card.counters.rxWritten);
     } else if (event.type === 'viz:prescription:sent' && event.actorType === 'prescriber') {
       this.incrementCounter(card.counters.eScriptsSent);
-    } else if (event.type === 'viz:message:sent' && event.actorType === 'prescriber' &&
-               event.data?.messageType?.includes('PA')) {
+    } else if (event.type === 'viz:message:sent' && event.actorType === 'prescriber' && event.data?.messageType?.includes('PA')) {
       this.incrementCounter(card.counters.paRequests);
-    } else if ((event.type === 'viz:message:sent' || event.type === 'viz:message:received') &&
-               (event.actorType === 'prescriber' || event.targetType === 'prescriber')) {
+    } else if (
+      (event.type === 'viz:message:sent' || event.type === 'viz:message:received') &&
+      (event.actorType === 'prescriber' || event.targetType === 'prescriber')
+    ) {
       this.incrementCounter(card.counters.messages);
     }
   }
@@ -549,11 +550,12 @@ export class NodeView {
       this.incrementCounter(card.counters.rxReceived);
     } else if (event.type === 'viz:fulfillment:started' && event.actorType === 'pharmacy') {
       this.incrementCounter(card.counters.fillsStarted);
-    } else if (event.type === 'viz:prescription:status' && event.actorType === 'pharmacy' &&
-               event.data?.newStatus === 'FILLED') {
+    } else if (event.type === 'viz:prescription:status' && event.actorType === 'pharmacy' && event.data?.newStatus === 'FILLED') {
       this.incrementCounter(card.counters.claimsSettled);
-    } else if ((event.type === 'viz:message:sent' || event.type === 'viz:message:received') &&
-               (event.actorType === 'pharmacy' || event.targetType === 'pharmacy')) {
+    } else if (
+      (event.type === 'viz:message:sent' || event.type === 'viz:message:received') &&
+      (event.actorType === 'pharmacy' || event.targetType === 'pharmacy')
+    ) {
       this.incrementCounter(card.counters.messages);
     }
   }
@@ -574,9 +576,7 @@ export class NodeView {
     if (names.length === 0) return;
 
     const label = card.type === 'prescriber' ? 'Patients' : 'Serving';
-    const chips = names.map(n =>
-      `<span class="nv-patient-chip">${this.escapeHtml(n.split(' ')[0])}</span>`
-    ).join('');
+    const chips = names.map((n) => `<span class="nv-patient-chip">${this.escapeHtml(n.split(' ')[0])}</span>`).join('');
 
     card.patientsEl.innerHTML = `
       <span class="nv-patients-label">${label}:</span>${chips}
@@ -609,7 +609,7 @@ export class NodeView {
     const d = event.data || {};
     const batchNum = d.batchNumber || this.batches.length + 1;
 
-    let batch = this.batches.find(b => b.number === batchNum);
+    let batch = this.batches.find((b) => b.number === batchNum);
     if (!batch) {
       batch = { number: batchNum, status: 'pending', transitions: 0, l1TxHash: null, buildTimeMs: null };
       this.batches.push(batch);
@@ -644,7 +644,7 @@ export class NodeView {
       return;
     }
 
-    const settled = this.batches.filter(b => b.status === 'settled');
+    const settled = this.batches.filter((b) => b.status === 'settled');
     const totalTransitions = settled.reduce((sum, b) => sum + b.transitions, 0);
 
     if (proofEl) {

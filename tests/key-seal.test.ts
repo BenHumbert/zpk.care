@@ -8,9 +8,7 @@
  * presented as another. A changed byte anywhere is refused.
  */
 import { generateKeyPairSync } from 'crypto';
-import {
-  generateBoxKeyPair, boxPrivateKeyFromHex, boxPublicKeyHexOf, sealTo, openSealed, isSealedEnvelope,
-} from '../src/keys/seal.js';
+import { generateBoxKeyPair, boxPrivateKeyFromHex, boxPublicKeyHexOf, sealTo, openSealed, isSealedEnvelope } from '../src/keys/seal.js';
 import type { SealedEnvelope } from '../src/keys/seal.js';
 
 const CONTEXT = 'zpk.care/ceremony/v1/share/2026-11-05-0001/insurer/1';

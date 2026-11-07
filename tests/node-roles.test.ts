@@ -7,9 +7,19 @@
  */
 import { verify as ed25519Verify, createPublicKey } from 'crypto';
 import {
-  NODE_ROLES, isNodeRole, roleMayCall, RPC_METHODS_BY_ROLE, ROUTES_BY_ROLE,
-  deriveNodeAdminToken, generateNodeKey, publicKeyHexFromSeed, nodeKeyFromEnv,
-  childEnvironment, SECRET_ENV_KEYS, NODE_ID_ENV, NODE_KEY_SEED_ENV,
+  NODE_ROLES,
+  isNodeRole,
+  roleMayCall,
+  RPC_METHODS_BY_ROLE,
+  ROUTES_BY_ROLE,
+  deriveNodeAdminToken,
+  generateNodeKey,
+  publicKeyHexFromSeed,
+  nodeKeyFromEnv,
+  childEnvironment,
+  SECRET_ENV_KEYS,
+  NODE_ID_ENV,
+  NODE_KEY_SEED_ENV,
 } from '../src/security/node-roles';
 import { signRequest, verifySignedRequest, privateKeyFromSeedHex, signerIdFromHeaders } from '../src/security/signed-request';
 
@@ -28,14 +38,33 @@ describe('role tables', () => {
     }
   });
 
-  test('the insurer may credential providers and manage plans, formularies and employers, and nothing of the operator\'s', () => {
-    for (const m of ['l2_credentialProvider', 'l2_updateProviderStatus', 'l2_publishPlanOverlay', 'l2_storePlan', 'l2_deletePlan', 'l2_storeFormulary', 'l2_registerEmployer', 'l2_revokeEmployerAttestation', 'l2_registerEmployerNode', 'l2_deregisterEmployerNode']) {
+  test("the insurer may credential providers and manage plans, formularies and employers, and nothing of the operator's", () => {
+    for (const m of [
+      'l2_credentialProvider',
+      'l2_updateProviderStatus',
+      'l2_publishPlanOverlay',
+      'l2_storePlan',
+      'l2_deletePlan',
+      'l2_storeFormulary',
+      'l2_registerEmployer',
+      'l2_revokeEmployerAttestation',
+      'l2_registerEmployerNode',
+      'l2_deregisterEmployerNode',
+    ]) {
       expect(roleMayCall('insurer', { kind: 'rpc', method: m })).toBe(true);
     }
     for (const m of ['l2_gossipRelay', 'l2_forceBatch', 'l2_approveAdmission', 'l2_registerEntity']) {
       expect(roleMayCall('insurer', { kind: 'rpc', method: m })).toBe(false);
     }
-    for (const p of ['approve-prior-auth', 'deny-prior-auth', 'terminate-member', 'terminate-group', 'update-formulary', 'plan-year-rollover', 'approve-member']) {
+    for (const p of [
+      'approve-prior-auth',
+      'deny-prior-auth',
+      'terminate-member',
+      'terminate-group',
+      'update-formulary',
+      'plan-year-rollover',
+      'approve-member',
+    ]) {
       expect(roleMayCall('insurer', { kind: 'route', method: 'POST', path: `/interactive/${p}` })).toBe(true);
       expect(roleMayCall('insurer', { kind: 'route', method: 'GET', path: `/interactive/${p}` })).toBe(false);
     }
@@ -79,7 +108,7 @@ describe('role tables', () => {
   });
 });
 
-describe('a node\'s own admin token', () => {
+describe("a node's own admin token", () => {
   test('is deterministic for the operator, different per node, and 32 bytes of hex', () => {
     const a = deriveNodeAdminToken('operator-secret', 'insurer');
     expect(a).toBe(deriveNodeAdminToken('operator-secret', 'insurer'));
@@ -102,11 +131,31 @@ describe('node keys', () => {
     expect(key.publicKeyHex).toMatch(/^[0-9a-f]{64}$/);
     expect(publicKeyHexFromSeed(key.seedHex)).toBe(key.publicKeyHex);
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_registerEntity', params: { walletId: '1' } });
-    const headers = signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
+    const headers = signRequest({
+      signerId: key.nodeId,
+      privateKey: privateKeyFromSeedHex(key.seedHex),
+      method: 'POST',
+      path: '/rpc',
+      body,
+    });
     expect(signerIdFromHeaders(headers)).toBe('member');
-    const ok = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: 'member', publicKeyHex: key.publicKeyHex, body });
+    const ok = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: 'member',
+      publicKeyHex: key.publicKeyHex,
+      body,
+    });
     expect(ok.ok).toBe(true);
-    const tampered = verifySignedRequest({ method: 'POST', path: '/rpc', headers, expectedSignerId: 'member', publicKeyHex: key.publicKeyHex, body: body + ' ' });
+    const tampered = verifySignedRequest({
+      method: 'POST',
+      path: '/rpc',
+      headers,
+      expectedSignerId: 'member',
+      publicKeyHex: key.publicKeyHex,
+      body: body + ' ',
+    });
     expect(tampered.ok).toBe(false);
   });
 
@@ -116,7 +165,7 @@ describe('node keys', () => {
     expect(() => generateNodeKey('')).toThrow();
   });
 
-  test('the public key derivation matches Node\'s own', () => {
+  test("the public key derivation matches Node's own", () => {
     const key = generateNodeKey('x', () => Buffer.alloc(32, 7));
     const pub = createPublicKey(privateKeyFromSeedHex(key.seedHex)).export({ type: 'spki', format: 'der' });
     expect(pub.subarray(pub.length - 32).toString('hex')).toBe(key.publicKeyHex);
@@ -133,10 +182,24 @@ describe('node keys', () => {
   });
 });
 
-describe('a child\'s environment', () => {
-  test('carries none of the parent\'s secrets and exactly what it is given', () => {
-    const base: NodeJS.ProcessEnv = { PATH: '/bin', ZKTRIDENT_ADMIN_TOKEN: 'op', ZKTRIDENT_GOSSIP_SECRET: 'g', ZKTRIDENT_INSURER_SIGNING_SEED: 's', ZKTRIDENT_MEMBER_PIN: '1234', ZKTRIDENT_NODE_KEY_SEED: 'parent-seed', ZKTRIDENT_FORMULARY_LIMIT: '100', EMPTY: undefined };
-    const env = childEnvironment(base, { ZKTRIDENT_NODE_ID: 'member', ZKTRIDENT_NODE_KEY_SEED: 'child-seed', ZKTRIDENT_PIN: '1234', SKIPPED: undefined });
+describe("a child's environment", () => {
+  test("carries none of the parent's secrets and exactly what it is given", () => {
+    const base: NodeJS.ProcessEnv = {
+      PATH: '/bin',
+      ZKTRIDENT_ADMIN_TOKEN: 'op',
+      ZKTRIDENT_GOSSIP_SECRET: 'g',
+      ZKTRIDENT_INSURER_SIGNING_SEED: 's',
+      ZKTRIDENT_MEMBER_PIN: '1234',
+      ZKTRIDENT_NODE_KEY_SEED: 'parent-seed',
+      ZKTRIDENT_FORMULARY_LIMIT: '100',
+      EMPTY: undefined,
+    };
+    const env = childEnvironment(base, {
+      ZKTRIDENT_NODE_ID: 'member',
+      ZKTRIDENT_NODE_KEY_SEED: 'child-seed',
+      ZKTRIDENT_PIN: '1234',
+      SKIPPED: undefined,
+    });
     expect(env.PATH).toBe('/bin');
     expect(env.ZKTRIDENT_FORMULARY_LIMIT).toBe('100');
     for (const k of SECRET_ENV_KEYS) {
@@ -151,7 +214,16 @@ describe('a child\'s environment', () => {
   });
 
   test('the secret list names every credential the launcher knows', () => {
-    for (const k of ['ZKTRIDENT_ADMIN_TOKEN', 'ZKTRIDENT_INSURER_ADMIN_TOKEN', 'ZKTRIDENT_GOSSIP_SECRET', 'ZKTRIDENT_INSURER_SIGNING_SEED', 'ZKTRIDENT_GENESIS_ADMIN_KEY', 'ZKTRIDENT_NODE_KEY_SEED', 'ZKTRIDENT_PIN', 'ZKTRIDENT_MEMBER_PIN']) {
+    for (const k of [
+      'ZKTRIDENT_ADMIN_TOKEN',
+      'ZKTRIDENT_INSURER_ADMIN_TOKEN',
+      'ZKTRIDENT_GOSSIP_SECRET',
+      'ZKTRIDENT_INSURER_SIGNING_SEED',
+      'ZKTRIDENT_GENESIS_ADMIN_KEY',
+      'ZKTRIDENT_NODE_KEY_SEED',
+      'ZKTRIDENT_PIN',
+      'ZKTRIDENT_MEMBER_PIN',
+    ]) {
       expect(SECRET_ENV_KEYS).toContain(k);
     }
   });

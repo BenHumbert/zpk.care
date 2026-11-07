@@ -15,21 +15,9 @@
  */
 
 import { Field, Struct, Poseidon, ZkProgram, MerkleTree, Provable } from 'o1js';
-import {
-  WalletRegistryWitness,
-  CREDENTIAL_INVENTORY_HEIGHT,
-} from '../wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  LIFECYCLE_REGISTERED,
-  LIFECYCLE_REVOKED,
-  lifecycleLeafCommitment,
-} from './lifecycle.js';
-import {
-  DOMAIN_TAG_MEMBER,
-  DOMAIN_TAG_PRESCRIBER,
-  DOMAIN_TAG_PHARMACY,
-} from '../wallets/wallet-derivation.js';
+import { WalletRegistryWitness, CREDENTIAL_INVENTORY_HEIGHT } from '../wallets/wallet-state.js';
+import { LifecycleWitness, LIFECYCLE_REGISTERED, LIFECYCLE_REVOKED, lifecycleLeafCommitment } from './lifecycle.js';
+import { DOMAIN_TAG_MEMBER, DOMAIN_TAG_PRESCRIBER, DOMAIN_TAG_PHARMACY } from '../wallets/wallet-derivation.js';
 
 /**
  * Empty credential inventory root — computed once at module load.
@@ -80,10 +68,7 @@ export class TransitionOutput extends Struct({
  * @param domainTag — Field(0)=member, Field(1)=prescriber, Field(2)=pharmacy
  * @param f0..f5 — preimage fields (padded with Field(0) for non-members)
  */
-function computeWalletId(
-  domainTag: Field,
-  f0: Field, f1: Field, f2: Field, f3: Field, f4: Field, f5: Field,
-): Field {
+function computeWalletId(domainTag: Field, f0: Field, f1: Field, f2: Field, f3: Field, f4: Field, f5: Field): Field {
   // Compute all three hash variants
   const memberHash = Poseidon.hash([DOMAIN_TAG_MEMBER, f0, f1, f2, f3, f4, f5]);
   const prescriberHash = Poseidon.hash([DOMAIN_TAG_PRESCRIBER, f0, f1, f2]);
@@ -97,11 +82,7 @@ function computeWalletId(
   // At least one must be true
   isMember.or(isPrescriber).or(isPharmacy).assertTrue('Invalid domain tag');
 
-  return Provable.switch(
-    [isMember, isPrescriber, isPharmacy],
-    Field,
-    [memberHash, prescriberHash, pharmacyHash],
-  );
+  return Provable.switch([isMember, isPrescriber, isPharmacy], Field, [memberHash, prescriberHash, pharmacyHash]);
 }
 
 /**
@@ -176,10 +157,7 @@ export const StateTransitionProgram = ZkProgram({
 
         // 2. Verify the registry slot is empty
         const emptyRegistryRoot = registryWitness.calculateRoot(Field(0));
-        emptyRegistryRoot.assertEquals(
-          currentRegistryRoot,
-          'Registry slot is not empty',
-        );
+        emptyRegistryRoot.assertEquals(currentRegistryRoot, 'Registry slot is not empty');
 
         // 3. Compute new WalletState commitment and insert
         //    Matches WalletState.commitment(): Poseidon.hash([walletId, credentialRoot, nonce])
@@ -192,18 +170,11 @@ export const StateTransitionProgram = ZkProgram({
 
         // 4. Verify the lifecycle slot is empty
         const emptyLifecycleRoot = lifecycleWitness.calculateRoot(Field(0));
-        emptyLifecycleRoot.assertEquals(
-          currentLifecycleRoot,
-          'Lifecycle slot is not empty',
-        );
+        emptyLifecycleRoot.assertEquals(currentLifecycleRoot, 'Lifecycle slot is not empty');
 
         // 5. Set lifecycle to REGISTERED
-        const newLifecycleLeaf = lifecycleLeafCommitment(
-          walletId,
-          LIFECYCLE_REGISTERED,
-        );
-        const newLifecycleRoot =
-          lifecycleWitness.calculateRoot(newLifecycleLeaf);
+        const newLifecycleLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED);
+        const newLifecycleRoot = lifecycleWitness.calculateRoot(newLifecycleLeaf);
 
         // 6. Return the portable transition output
         return {
@@ -267,28 +238,15 @@ export const StateTransitionProgram = ZkProgram({
         const walletId = computeWalletId(domainTag, f0, f1, f2, f3, f4, f5);
 
         // 2. Verify wallet is not revoked
-        const lifecycleLeaf = lifecycleLeafCommitment(
-          walletId,
-          currentLifecycle,
-        );
-        const computedLifecycleRoot =
-          lifecycleWitness.calculateRoot(lifecycleLeaf);
-        computedLifecycleRoot.assertEquals(
-          currentLifecycleRoot,
-          'Lifecycle state mismatch',
-        );
-        currentLifecycle
-          .equals(LIFECYCLE_REVOKED)
-          .assertFalse('Wallet is revoked');
+        const lifecycleLeaf = lifecycleLeafCommitment(walletId, currentLifecycle);
+        const computedLifecycleRoot = lifecycleWitness.calculateRoot(lifecycleLeaf);
+        computedLifecycleRoot.assertEquals(currentLifecycleRoot, 'Lifecycle state mismatch');
+        currentLifecycle.equals(LIFECYCLE_REVOKED).assertFalse('Wallet is revoked');
 
         // 3. Verify old wallet state matches registry
         const oldCommitment = Poseidon.hash([walletId, oldCredentialRoot, oldNonce]);
-        const computedRegistryRoot =
-          registryWitness.calculateRoot(oldCommitment);
-        computedRegistryRoot.assertEquals(
-          currentRegistryRoot,
-          'Old wallet state mismatch',
-        );
+        const computedRegistryRoot = registryWitness.calculateRoot(oldCommitment);
+        computedRegistryRoot.assertEquals(currentRegistryRoot, 'Old wallet state mismatch');
 
         // 4. Compute new state with incremented nonce
         const newNonce = oldNonce.add(1);

@@ -31,12 +31,17 @@
  * A real sequencer server with a stand-in engine that records every call made to it.
  */
 import fs from 'fs';
+import { flat } from './helpers/source-text.js';
 import { Field, MerkleTree } from 'o1js';
 import { InMemoryStore } from '../src/storage/local-store.js';
 import { WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
-import { registerInteractiveRoutes, PROVERS_STARTING_MESSAGE, PROVERS_RETRY_AFTER_SECONDS } from '../src/adjudication/interactive-routes.js';
+import {
+  registerInteractiveRoutes,
+  PROVERS_STARTING_MESSAGE,
+  PROVERS_RETRY_AFTER_SECONDS,
+} from '../src/adjudication/interactive-routes.js';
 import { generateNodeKey, ROUTES_BY_ROLE } from '../src/security/node-roles.js';
 import { signRequest, privateKeyFromSeedHex } from '../src/security/signed-request.js';
 
@@ -55,20 +60,44 @@ let readiness: { ready: boolean; compiled: boolean; prover: string } = { ready: 
 const touched: string[] = [];
 
 function standInEngine() {
-  const l2 = { withProvingLock: (fn: () => Promise<unknown>) => { touched.push('withProvingLock'); return Promise.resolve().then(fn); } };
+  const l2 = {
+    withProvingLock: (fn: () => Promise<unknown>) => {
+      touched.push('withProvingLock');
+      return Promise.resolve().then(fn);
+    },
+  };
   const own: Record<string, unknown> = {
     isProvingReady: () => readiness.ready,
     provingReadiness: () => ({ ...readiness, walletId: '424242424242', members: [{ displayName: 'Avery' }] }),
-    getState: () => { touched.push('getState'); return { compiled: true, enrolledMembers: [] }; },
-    getL2Node: () => { touched.push('getL2Node'); return l2; },
-    createPrescription: async () => { touched.push('createPrescription'); return { prescriptionId: 'RX-READY' }; },
-    dispensePrescription: async () => { touched.push('dispensePrescription'); return { prescriptionId: 'RX-READY', adjudication: {} }; },
-    forceBatch: async () => { touched.push('forceBatch'); },
+    getState: () => {
+      touched.push('getState');
+      return { compiled: true, enrolledMembers: [] };
+    },
+    getL2Node: () => {
+      touched.push('getL2Node');
+      return l2;
+    },
+    createPrescription: async () => {
+      touched.push('createPrescription');
+      return { prescriptionId: 'RX-READY' };
+    },
+    dispensePrescription: async () => {
+      touched.push('dispensePrescription');
+      return { prescriptionId: 'RX-READY', adjudication: {} };
+    },
+    forceBatch: async () => {
+      touched.push('forceBatch');
+    },
   };
   return new Proxy(own, {
     get(t, p) {
       if (p in t) return t[p as string];
-      return typeof p === 'string' && p !== 'then' ? (..._args: unknown[]) => { touched.push(p); return undefined; } : undefined;
+      return typeof p === 'string' && p !== 'then'
+        ? (..._args: unknown[]) => {
+            touched.push(p);
+            return undefined;
+          }
+        : undefined;
     },
   });
 }
@@ -94,22 +123,40 @@ const PROVING: Array<[string, Record<string, unknown>]> = [
 ];
 
 async function post(p: string, body: unknown, headers: Record<string, string> = bearer) {
-  const r = await fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const r = await fetch(url + p, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = null; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
   return { status: r.status, retryAfter: r.headers.get('retry-after'), json };
 }
 async function get(p: string, headers: Record<string, string> = {}) {
   const r = await fetch(url + p, { headers });
   const text = await r.text();
   let json: any = null;
-  try { json = JSON.parse(text); } catch { json = null; }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
   return { status: r.status, retryAfter: r.headers.get('retry-after'), json };
 }
 
 beforeAll(async () => {
-  const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-engine-ready' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  const node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-engine-ready' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(prescriberNode.nodeId, prescriberNode.publicKeyHex, 'prescriber');
   registerInteractiveRoutes(server, standInEngine() as any);
@@ -117,9 +164,13 @@ beforeAll(async () => {
   url = `http://127.0.0.1:${server.getPort()}`;
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
-beforeEach(() => { touched.length = 0; });
+beforeEach(() => {
+  touched.length = 0;
+});
 
 describe('GET /interactive/ready', () => {
   test('answers anyone, with no credential: 503 and Retry-After while the provers start, 200 once the engine can prove', async () => {
@@ -151,7 +202,7 @@ describe('GET /interactive/ready', () => {
     expect(JSON.stringify(r.json)).not.toMatch(/424242424242|Avery|walletId|members/);
   });
 
-  test('is declared one of the engine\'s open reads, and nothing puts it behind a gate', () => {
+  test("is declared one of the engine's open reads, and nothing puts it behind a gate", () => {
     const src = fs.readFileSync('src/adjudication/interactive-routes.ts', 'utf-8').replace(/\r\n/g, '\n');
     const setOf = (name: string) => {
       const start = src.indexOf(`const ${name} = new Set([`);
@@ -161,12 +212,15 @@ describe('GET /interactive/ready', () => {
     expect(setOf('OPEN_READS')).toContain("'/interactive/ready'");
     expect(setOf('ADMIN_ROUTES')).not.toContain("'/interactive/ready'");
     expect(setOf('GATED_READS')).not.toContain("'/interactive/ready'");
-    for (const [role, routes] of Object.entries(ROUTES_BY_ROLE)) expect([role, routes.has('GET:/interactive/ready')]).toEqual([role, false]);
+    for (const [role, routes] of Object.entries(ROUTES_BY_ROLE))
+      expect([role, routes.has('GET:/interactive/ready')]).toEqual([role, false]);
   });
 });
 
 describe('the routes that make proofs, while the provers start', () => {
-  beforeEach(() => { readiness = { ready: false, compiled: true, prover: 'starting' }; });
+  beforeEach(() => {
+    readiness = { ready: false, compiled: true, prover: 'starting' };
+  });
 
   test('each answers 503 with Retry-After and the message, and touches nothing: no engine call, no proving lock', async () => {
     for (const [p, body] of PROVING) {
@@ -192,7 +246,13 @@ describe('the routes that make proofs, while the provers start', () => {
   test('a prescriber node signed with its own key gets the same 503, after its credential is checked', async () => {
     const p = '/interactive/prescribe';
     const body = PROVING.find(([path]) => path === p)![1];
-    const headers = signRequest({ signerId: prescriberNode.nodeId, privateKey: privateKeyFromSeedHex(prescriberNode.seedHex), method: 'POST', path: p, body: JSON.stringify(body) });
+    const headers = signRequest({
+      signerId: prescriberNode.nodeId,
+      privateKey: privateKeyFromSeedHex(prescriberNode.seedHex),
+      method: 'POST',
+      path: p,
+      body: JSON.stringify(body),
+    });
     const r = await post(p, body, headers);
     expect([r.status, r.json?.error]).toEqual([503, PROVERS_STARTING_MESSAGE]);
     expect((await post(p, body, {})).status).toBe(401); // no credential: refused by the gate first, as before
@@ -214,7 +274,9 @@ describe('the routes that make proofs, while the provers start', () => {
 });
 
 describe('once the engine is ready to prove', () => {
-  beforeEach(() => { readiness = { ready: true, compiled: true, prover: 'pool' }; });
+  beforeEach(() => {
+    readiness = { ready: true, compiled: true, prover: 'pool' };
+  });
 
   test('a prescription reaches the engine under the proving lock, and a fill starts its job', async () => {
     const rx = await post('/interactive/prescribe', PROVING.find(([p]) => p === '/interactive/prescribe')![1]);
@@ -249,7 +311,10 @@ describe('which routes wait for the provers', () => {
         for (const m of [...reach]) {
           if (!line.includes(`this.${m}(`)) continue;
           const caller = enclosing(i);
-          if (caller && !reach.has(caller)) { reach.add(caller); grew = true; }
+          if (caller && !reach.has(caller)) {
+            reach.add(caller);
+            grew = true;
+          }
         }
       });
     }
@@ -284,7 +349,8 @@ describe('which routes wait for the provers', () => {
 
   test('every POST route whose handler reaches the prover waits for it, and nothing else does', () => {
     const proving = provingMethods();
-    for (const m of ['createPrescription', 'dispensePrescription', 'reversePrescription', 'approvePriorAuth']) expect([m, proving.has(m)]).toEqual([m, true]);
+    for (const m of ['createPrescription', 'dispensePrescription', 'reversePrescription', 'approvePriorAuth'])
+      expect([m, proving.has(m)]).toEqual([m, true]);
     const reaching = [...postRoutes()].filter(([, calls]) => [...calls].some((c) => proving.has(c))).map(([p]) => p);
     const expected = reaching.filter((p) => !NO_PROOF.has(p)).sort();
     expect([...provingRouteSet()].sort()).toEqual(expected);
@@ -299,8 +365,13 @@ describe('which routes wait for the provers', () => {
   });
 
   test('the registration helper puts the readiness gate on every route in the set', () => {
-    expect(routesSrc).toContain("const route = upper === 'POST' && PROVING_ROUTES.has(path) ? untilProvingReady(upper, path, handler) : handler;");
-    expect(routesSrc).toContain('server.registerRoute(method, path, route, adminOnly ?');
-    expect(routesSrc).toContain('server.registerRoute(method, path, route, timeoutMs ? { providerSigned, timeoutMs } : { providerSigned });');
+    const code = flat(routesSrc);
+    expect(code).toContain(
+      flat("const route = upper === 'POST' && PROVING_ROUTES.has(path) ? untilProvingReady(upper, path, handler) : handler;"),
+    );
+    expect(code).toContain(flat('server.registerRoute(method, path, route, adminOnly ?'));
+    expect(code).toContain(
+      flat('server.registerRoute(method, path, route, timeoutMs ? { providerSigned, timeoutMs } : { providerSigned });'),
+    );
   });
 });

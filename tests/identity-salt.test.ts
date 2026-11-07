@@ -8,7 +8,12 @@
 import { Field, Poseidon } from 'o1js';
 import { hashString, hashDate, hashIdentityField, hashIdentityDate, isIdentitySalt } from '../src/zkp/hash-utils.js';
 import {
-  deriveMemberWalletId, memberWalletPreimage, memberTransitionPreimage, generateIdentitySalt, DOMAIN_TAG_MEMBER, paddedPreimage,
+  deriveMemberWalletId,
+  memberWalletPreimage,
+  memberTransitionPreimage,
+  generateIdentitySalt,
+  DOMAIN_TAG_MEMBER,
+  paddedPreimage,
 } from '../src/wallets/wallet-derivation.js';
 import { secureMemberDerivation } from '../src/security/secure-context.js';
 import { fixtureIdentitySalt, MEMBERS } from '../src/data/index.js';
@@ -62,7 +67,9 @@ describe('member wallet derivation with the salt', () => {
   });
 
   test('the transition preimage is the padded wallet preimage, and both follow the salt', () => {
-    expect(memberTransitionPreimage(alice, KEY, GROUP, salt).map(String)).toEqual(paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(alice, KEY, GROUP, salt)).map(String));
+    expect(memberTransitionPreimage(alice, KEY, GROUP, salt).map(String)).toEqual(
+      paddedPreimage(DOMAIN_TAG_MEMBER, memberWalletPreimage(alice, KEY, GROUP, salt)).map(String),
+    );
     const other = generateIdentitySalt();
     expect(deriveMemberWalletId(alice, KEY, GROUP, other).toString()).not.toBe(deriveMemberWalletId(alice, KEY, GROUP, salt).toString());
     expect(deriveMemberWalletId(alice, KEY, Field(0), salt).toString()).not.toBe(deriveMemberWalletId(alice, KEY, GROUP, salt).toString());

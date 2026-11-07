@@ -32,38 +32,15 @@
  *   $env:NODE_OPTIONS="--max-old-space-size=12288"; npx jest tests/chain-program.test.ts --verbose --maxWorkers=1
  */
 import { Field, Poseidon, MerkleTree } from 'o1js';
-import {
-  GlobalState,
-  computeGlobalStateRoot,
-  GLOBAL_STATE_FIELD_COUNT,
-  ChainOutput,
-} from '../src/l2/global-state.js';
-import {
-  StateTransitionProgram,
-  EMPTY_CREDENTIAL_ROOT,
-} from '../src/engine/state-transition.js';
-import {
-  BatchProgram,
-  BatchProof,
-  BatchOutput,
-} from '../src/l2/batch-program.js';
+import { GlobalState, computeGlobalStateRoot, GLOBAL_STATE_FIELD_COUNT, ChainOutput } from '../src/l2/global-state.js';
+import { StateTransitionProgram, EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { BatchProgram, BatchProof, BatchOutput } from '../src/l2/batch-program.js';
 import { ChainProgram, ChainProof } from '../src/l2/chain-program.js';
 import { L2Node } from '../src/l2/l2-node.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  LIFECYCLE_REGISTERED,
-  lifecycleLeafCommitment,
-} from '../src/engine/lifecycle.js';
-import {
-  deriveMemberWalletId,
-  memberWalletPreimage,
-  DOMAIN_TAG_MEMBER,
-} from '../src/wallets/wallet-derivation.js';
+import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import { LifecycleWitness, LIFECYCLE_REGISTERED, lifecycleLeafCommitment } from '../src/engine/lifecycle.js';
+import { deriveMemberWalletId, memberWalletPreimage, DOMAIN_TAG_MEMBER } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import { fixtureIdentitySalt } from '../src/data/index.js';
 
@@ -213,13 +190,29 @@ describe('GlobalState — unit tests', () => {
 
   test('field ordering matters — different order gives different root', () => {
     const rootCorrect = computeGlobalStateRoot(
-      Field(1), Field(2), Field(3), Field(4), Field(5),
-      Field(6), Field(7), Field(8), Field(9), Field(10),
+      Field(1),
+      Field(2),
+      Field(3),
+      Field(4),
+      Field(5),
+      Field(6),
+      Field(7),
+      Field(8),
+      Field(9),
+      Field(10),
     );
     // Swap walletRegistryRoot and walletCount
     const rootSwapped = computeGlobalStateRoot(
-      Field(2), Field(1), Field(3), Field(4), Field(5),
-      Field(6), Field(7), Field(8), Field(9), Field(10),
+      Field(2),
+      Field(1),
+      Field(3),
+      Field(4),
+      Field(5),
+      Field(6),
+      Field(7),
+      Field(8),
+      Field(9),
+      Field(10),
     );
     expect(rootCorrect.toString()).not.toBe(rootSwapped.toString());
   });
@@ -341,9 +334,9 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
   let lcTree: MerkleTree;
 
   // Stored proofs for multi-test flow
-  let batchProof1: BatchProof;  // genesis batch (2 registrations)
-  let batchProof2: BatchProof;  // advance batch (2 more registrations)
-  let batchProof3: BatchProof;  // wallet update batch (registration + update)
+  let batchProof1: BatchProof; // genesis batch (2 registrations)
+  let batchProof2: BatchProof; // advance batch (2 more registrations)
+  let batchProof3: BatchProof; // wallet update batch (registration + update)
   let genesisChainProof: ChainProof;
   let block1ChainProof: ChainProof;
 
@@ -384,10 +377,16 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const pre1 = memberWalletPreimage(chainMember1, CHAIN_KEY_1, Field(0), fixtureIdentitySalt({ localData: chainMember1 }));
     const st1 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      pre1[0]!, pre1[1]!, pre1[2]!, pre1[3]!, pre1[4]!, pre1[5]!,
+      pre1[0]!,
+      pre1[1]!,
+      pre1[2]!,
+      pre1[3]!,
+      pre1[4]!,
+      pre1[5]!,
       new WalletRegistryWitness(regTree.getWitness(0n)),
       new LifecycleWitness(lcTree.getWitness(0n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
     );
     regTree.setLeaf(0n, Poseidon.hash([walletId1, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(0n, lifecycleLeafCommitment(walletId1, LIFECYCLE_REGISTERED));
@@ -396,10 +395,16 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const pre2 = memberWalletPreimage(chainMember2, CHAIN_KEY_2, Field(0), fixtureIdentitySalt({ localData: chainMember2 }));
     const st2 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      pre2[0]!, pre2[1]!, pre2[2]!, pre2[3]!, pre2[4]!, pre2[5]!,
+      pre2[0]!,
+      pre2[1]!,
+      pre2[2]!,
+      pre2[3]!,
+      pre2[4]!,
+      pre2[5]!,
       new WalletRegistryWitness(regTree.getWitness(1n)),
       new LifecycleWitness(lcTree.getWitness(1n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
     );
     regTree.setLeaf(1n, Poseidon.hash([walletId2, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(1n, lifecycleLeafCommitment(walletId2, LIFECYCLE_REGISTERED));
@@ -416,10 +421,16 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const pre3 = memberWalletPreimage(chainMember3, CHAIN_KEY_3, Field(0), fixtureIdentitySalt({ localData: chainMember3 }));
     const st3 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      pre3[0]!, pre3[1]!, pre3[2]!, pre3[3]!, pre3[4]!, pre3[5]!,
+      pre3[0]!,
+      pre3[1]!,
+      pre3[2]!,
+      pre3[3]!,
+      pre3[4]!,
+      pre3[5]!,
       new WalletRegistryWitness(regTree.getWitness(2n)),
       new LifecycleWitness(lcTree.getWitness(2n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
     );
     regTree.setLeaf(2n, Poseidon.hash([walletId3, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(2n, lifecycleLeafCommitment(walletId3, LIFECYCLE_REGISTERED));
@@ -428,10 +439,16 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const pre4 = memberWalletPreimage(chainMember4, CHAIN_KEY_4, Field(0), fixtureIdentitySalt({ localData: chainMember4 }));
     const st4 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      pre4[0]!, pre4[1]!, pre4[2]!, pre4[3]!, pre4[4]!, pre4[5]!,
+      pre4[0]!,
+      pre4[1]!,
+      pre4[2]!,
+      pre4[3]!,
+      pre4[4]!,
+      pre4[5]!,
       new WalletRegistryWitness(regTree.getWitness(3n)),
       new LifecycleWitness(lcTree.getWitness(3n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
     );
     regTree.setLeaf(3n, Poseidon.hash([walletId4, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(3n, lifecycleLeafCommitment(walletId4, LIFECYCLE_REGISTERED));
@@ -457,10 +474,16 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const pre5 = memberWalletPreimage(chainMember5, chainKey5, Field(0), fixtureIdentitySalt({ localData: chainMember5 }));
     const st5 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      pre5[0]!, pre5[1]!, pre5[2]!, pre5[3]!, pre5[4]!, pre5[5]!,
+      pre5[0]!,
+      pre5[1]!,
+      pre5[2]!,
+      pre5[3]!,
+      pre5[4]!,
+      pre5[5]!,
       new WalletRegistryWitness(regTree.getWitness(4n)),
       new LifecycleWitness(lcTree.getWitness(4n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
     );
     regTree.setLeaf(4n, Poseidon.hash([walletId5, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(4n, lifecycleLeafCommitment(walletId5, LIFECYCLE_REGISTERED));
@@ -470,11 +493,19 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const newCredRoot = Poseidon.hash([Field(7777)]);
     const st6 = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,
-      pre1update[0]!, pre1update[1]!, pre1update[2]!, pre1update[3]!, pre1update[4]!, pre1update[5]!,
-      EMPTY_CREDENTIAL_ROOT, Field(0), newCredRoot,
+      pre1update[0]!,
+      pre1update[1]!,
+      pre1update[2]!,
+      pre1update[3]!,
+      pre1update[4]!,
+      pre1update[5]!,
+      EMPTY_CREDENTIAL_ROOT,
+      Field(0),
+      newCredRoot,
       new WalletRegistryWitness(regTree.getWitness(0n)),
       new LifecycleWitness(lcTree.getWitness(0n)),
-      regTree.getRoot(), lcTree.getRoot(),
+      regTree.getRoot(),
+      lcTree.getRoot(),
       LIFECYCLE_REGISTERED,
     );
     regTree.setLeaf(0n, Poseidon.hash([walletId1, newCredRoot, Field(1)]));
@@ -650,17 +681,34 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
   // forged batch proof passed as well as a real one
   test('A-151: a replica checking gossiped batches applies a real batch proof and refuses a forged one', async () => {
     const replica = new L2Node(
-      { role: 'replica', nodeId: 'rep-a151', batchIntervalMs: 999_999, autoSettle: false, settlementDelayMs: 0, maxBatchRetries: 0, l2Only: true },
-      new InMemoryStore(), new MerkleTree(WALLET_TREE_HEIGHT).getRoot(), new MerkleTree(WALLET_TREE_HEIGHT).getRoot(), Field(0),
+      {
+        role: 'replica',
+        nodeId: 'rep-a151',
+        batchIntervalMs: 999_999,
+        autoSettle: false,
+        settlementDelayMs: 0,
+        maxBatchRetries: 0,
+        l2Only: true,
+      },
+      new InMemoryStore(),
+      new MerkleTree(WALLET_TREE_HEIGHT).getRoot(),
+      new MerkleTree(WALLET_TREE_HEIGHT).getRoot(),
+      Field(0),
     );
-    await replica.enableBatchVerification();   // BatchProgram is compiled already in this suite
+    await replica.enableBatchVerification(); // BatchProgram is compiled already in this suite
     const applied = jest.spyOn(replica.getSequencer(), 'applyReplicatedBatch').mockImplementation(() => undefined as never);
     const rejected: string[] = [];
-    replica.on((e) => { if (e.type === 'batch:rejected') rejected.push(String((e.data as { reason?: string }).reason)); });
-    const gossip = (batchNumber: bigint, batchProofJson: string) => (replica as any).handleGossip({
-      messageId: `a151-${batchNumber}`, type: 'batch:built', senderId: 'seq-a151', timestamp: Date.now(),
-      payload: { batch: { batchNumber, batchProofJson }, block: {}, updatedReceipts: [], updatedAuditEvents: [] },
+    replica.on((e) => {
+      if (e.type === 'batch:rejected') rejected.push(String((e.data as { reason?: string }).reason));
     });
+    const gossip = (batchNumber: bigint, batchProofJson: string) =>
+      (replica as any).handleGossip({
+        messageId: `a151-${batchNumber}`,
+        type: 'batch:built',
+        senderId: 'seq-a151',
+        timestamp: Date.now(),
+        payload: { batch: { batchNumber, batchProofJson }, block: {}, updatedReceipts: [], updatedAuditEvents: [] },
+      });
 
     await gossip(1n, JSON.stringify(batchProof1.toJSON()));
     expect(rejected).toEqual([]);
@@ -669,6 +717,6 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     const forged = await BatchProof.dummy(undefined, batchProof1.publicOutput, 2);
     await gossip(2n, JSON.stringify(forged.toJSON()));
     expect(rejected).toEqual([expect.stringMatching(/does not verify/)]);
-    expect(applied).toHaveBeenCalledTimes(1);   // the forged batch is not applied
+    expect(applied).toHaveBeenCalledTimes(1); // the forged batch is not applied
   }, 300_000);
 });

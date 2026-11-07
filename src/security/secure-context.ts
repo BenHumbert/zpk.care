@@ -97,10 +97,7 @@ export function secureMemberDerivation(
  * Securely derive a prescriber wallet ID.
  * Input is scrubbed after derivation.
  */
-export function securePrescriberDerivation(
-  localData: PrescriberLocalData,
-  enrollmentKey: string,
-): SecureWalletResult {
+export function securePrescriberDerivation(localData: PrescriberLocalData, enrollmentKey: string): SecureWalletResult {
   const walletId = derivePrescriberWalletId(localData, enrollmentKey);
   const preimage = prescriberWalletPreimage(localData, enrollmentKey);
 
@@ -122,10 +119,7 @@ export function securePrescriberDerivation(
  * Securely derive a pharmacy wallet ID.
  * Input is scrubbed after derivation.
  */
-export function securePharmacyDerivation(
-  localData: PharmacyLocalData,
-  enrollmentKey: string,
-): SecureWalletResult {
+export function securePharmacyDerivation(localData: PharmacyLocalData, enrollmentKey: string): SecureWalletResult {
   const walletId = derivePharmacyWalletId(localData, enrollmentKey);
   const preimage = pharmacyWalletPreimage(localData, enrollmentKey);
 
@@ -147,10 +141,7 @@ export function securePharmacyDerivation(
  * Securely derive a representative wallet ID (AOR).
  * Input is scrubbed after derivation.
  */
-export function secureRepresentativeDerivation(
-  localData: RepresentativeLocalData,
-  enrollmentKey: string,
-): SecureWalletResult {
+export function secureRepresentativeDerivation(localData: RepresentativeLocalData, enrollmentKey: string): SecureWalletResult {
   const walletId = deriveRepresentativeWalletId(localData, enrollmentKey);
   const preimage = representativeWalletPreimage(localData, enrollmentKey);
 

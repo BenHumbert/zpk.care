@@ -77,23 +77,23 @@ export interface PeerInfo {
 
 /** All gossip message types in the protocol */
 export type GossipMessageType =
-  | 'proof:accepted'      // New receipt + audit event + optional claim entry
-  | 'batch:built'         // New block + batch metadata + receipt status updates
-  | 'batch:settled'       // L1 tx hash + settlement confirmation
-  | 'batch:failed'        // Batch failure + reason
-  | 'state:snapshot'      // Full state for IBD (response to sync request)
-  | 'state:roots'         // The leader's roots after an admin mutation, so replicas follow writes that carry no proof (A13)
-  | 'peer:announce'       // Peer discovery + exchange peer lists
-  | 'message:stored'      // New encrypted message stored in Message Store
-  | 'plan:updated'        // Benefit plan created or updated
-  | 'plan:deleted'        // Benefit plan deleted
-  | 'formulary:updated'   // Formulary published or updated (gossip replication)
-  | 'leader:heartbeat'    // Leviathan leader heartbeat (partition leadership)
-  | 'leader:promotion'    // Leviathan leader promotion (failover)
-  | 'quorum:propose'      // Leader proposes WAL entry for quorum consensus
-  | 'quorum:vote'         // Peer votes (ack + Ed25519 signature)
-  | 'quorum:certificate'  // Leader broadcasts completed quorum certificate
-  | 'admin:eviction';     // Node evicted due to equivocation evidence
+  | 'proof:accepted' // New receipt + audit event + optional claim entry
+  | 'batch:built' // New block + batch metadata + receipt status updates
+  | 'batch:settled' // L1 tx hash + settlement confirmation
+  | 'batch:failed' // Batch failure + reason
+  | 'state:snapshot' // Full state for IBD (response to sync request)
+  | 'state:roots' // The leader's roots after an admin mutation, so replicas follow writes that carry no proof (A13)
+  | 'peer:announce' // Peer discovery + exchange peer lists
+  | 'message:stored' // New encrypted message stored in Message Store
+  | 'plan:updated' // Benefit plan created or updated
+  | 'plan:deleted' // Benefit plan deleted
+  | 'formulary:updated' // Formulary published or updated (gossip replication)
+  | 'leader:heartbeat' // Leviathan leader heartbeat (partition leadership)
+  | 'leader:promotion' // Leviathan leader promotion (failover)
+  | 'quorum:propose' // Leader proposes WAL entry for quorum consensus
+  | 'quorum:vote' // Peer votes (ack + Ed25519 signature)
+  | 'quorum:certificate' // Leader broadcasts completed quorum certificate
+  | 'admin:eviction'; // Node evicted due to equivocation evidence
 
 // ─── Gossip Payloads ─────────────────────────────────────
 
@@ -270,13 +270,13 @@ export type GossipPayload =
   | FormularyUpdatedPayload
   | PeerAnnouncePayload
   | EvictionPayload
-  | L2SequencerState         // For state:snapshot (IBD)
-  | StateRootsPayload        // For state:roots (A13)
-  | LeaderHeartbeatPayload   // For leader:heartbeat (leviathan)
-  | LeaderPromotionPayload   // For leader:promotion (leviathan)
-  | QuorumProposal           // For quorum:propose
-  | QuorumVote               // For quorum:vote
-  | QuorumCertificate;       // For quorum:certificate
+  | L2SequencerState // For state:snapshot (IBD)
+  | StateRootsPayload // For state:roots (A13)
+  | LeaderHeartbeatPayload // For leader:heartbeat (leviathan)
+  | LeaderPromotionPayload // For leader:promotion (leviathan)
+  | QuorumProposal // For quorum:propose
+  | QuorumVote // For quorum:vote
+  | QuorumCertificate; // For quorum:certificate
 
 // ─── Gossip Message ──────────────────────────────────────
 
@@ -382,7 +382,7 @@ export interface PeerNetworkConfig {
 
 /** Default peer network configuration */
 export const DEFAULT_PEER_NETWORK_CONFIG: PeerNetworkConfig = {
-  nodeId: '',          // Must be set by caller
+  nodeId: '', // Must be set by caller
   role: 'replica',
   seedPeers: [],
   maxPeers: DEFAULT_MAX_PEERS,

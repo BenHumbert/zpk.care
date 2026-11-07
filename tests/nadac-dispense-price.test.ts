@@ -52,8 +52,18 @@ function filled(memberWalletId: string): string {
   const id = `RX-NADAC-${++rxSeq}`;
   const enrolled = svc.enrolledMembers.get(memberWalletId);
   svc.prescriptions.set(id, {
-    id, memberWalletId, ndcHash, pharmacyIndex: 0, prescriberIndex: 0, quantity: 30, quantityDispensed: 0, refills: 0, refillsUsed: 0,
-    status: 'FILLED', statusHistory: [], formularyEntry: svc.formularyEntryFor(enrolled, ndcHash).entry,
+    id,
+    memberWalletId,
+    ndcHash,
+    pharmacyIndex: 0,
+    prescriberIndex: 0,
+    quantity: 30,
+    quantityDispensed: 0,
+    refills: 0,
+    refillsUsed: 0,
+    status: 'FILLED',
+    statusHistory: [],
+    formularyEntry: svc.formularyEntryFor(enrolled, ndcHash).entry,
   });
   return id;
 }
@@ -75,31 +85,72 @@ beforeAll(async () => {
   ndcHash = hashString(ABACAVIR).toString();
 
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-nadac-dispense' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-nadac-dispense' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   seq = node.getSequencer();
-  svc = new AdjudicationService((e: { message: string }) => events.push(e), () => {}, node);
+  svc = new AdjudicationService(
+    (e: { message: string }) => events.push(e),
+    () => {},
+    node,
+  );
   svc.compiled = true;
   svc.verifyOwnershipProof = async (_w: string, j: string) => j;
 
   const base = {
-    planId: 'PLAN-FEE', name: 'Fee plan', coverageType: 1, copayAmountCents: 1000, deductibleAmountCents: 50000, oopMaxCents: 780000,
-    annualBenefitMaxCents: 0, familyDeductibleAmountCents: 0, familyOopMaxCents: 0, familyAnnualBenefitMaxCents: 0, dispensingFeeCents: 1250,
-    formularyNdcs: [ABACAVIR], networkProviderWalletIds: [], published: true, createdAt: 0, updatedAt: 0,
+    planId: 'PLAN-FEE',
+    name: 'Fee plan',
+    coverageType: 1,
+    copayAmountCents: 1000,
+    deductibleAmountCents: 50000,
+    oopMaxCents: 780000,
+    annualBenefitMaxCents: 0,
+    familyDeductibleAmountCents: 0,
+    familyOopMaxCents: 0,
+    familyAnnualBenefitMaxCents: 0,
+    dispensingFeeCents: 1250,
+    formularyNdcs: [ABACAVIR],
+    networkProviderWalletIds: [],
+    published: true,
+    createdAt: 0,
+    updatedAt: 0,
   };
   const root = buildPlanFormulary(base, getAllFormularyEntries()).root.toString();
   plan = { ...base, formularyRoot: root, networkRoot: '0', publishedTerms: publishedTermsFrom(base, root, '0', 1) };
   await node.storePlan(plan);
 
   // a member with a device, registered against the published fee plan
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED); });
-  svc.approveMember({ walletId: W, groupIdHash: hashString('GRP-FEE').toString(), planIdHash: hashString('PLAN-FEE').toString(), planId: 'PLAN-FEE', employerId: null, familyIdHash: null });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(W)), LC.LIFECYCLE_REGISTERED);
+  });
+  svc.approveMember({
+    walletId: W,
+    groupIdHash: hashString('GRP-FEE').toString(),
+    planIdHash: hashString('PLAN-FEE').toString(),
+    planId: 'PLAN-FEE',
+    employerId: null,
+    familyIdHash: null,
+  });
   await svc.registerMemberFromEnrollment({ walletId: W, ownershipProofJson: '{}', displayName: 'Fee member' });
 
   // a fixture member: PLAN-GOLD-2026, no plan record on the sequencer, eligible on the ledger
-  seq.adminMutate('test', ({ provision }: any) => { provision(Field(BigInt(FIXTURE_WALLET)), LC.LIFECYCLE_ELIGIBLE); });
+  seq.adminMutate('test', ({ provision }: any) => {
+    provision(Field(BigInt(FIXTURE_WALLET)), LC.LIFECYCLE_ELIGIBLE);
+  });
   svc.enrolledMembers.set(FIXTURE_WALLET, {
-    memberIndex: 0, walletId: Field(BigInt(FIXTURE_WALLET)), walletIdStr: FIXTURE_WALLET, displayName: 'Fixture', planId: 'PLAN-GOLD-2026',
-    eligibilityData: svc.sharedEligibilityData, lifecycle: 'ELIGIBLE', inNetworkPrescriberIndices: [0], inNetworkPharmacyIndices: [0],
+    memberIndex: 0,
+    walletId: Field(BigInt(FIXTURE_WALLET)),
+    walletIdStr: FIXTURE_WALLET,
+    displayName: 'Fixture',
+    planId: 'PLAN-GOLD-2026',
+    eligibilityData: svc.sharedEligibilityData,
+    lifecycle: 'ELIGIBLE',
+    inNetworkPrescriberIndices: [0],
+    inNetworkPharmacyIndices: [0],
   });
 });
 
@@ -112,7 +163,11 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
   test('a dispense that states its own cost is refused before any proof', async () => {
     const id = filled(W);
     const refused = svc.dispensePrescription({ prescriptionId: id, statedIngredientCostCents: 0, statedDispensingFeeCents: 1300 });
-    await expect(refused).rejects.toMatchObject({ name: 'RegistrationRefused', status: 409, message: expect.stringMatching(/does not set the price/) });
+    await expect(refused).rejects.toMatchObject({
+      name: 'RegistrationRefused',
+      status: 409,
+      message: expect.stringMatching(/does not set the price/),
+    });
     await refused.catch((e: Error) => {
       expect(e.message).toContain('$19.25');
       expect(e.message).toContain('$12.50 (plan)');
@@ -127,8 +182,10 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
     expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $12.50 (plan) = $31.75');
   });
 
-  test('stating exactly the engine\'s price is accepted', async () => {
-    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: 1925, statedDispensingFeeCents: 1250 })).rejects.toThrow('stopped after pricing');
+  test("stating exactly the engine's price is accepted", async () => {
+    await expect(
+      svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: 1925, statedDispensingFeeCents: 1250 }),
+    ).rejects.toThrow('stopped after pricing');
   });
 
   test('a fixture member pays the network default', async () => {
@@ -137,7 +194,9 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
   });
 
   test('a numeric string is refused, never added', async () => {
-    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: '1925' })).rejects.toMatchObject({ status: 409 });
+    await expect(svc.dispensePrescription({ prescriptionId: filled(W), statedIngredientCostCents: '1925' })).rejects.toMatchObject({
+      status: 409,
+    });
     expect(svc.dispatchProof).not.toHaveBeenCalled();
   });
 
@@ -147,7 +206,7 @@ describe('the engine prices the fill; the pharmacy does not set the price', () =
   });
 
   test('a fee the insurer is still drafting is not charged: the fill takes the fee the plan was published with', async () => {
-    await node.storePlan({ ...plan, dispensingFeeCents: 9999, published: false });   // an edit; the published terms stay
+    await node.storePlan({ ...plan, dispensingFeeCents: 9999, published: false }); // an edit; the published terms stay
     await expect(svc.dispensePrescription({ prescriptionId: filled(W) })).rejects.toThrow('stopped after pricing');
     expect(costLine()).toBe('  Cost: NADAC $0.64179/EA x 30 = $19.25 + dispensing fee $12.50 (plan) = $31.75');
     // published with no fee: the network default

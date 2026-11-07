@@ -42,14 +42,25 @@ import fs from 'fs';
 const NL = '\n';
 const read = (file: string): string => fs.readFileSync(file, 'utf8').replace(/\r\n/g, NL);
 
-interface Rule { selectors: string[]; decl: Record<string, string> }
+interface Rule {
+  selectors: string[];
+  decl: Record<string, string>;
+}
 /** Innermost `selector { declarations }` blocks, comments dropped; an @media wrapper is dropped, its rules kept. */
 function rulesOf(file: string): Rule[] {
   const css = read(file).replace(/\/\*[\s\S]*?\*\//g, '');
   return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-    selectors: m[1].split(',').map((x) => x.trim().replace(/\s+/g, ' ')).filter(Boolean),
-    decl: Object.fromEntries(m[2].split(';').map((d) => d.split(':')).filter((kv) => kv.length >= 2)
-      .map(([k, ...v]) => [k.trim(), v.join(':').trim()])),
+    selectors: m[1]
+      .split(',')
+      .map((x) => x.trim().replace(/\s+/g, ' '))
+      .filter(Boolean),
+    decl: Object.fromEntries(
+      m[2]
+        .split(';')
+        .map((d) => d.split(':'))
+        .filter((kv) => kv.length >= 2)
+        .map(([k, ...v]) => [k.trim(), v.join(':').trim()]),
+    ),
   }));
 }
 /** The declarations of the rules naming exactly this selector, merged in source order. */
@@ -93,7 +104,12 @@ const MODALS: Array<[string, string, string]> = [
   ['dashboard-prescriber/style.css', '.modal-overlay', '.modal-content'],
   ['dashboard-prescriber/style.css', '.badge-modal-overlay', '.badge-modal'],
 ];
-const SCREENS: Array<[number, number]> = [[1920, 1080], [1280, 720], [800, 600], [640, 360]];
+const SCREENS: Array<[number, number]> = [
+  [1920, 1080],
+  [1280, 720],
+  [800, 600],
+  [640, 360],
+];
 const ZOOMS = [1, 1.25, 1.5, 2];
 
 describe('the batch window on the network screen', () => {
@@ -103,8 +119,8 @@ describe('the batch window on the network screen', () => {
 
   test('at 1920 x 1080 and zoom 1.5 it fits, with its header and close button on screen', () => {
     const { height } = largest(overlay, modal, 1920, 1080, 1.5);
-    expect(height).toBeLessThanOrEqual(1080);                          // before: 85vh x 1.5 = 1377 px
-    expect((1080 - height) / 2).toBeGreaterThanOrEqual(0);             // the top edge of the centered window; before: -148 px
+    expect(height).toBeLessThanOrEqual(1080); // before: 85vh x 1.5 = 1377 px
+    expect((1080 - height) / 2).toBeGreaterThanOrEqual(0); // the top edge of the centered window; before: -148 px
   });
 
   test('unzoomed it is as tall as before, 85% of the screen', () => {
@@ -121,13 +137,13 @@ describe('every window fits the screen at every zoom, with a margin', () => {
   test.each(MODALS)('%s %s', (file, overlaySelector, modalSelector) => {
     const rules = rulesOf(file);
     const overlay = decl(rules, overlaySelector);
-    expect(overlay).toMatchObject({ position: 'fixed', inset: '0', display: 'flex' });   // a percentage reads the screen
+    expect(overlay).toMatchObject({ position: 'fixed', inset: '0', display: 'flex' }); // a percentage reads the screen
     const modal = decl(rules, modalSelector);
     for (const [w, h] of SCREENS) {
       for (const zoom of ZOOMS) {
         const { height, width } = largest(overlay, modal, w, h, zoom);
-        if (height !== Infinity) expect([w, h, zoom, 'height', height < h]).toEqual([w, h, zoom, 'height', true]);   // before: 85vh, 80vh run off the screen
-        expect([w, h, zoom, 'width', width < w]).toEqual([w, h, zoom, 'width', true]);    // before: 90vw, 95vw touch its sides
+        if (height !== Infinity) expect([w, h, zoom, 'height', height < h]).toEqual([w, h, zoom, 'height', true]); // before: 85vh, 80vh run off the screen
+        expect([w, h, zoom, 'width', width < w]).toEqual([w, h, zoom, 'width', true]); // before: 90vw, 95vw touch its sides
       }
     }
   });
@@ -142,8 +158,9 @@ describe('every window fits the screen at every zoom, with a margin', () => {
         for (const p of sized) if (viewport.test(r.decl[p] || '')) found.push(`${page} ${r.selectors.join(', ')} ${p}: ${r.decl[p]}`);
       }
       // a window built in script, with its size in an inline style
-      for (const m of read(`dashboard-${page}/app.js`).matchAll(/max-(?:height|width):\s*[\d.]+(?:vh|vw)/g)) found.push(`${page} app.js ${m[0]}`);
+      for (const m of read(`dashboard-${page}/app.js`).matchAll(/max-(?:height|width):\s*[\d.]+(?:vh|vw)/g))
+        found.push(`${page} app.js ${m[0]}`);
     }
-    expect(found).toEqual([]);   // before: the batch window, the script window, the compose window, both badge windows, the witness window
+    expect(found).toEqual([]); // before: the batch window, the script window, the compose window, both badge windows, the witness window
   });
 });

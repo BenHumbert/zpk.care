@@ -14,17 +14,8 @@
  * limitations under the License.
  */
 
-import {
-  Field,
-  Poseidon,
-  MerkleTree,
-  Mina,
-  PrivateKey,
-  AccountUpdate,
-} from 'o1js';
-import {
-  CareContract,
-} from '../src/engine/care-contract.js';
+import { Field, Poseidon, MerkleTree, Mina, PrivateKey, AccountUpdate } from 'o1js';
+import { CareContract } from '../src/engine/care-contract.js';
 import {
   LifecycleWitness,
   LIFECYCLE_EMPTY,
@@ -35,18 +26,9 @@ import {
   lifecycleLeafCommitment,
   isValidTransition,
 } from '../src/engine/lifecycle.js';
-import {
-  EMPTY_CREDENTIAL_ROOT,
-} from '../src/engine/state-transition.js';
-import {
-  WalletState,
-  WalletRegistryWitness,
-  WALLET_TREE_HEIGHT,
-} from '../src/wallets/wallet-state.js';
-import {
-  deriveMemberWalletId,
-  derivePrescriberWalletId,
-} from '../src/wallets/index.js';
+import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { WalletState, WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import { deriveMemberWalletId, derivePrescriberWalletId } from '../src/wallets/index.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import { fixtureIdentitySalt } from '../src/data/index.js';
@@ -91,7 +73,6 @@ function getLifecycleWitness(index: bigint): LifecycleWitness {
 // ─── Tests ───────────────────────────────────────────────
 
 describe('Layer 3 — zkApp Core Engine', () => {
-
   // ═══ Pure unit tests (no blockchain) ═══════════════════
 
   describe('Lifecycle Constants', () => {
@@ -223,32 +204,21 @@ describe('Layer 3 — zkApp Core Engine', () => {
 
     test('initializes contract state', async () => {
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
 
-      expect(contract.walletRegistryRoot.get().toString())
-        .toBe(registryTree.getRoot().toString());
+      expect(contract.walletRegistryRoot.get().toString()).toBe(registryTree.getRoot().toString());
       expect(contract.walletCount.get().toString()).toBe('0');
-      expect(contract.adminPublicKeyHash.get().toString())
-        .toBe(adminPkHash.toString());
-      expect(contract.lifecycleRoot.get().toString())
-        .toBe(lifecycleTree.getRoot().toString());
+      expect(contract.adminPublicKeyHash.get().toString()).toBe(adminPkHash.toString());
+      expect(contract.lifecycleRoot.get().toString()).toBe(lifecycleTree.getRoot().toString());
     });
 
     test('rejects double initialization', async () => {
       await expect(async () => {
         const tx = await Mina.transaction(admin, async () => {
-          await contract.initState(
-            adminPkHash,
-            registryTree.getRoot(),
-            lifecycleTree.getRoot(),
-          );
+          await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
         });
         await tx.prove();
         await tx.sign([admin.key]).send();
@@ -290,11 +260,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await deployTx.sign([deployer.key, contractKey]).send();
 
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
@@ -314,17 +280,12 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Mirror off-chain state
       const walletState = WalletState.init(memberWalletId);
       registryTree.setLeaf(index, walletState.commitment());
-      lifecycleTree.setLeaf(
-        index,
-        lifecycleLeafCommitment(memberWalletId, LIFECYCLE_REGISTERED),
-      );
+      lifecycleTree.setLeaf(index, lifecycleLeafCommitment(memberWalletId, LIFECYCLE_REGISTERED));
       nextIndex++;
 
-      expect(contract.walletRegistryRoot.get().toString())
-        .toBe(registryTree.getRoot().toString());
+      expect(contract.walletRegistryRoot.get().toString()).toBe(registryTree.getRoot().toString());
       expect(contract.walletCount.get().toString()).toBe('1');
-      expect(contract.lifecycleRoot.get().toString())
-        .toBe(lifecycleTree.getRoot().toString());
+      expect(contract.lifecycleRoot.get().toString()).toBe(lifecycleTree.getRoot().toString());
     });
 
     test('registers a second (prescriber) wallet', async () => {
@@ -341,10 +302,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Mirror off-chain
       const walletState = WalletState.init(prescriberWalletId);
       registryTree.setLeaf(index, walletState.commitment());
-      lifecycleTree.setLeaf(
-        index,
-        lifecycleLeafCommitment(prescriberWalletId, LIFECYCLE_REGISTERED),
-      );
+      lifecycleTree.setLeaf(index, lifecycleLeafCommitment(prescriberWalletId, LIFECYCLE_REGISTERED));
       nextIndex++;
 
       expect(contract.walletCount.get().toString()).toBe('2');
@@ -412,11 +370,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await deployTx.sign([deployer.key, contractKey]).send();
 
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
@@ -433,58 +387,37 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Mirror
       const walletState = WalletState.init(walletId);
       registryTree.setLeaf(walletIndex, walletState.commitment());
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED));
     });
 
     test('transitions REGISTERED → ELIGIBLE', async () => {
       const lcWitness = getLifecycleWitness(walletIndex);
 
       const tx = await Mina.transaction(admin, async () => {
-        await contract.updateLifecycle(
-          walletId,
-          LIFECYCLE_REGISTERED,
-          LIFECYCLE_ELIGIBLE,
-          lcWitness,
-        );
+        await contract.updateLifecycle(walletId, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, lcWitness);
       });
       await tx.prove();
       await tx.sign([admin.key]).send();
 
       // Mirror
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
 
-      expect(contract.lifecycleRoot.get().toString())
-        .toBe(lifecycleTree.getRoot().toString());
+      expect(contract.lifecycleRoot.get().toString()).toBe(lifecycleTree.getRoot().toString());
     });
 
     test('transitions ELIGIBLE → ACTIVE', async () => {
       const lcWitness = getLifecycleWitness(walletIndex);
 
       const tx = await Mina.transaction(admin, async () => {
-        await contract.updateLifecycle(
-          walletId,
-          LIFECYCLE_ELIGIBLE,
-          LIFECYCLE_ACTIVE,
-          lcWitness,
-        );
+        await contract.updateLifecycle(walletId, LIFECYCLE_ELIGIBLE, LIFECYCLE_ACTIVE, lcWitness);
       });
       await tx.prove();
       await tx.sign([admin.key]).send();
 
       // Mirror
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_ACTIVE),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_ACTIVE));
 
-      expect(contract.lifecycleRoot.get().toString())
-        .toBe(lifecycleTree.getRoot().toString());
+      expect(contract.lifecycleRoot.get().toString()).toBe(lifecycleTree.getRoot().toString());
     });
 
     test('rejects invalid skip REGISTERED → ACTIVE', async () => {
@@ -503,22 +436,14 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Mirror
       const ws = WalletState.init(newWalletId);
       registryTree.setLeaf(newIndex, ws.commitment());
-      lifecycleTree.setLeaf(
-        newIndex,
-        lifecycleLeafCommitment(newWalletId, LIFECYCLE_REGISTERED),
-      );
+      lifecycleTree.setLeaf(newIndex, lifecycleLeafCommitment(newWalletId, LIFECYCLE_REGISTERED));
 
       // Try invalid transition: REGISTERED → ACTIVE (should be REGISTERED → ELIGIBLE)
       const lcWitness2 = getLifecycleWitness(newIndex);
 
       await expect(async () => {
         const tx = await Mina.transaction(admin, async () => {
-          await contract.updateLifecycle(
-            newWalletId,
-            LIFECYCLE_REGISTERED,
-            LIFECYCLE_ACTIVE,
-            lcWitness2,
-          );
+          await contract.updateLifecycle(newWalletId, LIFECYCLE_REGISTERED, LIFECYCLE_ACTIVE, lcWitness2);
         });
         await tx.prove();
         await tx.sign([admin.key]).send();
@@ -530,12 +455,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
 
       await expect(async () => {
         const tx = await Mina.transaction(nonAdmin, async () => {
-          await contract.updateLifecycle(
-            walletId,
-            LIFECYCLE_ACTIVE,
-            LIFECYCLE_REVOKED,
-            lcWitness,
-          );
+          await contract.updateLifecycle(walletId, LIFECYCLE_ACTIVE, LIFECYCLE_REVOKED, lcWitness);
         });
         await tx.prove();
         await tx.sign([nonAdmin.key]).send();
@@ -578,11 +498,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await deployTx.sign([deployer.key, contractKey]).send();
 
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
@@ -598,10 +514,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
 
       const walletState = WalletState.init(walletId);
       registryTree.setLeaf(walletIndex, walletState.commitment());
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED));
 
       currentCredentialRoot = EMPTY_CREDENTIAL_ROOT;
       currentNonce = Field(0);
@@ -609,16 +522,11 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Advance lifecycle to ELIGIBLE (needed for active state testing)
       const lcW1 = getLifecycleWitness(walletIndex);
       const lcTx1 = await Mina.transaction(admin, async () => {
-        await contract.updateLifecycle(
-          walletId, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, lcW1,
-        );
+        await contract.updateLifecycle(walletId, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE, lcW1);
       });
       await lcTx1.prove();
       await lcTx1.sign([admin.key]).send();
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
     });
 
     test('updates wallet credential inventory root', async () => {
@@ -650,8 +558,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       currentCredentialRoot = newCredentialRoot;
       currentNonce = newNonce;
 
-      expect(contract.walletRegistryRoot.get().toString())
-        .toBe(registryTree.getRoot().toString());
+      expect(contract.walletRegistryRoot.get().toString()).toBe(registryTree.getRoot().toString());
     });
 
     test('rejects update with wrong nonce', async () => {
@@ -683,16 +590,11 @@ describe('Layer 3 — zkApp Core Engine', () => {
       // Revoke the wallet: ELIGIBLE → REVOKED
       const lcW = getLifecycleWitness(walletIndex);
       const revokeTx = await Mina.transaction(admin, async () => {
-        await contract.updateLifecycle(
-          walletId, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED, lcW,
-        );
+        await contract.updateLifecycle(walletId, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED, lcW);
       });
       await revokeTx.prove();
       await revokeTx.sign([admin.key]).send();
-      lifecycleTree.setLeaf(
-        walletIndex,
-        lifecycleLeafCommitment(walletId, LIFECYCLE_REVOKED),
-      );
+      lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_REVOKED));
 
       // Now try to update wallet state — should fail
       const newCredentialRoot = Poseidon.hash([Field(5)]);
@@ -749,11 +651,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await deployTx.sign([deployer.key, contractKey]).send();
 
       const initTx = await Mina.transaction(admin, async () => {
-        await contract.initState(
-          adminPkHash,
-          registryTree.getRoot(),
-          lifecycleTree.getRoot(),
-        );
+        await contract.initState(adminPkHash, registryTree.getRoot(), lifecycleTree.getRoot());
       });
       await initTx.prove();
       await initTx.sign([admin.key]).send();
@@ -768,8 +666,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       await tx.prove();
       await tx.sign([admin.key]).send();
 
-      expect(contract.adminPublicKeyHash.get().toString())
-        .toBe(newAdminPkHash.toString());
+      expect(contract.adminPublicKeyHash.get().toString()).toBe(newAdminPkHash.toString());
     });
 
     test('new admin can perform admin operations', async () => {

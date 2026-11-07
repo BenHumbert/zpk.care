@@ -79,8 +79,8 @@ describe('the CORS list', () => {
 
   test('grants the explorer where it moved to, and stops granting 8000', () => {
     const origins = resolveAllowedOrigins({ ZKTRIDENT_EXPLORER_PORT: '8010' }, { role: 'test' });
-    for (const origin of at(8010)) expect([origin, origins.includes(origin)]).toEqual([origin, true]);    // before: refused
-    for (const origin of at(8000)) expect([origin, origins.includes(origin)]).toEqual([origin, false]);   // before: granted
+    for (const origin of at(8010)) expect([origin, origins.includes(origin)]).toEqual([origin, true]); // before: refused
+    for (const origin of at(8000)) expect([origin, origins.includes(origin)]).toEqual([origin, false]); // before: granted
     expect(origins).toContain('http://localhost:4001');
   });
 
@@ -98,13 +98,13 @@ describe('the whole-network launcher', () => {
   const boot = read('src/nodes/start-leviathan.ts');
 
   test('reads the explorer port once, at boot, through resolveExplorerPort', () => {
-    expect(boot).toContain('const explorerPort = resolveExplorerPort(env);');   // before: no such line
+    expect(boot).toContain('const explorerPort = resolveExplorerPort(env);'); // before: no such line
   });
 
   test('starts the explorer, opens the browser and reports on that port, never on a fixed 8000', () => {
-    expect(boot).toContain('ZKTRIDENT_EXPLORER_PORT: String(explorerPort)');   // before: ZKTRIDENT_EXPLORER_PORT: '8000'
-    expect(boot).toContain('`http://localhost:${explorerPort}/`');            // before: `http://localhost:8000/`
-    expect(boot).toContain("{ name: 'explorer', child, port: explorerPort }");  // before: port: 8000
+    expect(boot).toContain('ZKTRIDENT_EXPLORER_PORT: String(explorerPort)'); // before: ZKTRIDENT_EXPLORER_PORT: '8000'
+    expect(boot).toContain('`http://localhost:${explorerPort}/`'); // before: `http://localhost:8000/`
+    expect(boot).toContain("{ name: 'explorer', child, port: explorerPort }"); // before: port: 8000
     expect(boot).not.toContain("ZKTRIDENT_EXPLORER_PORT: '8000'");
     expect(boot).not.toContain('localhost:8000');
     expect(boot).not.toContain('port: 8000');
@@ -124,26 +124,37 @@ describe('the scripts that call the explorer', () => {
     'scripts/bootstrap-system.ts',
   ])('%s calls it on ZKTRIDENT_EXPLORER_PORT', (rel) => {
     const src = read(rel);
-    expect(src).toContain('ZKTRIDENT_EXPLORER_PORT');   // before: absent
+    expect(src).toContain('ZKTRIDENT_EXPLORER_PORT'); // before: absent
     expect(src).not.toContain('localhost:8000');
     expect(src).not.toMatch(/port === 8000|explorer: 8000|,8000'/);
   });
 
   test('the dev stop script counts the explorer where it is', () => {
     const ps1 = read('scripts/dev/kill-zpk.ps1');
-    expect(ps1).toContain('$env:ZKTRIDENT_EXPLORER_PORT');   // before: a fixed 8000 in its port list
+    expect(ps1).toContain('$env:ZKTRIDENT_EXPLORER_PORT'); // before: a fixed 8000 in its port list
   });
 });
 
 describe('the explorer launcher', () => {
-  interface Run { child: ChildProcess; output: string; closed: Promise<void>; exitCode: number | null; listening: boolean }
+  interface Run {
+    child: ChildProcess;
+    output: string;
+    closed: Promise<void>;
+    exitCode: number | null;
+    listening: boolean;
+  }
   const runs: Run[] = [];
 
   afterAll(async () => {
     for (const run of runs) {
       if (run.child.exitCode === null && run.child.signalCode === null) run.child.kill();
       let timer: NodeJS.Timeout | undefined;
-      await Promise.race([run.closed, new Promise<void>((resolve) => { timer = setTimeout(resolve, 5000); })]);
+      await Promise.race([
+        run.closed,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, 5000);
+        }),
+      ]);
       clearTimeout(timer);
     }
   });
@@ -167,17 +178,31 @@ describe('the explorer launcher', () => {
     env.ZKTRIDENT_EXPLORER_PORT = portSetting;
     env.ZKTRIDENT_SEQUENCER_URL = `http://127.0.0.1:${await freePort()}`;
     const child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'src', 'nodes', 'start-explorer.ts')], {
-      cwd: REPO, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+      cwd: REPO,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
     const run: Run = { child, output: '', closed, exitCode: null, listening: false };
     runs.push(run);
-    child.stdout?.on('data', (d: Buffer) => { run.output += d.toString(); });
-    child.stderr?.on('data', (d: Buffer) => { run.output += d.toString(); });
+    child.stdout?.on('data', (d: Buffer) => {
+      run.output += d.toString();
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      run.output += d.toString();
+    });
     const deadline = Date.now() + 90_000;
     for (;;) {
-      if (run.output.includes('Explorer:      http://localhost:')) { run.listening = true; return run; }
-      if (child.exitCode !== null) { await run.closed; run.exitCode = child.exitCode; return run; }
+      if (run.output.includes('Explorer:      http://localhost:')) {
+        run.listening = true;
+        return run;
+      }
+      if (child.exitCode !== null) {
+        await run.closed;
+        run.exitCode = child.exitCode;
+        return run;
+      }
       if (Date.now() > deadline) throw new Error(`the explorer neither exited nor served:\n${run.output}`);
       await new Promise((r) => setTimeout(r, 100));
     }
@@ -204,7 +229,7 @@ describe('the explorer launcher', () => {
 
   test('exits at boot on a port setting that is not a port, and names the variable', async () => {
     const run = await launch('80x');
-    expect(run.listening).toBe(false);    // before: parseInt read '80x' as 80 and tried to serve there
+    expect(run.listening).toBe(false); // before: parseInt read '80x' as 80 and tried to serve there
     expect(run.exitCode).toBe(1);
     expect(run.output).toContain(`${REFUSAL}, not "80x"`);
   });
@@ -217,7 +242,7 @@ describe('the explorer launcher', () => {
       const run = await launch(String(port));
       expect(run.listening).toBe(false);
       expect(run.exitCode).toBe(1);
-      expect(run.output).toContain(`[FATAL] explorer: port ${port} is already in use by another program.`);   // before: an unhandled 'error' event
+      expect(run.output).toContain(`[FATAL] explorer: port ${port} is already in use by another program.`); // before: an unhandled 'error' event
       expect(run.output).toContain('Set ZKTRIDENT_EXPLORER_PORT to a free port');
     } finally {
       await new Promise<void>((resolve) => holder.close(() => resolve()));

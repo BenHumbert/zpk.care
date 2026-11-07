@@ -31,15 +31,7 @@
  * Zero external dependencies — Node.js crypto only.
  */
 
-import {
-  sign,
-  verify,
-  generateKeyPairSync,
-  createPrivateKey,
-  createPublicKey,
-  createHash,
-  type KeyObject,
-} from 'crypto';
+import { sign, verify, generateKeyPairSync, createPrivateKey, createPublicKey, createHash, type KeyObject } from 'crypto';
 
 import type { StateDigest } from './l2-peer-types.js';
 import type {
@@ -51,22 +43,29 @@ import type {
   StateCertSignature,
   PartitionDigest,
 } from './l2-quorum-types.js';
-import {
-  buildQuorumVoteMessage,
-  buildStateCertMessage,
-} from './l2-quorum-types.js';
+import { buildQuorumVoteMessage, buildStateCertMessage } from './l2-quorum-types.js';
 
 // ─── Ed25519 DER Helpers ────────────────────────────────
 // Same pattern as src/credentials/nfc-attestation.ts lines 108-144
 
 /** PKCS8 DER prefix for Ed25519 private key (32-byte seed follows) */
 const ED25519_PKCS8_PREFIX = Buffer.from([
-  0x30, 0x2e,       // SEQUENCE (46 bytes)
-  0x02, 0x01, 0x00, // INTEGER 0 (version)
-  0x30, 0x05,       // SEQUENCE (5 bytes)
-  0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-  0x04, 0x22,       // OCTET STRING (34 bytes)
-  0x04, 0x20,       // OCTET STRING (32 bytes) — the raw seed
+  0x30,
+  0x2e, // SEQUENCE (46 bytes)
+  0x02,
+  0x01,
+  0x00, // INTEGER 0 (version)
+  0x30,
+  0x05, // SEQUENCE (5 bytes)
+  0x06,
+  0x03,
+  0x2b,
+  0x65,
+  0x70, // OID 1.3.101.112 (Ed25519)
+  0x04,
+  0x22, // OCTET STRING (34 bytes)
+  0x04,
+  0x20, // OCTET STRING (32 bytes) — the raw seed
 ]);
 
 /** Build an Ed25519 KeyObject from a 32-byte seed */
@@ -84,10 +83,18 @@ export function extractRawPublicKey(publicKey: KeyObject): Buffer {
 /** Build an Ed25519 public KeyObject from raw 32 bytes */
 export function ed25519PublicKeyFromRaw(raw: Buffer): KeyObject {
   const spkiPrefix = Buffer.from([
-    0x30, 0x2a,       // SEQUENCE (42 bytes)
-    0x30, 0x05,       // SEQUENCE (5 bytes)
-    0x06, 0x03, 0x2b, 0x65, 0x70, // OID 1.3.101.112 (Ed25519)
-    0x03, 0x21, 0x00, // BIT STRING (33 bytes, 0 unused bits)
+    0x30,
+    0x2a, // SEQUENCE (42 bytes)
+    0x30,
+    0x05, // SEQUENCE (5 bytes)
+    0x06,
+    0x03,
+    0x2b,
+    0x65,
+    0x70, // OID 1.3.101.112 (Ed25519)
+    0x03,
+    0x21,
+    0x00, // BIT STRING (33 bytes, 0 unused bits)
   ]);
   return createPublicKey({
     key: Buffer.concat([spkiPrefix, raw]),
@@ -172,10 +179,12 @@ export class L2QuorumService {
         if (pending) {
           this.pending.delete(proposal.proposalId);
           const voteCount = pending.votes.size;
-          reject(new Error(
-            `Quorum timeout: ${voteCount}/${pending.quorumThreshold} votes collected ` +
-            `for proposal ${proposal.proposalId} after ${this.config.quorumTimeoutMs}ms`,
-          ));
+          reject(
+            new Error(
+              `Quorum timeout: ${voteCount}/${pending.quorumThreshold} votes collected ` +
+                `for proposal ${proposal.proposalId} after ${this.config.quorumTimeoutMs}ms`,
+            ),
+          );
         }
       }, this.config.quorumTimeoutMs);
 
@@ -307,11 +316,7 @@ export class L2QuorumService {
    * Signs the state digest with this node's Ed25519 key.
    * Returns a partial certificate — other leviathans add their signatures.
    */
-  createStateCertificate(
-    batchNumber: bigint,
-    partitionIndex: number,
-    digest: StateDigest,
-  ): StateCertificate {
+  createStateCertificate(batchNumber: bigint, partitionIndex: number, digest: StateDigest): StateCertificate {
     const stateDigestHash = computeStateDigestHash(digest);
     const timestamp = Date.now();
 
@@ -331,11 +336,13 @@ export class L2QuorumService {
       partitionIndex,
       stateDigest: digest,
       stateDigestHash,
-      signatures: [{
-        nodeId: this.getNodeId(),
-        signature: signature.toString('hex'),
-        publicKeyHex: this.config.publicKeyHex,
-      }],
+      signatures: [
+        {
+          nodeId: this.getNodeId(),
+          signature: signature.toString('hex'),
+          publicKeyHex: this.config.publicKeyHex,
+        },
+      ],
       createdAt: timestamp,
     };
 

@@ -15,10 +15,7 @@
  */
 
 import { Field, MerkleTree } from 'o1js';
-import {
-  CREDENTIAL_INVENTORY_HEIGHT,
-  CredentialInventoryWitness,
-} from '../wallets/wallet-state.js';
+import { CREDENTIAL_INVENTORY_HEIGHT, CredentialInventoryWitness } from '../wallets/wallet-state.js';
 import { CredentialData } from './credential-data.js';
 
 /** Maximum number of credentials per wallet (2^(height-1) = 2^6 = 64) */
@@ -67,9 +64,7 @@ export class CredentialInventory {
    */
   mint(credential: CredentialData): { index: bigint; newRoot: Field } {
     if (this.nextIndex >= BigInt(MAX_CREDENTIALS)) {
-      throw new Error(
-        `Credential inventory full: cannot exceed ${MAX_CREDENTIALS} credentials per wallet`,
-      );
+      throw new Error(`Credential inventory full: cannot exceed ${MAX_CREDENTIALS} credentials per wallet`);
     }
 
     const index = this.nextIndex++;

@@ -28,21 +28,12 @@ import path from 'path';
 import { Field, MerkleTree, Poseidon } from 'o1js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
 import { L2Node } from '../src/l2/l2-node.js';
-import {
-  L2CheckpointStore,
-  CHECKPOINT_VERSION,
-} from '../src/l2/l2-checkpoint.js';
-import type {
-  L2Checkpoint,
-} from '../src/l2/l2-checkpoint.js';
+import { L2CheckpointStore, CHECKPOINT_VERSION } from '../src/l2/l2-checkpoint.js';
+import type { L2Checkpoint } from '../src/l2/l2-checkpoint.js';
 import { l2Stringify, l2Parse } from '../src/l2/l2-json.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
-import {
-  WALLET_TREE_HEIGHT, CREDENTIAL_INVENTORY_HEIGHT, WalletState, WalletRegistryWitness,
-} from '../src/wallets/wallet-state.js';
-import {
-  LifecycleWitness, lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE,
-} from '../src/engine/lifecycle.js';
+import { WALLET_TREE_HEIGHT, CREDENTIAL_INVENTORY_HEIGHT, WalletState, WalletRegistryWitness } from '../src/wallets/wallet-state.js';
+import { LifecycleWitness, lifecycleLeafCommitment, LIFECYCLE_REGISTERED, LIFECYCLE_ELIGIBLE } from '../src/engine/lifecycle.js';
 import { TransitionOutput } from '../src/engine/state-transition.js';
 import { AuditService } from '../src/audit/audit-service.js';
 import type { L2Receipt, L2Block, L2Batch, AdminStateDelta } from '../src/l2/l2-types.js';
@@ -190,9 +181,7 @@ describe('L2CheckpointStore', () => {
 
     expect(loaded.version).toBe(CHECKPOINT_VERSION);
     expect(loaded.trigger).toBe('batch_settled');
-    expect(loaded.sequencerState.currentRegistryRoot).toBe(
-      original.sequencerState.currentRegistryRoot,
-    );
+    expect(loaded.sequencerState.currentRegistryRoot).toBe(original.sequencerState.currentRegistryRoot);
     expect(loaded.nodeStats.totalProofsAccepted).toBe(3);
   });
 
@@ -367,12 +356,7 @@ describe('L2SequencerService — Export / Restore', () => {
 
   beforeEach(() => {
     store = new InMemoryStore();
-    service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
   });
 
@@ -398,9 +382,7 @@ describe('L2SequencerService — Export / Restore', () => {
 
   test('exportState captures latestChainHash as genesis', () => {
     const state = service.exportState();
-    expect(state.latestChainHash).toBe(
-      Field(BigInt(AuditService.GENESIS_HASH)).toString(),
-    );
+    expect(state.latestChainHash).toBe(Field(BigInt(AuditService.GENESIS_HASH)).toString());
   });
 
   test('restoreState uses lastSettled roots when no in-flight batch', () => {
@@ -539,12 +521,7 @@ describe('L2SequencerService — Export / Restore', () => {
     // Export → restore into a new service → export again
     const state1 = service.exportState();
 
-    const service2 = new L2SequencerService(
-      new InMemoryStore(),
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const service2 = new L2SequencerService(new InMemoryStore(), INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service2.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
     service2.restoreState(state1);
     const state2 = service2.exportState();
@@ -621,9 +598,7 @@ describe('L2Node — Checkpoint Integration', () => {
     expect(checkpoint.trigger).toBe('manual');
     expect(checkpoint.lastSettledBatchNumber).toBeNull();
     expect(checkpoint.sequencerState).toBeDefined();
-    expect(checkpoint.sequencerState.currentRegistryRoot).toBe(
-      INITIAL_REG_ROOT.toString(),
-    );
+    expect(checkpoint.sequencerState.currentRegistryRoot).toBe(INITIAL_REG_ROOT.toString());
     expect(checkpoint.nodeStats).toBeDefined();
     expect(checkpoint.nodeStats.totalProofsAccepted).toBe(0);
     expect(checkpoint.nodeStats.totalBatchesBuilt).toBe(0);
@@ -665,12 +640,8 @@ describe('L2Node — Checkpoint Integration', () => {
     node.restoreFromCheckpoint(checkpoint);
 
     const seq = node.getSequencer();
-    expect(seq.getCurrentRegistryRoot().toString()).toBe(
-      checkpoint.sequencerState.currentRegistryRoot,
-    );
-    expect(seq.getCurrentLifecycleRoot().toString()).toBe(
-      checkpoint.sequencerState.currentLifecycleRoot,
-    );
+    expect(seq.getCurrentRegistryRoot().toString()).toBe(checkpoint.sequencerState.currentRegistryRoot);
+    expect(seq.getCurrentLifecycleRoot().toString()).toBe(checkpoint.sequencerState.currentLifecycleRoot);
     expect(seq.getCurrentWalletCount().toString()).toBe('2');
     expect(seq.getReceipt('l2-00000000')).toBeDefined();
     expect(seq.getBlock(0n)).toBeDefined();
@@ -689,9 +660,7 @@ describe('L2Node — Checkpoint Integration', () => {
     expect(status.totalProofsAccepted).toBe(3);
     expect(status.totalBatchesBuilt).toBe(1);
     expect(status.totalBatchesSettled).toBe(1);
-    expect(status.currentRegistryRoot).toBe(
-      checkpoint.sequencerState.currentRegistryRoot,
-    );
+    expect(status.currentRegistryRoot).toBe(checkpoint.sequencerState.currentRegistryRoot);
   });
 
   test('fromCheckpoint accepts custom options', () => {
@@ -992,12 +961,7 @@ describe('Full Crash Recovery', () => {
 describe('C6 Fix: Crash Recovery Root Consistency', () => {
   test('recovery resets current roots to lastSettled when no in-flight batch', () => {
     const store = new InMemoryStore();
-    const service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Simulate: checkpoint was taken during graceful shutdown with
@@ -1006,10 +970,10 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
     service.restoreState({
       currentRegistryRoot: Field(9999).toString(), // Advanced past L1
       currentLifecycleRoot: Field(8888).toString(), // Advanced past L1
-      currentWalletCount: '10',                     // Advanced past L1
+      currentWalletCount: '10', // Advanced past L1
       lastSettledRegistryRoot: Field(1111).toString(), // Matches L1
       lastSettledLifecycleRoot: Field(2222).toString(), // Matches L1
-      lastSettledWalletCount: '5',                     // Matches L1
+      lastSettledWalletCount: '5', // Matches L1
       nextSequenceNumber: 5n,
       nextBlockNumber: 1n,
       nextBatchNumber: 1n,
@@ -1032,12 +996,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
 
   test('recovery uses in-flight batch new roots when batch exists', () => {
     const store = new InMemoryStore();
-    const service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // In-flight batch transitions from lastSettled to batch.newRoots
@@ -1051,7 +1010,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
     service.restoreState({
       currentRegistryRoot: Field(9999).toString(), // Stale advanced
       currentLifecycleRoot: Field(8888).toString(), // Stale advanced
-      currentWalletCount: '20',                     // Stale advanced
+      currentWalletCount: '20', // Stale advanced
       lastSettledRegistryRoot: Field(1111).toString(),
       lastSettledLifecycleRoot: Field(2222).toString(),
       lastSettledWalletCount: '3',
@@ -1078,12 +1037,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
 
   test('backward compat: restoreState without lastSettled fields uses current roots', () => {
     const store = new InMemoryStore();
-    const service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Old checkpoint format — no lastSettled fields
@@ -1112,12 +1066,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
 
   test('exportState includes lastSettled fields', () => {
     const store = new InMemoryStore();
-    const service = new L2SequencerService(
-      store,
-      Field(1000),
-      Field(2000),
-      Field(5),
-    );
+    const service = new L2SequencerService(store, Field(1000), Field(2000), Field(5));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     const state = service.exportState();
@@ -1130,12 +1079,7 @@ describe('C6 Fix: Crash Recovery Root Consistency', () => {
 
   test('markBatchSettled updates lastSettled roots', () => {
     const store = new InMemoryStore();
-    const service = new L2SequencerService(
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const service = new L2SequencerService(store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     service.setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-checkpoint.test.ts'));
 
     // Restore with a batched (in-flight) batch
@@ -1196,9 +1140,7 @@ describe('Checkpoint Edge Cases', () => {
 
     expect(loaded!.sequencerState.inFlightBatchNumber).toBe(1n);
     expect(loaded!.sequencerState.batches).toHaveLength(2);
-    const recoveredInFlight = loaded!.sequencerState.batches.find(
-      (b) => b.batchNumber === 1n,
-    );
+    const recoveredInFlight = loaded!.sequencerState.batches.find((b) => b.batchNumber === 1n);
     expect(recoveredInFlight).toBeDefined();
     expect(recoveredInFlight!.l1Status).toBe('batched');
     expect(recoveredInFlight!.batchProofJson).toBe('{"proof":"mock"}');
@@ -1267,9 +1209,7 @@ describe('Checkpoint Edge Cases', () => {
     expect(loaded!.sequencerState.nextSequenceNumber).toBe(100n);
 
     // Verify specific receipt
-    const r50 = loaded!.sequencerState.receipts.find(
-      (r) => r.receiptId === 'l2-00000050',
-    );
+    const r50 = loaded!.sequencerState.receipts.find((r) => r.receiptId === 'l2-00000050');
     expect(r50).toBeDefined();
     expect(r50!.sequenceNumber).toBe(50n);
   });
@@ -1311,13 +1251,19 @@ describe('Wallet States (option A, step 1)', () => {
   function deviceProof(walletId: Field, before: { reg: Field; lc: Field }, after: { reg: Field; lc: Field }) {
     const publicOutput = new TransitionOutput({
       walletId,
-      oldRegistryRoot: before.reg, newRegistryRoot: after.reg,
-      oldLifecycleRoot: before.lc, newLifecycleRoot: after.lc,
+      oldRegistryRoot: before.reg,
+      newRegistryRoot: after.reg,
+      oldLifecycleRoot: before.lc,
+      newLifecycleRoot: after.lc,
     });
     return {
       publicOutput,
-      verify() { /* no-op, as in o1js outside a circuit */ },
-      toJSON() { return { publicOutput: TransitionOutput.toJSON(publicOutput) }; },
+      verify() {
+        /* no-op, as in o1js outside a circuit */
+      },
+      toJSON() {
+        return { publicOutput: TransitionOutput.toJSON(publicOutput) };
+      },
     } as any;
   }
 
@@ -1327,7 +1273,9 @@ describe('Wallet States (option A, step 1)', () => {
     const w = seq.getRegistrationWitnesses();
     const after = {
       reg: WalletRegistryWitness.fromJSON(JSON.parse(w.registryWitnessJson)).calculateRoot(WalletState.init(walletId).commitment()),
-      lc: LifecycleWitness.fromJSON(JSON.parse(w.lifecycleWitnessJson)).calculateRoot(lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED)),
+      lc: LifecycleWitness.fromJSON(JSON.parse(w.lifecycleWitnessJson)).calculateRoot(
+        lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED),
+      ),
     };
     await seq.submitProof(deviceProof(walletId, roots(seq), after));
   }
@@ -1337,10 +1285,9 @@ describe('Wallet States (option A, step 1)', () => {
     const next = new WalletState({ walletId, credentialInventoryRoot, nonce: Field(BigInt(current.nonce)).add(1) });
     const witness = WalletRegistryWitness.fromJSON(JSON.parse(seq.getWalletWitnesses(walletId.toString()).registryWitnessJson));
     const before = roots(seq);
-    await seq.submitProof(
-      deviceProof(walletId, before, { reg: witness.calculateRoot(next.commitment()), lc: before.lc }),
-      { newCredentialInventoryRoot: credentialInventoryRoot.toString() } as any,
-    );
+    await seq.submitProof(deviceProof(walletId, before, { reg: witness.calculateRoot(next.commitment()), lc: before.lc }), {
+      newCredentialInventoryRoot: credentialInventoryRoot.toString(),
+    } as any);
   }
 
   /** The proving pool's prepare and finalize, with a stand-in for the worker's result. */

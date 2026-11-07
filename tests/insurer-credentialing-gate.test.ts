@@ -124,7 +124,10 @@ const unique = (): string => withCheckDigit(String(nextNine++));
 
 let callers = 0;
 /** A loopback address no request in this file has come from yet, which the insurer node counts as a source of its own. */
-const nextCaller = (): string => { const n = callers++; return `127.1.${Math.floor(n / 250)}.${(n % 250) + 1}`; };
+const nextCaller = (): string => {
+  const n = callers++;
+  return `127.1.${Math.floor(n / 250)}.${(n % 250) + 1}`;
+};
 
 /**
  * The tests that need sources of their own. Windows and Linux route all of 127.0.0.0/8 to loopback; macOS gives loopback
@@ -132,22 +135,38 @@ const nextCaller = (): string => { const n = callers++; return `127.1.${Math.flo
  */
 const describeWithManySources = process.platform === 'darwin' ? describe.skip : describe;
 
-interface Answer { status: number; retryAfter: string | undefined; json: any }
+interface Answer {
+  status: number;
+  retryAfter: string | undefined;
+  json: any;
+}
 type Application = Record<string, unknown> & { applicationId: string; status: string };
 
 /** A request to the insurer node at `port` from the loopback address `from`, which the node reads as the caller's. */
-function send(port: number, method: 'GET' | 'POST', route: string, opts: { from: string; body?: unknown; admin?: boolean }): Promise<Answer> {
+function send(
+  port: number,
+  method: 'GET' | 'POST',
+  route: string,
+  opts: { from: string; body?: unknown; admin?: boolean },
+): Promise<Answer> {
   const payload = opts.body === undefined ? undefined : JSON.stringify(opts.body);
   const headers: Record<string, string> = {};
-  if (payload !== undefined) Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)) });
+  if (payload !== undefined)
+    Object.assign(headers, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(payload)) });
   if (opts.admin) headers.Authorization = `Bearer ${ADMIN}`;
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, method, path: route, headers, localAddress: opts.from, agent: false }, (res) => {
       let text = '';
       res.setEncoding('utf8');
-      res.on('data', (chunk: string) => { text += chunk; });
+      res.on('data', (chunk: string) => {
+        text += chunk;
+      });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode ?? 0, retryAfter: res.headers['retry-after'], json: JSON.parse(text) }); } catch (err) { reject(err); }
+        try {
+          resolve({ status: res.statusCode ?? 0, retryAfter: res.headers['retry-after'], json: JSON.parse(text) });
+        } catch (err) {
+          reject(err);
+        }
       });
     });
     req.on('error', reject);
@@ -157,7 +176,15 @@ function send(port: number, method: 'GET' | 'POST', route: string, opts: { from:
 
 /** An application as a prescriber's office fills it in. */
 function application(over: Record<string, unknown> = {}): Record<string, unknown> {
-  return { providerType: 'prescriber', npi: '1234567893', displayName: 'Dr. Avery Quill, MD', specialty: 'Family Medicine', deaNumber: 'AQ1234563', stateOfLicense: 'TX', ...over };
+  return {
+    providerType: 'prescriber',
+    npi: '1234567893',
+    displayName: 'Dr. Avery Quill, MD',
+    specialty: 'Family Medicine',
+    deaNumber: 'AQ1234563',
+    stateOfLicense: 'TX',
+    ...over,
+  };
 }
 
 /**
@@ -174,8 +201,15 @@ function insurerForThisDescribe(sequencerUrl: () => string = () => 'http://127.0
     const { buildInsurerRoutes } = await import('../src/nodes/routes/insurer-routes.js');
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insurer-credentialing-'));
     server = new NautilusAppServer({
-      role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: sequencerUrl(), stateDir: dir,
-      enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: ADMIN,
+      role: 'insurer',
+      port: 0,
+      host: '127.0.0.1',
+      sequencerUrl: sequencerUrl(),
+      stateDir: dir,
+      enableSSE: false,
+      maxSseConnections: 0,
+      allowedOrigins: [],
+      adminToken: ADMIN,
     } as any);
     server.registerRoutes(buildInsurerRoutes(server));
     server.setEntityNode(new InsurerNode({ role: 'insurer', sequencerUrl: sequencerUrl(), displayName: 'Insurer' } as any));
@@ -184,7 +218,13 @@ function insurerForThisDescribe(sequencerUrl: () => string = () => 'http://127.0
   });
   afterAll(async () => {
     await server?.stop();
-    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    if (dir) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+    }
   });
 
   /** Every application, as the insurer's staff read them. */
@@ -192,7 +232,8 @@ function insurerForThisDescribe(sequencerUrl: () => string = () => 'http://127.0
     (await send(port, 'GET', '/credentialing/applications', { from: LOOPBACK, admin: true })).json.data.applications;
   return {
     /** An application sent from `from`, 127.0.0.1 unless a test needs a source of its own. */
-    apply: (body: Record<string, unknown>, from: string = LOOPBACK): Promise<Answer> => send(port, 'POST', '/credentialing/apply', { from, body }),
+    apply: (body: Record<string, unknown>, from: string = LOOPBACK): Promise<Answer> =>
+      send(port, 'POST', '/credentialing/apply', { from, body }),
     /** The list as anyone may ask for it, with the node's admin credential or without. */
     list: (admin: boolean): Promise<Answer> => send(port, 'GET', '/credentialing/applications', { from: LOOPBACK, admin }),
     /** A decision of the insurer's staff on an application, with the node's admin credential. */
@@ -200,7 +241,8 @@ function insurerForThisDescribe(sequencerUrl: () => string = () => 'http://127.0
       send(port, 'POST', `/credentialing/${action}/${encodeURIComponent(applicationId)}`, { from: LOOPBACK, body, admin: true }),
     applications,
     /** How many applications are neither approved nor denied. */
-    openApplications: async (): Promise<number> => (await applications()).filter((a) => a.status !== 'approved' && a.status !== 'denied').length,
+    openApplications: async (): Promise<number> =>
+      (await applications()).filter((a) => a.status !== 'approved' && a.status !== 'denied').length,
   };
 }
 type Insurer = ReturnType<typeof insurerForThisDescribe>;
@@ -214,7 +256,9 @@ function sequencerForThisDescribe() {
   let url = '';
   const server = http.createServer((req, res) => {
     let text = '';
-    req.on('data', (chunk) => { text += chunk; });
+    req.on('data', (chunk) => {
+      text += chunk;
+    });
     req.on('end', () => {
       const call = JSON.parse(text) as { id: number; method: string; params: Record<string, unknown> };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -224,7 +268,13 @@ function sequencerForThisDescribe() {
       }
       credentialed.push(call.params);
       const { walletId, displayName, providerType } = call.params;
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: call.id, result: { ok: true, leafIndex: String(credentialed.length - 1), walletId, displayName, providerType, credentialState: '2' } }));
+      res.end(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: call.id,
+          result: { ok: true, leafIndex: String(credentialed.length - 1), walletId, displayName, providerType, credentialState: '2' },
+        }),
+      );
     });
   });
   beforeAll(async () => {
@@ -244,7 +294,9 @@ async function fillTo(insurer: Insurer, limit: number): Promise<void> {
   for (let open = await insurer.openApplications(); open < limit;) {
     const round = Math.min(100, limit - open);
     const from = Array.from({ length: Math.ceil(round / 10) }, nextCaller);
-    const sent = await Promise.all(Array.from({ length: round }, (_, i) => insurer.apply(application({ npi: unique() }), from[Math.floor(i / 10)])));
+    const sent = await Promise.all(
+      Array.from({ length: round }, (_, i) => insurer.apply(application({ npi: unique() }), from[Math.floor(i / 10)])),
+    );
     expect(sent.map((r) => r.status)).toEqual(Array(round).fill(201));
     open += round;
   }
@@ -253,39 +305,49 @@ async function fillTo(insurer: Insurer, limit: number): Promise<void> {
 describe('addressKey: the source a per-caller limit counts', () => {
   test('an IPv4 address is its own key, and an IPv4-mapped IPv6 address, however written, is the IPv4 address it maps', () => {
     expect(addressKey('203.0.113.7')).toBe('203.0.113.7');
-    expect(addressKey('::ffff:203.0.113.7')).toBe('203.0.113.7');          // before: the raw address, a caller apart from 203.0.113.7
+    expect(addressKey('::ffff:203.0.113.7')).toBe('203.0.113.7'); // before: the raw address, a caller apart from 203.0.113.7
     expect(addressKey('::FFFF:203.0.113.7')).toBe('203.0.113.7');
     expect(addressKey('::ffff:cb00:7107')).toBe('203.0.113.7');
   });
 
   test('two IPv6 addresses in one /64 share a key, and addresses in different /64s do not', () => {
     expect(addressKey('2001:db8:85a3:12::1')).toBe('2001:db8:85a3:12::/64');
-    expect(addressKey('2001:db8:85a3:12:9f3c:51ff:fe0a:7d21')).toBe('2001:db8:85a3:12::/64');   // before: the raw address, so one /64 was as many callers as it has addresses
+    expect(addressKey('2001:db8:85a3:12:9f3c:51ff:fe0a:7d21')).toBe('2001:db8:85a3:12::/64'); // before: the raw address, so one /64 was as many callers as it has addresses
     expect(addressKey('2001:db8:85a3:13::1')).toBe('2001:db8:85a3:13::/64');
   });
 
   test('a compressed and an expanded form of one address agree', () => {
     expect(addressKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
-    expect(addressKey('2001:0DB8:0000:0000:0000:0000:0000:0001')).toBe('2001:db8:0:0::/64');   // before: the raw text, a caller apart from its compressed form
+    expect(addressKey('2001:0DB8:0000:0000:0000:0000:0000:0001')).toBe('2001:db8:0:0::/64'); // before: the raw text, a caller apart from its compressed form
     expect(addressKey('::1')).toBe(addressKey('0:0:0:0:0:0:0:1'));
   });
 
-  test('a link-local IPv6 address is fe80::/64 on the interface it arrived on: one key for each of the node\'s links, which every host on that link shares', () => {
-    expect(addressKey('fe80::1%eth0')).toBe('fe80::/64%eth0');                 // before: fe80::1%eth0, each address a key of its own; under the /64 rule fe80:0:0:0::/64, one key for every link
-    expect(addressKey('fe80::2%eth0')).toBe('fe80::/64%eth0');                 // before: fe80::2%eth0
-    expect(addressKey('FE80:0:0:0:0:0:0:1%eth0')).toBe('fe80::/64%eth0');      // before: fe80::1%eth0
-    expect(addressKey('fe80::1%eth1')).toBe('fe80::/64%eth1');                 // before: fe80::1%eth1
-    expect(addressKey('fe80::1%eth1')).not.toBe(addressKey('fe80::1%eth0'));   // another link is another key: the interface is this host's to name
-    expect(addressKey('fe80::a:b:c:d%12')).toBe('fe80::/64%12');               // before: fe80::a:b:c:d%12; Windows numbers its interfaces
-    expect(addressKey('fe80::1')).toBe('fe80::/64');                           // before: fe80::1; a proxy may name a link-local client with no interface
-    expect(addressKey('febf:0:0:0:1::1')).toBe('fe80::/64');                   // before: febf::1:0:0:1; all of fe80::/10 is link-local
-    expect(addressKey('fec0::1')).toBe('fec0:0:0:0::/64');                     // past it, the /64 rule
+  test("a link-local IPv6 address is fe80::/64 on the interface it arrived on: one key for each of the node's links, which every host on that link shares", () => {
+    expect(addressKey('fe80::1%eth0')).toBe('fe80::/64%eth0'); // before: fe80::1%eth0, each address a key of its own; under the /64 rule fe80:0:0:0::/64, one key for every link
+    expect(addressKey('fe80::2%eth0')).toBe('fe80::/64%eth0'); // before: fe80::2%eth0
+    expect(addressKey('FE80:0:0:0:0:0:0:1%eth0')).toBe('fe80::/64%eth0'); // before: fe80::1%eth0
+    expect(addressKey('fe80::1%eth1')).toBe('fe80::/64%eth1'); // before: fe80::1%eth1
+    expect(addressKey('fe80::1%eth1')).not.toBe(addressKey('fe80::1%eth0')); // another link is another key: the interface is this host's to name
+    expect(addressKey('fe80::a:b:c:d%12')).toBe('fe80::/64%12'); // before: fe80::a:b:c:d%12; Windows numbers its interfaces
+    expect(addressKey('fe80::1')).toBe('fe80::/64'); // before: fe80::1; a proxy may name a link-local client with no interface
+    expect(addressKey('febf:0:0:0:1::1')).toBe('fe80::/64'); // before: febf::1:0:0:1; all of fe80::/10 is link-local
+    expect(addressKey('fec0::1')).toBe('fec0:0:0:0::/64'); // past it, the /64 rule
     expect(addressKey('2001:db8:85a3:12::1%eth0')).toBe('2001:db8:85a3:12::/64');
   });
 
   test('no address, or text that is not one, is the one key unknown', () => {
     expect(addressKey(undefined)).toBe('unknown');
-    for (const text of ['', 'localhost', '256.0.0.1', '127.0.0.01', '1.2.3', '1::2::3', '1:2:3:4:5:6:7:8:9', '12345::1', '::ffff:256.0.0.1']) {
+    for (const text of [
+      '',
+      'localhost',
+      '256.0.0.1',
+      '127.0.0.01',
+      '1.2.3',
+      '1::2::3',
+      '1:2:3:4:5:6:7:8:9',
+      '12345::1',
+      '::ffff:256.0.0.1',
+    ]) {
       expect([text, addressKey(text)]).toEqual([text, 'unknown']);
     }
   });
@@ -294,10 +356,10 @@ describe('addressKey: the source a per-caller limit counts', () => {
 describe('GET /credentialing/applications', () => {
   const insurer = insurerForThisDescribe();
 
-  test('answers the insurer\'s admin credential only, and leaves out the address each application came from', async () => {
+  test("answers the insurer's admin credential only, and leaves out the address each application came from", async () => {
     expect((await insurer.apply(application())).status).toBe(201);
     const anonymous = await insurer.list(false);
-    expect(anonymous.status).toBe(401);                                       // before: 200, with every applicant's DEA number
+    expect(anonymous.status).toBe(401); // before: 200, with every applicant's DEA number
     expect(JSON.stringify(anonymous.json)).not.toContain('AQ1234563');
     const staff = await insurer.list(true);
     expect(staff.status).toBe(200);
@@ -306,9 +368,9 @@ describe('GET /credentialing/applications', () => {
     expect(JSON.stringify(staff.json)).not.toContain(LOOPBACK);
   });
 
-  test('the insurer\'s dashboard sends its token for it', () => {
+  test("the insurer's dashboard sends its token for it", () => {
     const rpc = fs.readFileSync('dashboard-insurer/rpc.js', 'utf8');
-    expect(rpc).toContain("return request('GET', '/credentialing/applications' + q, undefined, true);");   // before: no token
+    expect(rpc).toContain("return request('GET', '/credentialing/applications' + q, undefined, true);"); // before: no token
   });
 });
 
@@ -328,7 +390,7 @@ describe('POST /credentialing/apply: what an application holds', () => {
     const before = await insurer.openApplications();
     for (const [over, why] of cases) {
       const r = await insurer.apply(application({ npi: unique(), ...over }));
-      expect([over, r.status, r.json.error]).toEqual([over, 400, why]);        // before: 201, kept as sent
+      expect([over, r.status, r.json.error]).toEqual([over, 400, why]); // before: 201, kept as sent
     }
     expect(await insurer.openApplications()).toBe(before);
   });
@@ -343,21 +405,37 @@ describe('POST /credentialing/apply: what an application holds', () => {
     ];
     for (const [npi, why] of cases) {
       const r = await insurer.apply(application({ npi }));
-      expect([JSON.stringify(npi), r.status, r.json.error]).toEqual([JSON.stringify(npi), 400, why]);   // before: 201, kept as an NPI of its own
+      expect([JSON.stringify(npi), r.status, r.json.error]).toEqual([JSON.stringify(npi), 400, why]); // before: 201, kept as an NPI of its own
     }
-    expect(await insurer.openApplications()).toBe(before);                    // before: four more
+    expect(await insurer.openApplications()).toBe(before); // before: four more
     expect((await insurer.apply(application({ npi: '1245319599' }))).status).toBe(201);
   });
 
   test('takes what a provider sends: punctuation in a name, a pharmacy type, and a wallet ID as the network writes one', async () => {
     const walletId = Poseidon.hash([Field(43), Field(47)]).toString();
-    const r = await insurer.apply({ providerType: 'pharmacy', npi: unique(), displayName: "O'Brien & Sons Pharmacy #12", pharmacyType: 'Community/Retail Pharmacy', stateOfLicense: 'TX', walletId });
+    const r = await insurer.apply({
+      providerType: 'pharmacy',
+      npi: unique(),
+      displayName: "O'Brien & Sons Pharmacy #12",
+      pharmacyType: 'Community/Retail Pharmacy',
+      stateOfLicense: 'TX',
+      walletId,
+    });
     expect([r.status, r.json.error]).toEqual([201, undefined]);
   });
 
   test('reads null in an optional field as no value, and keeps no null', async () => {
-    const r = await insurer.apply({ providerType: 'pharmacy', npi: unique(), displayName: 'Vale Street Pharmacy', specialty: null, pharmacyType: null, deaNumber: null, stateOfLicense: null, walletId: null });
-    expect([r.status, r.json.error]).toEqual([201, undefined]);              // before: 400, 'specialty must be text'
+    const r = await insurer.apply({
+      providerType: 'pharmacy',
+      npi: unique(),
+      displayName: 'Vale Street Pharmacy',
+      specialty: null,
+      pharmacyType: null,
+      deaNumber: null,
+      stateOfLicense: null,
+      walletId: null,
+    });
+    expect([r.status, r.json.error]).toEqual([201, undefined]); // before: 400, 'specialty must be text'
     const kept = (await insurer.applications()).find((a) => a.applicationId === r.json.data.applicationId) ?? {};
     expect(Object.keys(kept).sort()).toEqual(['applicationId', 'displayName', 'npi', 'providerType', 'status', 'submittedAt']);
     expect(Object.values(kept)).not.toContain(null);
@@ -372,23 +450,25 @@ describe('POST /credentialing/apply: who holds an NPI', () => {
     const npi = unique();
     const first = await insurer.apply(application({ npi, displayName: 'Dr. A. Quill' }));
     const second = await insurer.apply(application({ npi }));
-    expect([first.status, second.status]).toEqual([201, 201]);              // before: [201, 409], the first application held the NPI
+    expect([first.status, second.status]).toEqual([201, 201]); // before: [201, 409], the first application held the NPI
     expect((await insurer.decide('verify', second.json.data.applicationId)).status).toBe(200);
     const third = await insurer.apply(application({ npi }));
-    expect([third.status, third.json.error]).toEqual([409, TAKEN]);        // before: 409, 'NPI <npi> already has a pending application'
+    expect([third.status, third.json.error]).toEqual([409, TAKEN]); // before: 409, 'NPI <npi> already has a pending application'
   });
 
-  test('once one application for an NPI is verified, the insurer\'s staff can neither verify nor approve another for it', async () => {
+  test("once one application for an NPI is verified, the insurer's staff can neither verify nor approve another for it", async () => {
     const npi = unique();
     const genuine = await insurer.apply(application({ npi }));
-    const squatter = await insurer.apply(application({ npi, displayName: 'Dr. A. Quill', walletId: Poseidon.hash([Field(53), Field(59)]).toString() }));
-    expect([genuine.status, squatter.status]).toEqual([201, 201]);          // before: [201, 409]
+    const squatter = await insurer.apply(
+      application({ npi, displayName: 'Dr. A. Quill', walletId: Poseidon.hash([Field(53), Field(59)]).toString() }),
+    );
+    expect([genuine.status, squatter.status]).toEqual([201, 201]); // before: [201, 409]
     expect((await insurer.decide('verify', genuine.json.data.applicationId)).status).toBe(200);
     const why = `Application ${genuine.json.data.applicationId} for the same NPI is already verified`;
     const verify = await insurer.decide('verify', squatter.json.data.applicationId);
-    expect([verify.status, verify.json.error]).toEqual([409, why]);        // before the check: 200, two verified applications for one NPI
+    expect([verify.status, verify.json.error]).toEqual([409, why]); // before the check: 200, two verified applications for one NPI
     const approve = await insurer.decide('approve', squatter.json.data.applicationId);
-    expect([approve.status, approve.json.error]).toEqual([409, why]);      // before the check: 502, the squatter's wallet sent on to the sequencer
+    expect([approve.status, approve.json.error]).toEqual([409, why]); // before the check: 502, the squatter's wallet sent on to the sequencer
     expect(sequencer.credentialed).toEqual([]);
   });
 
@@ -402,29 +482,32 @@ describe('POST /credentialing/apply: who holds an NPI', () => {
     expect([approved.status, approved.json.data?.status]).toEqual([200, 'approved']);
     expect(sequencer.credentialed.map((p) => [p.npi, p.walletId])).toEqual([[npi, walletId]]);
     const verify = await insurer.decide('verify', other.json.data.applicationId);
-    expect([verify.status, verify.json.error]).toEqual([409, `Application ${genuine.json.data.applicationId} for the same NPI is already approved`]);
+    expect([verify.status, verify.json.error]).toEqual([
+      409,
+      `Application ${genuine.json.data.applicationId} for the same NPI is already approved`,
+    ]);
     const again = await insurer.apply(application({ npi }));
     expect([again.status, again.json.error]).toEqual([409, TAKEN]);
   });
 });
 
-describe('POST /credentialing/apply: one source\'s open applications', () => {
+describe("POST /credentialing/apply: one source's open applications", () => {
   const insurer = insurerForThisDescribe();
 
   test('a source keeps at most 10 applications open: the next is refused 429 with Retry-After until staff deny one, and is then kept', async () => {
     const kept = await Promise.all(Array.from({ length: 10 }, () => insurer.apply(application({ npi: unique() }))));
     expect(kept.map((r) => r.status)).toEqual(Array(10).fill(201));
     const eleventh = await insurer.apply(application({ npi: unique() }));
-    expect([eleventh.status, eleventh.json.error, eleventh.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']);   // before: 429 for ten an hour, whether open or not
+    expect([eleventh.status, eleventh.json.error, eleventh.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']); // before: 429 for ten an hour, whether open or not
     expect((await insurer.decide('deny', kept[0].json.data.applicationId, DENIED)).status).toBe(200);
-    expect((await insurer.apply(application({ npi: unique() }))).status).toBe(201);   // before: 429, the hour's ten spent though staff had denied one
+    expect((await insurer.apply(application({ npi: unique() }))).status).toBe(201); // before: 429, the hour's ten spent though staff had denied one
     const next = await insurer.apply(application({ npi: unique() }));
-    expect([next.status, next.json.error, next.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']);   // before: 429 for ten an hour
+    expect([next.status, next.json.error, next.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']); // before: 429 for ten an hour
     expect(await insurer.openApplications()).toBe(10);
   });
 });
 
-describe('POST /credentialing/apply: one source\'s hour', () => {
+describe("POST /credentialing/apply: one source's hour", () => {
   const insurer = insurerForThisDescribe();
 
   test('keeps at most 20 applications an hour from one source, counting only those kept, and past that answers 429 with Retry-After though staff denied the rest', async () => {
@@ -436,56 +519,59 @@ describe('POST /credentialing/apply: one source\'s hour', () => {
     // Nine kept and denied, twice over: with the holder, nineteen kept this hour and one open.
     for (let round = 0; round < 2; round++) {
       const kept = await Promise.all(Array.from({ length: 9 }, () => insurer.apply(application({ npi: unique() }))));
-      expect(kept.map((r) => r.status)).toEqual(Array(9).fill(201));      // before: the second round refused 429, ten an hour from one address
+      expect(kept.map((r) => r.status)).toEqual(Array(9).fill(201)); // before: the second round refused 429, ten an hour from one address
       for (const r of kept) expect((await insurer.decide('deny', r.json.data.applicationId, DENIED)).status).toBe(200);
     }
     expect((await insurer.apply(application({ npi: unique() }))).status).toBe(201);
     const past = await insurer.apply(application({ npi: unique() }));
-    expect([past.status, past.json.error, past.retryAfter]).toEqual([429, HOURLY, '3600']);   // before: 429 at the eleventh, ten an hour
+    expect([past.status, past.json.error, past.retryAfter]).toEqual([429, HOURLY, '3600']); // before: 429 at the eleventh, ten an hour
     expect(await insurer.openApplications()).toBe(2);
   });
 });
 
-describeWithManySources('POST /credentialing/apply from sources of their own (127.1.x.y; skipped on macOS, whose loopback is only 127.0.0.1)', () => {
-  const insurer = insurerForThisDescribe();
-  let atItsLimit = '';
+describeWithManySources(
+  'POST /credentialing/apply from sources of their own (127.1.x.y; skipped on macOS, whose loopback is only 127.0.0.1)',
+  () => {
+    const insurer = insurerForThisDescribe();
+    let atItsLimit = '';
 
-  test('one source past its limit leaves another free to apply', async () => {
-    atItsLimit = nextCaller();
-    const kept = await Promise.all(Array.from({ length: 10 }, () => insurer.apply(application({ npi: unique() }), atItsLimit)));
-    expect(kept.map((r) => r.status)).toEqual(Array(10).fill(201));
-    expect((await insurer.apply(application({ npi: unique() }), atItsLimit)).status).toBe(429);
-    expect((await insurer.apply(application({ npi: unique() }), nextCaller())).status).toBe(201);
-  });
+    test('one source past its limit leaves another free to apply', async () => {
+      atItsLimit = nextCaller();
+      const kept = await Promise.all(Array.from({ length: 10 }, () => insurer.apply(application({ npi: unique() }), atItsLimit)));
+      expect(kept.map((r) => r.status)).toEqual(Array(10).fill(201));
+      expect((await insurer.apply(application({ npi: unique() }), atItsLimit)).status).toBe(429);
+      expect((await insurer.apply(application({ npi: unique() }), nextCaller())).status).toBe(201);
+    });
 
-  test('keeps at most 1,000 applications open, ten from each of 100 sources, and past that answers 503 with Retry-After', async () => {
-    await fillTo(insurer, 1_000);
-    const past = await insurer.apply(application({ npi: unique() }), nextCaller());
-    expect([past.status, past.json.error]).toEqual([503, FULL]);
-    expect(past.retryAfter).toBe('3600');                                   // before: no Retry-After
-    expect(await insurer.openApplications()).toBe(1_000);
-  });
+    test('keeps at most 1,000 applications open, ten from each of 100 sources, and past that answers 503 with Retry-After', async () => {
+      await fillTo(insurer, 1_000);
+      const past = await insurer.apply(application({ npi: unique() }), nextCaller());
+      expect([past.status, past.json.error]).toEqual([503, FULL]);
+      expect(past.retryAfter).toBe('3600'); // before: no Retry-After
+      expect(await insurer.openApplications()).toBe(1_000);
+    });
 
-  test('with every slot taken, what an application says and what its source has filed are answered first: 400, then 409, then 429, then 503', async () => {
-    await fillTo(insurer, 1_000);
-    const [first] = await insurer.applications();
-    expect((await insurer.decide('verify', first.applicationId)).status).toBe(200);
-    const fresh = nextCaller();
-    expect((await insurer.apply(application({ npi: unique(), stateOfLicense: '<TX>' }), fresh)).status).toBe(400);
-    const held = await insurer.apply(application({ npi: first.npi }), fresh);
-    expect([held.status, held.json.error]).toEqual([409, TAKEN]);         // before: 503, the store's bound was answered first
-    const full = await insurer.apply(application({ npi: unique() }), atItsLimit);
-    expect([full.status, full.json.error]).toEqual([429, OPEN_FROM_SOURCE]);   // before: 503
-    expect((await insurer.apply(application({ npi: unique() }), fresh)).status).toBe(503);
-  });
+    test('with every slot taken, what an application says and what its source has filed are answered first: 400, then 409, then 429, then 503', async () => {
+      await fillTo(insurer, 1_000);
+      const [first] = await insurer.applications();
+      expect((await insurer.decide('verify', first.applicationId)).status).toBe(200);
+      const fresh = nextCaller();
+      expect((await insurer.apply(application({ npi: unique(), stateOfLicense: '<TX>' }), fresh)).status).toBe(400);
+      const held = await insurer.apply(application({ npi: first.npi }), fresh);
+      expect([held.status, held.json.error]).toEqual([409, TAKEN]); // before: 503, the store's bound was answered first
+      const full = await insurer.apply(application({ npi: unique() }), atItsLimit);
+      expect([full.status, full.json.error]).toEqual([429, OPEN_FROM_SOURCE]); // before: 503
+      expect((await insurer.apply(application({ npi: unique() }), fresh)).status).toBe(503);
+    });
 
-  test('a denied application frees its slot for the next applicant, and a source refused while every slot was taken has nothing counted against it', async () => {
-    await fillTo(insurer, 1_000);
-    const waiting = nextCaller();
-    for (let i = 0; i < 21; i++) expect((await insurer.apply(application({ npi: unique() }), waiting)).status).toBe(503);
-    const pending = (await insurer.applications()).filter((a) => a.status === 'pending');
-    expect((await insurer.decide('deny', pending[pending.length - 1].applicationId, DENIED)).status).toBe(200);
-    expect((await insurer.apply(application({ npi: unique() }), waiting)).status).toBe(201);
-    expect((await insurer.apply(application({ npi: unique() }), nextCaller())).status).toBe(503);
-  });
-});
+    test('a denied application frees its slot for the next applicant, and a source refused while every slot was taken has nothing counted against it', async () => {
+      await fillTo(insurer, 1_000);
+      const waiting = nextCaller();
+      for (let i = 0; i < 21; i++) expect((await insurer.apply(application({ npi: unique() }), waiting)).status).toBe(503);
+      const pending = (await insurer.applications()).filter((a) => a.status === 'pending');
+      expect((await insurer.decide('deny', pending[pending.length - 1].applicationId, DENIED)).status).toBe(200);
+      expect((await insurer.apply(application({ npi: unique() }), waiting)).status).toBe(201);
+      expect((await insurer.apply(application({ npi: unique() }), nextCaller())).status).toBe(503);
+    });
+  },
+);

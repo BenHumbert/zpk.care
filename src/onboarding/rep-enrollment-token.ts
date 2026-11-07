@@ -55,14 +55,7 @@ export class RepEnrollmentToken extends Struct({
    * Produces a single commitment representing this token.
    */
   commitment(): Field {
-    return Poseidon.hash([
-      this.tokenIdHash,
-      this.memberWalletId,
-      this.scopeFlags,
-      this.validUntil,
-      this.issuerHash,
-      this.nonce,
-    ]);
+    return Poseidon.hash([this.tokenIdHash, this.memberWalletId, this.scopeFlags, this.validUntil, this.issuerHash, this.nonce]);
   }
 }
 
@@ -87,9 +80,7 @@ export interface RepEnrollmentTokenLocalData {
 /**
  * Build a RepEnrollmentToken from raw local data.
  */
-export function buildRepEnrollmentToken(
-  local: RepEnrollmentTokenLocalData,
-): RepEnrollmentToken {
+export function buildRepEnrollmentToken(local: RepEnrollmentTokenLocalData): RepEnrollmentToken {
   return new RepEnrollmentToken({
     tokenIdHash: hashString(local.tokenId),
     memberWalletId: Field(BigInt(local.memberWalletId)),

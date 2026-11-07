@@ -19,12 +19,7 @@ import { CredentialProgram, CredentialOperationProof, CREDENTIAL_OP_VERIFY } fro
 import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
 import { FormularyEntry } from '../access-control/formulary-entry.js';
 import { FulfillmentData, ReversalData } from './fulfillment-data.js';
-import {
-  FulfillmentProgram,
-  FulfillmentProof,
-  FULFILL_OP_CLAIM,
-  FULFILL_OP_REVERSAL,
-} from './fulfillment-program.js';
+import { FulfillmentProgram, FulfillmentProof, FULFILL_OP_CLAIM, FULFILL_OP_REVERSAL } from './fulfillment-program.js';
 
 // ─── Result Types ───────────────────────────────────────────────
 
@@ -94,9 +89,7 @@ export class FulfillmentVerificationService {
    *
    * Checks: FulfillmentProgram proof is valid, operationType is CLAIM.
    */
-  async verifyFulfillmentProof(
-    proof: InstanceType<typeof FulfillmentProof>,
-  ): Promise<FulfillmentVerificationResult> {
+  async verifyFulfillmentProof(proof: InstanceType<typeof FulfillmentProof>): Promise<FulfillmentVerificationResult> {
     try {
       const ok = await FulfillmentProgram.verify(proof);
       if (!ok) {
@@ -129,9 +122,7 @@ export class FulfillmentVerificationService {
    *
    * Checks: FulfillmentProgram proof is valid, operationType is REVERSAL.
    */
-  async verifyReversalProof(
-    proof: InstanceType<typeof FulfillmentProof>,
-  ): Promise<ReversalVerificationResult> {
+  async verifyReversalProof(proof: InstanceType<typeof FulfillmentProof>): Promise<ReversalVerificationResult> {
     try {
       const ok = await FulfillmentProgram.verify(proof);
       if (!ok) {
@@ -168,12 +159,8 @@ export class FulfillmentVerificationService {
    *   If total < copay: patientPay should == total AND planPay should == 0
    *   Else: patientPay should == copay AND planPay should == total - copay
    */
-  verifyAmountBalance(
-    fulfillmentData: FulfillmentData,
-    formularyEntry: FormularyEntry,
-  ): boolean {
-    const total = BigInt(fulfillmentData.ingredientCostCents.toString())
-      + BigInt(fulfillmentData.dispensingFeeCents.toString());
+  verifyAmountBalance(fulfillmentData: FulfillmentData, formularyEntry: FormularyEntry): boolean {
+    const total = BigInt(fulfillmentData.ingredientCostCents.toString()) + BigInt(fulfillmentData.dispensingFeeCents.toString());
     const copay = BigInt(formularyEntry.copayAmountCents.toString());
 
     // patientPay + planPay must always equal total (or total if total < copay)
@@ -255,17 +242,13 @@ export class FulfillmentVerificationService {
         details.push('Credential holding: FAILED (proof verification failed)');
       }
     } catch (e) {
-      details.push(
-        `Credential holding: FAILED (${e instanceof Error ? e.message : 'Unknown error'})`,
-      );
+      details.push(`Credential holding: FAILED (${e instanceof Error ? e.message : 'Unknown error'})`);
     }
 
     // 2. Verify fulfillment proof
     const fulfillResult = await this.verifyFulfillmentProof(fulfillmentProof);
     if (fulfillResult.isValid) {
-      details.push(
-        `Fulfillment: verified (patient: ${fulfillResult.patientPayCents}, plan: ${fulfillResult.planPayCents})`,
-      );
+      details.push(`Fulfillment: verified (patient: ${fulfillResult.patientPayCents}, plan: ${fulfillResult.planPayCents})`);
     } else {
       details.push(`Fulfillment: FAILED (${fulfillResult.reason})`);
     }

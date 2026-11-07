@@ -27,7 +27,10 @@ export class SlidingWindowLimiter {
    * @param max — how many events a key may have inside one window
    * @param windowMs — the window's length
    */
-  constructor(private readonly max: number, private readonly windowMs: number) {
+  constructor(
+    private readonly max: number,
+    private readonly windowMs: number,
+  ) {
     if (!(max > 0) || !(windowMs > 0)) throw new Error('SlidingWindowLimiter: max and windowMs must be positive');
   }
 
@@ -102,7 +105,12 @@ export function addressKey(remote: string | undefined): string {
   if (!address) return 'unknown';
   if ('v4' in address) return address.v4;
   if (isLinkLocal(address.v6)) return address.zone === null ? LINK_LOCAL_KEY : `${LINK_LOCAL_KEY}%${address.zone}`;
-  return address.v6.slice(0, 4).map((g) => g.toString(16)).join(':') + '::/64';
+  return (
+    address.v6
+      .slice(0, 4)
+      .map((g) => g.toString(16))
+      .join(':') + '::/64'
+  );
 }
 
 /**
@@ -148,7 +156,7 @@ function ipv6Text(groups: number[], zone: string | null): string {
   // The longest run of two or more zero groups, the first of runs as long, is written '::'.
   let start = -1;
   let length = 1;
-  for (let i = 0; i < 8; ) {
+  for (let i = 0; i < 8;) {
     let j = i;
     while (j < 8 && groups[j] === 0) j++;
     if (j - i > length) {
@@ -158,9 +166,7 @@ function ipv6Text(groups: number[], zone: string | null): string {
     i = j === i ? i + 1 : j;
   }
   const hex = groups.map((g) => g.toString(16));
-  const text = start === -1
-    ? hex.join(':')
-    : `${hex.slice(0, start).join(':')}::${hex.slice(start + length).join(':')}`;
+  const text = start === -1 ? hex.join(':') : `${hex.slice(0, start).join(':')}::${hex.slice(start + length).join(':')}`;
   return zone === null ? text : `${text}%${zone}`;
 }
 

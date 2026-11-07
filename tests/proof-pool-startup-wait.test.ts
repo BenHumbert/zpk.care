@@ -17,7 +17,9 @@ function standInPool() {
   const pool = {
     isRunning: () => running,
     prove: jest.fn(async () => ({ proofJson: '{"pool":true}', publicOutput: null, proveTimeMs: 1 })),
-    start: () => { running = true; },
+    start: () => {
+      running = true;
+    },
   };
   return pool;
 }
@@ -29,11 +31,21 @@ beforeAll(async () => {
   const { L2Node } = await import('../src/l2/l2-node.js');
   ({ AdjudicationService } = await import('../src/adjudication/interactive-service.js'));
   const emptyRoot = new MerkleTree(WALLET_TREE_HEIGHT).getRoot();
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pool-wait' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-pool-wait' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
 });
 
 function freshService() {
-  return new AdjudicationService(() => {}, () => {}, node);
+  return new AdjudicationService(
+    () => {},
+    () => {},
+    node,
+  );
 }
 
 describe('proofs made while the proof pool starts', () => {
@@ -41,10 +53,18 @@ describe('proofs made while the proof pool starts', () => {
     const s = freshService();
     const pool = standInPool();
     let finishStart!: () => void;
-    const starting = new Promise<void>((resolve) => { finishStart = () => { pool.start(); s.setProofPool(pool); resolve(); }; });
+    const starting = new Promise<void>((resolve) => {
+      finishStart = () => {
+        pool.start();
+        s.setProofPool(pool);
+        resolve();
+      };
+    });
     s.setProofPool(pool); // the pool object exists but is not running yet
     s.setProofPoolStarting(starting);
-    const inline = jest.fn(async () => { throw new Error('proved inline'); });
+    const inline = jest.fn(async () => {
+      throw new Error('proved inline');
+    });
     const proof = s.dispatchProof('ProofGate', 'verifyPrescriber', [], [], inline);
     // the event loop stays free while the proof waits: a timer fires before the proof settles
     const ticked = await new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 20));
@@ -77,7 +97,9 @@ describe('proofs made while the proof pool starts', () => {
     pool.start();
     s.setProofPool(pool);
     s.setProofPoolStarting(Promise.resolve());
-    const inline = jest.fn(async () => { throw new Error('proved inline'); });
+    const inline = jest.fn(async () => {
+      throw new Error('proved inline');
+    });
     await s.dispatchProof('AccessControl', 'proveFormularyAccess', [], [], inline);
     expect(pool.prove).toHaveBeenCalledTimes(1);
     expect(inline).not.toHaveBeenCalled();

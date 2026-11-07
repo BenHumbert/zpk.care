@@ -53,9 +53,9 @@ export class TransactionHeaderData extends Struct({
  * Raw transaction header data — lives locally, never on-chain.
  */
 export interface TransactionHeaderLocalData {
-  binNumber: string;              // 301-C1
-  versionReleaseNumber: string;   // 102-A2
-  transactionCode: string;        // 103-A3
+  binNumber: string; // 301-C1
+  versionReleaseNumber: string; // 102-A2
+  transactionCode: string; // 103-A3
   processorControlNumber: string; // 312-CC
-  dateOfService: string;          // 401-D1 (CCYYMMDD)
+  dateOfService: string; // 401-D1 (CCYYMMDD)
 }

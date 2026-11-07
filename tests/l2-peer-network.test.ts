@@ -25,19 +25,8 @@ import { L2RpcServer } from '../src/l2/l2-rpc-server.js';
 import { L2Client } from '../src/l2/l2-client.js';
 import { L2PeerNetwork, generateMessageId } from '../src/l2/l2-peer-network.js';
 import type { GossipHandler } from '../src/l2/l2-peer-network.js';
-import {
-  DEFAULT_PEER_NETWORK_CONFIG,
-  MAX_SEEN_MESSAGES,
-  DEFAULT_MAX_PEERS,
-} from '../src/l2/l2-peer-types.js';
-import type {
-  PeerInfo,
-  GossipMessage,
-  GossipMessageType,
-  StateDigest,
-  PeerAnnouncePayload,
-  L2NodeRole,
-} from '../src/l2/l2-peer-types.js';
+import { DEFAULT_PEER_NETWORK_CONFIG, MAX_SEEN_MESSAGES, DEFAULT_MAX_PEERS } from '../src/l2/l2-peer-types.js';
+import type { PeerInfo, GossipMessage, GossipMessageType, StateDigest, PeerAnnouncePayload, L2NodeRole } from '../src/l2/l2-peer-types.js';
 import type { L2Receipt, L2Block, L2Batch } from '../src/l2/l2-types.js';
 import type { AuditEvent } from '../src/audit/audit-types.js';
 import type { L2SequencerState } from '../src/l2/l2-checkpoint.js';
@@ -127,7 +116,9 @@ function rawRpc(port: number, body: string, adminToken?: string): Promise<{ stat
       },
       (res) => {
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
       },
     );
@@ -205,12 +196,7 @@ function mockBatch(batchNum: bigint, blockNum: bigint, receiptIds: string[]): L2
 }
 
 /** Helper: create a gossip message */
-function makeGossipMessage(
-  type: GossipMessageType,
-  senderId: string,
-  payload: unknown,
-  messageId?: string,
-): GossipMessage {
+function makeGossipMessage(type: GossipMessageType, senderId: string, payload: unknown, messageId?: string): GossipMessage {
   const ts = Date.now();
   return {
     messageId: messageId ?? generateMessageId(type, senderId, ts),
@@ -347,7 +333,15 @@ describe('L2PeerNetwork — Unit', () => {
   test('handleIncoming returns true for new message', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     const msg = makeGossipMessage('peer:announce', 'sender-1', {
-      peer: { peerId: 'sender-1', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'sender-1',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
     const result = net.handleIncoming(msg);
@@ -357,7 +351,15 @@ describe('L2PeerNetwork — Unit', () => {
   test('handleIncoming returns false for duplicate message', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     const msg = makeGossipMessage('peer:announce', 'sender-1', {
-      peer: { peerId: 'sender-1', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'sender-1',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
     expect(net.handleIncoming(msg)).toBe(true);
@@ -367,7 +369,15 @@ describe('L2PeerNetwork — Unit', () => {
   test('deduplication: same messageId rejected on second call', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     const payload = {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'x',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     };
     const msg1: GossipMessage = { messageId: 'unique-id-001', type: 'peer:announce', senderId: 'x', timestamp: 1, payload };
@@ -379,7 +389,15 @@ describe('L2PeerNetwork — Unit', () => {
   test('seenMessages eviction when MAX_SEEN_MESSAGES reached', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     const payload = {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'x',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     };
 
@@ -411,23 +429,51 @@ describe('L2PeerNetwork — Unit', () => {
   test('on/off handler subscription', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     const calls: string[] = [];
-    const handler: GossipHandler = (msg) => { calls.push(msg.messageId); };
+    const handler: GossipHandler = (msg) => {
+      calls.push(msg.messageId);
+    };
 
     net.on(handler);
 
-    const msg1 = makeGossipMessage('peer:announce', 'x', {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'test-msg-1');
+    const msg1 = makeGossipMessage(
+      'peer:announce',
+      'x',
+      {
+        peer: {
+          peerId: 'x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'test-msg-1',
+    );
     net.handleIncoming(msg1);
     expect(calls).toEqual(['test-msg-1']);
 
     net.off(handler);
 
-    const msg2 = makeGossipMessage('peer:announce', 'x', {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'test-msg-2');
+    const msg2 = makeGossipMessage(
+      'peer:announce',
+      'x',
+      {
+        peer: {
+          peerId: 'x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'test-msg-2',
+    );
     net.handleIncoming(msg2);
     // Handler was removed, so calls should still have only 1 entry
     expect(calls).toEqual(['test-msg-1']);
@@ -436,15 +482,22 @@ describe('L2PeerNetwork — Unit', () => {
   test('handler called on new message', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     let received: GossipMessage | null = null;
-    net.on((msg) => { received = msg; });
+    net.on((msg) => {
+      received = msg;
+    });
 
-    const msg = makeGossipMessage('proof:accepted', 'sender-1', {
-      receipt: mockReceipt(0n),
-      auditEvent: mockAuditEvent(0n),
-      currentRegistryRoot: INITIAL_REG_ROOT.toString(),
-      currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
-      currentWalletCount: '0',
-    }, 'proof-msg-1');
+    const msg = makeGossipMessage(
+      'proof:accepted',
+      'sender-1',
+      {
+        receipt: mockReceipt(0n),
+        auditEvent: mockAuditEvent(0n),
+        currentRegistryRoot: INITIAL_REG_ROOT.toString(),
+        currentLifecycleRoot: INITIAL_LC_ROOT.toString(),
+        currentWalletCount: '0',
+      },
+      'proof-msg-1',
+    );
     net.handleIncoming(msg);
     expect(received).not.toBeNull();
     expect(received!.messageId).toBe('proof-msg-1');
@@ -453,12 +506,27 @@ describe('L2PeerNetwork — Unit', () => {
   test('handler NOT called on duplicate', () => {
     const net = new L2PeerNetwork({ nodeId: 'test-node' });
     let callCount = 0;
-    net.on(() => { callCount++; });
+    net.on(() => {
+      callCount++;
+    });
 
-    const msg = makeGossipMessage('peer:announce', 'x', {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'dup-test');
+    const msg = makeGossipMessage(
+      'peer:announce',
+      'x',
+      {
+        peer: {
+          peerId: 'x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'dup-test',
+    );
 
     net.handleIncoming(msg);
     net.handleIncoming(msg);
@@ -515,13 +583,7 @@ describe('Sequencer Replication Methods', () => {
 
   beforeEach(() => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999, autoSettle: false },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     sequencer = node.getSequencer();
   });
@@ -613,7 +675,12 @@ describe('Sequencer Replication Methods', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
 
-    sequencer.applyReplicatedBatch(batch, block, [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }], [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }]);
+    sequencer.applyReplicatedBatch(
+      batch,
+      block,
+      [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+      [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+    );
 
     expect(sequencer.getBlock(0n)).toBeDefined();
     expect(sequencer.getBatch(0n)).toBeDefined();
@@ -646,7 +713,8 @@ describe('Sequencer Replication Methods', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     sequencer.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -665,7 +733,8 @@ describe('Sequencer Replication Methods', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     sequencer.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -687,7 +756,8 @@ describe('Sequencer Replication Methods', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     sequencer.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -706,7 +776,12 @@ describe('Sequencer Replication Methods', () => {
 
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
-    sequencer.applyReplicatedBatch(batch, block, [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }], [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }]);
+    sequencer.applyReplicatedBatch(
+      batch,
+      block,
+      [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+      [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+    );
 
     // After applyReplicatedBatch, in-flight should be set
     expect(sequencer.getInFlightBatchNumber()).toBe(0n);
@@ -722,7 +797,12 @@ describe('Sequencer Replication Methods', () => {
 
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
-    sequencer.applyReplicatedBatch(batch, block, [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }], [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }]);
+    sequencer.applyReplicatedBatch(
+      batch,
+      block,
+      [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+      [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+    );
 
     sequencer.applyReplicatedBatchFailure(0n, 'L1 tx reverted');
 
@@ -738,7 +818,12 @@ describe('Sequencer Replication Methods', () => {
 
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
-    sequencer.applyReplicatedBatch(batch, block, [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }], [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }]);
+    sequencer.applyReplicatedBatch(
+      batch,
+      block,
+      [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+      [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
+    );
 
     sequencer.applyReplicatedBatchFailure(0n, 'reason-1');
     sequencer.applyReplicatedBatchFailure(0n, 'reason-2');
@@ -772,11 +857,14 @@ describe('RPC Peer Methods', () => {
     ctx.server.setPeerNetwork(peerNet);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'l2_getPeerInfo',
-    }));
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'l2_getPeerInfo',
+      }),
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; result: PeerInfo }>(res.body);
     expect(rpc.result.peerId).toBe('rpc-node-1');
@@ -790,11 +878,14 @@ describe('RPC Peer Methods', () => {
     activeContexts.push(ctx);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 2,
-      method: 'l2_getPeerList',
-    }));
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'l2_getPeerList',
+      }),
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; result: string[] }>(res.body);
     expect(rpc.result).toEqual([]);
@@ -805,11 +896,14 @@ describe('RPC Peer Methods', () => {
     activeContexts.push(ctx);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 3,
-      method: 'l2_getStateDigest',
-    }));
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'l2_getStateDigest',
+      }),
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; result: StateDigest }>(res.body);
     expect(rpc.result.latestSequenceNumber).toBe(-1n);
@@ -826,11 +920,15 @@ describe('RPC Peer Methods', () => {
     activeContexts.push(ctx);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 4,
-      method: 'l2_requestSnapshot',
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'l2_requestSnapshot',
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; result: L2SequencerState }>(res.body);
     expect(rpc.result.currentRegistryRoot).toBe(INITIAL_REG_ROOT.toString());
@@ -851,16 +949,28 @@ describe('RPC Peer Methods', () => {
     ctx.node.start();
 
     const gossipMsg = makeGossipMessage('peer:announce', 'sender-x', {
-      peer: { peerId: 'sender-x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'sender-x',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 5,
-      method: 'l2_gossipRelay',
-      params: { message: gossipMsg },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'l2_gossipRelay',
+        params: { message: gossipMsg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; result: { accepted: boolean } }>(res.body);
     expect(rpc.result.accepted).toBe(true);
@@ -872,16 +982,28 @@ describe('RPC Peer Methods', () => {
     ctx.node.start();
 
     const gossipMsg = makeGossipMessage('peer:announce', 'sender-x', {
-      peer: { peerId: 'sender-x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'sender-x',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0',
-      id: 6,
-      method: 'l2_gossipRelay',
-      params: { message: gossipMsg },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'l2_gossipRelay',
+        params: { message: gossipMsg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ jsonrpc: string; id: number; error?: { code: number; message: string } }>(res.body);
     expect(rpc.error).toBeDefined();
@@ -896,22 +1018,49 @@ describe('RPC Peer Methods', () => {
     ctx.server.setPeerNetwork(peerNet);
     ctx.node.start();
 
-    const gossipMsg = makeGossipMessage('peer:announce', 'sender-x', {
-      peer: { peerId: 'sender-x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'dedup-test-id');
+    const gossipMsg = makeGossipMessage(
+      'peer:announce',
+      'sender-x',
+      {
+        peer: {
+          peerId: 'sender-x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'dedup-test-id',
+    );
 
     // First call: accepted
-    const res1 = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0', id: 7, method: 'l2_gossipRelay', params: { message: gossipMsg },
-    }), TEST_ADMIN_TOKEN);
+    const res1 = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'l2_gossipRelay',
+        params: { message: gossipMsg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
     const rpc1 = l2Parse<{ result: { accepted: boolean } }>(res1.body);
     expect(rpc1.result.accepted).toBe(true);
 
     // Second call: rejected (duplicate)
-    const res2 = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0', id: 8, method: 'l2_gossipRelay', params: { message: gossipMsg },
-    }), TEST_ADMIN_TOKEN);
+    const res2 = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'l2_gossipRelay',
+        params: { message: gossipMsg },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
     const rpc2 = l2Parse<{ result: { accepted: boolean } }>(res2.body);
     expect(rpc2.result.accepted).toBe(false);
   });
@@ -921,9 +1070,14 @@ describe('RPC Peer Methods', () => {
     activeContexts.push(ctx);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0', id: 9, method: 'l2_getPeerInfo',
-    }));
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'l2_getPeerInfo',
+      }),
+    );
 
     const rpc = l2Parse<{ result: PeerInfo }>(res.body);
     // Without setPeerNetwork, peerId falls back to the node's own id ('unknown' only when it has none)
@@ -939,10 +1093,16 @@ describe('RPC Peer Methods', () => {
     ctx.server.setPeerNetwork(peerNet);
     ctx.node.start();
 
-    const res = await rawRpc(ctx.port, l2Stringify({
-      jsonrpc: '2.0', id: 10, method: 'l2_gossipRelay',
-      params: { message: { noMessageId: true } },
-    }), TEST_ADMIN_TOKEN);
+    const res = await rawRpc(
+      ctx.port,
+      l2Stringify({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'l2_gossipRelay',
+        params: { message: { noMessageId: true } },
+      }),
+      TEST_ADMIN_TOKEN,
+    );
 
     const rpc = l2Parse<{ error?: { message: string } }>(res.body);
     expect(rpc.error).toBeDefined();
@@ -1015,7 +1175,15 @@ describe('Client Peer Methods', () => {
     ctx.node.start();
 
     const msg = makeGossipMessage('peer:announce', 'remote-x', {
-      peer: { peerId: 'remote-x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'remote-x',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
 
@@ -1031,52 +1199,28 @@ describe('Client Peer Methods', () => {
 describe('L2Node Peer Integration', () => {
   test('node with role=sequencer (default)', () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999 },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999 }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getRole()).toBe('sequencer');
   });
 
   test('node with role=replica', () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999, role: 'replica' },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999, role: 'replica' }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getRole()).toBe('replica');
   });
 
   test('getNodeId returns configured ID', () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999, nodeId: 'my-custom-node' },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999, nodeId: 'my-custom-node' }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     expect(node.getNodeId()).toBe('my-custom-node');
   });
 
   test('getNodeId returns auto-generated ID when not configured', () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999 },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999 }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const id = node.getNodeId();
     expect(typeof id).toBe('string');
@@ -1085,13 +1229,7 @@ describe('L2Node Peer Integration', () => {
 
   test('getPeerNetwork is null when no seedPeers', () => {
     const store = new InMemoryStore();
-    const node = new L2Node(
-      { batchIntervalMs: 999_999 },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node = new L2Node({ batchIntervalMs: 999_999 }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     node.start();
     expect(node.getPeerNetwork()).toBeNull();
@@ -1273,14 +1411,7 @@ describe('Multi-Node Gossip', () => {
 
     // Add state to sequencer
     const seqService = seqCtx.node.getSequencer();
-    seqService.applyReplicatedReceipt(
-      mockReceipt(0n, 'l2-00000000'),
-      mockAuditEvent(0n, 'l2-00000000'),
-      undefined,
-      '100',
-      '200',
-      '1',
-    );
+    seqService.applyReplicatedReceipt(mockReceipt(0n, 'l2-00000000'), mockAuditEvent(0n, 'l2-00000000'), undefined, '100', '200', '1');
 
     // Fetch snapshot via client
     const state = await seqCtx.client.requestSnapshot();
@@ -1294,7 +1425,9 @@ describe('Multi-Node Gossip', () => {
 
     const receivedMessages: GossipMessage[] = [];
     const peerNet = new L2PeerNetwork({ nodeId: 'gossip-rt-1' });
-    peerNet.on((msg) => { receivedMessages.push(msg); });
+    peerNet.on((msg) => {
+      receivedMessages.push(msg);
+    });
     ctx.server.setPeerNetwork(peerNet);
     ctx.node.start();
 
@@ -1318,14 +1451,29 @@ describe('Multi-Node Gossip', () => {
 
     let handlerCallCount = 0;
     const peerNet = new L2PeerNetwork({ nodeId: 'gossip-dedup' });
-    peerNet.on(() => { handlerCallCount++; });
+    peerNet.on(() => {
+      handlerCallCount++;
+    });
     ctx.server.setPeerNetwork(peerNet);
     ctx.node.start();
 
-    const msg = makeGossipMessage('peer:announce', 'remote', {
-      peer: { peerId: 'remote', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'fixed-dedup-id');
+    const msg = makeGossipMessage(
+      'peer:announce',
+      'remote',
+      {
+        peer: {
+          peerId: 'remote',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'fixed-dedup-id',
+    );
 
     await ctx.client.gossipRelay(msg);
     await ctx.client.gossipRelay(msg);
@@ -1348,10 +1496,7 @@ describe('Multi-Node Gossip', () => {
     const receipt = mockReceipt(0n, 'l2-00000000');
     const audit = mockAuditEvent(0n, 'l2-00000000');
 
-    seq.applyReplicatedReceipt(receipt, audit, undefined,
-      INITIAL_REG_ROOT.toString(),
-      INITIAL_LC_ROOT.toString(),
-      '0');
+    seq.applyReplicatedReceipt(receipt, audit, undefined, INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
 
     expect(seq.getReceipt('l2-00000000')).toBeDefined();
     expect(seq.getLatestSequenceNumber()).toBe(0n);
@@ -1379,7 +1524,8 @@ describe('Multi-Node Gossip', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     seq.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -1404,14 +1550,14 @@ describe('Multi-Node Gossip', () => {
     // 1. Receipt
     const r0 = mockReceipt(0n, 'l2-00000000');
     const a0 = mockAuditEvent(0n, 'l2-00000000');
-    seq.applyReplicatedReceipt(r0, a0, undefined,
-      INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
+    seq.applyReplicatedReceipt(r0, a0, undefined, INITIAL_REG_ROOT.toString(), INITIAL_LC_ROOT.toString(), '0');
 
     // 2. Batch
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     seq.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -1427,21 +1573,12 @@ describe('Multi-Node Gossip', () => {
 
   test('multiple receipts replicated in order', () => {
     const store = new InMemoryStore();
-    const replica = new L2Node(
-      { batchIntervalMs: 999_999, role: 'replica' },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const replica = new L2Node({ batchIntervalMs: 999_999, role: 'replica' }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq = replica.getSequencer();
 
     for (let i = 0; i < 5; i++) {
-      seq.applyReplicatedReceipt(
-        mockReceipt(BigInt(i)),
-        mockAuditEvent(BigInt(i)),
-      );
+      seq.applyReplicatedReceipt(mockReceipt(BigInt(i)), mockAuditEvent(BigInt(i)));
     }
 
     expect(seq.getAllReceipts().length).toBe(5);
@@ -1456,10 +1593,7 @@ describe('Multi-Node Gossip', () => {
     seqCtx.node.start();
 
     const seqService = seqCtx.node.getSequencer();
-    seqService.applyReplicatedReceipt(
-      mockReceipt(0n, 'l2-00000000'),
-      mockAuditEvent(0n, 'l2-00000000'),
-    );
+    seqService.applyReplicatedReceipt(mockReceipt(0n, 'l2-00000000'), mockAuditEvent(0n, 'l2-00000000'));
 
     // Get digest from sequencer
     const digest = await seqCtx.client.getStateDigest();
@@ -1467,19 +1601,10 @@ describe('Multi-Node Gossip', () => {
 
     // Create replica and apply the same state
     const store = new InMemoryStore();
-    const replica = new L2Node(
-      { batchIntervalMs: 999_999, role: 'replica' },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const replica = new L2Node({ batchIntervalMs: 999_999, role: 'replica' }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const repSeq = replica.getSequencer();
-    repSeq.applyReplicatedReceipt(
-      mockReceipt(0n, 'l2-00000000'),
-      mockAuditEvent(0n, 'l2-00000000'),
-    );
+    repSeq.applyReplicatedReceipt(mockReceipt(0n, 'l2-00000000'), mockAuditEvent(0n, 'l2-00000000'));
 
     // Compare
     expect(repSeq.getLatestSequenceNumber()).toBe(digest.latestSequenceNumber);
@@ -1487,13 +1612,7 @@ describe('Multi-Node Gossip', () => {
 
   test('batch failure gossip replicated correctly', () => {
     const store = new InMemoryStore();
-    const replica = new L2Node(
-      { batchIntervalMs: 999_999, role: 'replica' },
-      store,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const replica = new L2Node({ batchIntervalMs: 999_999, role: 'replica' }, store, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     replica.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq = replica.getSequencer();
 
@@ -1505,7 +1624,8 @@ describe('Multi-Node Gossip', () => {
     const block = mockBlock(0n, ['l2-00000000']);
     const batch = mockBatch(0n, 0n, ['l2-00000000']);
     seq.applyReplicatedBatch(
-      batch, block,
+      batch,
+      block,
       [{ ...r0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
       [{ ...a0, l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n }],
     );
@@ -1562,14 +1682,8 @@ describe('Multi-Node Gossip', () => {
 
     // Add some state
     const seqService = seqCtx.node.getSequencer();
-    seqService.applyReplicatedReceipt(
-      mockReceipt(0n, 'l2-00000000'),
-      mockAuditEvent(0n, 'l2-00000000'),
-    );
-    seqService.applyReplicatedReceipt(
-      mockReceipt(1n, 'l2-00000001'),
-      mockAuditEvent(1n, 'l2-00000001'),
-    );
+    seqService.applyReplicatedReceipt(mockReceipt(0n, 'l2-00000000'), mockAuditEvent(0n, 'l2-00000000'));
+    seqService.applyReplicatedReceipt(mockReceipt(1n, 'l2-00000001'), mockAuditEvent(1n, 'l2-00000001'));
 
     const repPeerNet = new L2PeerNetwork({ nodeId: 'rep-sync', role: 'replica', adminToken: TEST_ADMIN_TOKEN });
     const peerInfo = await repPeerNet.connectToPeer(seqCtx.url);
@@ -1621,7 +1735,15 @@ describe('Edge Cases & Network Resilience', () => {
   test('handleIncomingAndRelay returns true for new, false for dup', async () => {
     const net = new L2PeerNetwork({ nodeId: 'relay-test', gossipRelayEnabled: true });
     const msg = makeGossipMessage('peer:announce', 'sender', {
-      peer: { peerId: 'sender', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
+      peer: {
+        peerId: 'sender',
+        url: '',
+        role: 'replica' as const,
+        status: 'connected' as const,
+        lastSeen: 0,
+        latestSequenceNumber: 0n,
+        latestBatchNumber: null,
+      },
       knownPeers: [],
     });
 
@@ -1697,10 +1819,23 @@ describe('Edge Cases & Network Resilience', () => {
     net.on((msg) => calls1.push(msg.messageId));
     net.on((msg) => calls2.push(msg.messageId));
 
-    const msg = makeGossipMessage('peer:announce', 'x', {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'multi-msg');
+    const msg = makeGossipMessage(
+      'peer:announce',
+      'x',
+      {
+        peer: {
+          peerId: 'x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'multi-msg',
+    );
 
     net.handleIncoming(msg);
     expect(calls1).toEqual(['multi-msg']);
@@ -1711,13 +1846,30 @@ describe('Edge Cases & Network Resilience', () => {
     const net = new L2PeerNetwork({ nodeId: 'error-handler' });
     let secondHandlerCalled = false;
 
-    net.on(() => { throw new Error('handler crash'); });
-    net.on(() => { secondHandlerCalled = true; });
+    net.on(() => {
+      throw new Error('handler crash');
+    });
+    net.on(() => {
+      secondHandlerCalled = true;
+    });
 
-    const msg = makeGossipMessage('peer:announce', 'x', {
-      peer: { peerId: 'x', url: '', role: 'replica' as const, status: 'connected' as const, lastSeen: 0, latestSequenceNumber: 0n, latestBatchNumber: null },
-      knownPeers: [],
-    }, 'crash-msg');
+    const msg = makeGossipMessage(
+      'peer:announce',
+      'x',
+      {
+        peer: {
+          peerId: 'x',
+          url: '',
+          role: 'replica' as const,
+          status: 'connected' as const,
+          lastSeen: 0,
+          latestSequenceNumber: 0n,
+          latestBatchNumber: null,
+        },
+        knownPeers: [],
+      },
+      'crash-msg',
+    );
 
     expect(() => net.handleIncoming(msg)).not.toThrow();
     expect(secondHandlerCalled).toBe(true);
@@ -1729,10 +1881,7 @@ describe('Edge Cases & Network Resilience', () => {
     seqCtx.node.start();
 
     // Apply a receipt with a specific sequence number
-    seqCtx.node.getSequencer().applyReplicatedReceipt(
-      mockReceipt(42n, 'l2-00000042'),
-      mockAuditEvent(42n, 'l2-00000042'),
-    );
+    seqCtx.node.getSequencer().applyReplicatedReceipt(mockReceipt(42n, 'l2-00000042'), mockAuditEvent(42n, 'l2-00000042'));
 
     const state = await seqCtx.client.requestSnapshot();
     expect(state.nextSequenceNumber).toBe(43n);
@@ -1759,7 +1908,9 @@ describe('Edge Cases & Network Resilience', () => {
     // Add batch
     const block = mockBlock(0n, ['l2-00000000', 'l2-00000001']);
     const batch = mockBatch(0n, 0n, ['l2-00000000', 'l2-00000001']);
-    seq1.applyReplicatedBatch(batch, block,
+    seq1.applyReplicatedBatch(
+      batch,
+      block,
       [
         { ...mockReceipt(0n, 'l2-00000000'), l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n },
         { ...mockReceipt(1n, 'l2-00000001'), l1Status: 'batched', l2BlockNumber: 0n, l1BatchNumber: 0n },
@@ -1775,13 +1926,7 @@ describe('Edge Cases & Network Resilience', () => {
 
     // Restore into a new node
     const store2 = new InMemoryStore();
-    const node2 = new L2Node(
-      { batchIntervalMs: 999_999, role: 'replica' },
-      store2,
-      INITIAL_REG_ROOT,
-      INITIAL_LC_ROOT,
-      Field(0),
-    );
+    const node2 = new L2Node({ batchIntervalMs: 999_999, role: 'replica' }, store2, INITIAL_REG_ROOT, INITIAL_LC_ROOT, Field(0));
     node2.getSequencer().setTransitionVerifier(createAcceptAllVerifierForTests('tests/l2-peer-network.test.ts'));
     const seq2 = node2.getSequencer();
     seq2.restoreState(exported);

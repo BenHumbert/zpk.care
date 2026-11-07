@@ -32,7 +32,7 @@ async function loadFixtures() {
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null)
       .then((data) => {
-        if (!data) fixturesPromise = null;   // try again next time; the page still renders without people
+        if (!data) fixturesPromise = null; // try again next time; the page still renders without people
         return data || { members: [], prescribers: [], pharmacies: [] };
       });
   }

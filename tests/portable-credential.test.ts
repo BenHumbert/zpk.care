@@ -28,29 +28,14 @@
  */
 
 import { Field, Poseidon } from 'o1js';
-import {
-  CredentialData,
-  CREDENTIAL_TYPE_ELIGIBILITY,
-} from '../src/credentials/credential-data.js';
+import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { CredentialInventory } from '../src/credentials/credential-inventory.js';
-import {
-  CREDENTIAL_OP_VERIFY,
-} from '../src/credentials/credential-program.js';
-import {
-  verifyCredentialOffline,
-} from '../src/credentials/portable-credential.js';
+import { CREDENTIAL_OP_VERIFY } from '../src/credentials/credential-program.js';
+import { verifyCredentialOffline } from '../src/credentials/portable-credential.js';
 import type { PortableCredential } from '../src/credentials/portable-credential.js';
-import {
-  EMPTY_CREDENTIAL_ROOT,
-} from '../src/engine/state-transition.js';
-import {
-  DelegationData,
-  SCOPE_ALL,
-  REL_APPOINTED_REPRESENTATIVE,
-} from '../src/messaging/delegation-data.js';
-import {
-  DelegationRegistry,
-} from '../src/messaging/message-registry.js';
+import { EMPTY_CREDENTIAL_ROOT } from '../src/engine/state-transition.js';
+import { DelegationData, SCOPE_ALL, REL_APPOINTED_REPRESENTATIVE } from '../src/messaging/delegation-data.js';
+import { DelegationRegistry } from '../src/messaging/message-registry.js';
 import { dateToField } from '../src/zkp/hash-utils.js';
 
 // ─── Helpers ────────────────────────────────────────────────

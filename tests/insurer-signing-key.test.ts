@@ -155,8 +155,7 @@ describe('the employer signature is checked, and why reading its embedded key is
     // key in its own approved application record before counter-signing, so the insurer's
     // counter-signature is what attests that this key is the right one. A caller checking only
     // the employer signature is checking nothing, which is why the sequencer checks both.
-    const src = require('fs')
-      .readFileSync('src/onboarding/employer-attestation.ts', 'utf-8') as string;
+    const src = require('fs').readFileSync('src/onboarding/employer-attestation.ts', 'utf-8') as string;
     expect(src).toContain('A caller that checks only this function is checking nothing');
   });
 });
@@ -170,8 +169,7 @@ describe('the wiring that keeps the signer and the verifier in step', () => {
   });
 
   test('the insurer refuses to sign with the admin token', () => {
-    const src = require('fs')
-      .readFileSync('src/nodes/routes/marketplace-routes.ts', 'utf-8') as string;
+    const src = require('fs').readFileSync('src/nodes/routes/marketplace-routes.ts', 'utf-8') as string;
     expect(src).toContain('insurerSigningSeed');
     expect(src).toContain('must not be the admin token');
     // The old wiring must be gone.

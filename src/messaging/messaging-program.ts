@@ -87,9 +87,9 @@ export const MessagingProgram = ZkProgram({
       privateInputs: [
         MessageData,
         MessageRegistryWitness,
-        Field,  // messageRegistryRoot
-        Field,  // delegationRegistryRoot
-        Field,  // keyRegistryRoot
+        Field, // messageRegistryRoot
+        Field, // delegationRegistryRoot
+        Field, // keyRegistryRoot
       ],
       async method(
         messageData: MessageData,
@@ -103,30 +103,17 @@ export const MessagingProgram = ZkProgram({
 
         // 2. Verify message is in the registry
         const computedRoot = messageWitness.calculateRoot(commitment);
-        computedRoot.assertEquals(
-          messageRegistryRoot,
-          'Message not in registry',
-        );
+        computedRoot.assertEquals(messageRegistryRoot, 'Message not in registry');
 
         // 3. Compute messaging root
-        const messagingRoot = Poseidon.hash([
-          messageRegistryRoot,
-          delegationRegistryRoot,
-          keyRegistryRoot,
-        ]);
+        const messagingRoot = Poseidon.hash([messageRegistryRoot, delegationRegistryRoot, keyRegistryRoot]);
 
         // 4. Message type is valid (1-7: prescription, PA req/resp, notification, general, support, support summary)
-        messageData.messageType
-          .greaterThanOrEqual(Field(1))
-          .assertTrue('Message type must be >= 1');
-        messageData.messageType
-          .lessThanOrEqual(Field(7))
-          .assertTrue('Message type must be <= 7');
+        messageData.messageType.greaterThanOrEqual(Field(1)).assertTrue('Message type must be >= 1');
+        messageData.messageType.lessThanOrEqual(Field(7)).assertTrue('Message type must be <= 7');
 
         // 5. Nonce > 0
-        messageData.nonce
-          .greaterThan(Field(0))
-          .assertTrue('Nonce must be > 0');
+        messageData.nonce.greaterThan(Field(0)).assertTrue('Nonce must be > 0');
 
         return {
           publicOutput: new MessagingOutput({
@@ -156,10 +143,10 @@ export const MessagingProgram = ZkProgram({
       privateInputs: [
         DelegationData,
         DelegationRegistryWitness,
-        Field,  // messageRegistryRoot
-        Field,  // delegationRegistryRoot
-        Field,  // keyRegistryRoot
-        Field,  // currentDate (CCYYMMDD)
+        Field, // messageRegistryRoot
+        Field, // delegationRegistryRoot
+        Field, // keyRegistryRoot
+        Field, // currentDate (CCYYMMDD)
       ],
       async method(
         delegationData: DelegationData,
@@ -174,30 +161,17 @@ export const MessagingProgram = ZkProgram({
 
         // 2. Verify delegation is in the registry
         const computedRoot = delegationWitness.calculateRoot(commitment);
-        computedRoot.assertEquals(
-          delegationRegistryRoot,
-          'Delegation not in registry',
-        );
+        computedRoot.assertEquals(delegationRegistryRoot, 'Delegation not in registry');
 
         // 3. Compute messaging root
-        const messagingRoot = Poseidon.hash([
-          messageRegistryRoot,
-          delegationRegistryRoot,
-          keyRegistryRoot,
-        ]);
+        const messagingRoot = Poseidon.hash([messageRegistryRoot, delegationRegistryRoot, keyRegistryRoot]);
 
         // 4. Date validity: effectiveDate <= currentDate <= expirationDate
-        delegationData.effectiveDate
-          .lessThanOrEqual(currentDate)
-          .assertTrue('Delegation not yet effective');
-        currentDate
-          .lessThanOrEqual(delegationData.expirationDate)
-          .assertTrue('Delegation has expired');
+        delegationData.effectiveDate.lessThanOrEqual(currentDate).assertTrue('Delegation not yet effective');
+        currentDate.lessThanOrEqual(delegationData.expirationDate).assertTrue('Delegation has expired');
 
         // 5. scopeFlags > 0
-        delegationData.scopeFlags
-          .greaterThan(Field(0))
-          .assertTrue('Scope flags must grant at least one permission');
+        delegationData.scopeFlags.greaterThan(Field(0)).assertTrue('Scope flags must grant at least one permission');
 
         return {
           publicOutput: new MessagingOutput({

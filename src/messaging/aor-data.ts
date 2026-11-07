@@ -55,9 +55,9 @@ export const REP_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000;
  * Pharmacies with stale chain state beyond TTL must sync before honoring.
  */
 export const OFFLINE_TTL_MS = {
-  READ: 72 * 60 * 60 * 1000,   // 72 hours
-  WRITE: 24 * 60 * 60 * 1000,  // 24 hours
-  PICKUP: 4 * 60 * 60 * 1000,  //  4 hours
+  READ: 72 * 60 * 60 * 1000, // 72 hours
+  WRITE: 24 * 60 * 60 * 1000, // 24 hours
+  PICKUP: 4 * 60 * 60 * 1000, //  4 hours
 } as const;
 
 // ─── AOR Local Data (CMS-1696 Complete) ──────────────────────
@@ -210,11 +210,6 @@ export function buildAorCommitment(aor: AorLocalData): Field {
  * @param aorCommitment — the AOR document commitment (from buildAorCommitment)
  * @param scopeFlags — the authorized scope (bitfield)
  */
-export function buildAorConfirmationHash(
-  memberWalletId: Field,
-  repWalletId: Field,
-  aorCommitment: Field,
-  scopeFlags: Field,
-): Field {
+export function buildAorConfirmationHash(memberWalletId: Field, repWalletId: Field, aorCommitment: Field, scopeFlags: Field): Field {
   return Poseidon.hash([memberWalletId, repWalletId, aorCommitment, scopeFlags]);
 }

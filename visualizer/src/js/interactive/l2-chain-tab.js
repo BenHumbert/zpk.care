@@ -71,9 +71,7 @@ export class L2ChainTab {
     if (!status) return '';
 
     const uptime = this.formatUptime(status.uptimeMs);
-    const nextBatch = status.nextBatchInMs > 0
-      ? `${Math.ceil(status.nextBatchInMs / 1000)}s`
-      : 'Now';
+    const nextBatch = status.nextBatchInMs > 0 ? `${Math.ceil(status.nextBatchInMs / 1000)}s` : 'Now';
 
     return `
       <div class="section-card">
@@ -214,7 +212,9 @@ export class L2ChainTab {
 
     // Show most recent first
     const sorted = [...receipts].reverse();
-    const rows = sorted.map((r, i) => `
+    const rows = sorted
+      .map(
+        (r, i) => `
       <tr>
         <td class="mono" style="font-size:10px;" title="${escapeHtml(r.receiptId)}">${escapeHtml(r.receiptId.slice(0, 12))}...</td>
         <td class="mono" style="font-size:10px;" title="${escapeHtml(r.walletId)}">${escapeHtml(r.walletId)}</td>
@@ -223,7 +223,9 @@ export class L2ChainTab {
         <td><span class="l2-status-badge ${escapeHtml(r.l1Status)}">${escapeHtml(r.l1Status)}</span></td>
         <td style="font-size:11px; color:var(--text-muted);">${this.formatTime(r.acceptedAt)}</td>
       </tr>
-    `).join('');
+    `,
+      )
+      .join('');
 
     return `
       <div class="section-card">
@@ -264,9 +266,10 @@ export class L2ChainTab {
     }
 
     const sorted = [...batches].reverse();
-    const rows = sorted.map(b => {
-      const isEmpty = b.transitionCount === 0 && b.registrationCount === 0;
-      return `
+    const rows = sorted
+      .map((b) => {
+        const isEmpty = b.transitionCount === 0 && b.registrationCount === 0;
+        return `
       <tr${isEmpty ? ' style="opacity: 0.5;"' : ''}>
         <td style="font-weight:600;">#${b.batchNumber}</td>
         <td>${b.registrationCount}</td>
@@ -275,7 +278,9 @@ export class L2ChainTab {
         <td class="mono" style="font-size:10px;" title="${escapeHtml(b.l1TxHash || '')}">${b.l1TxHash ? escapeHtml(b.l1TxHash.slice(0, 16)) + '...' : '-'}</td>
         <td style="font-size:11px; color:var(--text-muted);">${this.formatTime(b.createdAt)}</td>
       </tr>
-    `;}).join('');
+    `;
+      })
+      .join('');
 
     return `
       <div class="section-card">

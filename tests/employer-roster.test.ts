@@ -37,9 +37,17 @@ describe('the employer roster', () => {
     const entries = node.listRoster();
     expect(entries).toHaveLength(1);
     const entry = entries[0] as unknown as Record<string, unknown>;
-    expect(Object.keys(entry).sort()).toEqual(['createdAt', 'employeeIdHash', 'familyIdHash', 'groupIdHash', 'inviteStatus', 'status', 'tokenIdHash']);
+    expect(Object.keys(entry).sort()).toEqual([
+      'createdAt',
+      'employeeIdHash',
+      'familyIdHash',
+      'groupIdHash',
+      'inviteStatus',
+      'status',
+      'tokenIdHash',
+    ]);
     expect(entry.tokenIdHash).toBe(hashString(issued.tokenId).toString());
-    expect(entry.inviteStatus).toBe('unused');                // A-109: what became of the invite, for the HR Tool's notices
+    expect(entry.inviteStatus).toBe('unused'); // A-109: what became of the invite, for the HR Tool's notices
     expect(entry.status).toBe('pending');
     expect(JSON.stringify(entry)).not.toMatch(/wallet/i);
   });

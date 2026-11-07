@@ -43,7 +43,12 @@ const memberNode = generateNodeKey('member-node');
 const prescriberNode = generateNodeKey('prescriber-node');
 const pharmacyNode = generateNodeKey('pharmacy-node');
 const insurerNode = generateNodeKey('insurer-node');
-const EK = { alice: 'ek-alice-' + 'a'.repeat(32), bob: 'ek-bob-' + 'b'.repeat(32), drP: 'ek-drp-' + 'c'.repeat(32), rx: 'ek-rx-' + 'd'.repeat(32) };
+const EK = {
+  alice: 'ek-alice-' + 'a'.repeat(32),
+  bob: 'ek-bob-' + 'b'.repeat(32),
+  drP: 'ek-drp-' + 'c'.repeat(32),
+  rx: 'ek-rx-' + 'd'.repeat(32),
+};
 const W = { alice: '1001', bob: '1002', drP: '2001', rx: '3001' };
 
 let node: L2Node;
@@ -58,11 +63,19 @@ async function rpcWith(headers: Record<string, string>, body: string) {
   return (await r.json()) as { result?: any; error?: { code: number; message: string } };
 }
 const bearer = { Authorization: `Bearer ${OPERATOR}` };
-const byWallet = (ek: string, walletId: string, body: string) => signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: '/rpc', body });
-const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) => signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
+const byWallet = (ek: string, walletId: string, body: string) =>
+  signRequest({ ...walletSigner(ek, walletId), method: 'POST', path: '/rpc', body });
+const byNode = (key: ReturnType<typeof generateNodeKey>, body: string) =>
+  signRequest({ signerId: key.nodeId, privateKey: privateKeyFromSeedHex(key.seedHex), method: 'POST', path: '/rpc', body });
 
 beforeAll(async () => {
-  node = new L2Node({ batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-reads-test' }, new InMemoryStore(), emptyRoot, emptyRoot, Field(0));
+  node = new L2Node(
+    { batchIntervalMs: 999_999, autoSettle: false, nodeId: 'seq-reads-test' },
+    new InMemoryStore(),
+    emptyRoot,
+    emptyRoot,
+    Field(0),
+  );
   await node.enableAttestations();
   server = new L2RpcServer(node, { port: 0, host: '127.0.0.1', adminToken: OPERATOR, enableSSE: false });
   server.registerNodeKey(memberNode.nodeId, memberNode.publicKeyHex, 'member');
@@ -72,7 +85,12 @@ beforeAll(async () => {
   await server.start();
   url = `http://127.0.0.1:${server.getPort()}`;
   const register = async (key: ReturnType<typeof generateNodeKey>, who: keyof typeof W, type: string) => {
-    const body = envelope('l2_registerEntity', { walletId: W[who], displayName: who, type, signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex });
+    const body = envelope('l2_registerEntity', {
+      walletId: W[who],
+      displayName: who,
+      type,
+      signingPublicKeyHex: deriveWalletSigningKey(EK[who]).publicKeyHex,
+    });
     const j = await rpcWith(byNode(key, body), body);
     if (j.error) throw new Error(`fixture registration of ${who} failed: ${j.error.message}`);
   };
@@ -81,7 +99,10 @@ beforeAll(async () => {
   await register(prescriberNode, 'drP', 'prescriber');
   await register(pharmacyNode, 'rx', 'pharmacy');
   // Dr P is credentialed, so the provider registry shows it an active prescriber, as the 'pcp' reader needs (A-59).
-  const credentialed = await rpcWith(bearer, envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'drP', providerType: 'prescriber' }));
+  const credentialed = await rpcWith(
+    bearer,
+    envelope('l2_credentialProvider', { walletId: W.drP, displayName: 'drP', providerType: 'prescriber' }),
+  );
   if (credentialed.error) throw new Error(`fixture credentialing of drP failed: ${credentialed.error.message}`);
   // Alice and Bob exist on the ledger, so attestations can be issued for them.
   node.getSequencer().adminMutate('test: provision members', ({ provision }) => {
@@ -90,15 +111,23 @@ beforeAll(async () => {
   });
 });
 
-afterAll(async () => { await server.stop(); });
+afterAll(async () => {
+  await server.stop();
+});
 
-describe('a member\'s claims, receipts and accumulator', () => {
+describe("a member's claims, receipts and accumulator", () => {
   const claims = envelope('l2_getClaimsByMember', { walletId: W.alice });
 
-  test('answer no anonymous caller, and no bearer that is not the operator\'s', async () => {
+  test("answer no anonymous caller, and no bearer that is not the operator's", async () => {
     expect((await rpcWith({}, claims)).error?.code).toBe(RPC_UNAUTHORIZED);
     expect((await rpcWith({ Authorization: 'Bearer not-the-operator' }, claims)).error?.code).toBe(RPC_UNAUTHORIZED);
-    for (const method of ['l2_getReceiptsByWallet', 'l2_reconstructAccumulator', 'l2_getWalletState', 'l2_getWalletWitnesses', 'l2_getMessagesByWallet']) {
+    for (const method of [
+      'l2_getReceiptsByWallet',
+      'l2_reconstructAccumulator',
+      'l2_getWalletState',
+      'l2_getWalletWitnesses',
+      'l2_getMessagesByWallet',
+    ]) {
       expect((await rpcWith({}, envelope(method, { walletId: W.alice }))).error?.code).toBe(RPC_UNAUTHORIZED);
     }
   });
@@ -138,7 +167,7 @@ describe('a member\'s claims, receipts and accumulator', () => {
     expect((await rpcWith({}, drEntity)).result?.type).toBe('prescriber');
   });
 
-  test('answer a signed caller presenting the member\'s own attestation, and not a foreign or forged one', async () => {
+  test("answer a signed caller presenting the member's own attestation, and not a foreign or forged one", async () => {
     const ask = envelope('l2_requestAttestation', { walletId: W.alice });
     const att = (await rpcWith(byWallet(EK.alice, W.alice, ask), ask)).result;
     expect(att?.w).toBe(W.alice);
@@ -166,7 +195,11 @@ describe('threads, enumerations and the directory', () => {
   });
 
   test('the receipt list, the audit log and claims by drug answer the plan and the operator only', async () => {
-    for (const [method, params] of [['l2_getAllReceipts', {}], ['l2_getAuditLog', {}], ['l2_getClaimsByNdc', { ndcHash: '5' }]] as const) {
+    for (const [method, params] of [
+      ['l2_getAllReceipts', {}],
+      ['l2_getAuditLog', {}],
+      ['l2_getClaimsByNdc', { ndcHash: '5' }],
+    ] as const) {
       const body = envelope(method, params as Record<string, unknown>);
       expect((await rpcWith({}, body)).error?.code).toBe(RPC_UNAUTHORIZED);
       expect((await rpcWith(byWallet(EK.alice, W.alice, body), body)).error?.code).toBe(RPC_FORBIDDEN);
@@ -175,7 +208,7 @@ describe('threads, enumerations and the directory', () => {
     }
   });
 
-  test('a prescriber\'s patient list answers that prescriber and the plan', async () => {
+  test("a prescriber's patient list answers that prescriber and the plan", async () => {
     const list = envelope('l2_getPcpAssignments', { prescriberWalletId: W.drP });
     expect((await rpcWith({}, list)).error?.code).toBe(RPC_UNAUTHORIZED);
     expect((await rpcWith(byWallet(EK.alice, W.alice, list), list)).error?.code).toBe(RPC_FORBIDDEN);
@@ -183,7 +216,7 @@ describe('threads, enumerations and the directory', () => {
     expect((await rpcWith(bearer, list)).result).toHaveLength(1);
   });
 
-  test('a wallet\'s encryption key answers any signed caller and no anonymous one', async () => {
+  test("a wallet's encryption key answers any signed caller and no anonymous one", async () => {
     const key = envelope('l2_getEncryptionKey', { walletId: W.alice });
     expect((await rpcWith({}, key)).error?.code).toBe(RPC_UNAUTHORIZED);
     expect((await rpcWith(byWallet(EK.bob, W.bob, key), key)).error).toBeUndefined();
@@ -196,7 +229,14 @@ describe('threads, enumerations and the directory', () => {
     const asOperator = await fetch(`${url}/viz/entities`, { headers: bearer });
     expect(asOperator.status).toBe(200);
     expect(((await asOperator.json()) as any[]).some((e) => e.walletId === W.alice)).toBe(true);
-    const asPlan = await fetch(`${url}/viz/entities`, { headers: signRequest({ signerId: insurerNode.nodeId, privateKey: privateKeyFromSeedHex(insurerNode.seedHex), method: 'GET', path: '/viz/entities' }) });
+    const asPlan = await fetch(`${url}/viz/entities`, {
+      headers: signRequest({
+        signerId: insurerNode.nodeId,
+        privateKey: privateKeyFromSeedHex(insurerNode.seedHex),
+        method: 'GET',
+        path: '/viz/entities',
+      }),
+    });
     expect(asPlan.status).toBe(200);
   });
 });

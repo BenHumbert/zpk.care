@@ -24,13 +24,13 @@ const row = (ndc: string, effectiveDate: string, nadacPerUnit: number) => ({ ndc
 
 describe('A-126: the latest NADAC rate wins across a year boundary', () => {
   it('keeps the January rate of the newer year over the December rate of the older one', () => {
-    const latest = deduplicateToLatest([row('1', '01/08/2025', 0.30), row('1', '12/18/2024', 0.28)]);
-    expect(latest.get('1')?.nadacPerUnit).toBe(0.30);
+    const latest = deduplicateToLatest([row('1', '01/08/2025', 0.3), row('1', '12/18/2024', 0.28)]);
+    expect(latest.get('1')?.nadacPerUnit).toBe(0.3);
   });
 
   it('does so whichever row comes first', () => {
-    const latest = deduplicateToLatest([row('1', '12/18/2024', 0.28), row('1', '01/08/2025', 0.30)]);
-    expect(latest.get('1')?.nadacPerUnit).toBe(0.30);
+    const latest = deduplicateToLatest([row('1', '12/18/2024', 0.28), row('1', '01/08/2025', 0.3)]);
+    expect(latest.get('1')?.nadacPerUnit).toBe(0.3);
   });
 
   it('orders months and days within a year', () => {
@@ -51,12 +51,15 @@ describe('A-126: the latest NADAC rate wins across a year boundary', () => {
   });
 });
 
-
 describe('A-126: the catalog is the latest weekly snapshot, not every rate the year file ever held', () => {
   const snap = (ndc: string, asOfDate: string, effectiveDate: string, p: number) => ({ ndc, asOfDate, effectiveDate, nadacPerUnit: p });
 
   it('keeps only the rows of the newest As of Date, so a drug CMS stopped surveying is left out', () => {
-    const rows = [snap('A', '03/04/2026', '02/18/2026', 1), snap('A', '03/11/2026', '02/18/2026', 1), snap('GONE', '01/07/2026', '12/17/2025', 5)];
+    const rows = [
+      snap('A', '03/04/2026', '02/18/2026', 1),
+      snap('A', '03/11/2026', '02/18/2026', 1),
+      snap('GONE', '01/07/2026', '12/17/2025', 5),
+    ];
     expect(latestSnapshotRows(rows).map((r) => r.ndc)).toEqual(['A']);
   });
 
@@ -76,25 +79,49 @@ describe('A-126: the catalog is the latest weekly snapshot, not every rate the y
 
   it('refreshes a demo subset in place: a drug that left is replaced by the next unused current drug of its tier and OTC status after the run', () => {
     const catalog = [
-      { ndc: 'N0', tierLevel: 2, otc: false }, { ndc: 'K1', tierLevel: 1, otc: false }, { ndc: 'K2', tierLevel: 2, otc: true },
-      { ndc: 'N1', tierLevel: 1, otc: false }, { ndc: 'N2', tierLevel: 2, otc: false },
+      { ndc: 'N0', tierLevel: 2, otc: false },
+      { ndc: 'K1', tierLevel: 1, otc: false },
+      { ndc: 'K2', tierLevel: 2, otc: true },
+      { ndc: 'N1', tierLevel: 1, otc: false },
+      { ndc: 'N2', tierLevel: 2, otc: false },
     ];
-    const previous = [{ ndc: 'K1', tierLevel: 1, otc: false }, { ndc: 'GONE1', tierLevel: 2, otc: false }, { ndc: 'K2', tierLevel: 2, otc: true }, { ndc: 'GONE2', tierLevel: 1, otc: false }];
+    const previous = [
+      { ndc: 'K1', tierLevel: 1, otc: false },
+      { ndc: 'GONE1', tierLevel: 2, otc: false },
+      { ndc: 'K2', tierLevel: 2, otc: true },
+      { ndc: 'GONE2', tierLevel: 1, otc: false },
+    ];
     expect(refreshSubset(previous, catalog).map((r) => r.ndc)).toEqual(['K1', 'N2', 'K2', 'N1']);
   });
 
   it('prefers a drug name the subset does not hold yet over another package code of the same drug', () => {
     const catalog = [
       { ndc: 'K', tierLevel: 1, otc: false, description: 'KEEP 1 MG' },
-      { ndc: 'D1', tierLevel: 1, otc: false, description: 'DUP 5 MG' }, { ndc: 'D2', tierLevel: 1, otc: false, description: 'DUP 5 MG' },
+      { ndc: 'D1', tierLevel: 1, otc: false, description: 'DUP 5 MG' },
+      { ndc: 'D2', tierLevel: 1, otc: false, description: 'DUP 5 MG' },
       { ndc: 'E1', tierLevel: 1, otc: false, description: 'ELSE 2 MG' },
     ];
-    const previous = [{ ndc: 'K', tierLevel: 1, otc: false, description: 'KEEP 1 MG' }, { ndc: 'G1', tierLevel: 1, otc: false }, { ndc: 'G2', tierLevel: 1, otc: false }];
+    const previous = [
+      { ndc: 'K', tierLevel: 1, otc: false, description: 'KEEP 1 MG' },
+      { ndc: 'G1', tierLevel: 1, otc: false },
+      { ndc: 'G2', tierLevel: 1, otc: false },
+    ];
     expect(refreshSubset(previous, catalog).map((r) => r.ndc)).toEqual(['K', 'D1', 'E1']);
   });
 
   it('wraps to the top of the catalog when nothing after the run fits', () => {
-    const catalog = [{ ndc: 'TOP', tierLevel: 3, otc: false }, { ndc: 'K', tierLevel: 1, otc: false }];
-    expect(refreshSubset([{ ndc: 'K', tierLevel: 1, otc: false }, { ndc: 'GONE', tierLevel: 3, otc: false }], catalog).map((r) => r.ndc)).toEqual(['K', 'TOP']);
+    const catalog = [
+      { ndc: 'TOP', tierLevel: 3, otc: false },
+      { ndc: 'K', tierLevel: 1, otc: false },
+    ];
+    expect(
+      refreshSubset(
+        [
+          { ndc: 'K', tierLevel: 1, otc: false },
+          { ndc: 'GONE', tierLevel: 3, otc: false },
+        ],
+        catalog,
+      ).map((r) => r.ndc),
+    ).toEqual(['K', 'TOP']);
   });
 });

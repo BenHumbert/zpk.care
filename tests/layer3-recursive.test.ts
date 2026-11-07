@@ -31,11 +31,7 @@ import { Field, MerkleTree } from 'o1js';
 import { StateTransitionProgram, TransitionOutput } from '../src/engine/state-transition.js';
 import { WalletRegistryWitness, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { LifecycleWitness } from '../src/engine/lifecycle.js';
-import {
-  deriveMemberWalletId,
-  memberWalletPreimage,
-  DOMAIN_TAG_MEMBER,
-} from '../src/wallets/wallet-derivation.js';
+import { deriveMemberWalletId, memberWalletPreimage, DOMAIN_TAG_MEMBER } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import { fixtureIdentitySalt } from '../src/data/index.js';
 
@@ -95,7 +91,12 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
 
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+      preimage[0]!,
+      preimage[1]!,
+      preimage[2]!,
+      preimage[3]!,
+      preimage[4]!,
+      preimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -129,7 +130,12 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
 
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+      preimage[0]!,
+      preimage[1]!,
+      preimage[2]!,
+      preimage[3]!,
+      preimage[4]!,
+      preimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),
@@ -166,8 +172,12 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
 
     const stResult = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
-      wrongPreimage[0]!, wrongPreimage[1]!, wrongPreimage[2]!,
-      wrongPreimage[3]!, wrongPreimage[4]!, wrongPreimage[5]!,
+      wrongPreimage[0]!,
+      wrongPreimage[1]!,
+      wrongPreimage[2]!,
+      wrongPreimage[3]!,
+      wrongPreimage[4]!,
+      wrongPreimage[5]!,
       regWitness,
       lcWitness,
       regTree.getRoot(),

@@ -92,16 +92,10 @@ export const CredentialProgram = ZkProgram({
 
         // 2. Verify the inventory slot is empty
         const emptyRoot = inventoryWitness.calculateRoot(Field(0));
-        emptyRoot.assertEquals(
-          oldInventoryRoot,
-          'Inventory slot is not empty',
-        );
+        emptyRoot.assertEquals(oldInventoryRoot, 'Inventory slot is not empty');
 
         // 3. Verify subject matches wallet owner
-        credentialData.subjectWalletId.assertEquals(
-          walletId,
-          'Credential subject must match wallet owner',
-        );
+        credentialData.subjectWalletId.assertEquals(walletId, 'Credential subject must match wallet owner');
 
         // 3b. M2 fix: Verify credential is not pre-revoked
         credentialData.revoked.assertEquals(Field(0), 'Cannot issue a revoked credential');
@@ -154,16 +148,10 @@ export const CredentialProgram = ZkProgram({
         // 2. Verify credential exists in inventory
         const credentialCommitment = credentialData.commitment();
         const computedRoot = inventoryWitness.calculateRoot(credentialCommitment);
-        computedRoot.assertEquals(
-          inventoryRoot,
-          'Credential not found in inventory',
-        );
+        computedRoot.assertEquals(inventoryRoot, 'Credential not found in inventory');
 
         // 3. Verify subject matches wallet owner
-        credentialData.subjectWalletId.assertEquals(
-          walletId,
-          'Credential subject must match wallet owner',
-        );
+        credentialData.subjectWalletId.assertEquals(walletId, 'Credential subject must match wallet owner');
 
         // 4. Verify credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
@@ -212,25 +200,16 @@ export const CredentialProgram = ZkProgram({
         // 2. Verify credential exists in inventory
         const credentialCommitment = credentialData.commitment();
         const computedRoot = inventoryWitness.calculateRoot(credentialCommitment);
-        computedRoot.assertEquals(
-          inventoryRoot,
-          'Credential not found in inventory',
-        );
+        computedRoot.assertEquals(inventoryRoot, 'Credential not found in inventory');
 
         // 3. Verify subject matches wallet owner
-        credentialData.subjectWalletId.assertEquals(
-          walletId,
-          'Credential subject must match wallet owner',
-        );
+        credentialData.subjectWalletId.assertEquals(walletId, 'Credential subject must match wallet owner');
 
         // 4. Verify credential is not revoked
         credentialData.revoked.assertEquals(Field(0), 'Credential is revoked');
 
         // 5. Verify credential type matches requirement
-        credentialData.credentialType.assertEquals(
-          requiredCredentialType,
-          'Credential type does not match required type',
-        );
+        credentialData.credentialType.assertEquals(requiredCredentialType, 'Credential type does not match required type');
 
         return {
           publicOutput: new CredentialOperationOutput({

@@ -18,9 +18,7 @@ import path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import { createHolderKey, unlockHolderKey } from '../src/keys/holder-key.js';
 import type { UnlockedHolder, HolderCard } from '../src/keys/holder-key.js';
-import {
-  runCeremony, signCeremonyRecord, addRecordSignature, releaseShare, canonicalJson, bootFingerprint,
-} from '../src/keys/ceremony.js';
+import { runCeremony, signCeremonyRecord, addRecordSignature, releaseShare, canonicalJson, bootFingerprint } from '../src/keys/ceremony.js';
 import type { CeremonyRecord, ShareFile, ShareRelease } from '../src/keys/ceremony.js';
 import { NodeKeyring } from '../src/keys/node-keyring.js';
 import { pinCeremonyRecord } from '../src/keys/ceremony-anchor.js';
@@ -30,7 +28,10 @@ import { SUBKEYS } from '../src/keys/subkeys.js';
 import { insurerPublicKeyFromSeed } from '../src/onboarding/employer-attestation.js';
 
 const PASS = 'correct horse battery staple';
-interface Holder { card: HolderCard; unlocked: UnlockedHolder }
+interface Holder {
+  card: HolderCard;
+  unlocked: UnlockedHolder;
+}
 
 function makeHolders(n: number, prefix = 'holder'): Holder[] {
   return Array.from({ length: n }, (_, i) => {
@@ -44,13 +45,22 @@ function signed(record: CeremonyRecord, by: Holder[]): CeremonyRecord {
 }
 
 const holders = makeHolders(5);
-const made = runCeremony({ holders: holders.map((h) => h.card), threshold: 3, nodes: [{ nodeId: 'insurer', role: 'insurer' }], programSourceSha256: 'a'.repeat(64) });
+const made = runCeremony({
+  holders: holders.map((h) => h.card),
+  threshold: 3,
+  nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+  programSourceSha256: 'a'.repeat(64),
+});
 const record = signed(made.record, holders.slice(0, 3));
 const shareOf = (h: Holder): ShareFile => made.shares.find((s) => s.holder === h.card.signPublicKeyHex)!;
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keyring-')); });
-afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'keyring-'));
+});
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 function releaseTo(keyring: NodeKeyring, h: Holder): ShareRelease {
   const boot = keyring.status().bootPublicKeyHex!;
@@ -61,8 +71,13 @@ function releaseTo(keyring: NodeKeyring, h: Holder): ShareRelease {
 function lyingRelease(keyring: NodeKeyring, h: Holder, slot: number): ShareRelease {
   const boot = keyring.status().bootPublicKeyHex!;
   const body = {
-    v: 1 as const, kind: 'zpk.care share release' as const, ceremonyId: record.ceremonyId, nodeId: 'insurer',
-    holder: h.card.signPublicKeyHex, index: slot, bootPublicKeyHex: boot,
+    v: 1 as const,
+    kind: 'zpk.care share release' as const,
+    ceremonyId: record.ceremonyId,
+    nodeId: 'insurer',
+    holder: h.card.signPublicKeyHex,
+    index: slot,
+    bootPublicKeyHex: boot,
     envelope: sealTo(boot, randomBytes(32), `zpk.care/ceremony/v1/release/${record.ceremonyId}/insurer/${boot}/${slot}`),
   };
   const digest = createHash('sha256').update(canonicalJson(body), 'utf8').digest('hex');
@@ -89,7 +104,9 @@ describe('NodeKeyring', () => {
 
     const sealed = fs.readdirSync(path.join(dir, 'node-keys'));
     expect(sealed).toEqual([`${record.ceremonyId}.insurer.sealed.json`]);
-    expect(fs.readFileSync(path.join(dir, 'node-keys', sealed[0]), 'utf8')).not.toContain(keyring.subkey(SUBKEYS.planPinPepper).toString('hex'));
+    expect(fs.readFileSync(path.join(dir, 'node-keys', sealed[0]), 'utf8')).not.toContain(
+      keyring.subkey(SUBKEYS.planPinPepper).toString('hex'),
+    );
     keyring.close();
   });
 
@@ -103,7 +120,9 @@ describe('NodeKeyring', () => {
 
     const restarted = new NodeKeyring({ record, nodeId: 'insurer', stateDir: dir, seal });
     let told = 0;
-    restarted.onUnlocked(() => { told++; });
+    restarted.onUnlocked(() => {
+      told++;
+    });
     const status = await restarted.start();
     expect(status.state).toBe('unlocked');
     expect(status.bootPublicKeyHex).toBeUndefined();
@@ -131,7 +150,12 @@ describe('NodeKeyring', () => {
     const earlier = new NodeKeyring({ record, nodeId: 'insurer', stateDir: dir, seal: testOnlyMachineSeal() });
     await earlier.start();
     const stale = releaseTo(earlier, holders[0]);
-    const later = new NodeKeyring({ record, nodeId: 'insurer', stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'keyring-b-')), seal: testOnlyMachineSeal() });
+    const later = new NodeKeyring({
+      record,
+      nodeId: 'insurer',
+      stateDir: fs.mkdtempSync(path.join(os.tmpdir(), 'keyring-b-')),
+      seal: testOnlyMachineSeal(),
+    });
     await later.start();
     const result = await later.acceptRelease(stale);
     expect(result.accepted).toBe(false);
@@ -170,7 +194,15 @@ describe('NodeKeyring', () => {
     await first.start();
     for (const h of holders.slice(0, 3)) await first.acceptRelease(releaseTo(first, h));
     first.close();
-    const other = signed(runCeremony({ holders: holders.map((h) => h.card), threshold: 3, nodes: [{ nodeId: 'insurer', role: 'insurer' }], programSourceSha256: 'a'.repeat(64) }).record, holders.slice(0, 3));
+    const other = signed(
+      runCeremony({
+        holders: holders.map((h) => h.card),
+        threshold: 3,
+        nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+        programSourceSha256: 'a'.repeat(64),
+      }).record,
+      holders.slice(0, 3),
+    );
     const keyring = new NodeKeyring({ record: other, nodeId: 'insurer', stateDir: dir, seal: testOnlyMachineSeal() });
     const status = await keyring.start();
     expect(status.state).toBe('refused');
@@ -191,7 +223,7 @@ describe('NodeKeyring', () => {
   });
 });
 
-describe('pinCeremonyRecord (the sequencer\'s trust anchor)', () => {
+describe("pinCeremonyRecord (the sequencer's trust anchor)", () => {
   function write(name: string, value: unknown): string {
     const file = path.join(dir, name);
     fs.writeFileSync(file, JSON.stringify(value));
@@ -214,12 +246,26 @@ describe('pinCeremonyRecord (the sequencer\'s trust anchor)', () => {
   test('accepts a record that follows the pinned one, and refuses one that does not', () => {
     const anchorDir = path.join(dir, 'l2-data');
     pinCeremonyRecord(write('first.json', record), anchorDir);
-    const next = signed(runCeremony({
-      holders: holders.map((h) => h.card), threshold: 3, nodes: [{ nodeId: 'insurer', role: 'insurer' }],
-      programSourceSha256: 'a'.repeat(64), previous: record,
-    }).record, holders.slice(0, 3));
+    const next = signed(
+      runCeremony({
+        holders: holders.map((h) => h.card),
+        threshold: 3,
+        nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+        programSourceSha256: 'a'.repeat(64),
+        previous: record,
+      }).record,
+      holders.slice(0, 3),
+    );
     expect(pinCeremonyRecord(write('next.json', next), anchorDir).anchored).toBe('succeeded');
-    const unrelated = signed(runCeremony({ holders: holders.map((h) => h.card), threshold: 3, nodes: [{ nodeId: 'insurer', role: 'insurer' }], programSourceSha256: 'a'.repeat(64) }).record, holders.slice(0, 3));
+    const unrelated = signed(
+      runCeremony({
+        holders: holders.map((h) => h.card),
+        threshold: 3,
+        nodes: [{ nodeId: 'insurer', role: 'insurer' }],
+        programSourceSha256: 'a'.repeat(64),
+      }).record,
+      holders.slice(0, 3),
+    );
     expect(() => pinCeremonyRecord(write('unrelated.json', unrelated), anchorDir)).toThrow(/neither is nor follows/);
   });
 });

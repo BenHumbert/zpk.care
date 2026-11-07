@@ -46,18 +46,18 @@ import {
 // ============================================================================
 
 const COLOR = 'member';
-const DEDUCTIBLE_LIMIT = 50000;   // $500 in cents
-const OOPM_LIMIT = 800000;        // $8,000 in cents
+const DEDUCTIBLE_LIMIT = 50000; // $500 in cents
+const OOPM_LIMIT = 800000; // $8,000 in cents
 const ANNUAL_MAX_LIMIT = 5000000; // $50,000 in cents
 
 // ============================================================================
 // State
 // ============================================================================
 
-let state = null;       // full /node/state response
+let state = null; // full /node/state response
 let selectedMember = null;
-let claims = [];        // claims for currently selected member
-let receipts = [];      // receipts for currently selected member
+let claims = []; // claims for currently selected member
+let receipts = []; // receipts for currently selected member
 let healthOk = false;
 
 // ============================================================================
@@ -97,9 +97,7 @@ async function init() {
       updateHealthDot();
       // Re-select the current member if still present
       if (selectedMember) {
-        const updated = (state.enrolledMembers || []).find(
-          (m) => m.walletId === selectedMember.walletId
-        );
+        const updated = (state.enrolledMembers || []).find((m) => m.walletId === selectedMember.walletId);
         if (updated) {
           selectedMember = updated;
           updateHeaderIdentity(selectedMember);
@@ -109,7 +107,7 @@ async function init() {
         }
       }
     },
-    10000
+    10000,
   );
 }
 
@@ -126,19 +124,13 @@ function renderHeaderSelector(members) {
     displayName: m.displayName || truncHash(m.walletId, 8),
   }));
 
-  container.innerHTML = renderEntitySelector(
-    entities,
-    selectedMember ? selectedMember.walletId : null,
-    'Member:'
-  );
+  container.innerHTML = renderEntitySelector(entities, selectedMember ? selectedMember.walletId : null, 'Member:');
 
   const select = container.querySelector('#entity-select');
   if (select) {
     select.addEventListener('change', async (e) => {
       const walletId = e.target.value;
-      const member = (state.enrolledMembers || []).find(
-        (m) => m.walletId === walletId
-      );
+      const member = (state.enrolledMembers || []).find((m) => m.walletId === walletId);
       if (member) {
         selectedMember = member;
         updateHeaderIdentity(selectedMember);
@@ -187,9 +179,15 @@ async function loadMemberData(walletId) {
 
 function renderEmptyState() {
   const sections = [
-    'section-identity', 'section-pcp', 'section-accumulators',
-    'section-history', 'section-activity', 'section-formulary',
-    'section-receipts', 'section-verification', 'section-info',
+    'section-identity',
+    'section-pcp',
+    'section-accumulators',
+    'section-history',
+    'section-activity',
+    'section-formulary',
+    'section-receipts',
+    'section-verification',
+    'section-info',
   ];
   for (const id of sections) {
     const el = document.getElementById(id);
@@ -197,8 +195,10 @@ function renderEmptyState() {
   }
   const identity = document.getElementById('section-identity');
   if (identity) {
-    identity.innerHTML = renderSectionCard('Identity & Status', COLOR,
-      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No enrolled members found. Enroll a member to see their dashboard.</div>'
+    identity.innerHTML = renderSectionCard(
+      'Identity & Status',
+      COLOR,
+      '<div style="color: var(--text-secondary); padding: 16px; text-align: center;">No enrolled members found. Enroll a member to see their dashboard.</div>',
     );
   }
 }
@@ -260,9 +260,7 @@ function renderPcpSection(member) {
   const allPrescribers = (state && state.prescribers) || [];
 
   // Filter prescribers to in-network only
-  const inNetworkPrescribers = allPrescribers.filter((p) =>
-    inNetworkIndices.includes(p.index)
-  );
+  const inNetworkPrescribers = allPrescribers.filter((p) => inNetworkIndices.includes(p.index));
 
   let content = '';
 
@@ -342,9 +340,7 @@ async function handleAssignPcp() {
     // Refresh state to pick up the new assignment
     try {
       state = await fetchJson('/node/state');
-      const updated = (state.enrolledMembers || []).find(
-        (m) => m.walletId === selectedMember.walletId
-      );
+      const updated = (state.enrolledMembers || []).find((m) => m.walletId === selectedMember.walletId);
       if (updated) {
         selectedMember = updated;
         updateHeaderIdentity(selectedMember);
@@ -501,7 +497,7 @@ function renderActivitySection() {
     const leaf = c.leaf || {};
     const meta = c.metadata || {};
     return {
-      operationType: (meta.operationType || leaf.operationType || 'fulfillment'),
+      operationType: meta.operationType || leaf.operationType || 'fulfillment',
       patientPayCents: leaf.patientPayCents || 0,
       planPayCents: leaf.planPayCents || 0,
       ndcHash: meta.ndc || leaf.ndcHash || '',
@@ -702,7 +698,9 @@ async function handleGenerateCredential() {
     const poll = async () => {
       pollCount++;
       try {
-        const res = await fetch(`${API_BASE}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}&proofType=${encodeURIComponent(proofType)}`);
+        const res = await fetch(
+          `${API_BASE}/interactive/credential-status?walletId=${encodeURIComponent(walletId)}&proofType=${encodeURIComponent(proofType)}`,
+        );
         const data = await res.json();
 
         if (data.status === 'complete') {
@@ -729,7 +727,10 @@ async function handleGenerateCredential() {
         }
         credentialInFlight = false;
         const btnRef = document.getElementById('btn-generate-credential');
-        if (btnRef) { btnRef.disabled = false; btnRef.textContent = 'Generate Credential'; }
+        if (btnRef) {
+          btnRef.disabled = false;
+          btnRef.textContent = 'Generate Credential';
+        }
       }
     };
 
@@ -741,7 +742,10 @@ async function handleGenerateCredential() {
     }
     credentialInFlight = false;
     const btnRef = document.getElementById('btn-generate-credential');
-    if (btnRef) { btnRef.disabled = false; btnRef.textContent = 'Generate Credential'; }
+    if (btnRef) {
+      btnRef.disabled = false;
+      btnRef.textContent = 'Generate Credential';
+    }
   }
 }
 
@@ -767,25 +771,30 @@ function wireCopyButton() {
   if (copyBtn && lastCredentialJson) {
     copyBtn.addEventListener('click', () => {
       const json = lastCredentialJson.credentialJson || '';
-      navigator.clipboard.writeText(json).then(() => {
-        copyBtn.textContent = 'Copied!';
-        copyBtn.style.background = 'var(--color-accent-green)';
-        setTimeout(() => {
-          copyBtn.textContent = 'Copy to Clipboard';
-          copyBtn.style.background = '';
-        }, 2000);
-      }).catch(() => {
-        // Fallback: select the textarea content
-        const textarea = document.getElementById('credential-json-output');
-        if (textarea) {
-          textarea.select();
-          document.execCommand('copy');
+      navigator.clipboard
+        .writeText(json)
+        .then(() => {
           copyBtn.textContent = 'Copied!';
-          setTimeout(() => { copyBtn.textContent = 'Copy to Clipboard'; }, 2000);
-        } else {
-          copyBtn.textContent = 'Copy failed';
-        }
-      });
+          copyBtn.style.background = 'var(--color-accent-green)';
+          setTimeout(() => {
+            copyBtn.textContent = 'Copy to Clipboard';
+            copyBtn.style.background = '';
+          }, 2000);
+        })
+        .catch(() => {
+          // Fallback: select the textarea content
+          const textarea = document.getElementById('credential-json-output');
+          if (textarea) {
+            textarea.select();
+            document.execCommand('copy');
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => {
+              copyBtn.textContent = 'Copy to Clipboard';
+            }, 2000);
+          } else {
+            copyBtn.textContent = 'Copy failed';
+          }
+        });
     });
   }
 }
@@ -892,7 +901,9 @@ function renderInfoSection() {
 
   const entries = [
     { label: 'Sequencer URL', value: 'http://127.0.0.1:3030' },
-    { label: 'Health', value: healthOk
+    {
+      label: 'Health',
+      value: healthOk
         ? '<span style="color: var(--color-accent-green);">Connected</span>'
         : '<span style="color: var(--color-accent-red);">Disconnected</span>',
       mono: false,
@@ -900,7 +911,8 @@ function renderInfoSection() {
   ];
 
   // Chain state placeholder -- will be populated async
-  const content = renderDataGrid(entries) +
+  const content =
+    renderDataGrid(entries) +
     '<div id="chain-state-info" style="margin-top: 16px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">' +
     '<div style="color: var(--text-secondary); font-size: 13px;">Loading chain state...</div></div>';
 
@@ -942,8 +954,8 @@ async function loadChainState() {
     }
 
     if (entries.length > 0) {
-      container.innerHTML = '<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Chain State</div>' +
-        renderDataGrid(entries);
+      container.innerHTML =
+        '<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Chain State</div>' + renderDataGrid(entries);
     } else {
       container.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px;">Chain state: no data available.</div>';
     }

@@ -32,8 +32,17 @@ import crypto from 'crypto';
 import { MerkleTree, Poseidon, Field } from 'o1js';
 import { hashString } from '../src/zkp/hash-utils.js';
 import {
-  PRICE_LIST_TREE_HEIGHT, PRICE_LIST_CAPACITY, priceEntryError, canonicalPriceEntries, priceLeafHash, priceListRoot,
-  priceListDigest, canonicalPriceText, mergeByBasis, type PriceEntry, type SourcePrice,
+  PRICE_LIST_TREE_HEIGHT,
+  PRICE_LIST_CAPACITY,
+  priceEntryError,
+  canonicalPriceEntries,
+  priceLeafHash,
+  priceListRoot,
+  priceListDigest,
+  canonicalPriceText,
+  mergeByBasis,
+  type PriceEntry,
+  type SourcePrice,
 } from '../src/pricing/price-list.js';
 
 jest.setTimeout(120_000);
@@ -44,7 +53,11 @@ const C: PriceEntry = { ndc: '00093515556', basis: 'WAC', priceE5: 125000, unit:
 const D: PriceEntry = { ndc: '12345678901', basis: 'REVIEW', priceE5: 0, unit: 'GM', effectiveDate: '2026-03-05' };
 
 describe('an entry', () => {
-  test.each([['NADAC', A], ['WAC', C], ['REVIEW', D]])('a %s entry is accepted', (_basis, entry) => {
+  test.each([
+    ['NADAC', A],
+    ['WAC', C],
+    ['REVIEW', D],
+  ])('a %s entry is accepted', (_basis, entry) => {
     expect(priceEntryError(entry)).toBeNull();
   });
 
@@ -89,8 +102,12 @@ describe('the list', () => {
 describe('the leaf, the root and the digest', () => {
   test('a leaf is Poseidon over the NDC hash, the price, the unit, the basis and the date', () => {
     // Written out so that anyone can rebuild a root without this code. Units: EA 1, ML 2, GM 3. Bases: NADAC 1, WAC 2, REVIEW 3.
-    expect(priceLeafHash(A).toString()).toBe(Poseidon.hash([hashString(A.ndc), Field(3476), Field(1), Field(1), Field(20260304)]).toString());
-    expect(priceLeafHash(C).toString()).toBe(Poseidon.hash([hashString(C.ndc), Field(125000), Field(2), Field(2), Field(20260201)]).toString());
+    expect(priceLeafHash(A).toString()).toBe(
+      Poseidon.hash([hashString(A.ndc), Field(3476), Field(1), Field(1), Field(20260304)]).toString(),
+    );
+    expect(priceLeafHash(C).toString()).toBe(
+      Poseidon.hash([hashString(C.ndc), Field(125000), Field(2), Field(2), Field(20260201)]).toString(),
+    );
     expect(priceLeafHash(D).toString()).toBe(Poseidon.hash([hashString(D.ndc), Field(0), Field(3), Field(3), Field(20260305)]).toString());
   });
 
@@ -136,22 +153,33 @@ describe('the fixed order of sources', () => {
     [C.ndc, { ndc: C.ndc, priceE5: 125000, unit: 'ML', effectiveDate: '2026-02-01' }],
     ['99999999999', { ndc: '99999999999', priceE5: 100, unit: 'EA', effectiveDate: '2026-01-01' }],
   ]);
-  const catalog = [{ ndc: A.ndc, unit: 'EA' as const }, { ndc: B.ndc, unit: 'EA' as const }, { ndc: C.ndc, unit: 'ML' as const }, { ndc: D.ndc, unit: 'GM' as const }];
+  const catalog = [
+    { ndc: A.ndc, unit: 'EA' as const },
+    { ndc: B.ndc, unit: 'EA' as const },
+    { ndc: C.ndc, unit: 'ML' as const },
+    { ndc: D.ndc, unit: 'GM' as const },
+  ];
 
   test('NADAC first, then WAC, then REVIEW, for every drug in the catalog and no other', () => {
     const { entries, problems } = mergeByBasis(catalog, { nadac, wac }, '2026-03-05');
     expect(entries).toEqual([
-      { ndc: C.ndc, basis: 'WAC', priceE5: 125000, unit: 'ML', effectiveDate: '2026-02-01' },     // no NADAC: its WAC
+      { ndc: C.ndc, basis: 'WAC', priceE5: 125000, unit: 'ML', effectiveDate: '2026-02-01' }, // no NADAC: its WAC
       { ndc: A.ndc, basis: 'NADAC', priceE5: 3476, unit: 'EA', effectiveDate: '2026-03-04' },
-      { ndc: D.ndc, basis: 'REVIEW', priceE5: 0, unit: 'GM', effectiveDate: '2026-03-05' },      // neither: listed, priced by review
-      { ndc: B.ndc, basis: 'NADAC', priceE5: 1871019, unit: 'EA', effectiveDate: '2026-03-04' },  // NADAC beats its WAC
+      { ndc: D.ndc, basis: 'REVIEW', priceE5: 0, unit: 'GM', effectiveDate: '2026-03-05' }, // neither: listed, priced by review
+      { ndc: B.ndc, basis: 'NADAC', priceE5: 1871019, unit: 'EA', effectiveDate: '2026-03-04' }, // NADAC beats its WAC
     ]);
-    expect(problems).toEqual([]);   // 99999999999 is not in the catalog, so it is not listed
+    expect(problems).toEqual([]); // 99999999999 is not in the catalog, so it is not listed
   });
 
   test('without a licensed file, a drug CMS does not survey is REVIEW', () => {
     const { entries } = mergeByBasis(catalog, { nadac }, '2026-03-05');
-    expect(entries.find((e) => e.ndc === C.ndc)).toEqual({ ndc: C.ndc, basis: 'REVIEW', priceE5: 0, unit: 'ML', effectiveDate: '2026-03-05' });
+    expect(entries.find((e) => e.ndc === C.ndc)).toEqual({
+      ndc: C.ndc,
+      basis: 'REVIEW',
+      priceE5: 0,
+      unit: 'ML',
+      effectiveDate: '2026-03-05',
+    });
   });
 
   test('a source price in another unit than the drug is counted in is not used, and is reported', () => {

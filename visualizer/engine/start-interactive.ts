@@ -69,7 +69,11 @@ async function main() {
   );
 
   // 2. Create and start RPC Server
-  const server = new L2RpcServer(node, { port: PORT, host: resolveBindHost(process.env, 'interactive engine'), allowedOrigins: resolveAllowedOrigins(process.env, { role: 'interactive engine' }) });
+  const server = new L2RpcServer(node, {
+    port: PORT,
+    host: resolveBindHost(process.env, 'interactive engine'),
+    allowedOrigins: resolveAllowedOrigins(process.env, { role: 'interactive engine' }),
+  });
 
   // Collect console SSE clients before service creation
   // (Routes need to be registered before we create the service,
@@ -118,11 +122,14 @@ async function main() {
   // 3. Initialize NFC Bridge (non-blocking — system works without NFC reader)
   //    MIKROE-2540 is USB HID (VID 0x1FC9, PID 0x0088), auto-detected.
   const nfcBridge = new NfcBridge();
-  nfcBridge.connect().then(() => {
-    console.log(`  [NFC] Reader connected via HID (${nfcBridge.getStatus().devicePath})`);
-  }).catch(() => {
-    console.log('  [NFC] No NFC reader detected — NFC features disabled (operation continues normally).');
-  });
+  nfcBridge
+    .connect()
+    .then(() => {
+      console.log(`  [NFC] Reader connected via HID (${nfcBridge.getStatus().devicePath})`);
+    })
+    .catch(() => {
+      console.log('  [NFC] No NFC reader detected — NFC features disabled (operation continues normally).');
+    });
 
   // 4. Create the service (pass L2Node for real settlement)
   const service = new AdjudicationService(bufferedConsoleEmitter, vizEmitter, node);

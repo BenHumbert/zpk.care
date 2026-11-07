@@ -88,13 +88,8 @@ export class ReportingService {
    *
    * Call this AFTER verifying the proof via FulfillmentProgram.verify().
    */
-  extractVerifiedClaim(
-    proofOutput: FulfillmentOutput,
-    context: ClaimContext,
-  ): VerifiedClaim {
-    const opType = proofOutput.operationType.toString() === FULFILL_OP_CLAIM.toString()
-      ? 'fulfillment' as const
-      : 'reversal' as const;
+  extractVerifiedClaim(proofOutput: FulfillmentOutput, context: ClaimContext): VerifiedClaim {
+    const opType = proofOutput.operationType.toString() === FULFILL_OP_CLAIM.toString() ? ('fulfillment' as const) : ('reversal' as const);
 
     return {
       prescriptionHash: proofOutput.prescriptionHash.toString(),
@@ -146,11 +141,7 @@ export class ReportingService {
    *
    * Also verifies plaintext NDC (if provided) hashes to ndcHash.
    */
-  verifyContext(
-    proofOutput: FulfillmentOutput,
-    context: ClaimContext,
-    prescriptionHash: string,
-  ): boolean {
+  verifyContext(proofOutput: FulfillmentOutput, context: ClaimContext, prescriptionHash: string): boolean {
     // Verify plaintext NDC matches ndcHash (if enrichment provided)
     if (context.ndc && !this.verifyNdc(context)) {
       return false;
@@ -178,10 +169,7 @@ export class ReportingService {
    * Compares the proof's newForestRoot against the current on-chain credential forest root.
    * If the forest root transition has already been applied, the claim is settled.
    */
-  isAlreadySettled(
-    proofOutput: FulfillmentOutput,
-    currentCredentialForestRoot: Field,
-  ): boolean {
+  isAlreadySettled(proofOutput: FulfillmentOutput, currentCredentialForestRoot: Field): boolean {
     return proofOutput.newForestRoot.toString() === currentCredentialForestRoot.toString();
   }
 
@@ -190,14 +178,11 @@ export class ReportingService {
   /**
    * 1. Claims Register — chronological list of all verified claims.
    */
-  generateClaimsRegister(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): ClaimsRegisterReport {
+  generateClaimsRegister(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): ClaimsRegisterReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const fulfillments = filtered.filter(c => c.operationType === 'fulfillment');
-    const reversals = filtered.filter(c => c.operationType === 'reversal');
+    const fulfillments = filtered.filter((c) => c.operationType === 'fulfillment');
+    const reversals = filtered.filter((c) => c.operationType === 'reversal');
 
     return {
       claims: filtered,
@@ -211,25 +196,22 @@ export class ReportingService {
   /**
    * 2. Pharmacy Activity — per-pharmacy breakdown.
    */
-  generatePharmacyActivity(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): PharmacyActivityReport {
+  generatePharmacyActivity(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): PharmacyActivityReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const grouped = this.groupBy(filtered, c => c.pharmacyWalletId);
+    const grouped = this.groupBy(filtered, (c) => c.pharmacyWalletId);
 
     const pharmacies: PharmacyActivityEntry[] = [];
     for (const [pharmacyWalletId, pharmacyClaims] of grouped.entries()) {
-      const fulfillments = pharmacyClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = pharmacyClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = pharmacyClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = pharmacyClaims.filter((c) => c.operationType === 'reversal');
 
       pharmacies.push({
         pharmacyWalletId,
         claimCount: fulfillments.length,
         reversalCount: reversals.length,
-        uniqueMedications: this.uniqueCount(pharmacyClaims, c => c.ndcHash),
-        uniqueMembers: this.uniqueCount(pharmacyClaims, c => c.memberWalletId),
+        uniqueMedications: this.uniqueCount(pharmacyClaims, (c) => c.ndcHash),
+        uniqueMembers: this.uniqueCount(pharmacyClaims, (c) => c.memberWalletId),
         costBreakdown: this.computeCostBreakdown(pharmacyClaims),
       });
     }
@@ -240,24 +222,21 @@ export class ReportingService {
   /**
    * 3. Prescriber Activity — per-prescriber breakdown.
    */
-  generatePrescriberActivity(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): PrescriberActivityReport {
+  generatePrescriberActivity(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): PrescriberActivityReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const grouped = this.groupBy(filtered, c => c.prescriberWalletId);
+    const grouped = this.groupBy(filtered, (c) => c.prescriberWalletId);
 
     const prescribers: PrescriberActivityEntry[] = [];
     for (const [prescriberWalletId, prescriberClaims] of grouped.entries()) {
-      const fulfillments = prescriberClaims.filter(c => c.operationType === 'fulfillment');
+      const fulfillments = prescriberClaims.filter((c) => c.operationType === 'fulfillment');
 
       prescribers.push({
         prescriberWalletId,
-        prescriptionCount: this.uniqueCount(prescriberClaims, c => c.prescriptionHash),
+        prescriptionCount: this.uniqueCount(prescriberClaims, (c) => c.prescriptionHash),
         claimCount: fulfillments.length,
-        uniqueMedications: this.uniqueCount(prescriberClaims, c => c.ndcHash),
-        uniqueMembers: this.uniqueCount(prescriberClaims, c => c.memberWalletId),
+        uniqueMedications: this.uniqueCount(prescriberClaims, (c) => c.ndcHash),
+        uniqueMembers: this.uniqueCount(prescriberClaims, (c) => c.memberWalletId),
         costBreakdown: this.computeCostBreakdown(prescriberClaims),
       });
     }
@@ -268,27 +247,22 @@ export class ReportingService {
   /**
    * 4. Member Activity — per-member breakdown.
    */
-  generateMemberActivity(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): MemberActivityReport {
+  generateMemberActivity(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): MemberActivityReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const grouped = this.groupBy(filtered, c => c.memberWalletId);
+    const grouped = this.groupBy(filtered, (c) => c.memberWalletId);
 
     const members: MemberActivityEntry[] = [];
     for (const [memberWalletId, memberClaims] of grouped.entries()) {
-      const fulfillments = memberClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = memberClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = memberClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = memberClaims.filter((c) => c.operationType === 'reversal');
 
       // Current medications = fulfilled NDCs minus reversed NDCs
-      const fulfilledNdcs = new Set(fulfillments.map(c => c.ndcHash));
-      const reversedPrescriptions = new Set(reversals.map(c => c.prescriptionHash));
-      const currentMedications = [...fulfilledNdcs].filter(ndc => {
+      const fulfilledNdcs = new Set(fulfillments.map((c) => c.ndcHash));
+      const reversedPrescriptions = new Set(reversals.map((c) => c.prescriptionHash));
+      const currentMedications = [...fulfilledNdcs].filter((ndc) => {
         // Keep NDC if at least one fulfillment for it is NOT reversed
-        return fulfillments.some(f =>
-          f.ndcHash === ndc && !reversedPrescriptions.has(f.prescriptionHash),
-        );
+        return fulfillments.some((f) => f.ndcHash === ndc && !reversedPrescriptions.has(f.prescriptionHash));
       });
 
       members.push({
@@ -306,18 +280,15 @@ export class ReportingService {
   /**
    * 5. Medication Utilization — per-NDC breakdown, sorted by claim count descending.
    */
-  generateMedicationUtilization(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): MedicationUtilizationReport {
+  generateMedicationUtilization(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): MedicationUtilizationReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const grouped = this.groupBy(filtered, c => c.ndcHash);
+    const grouped = this.groupBy(filtered, (c) => c.ndcHash);
 
     const medications: MedicationUtilizationEntry[] = [];
     for (const [ndcHash, ndcClaims] of grouped.entries()) {
-      const fulfillments = ndcClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = ndcClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = ndcClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = ndcClaims.filter((c) => c.operationType === 'reversal');
 
       // Sum quantities from fulfillments only
       let totalQty = 0n;
@@ -330,9 +301,9 @@ export class ReportingService {
         totalClaimCount: fulfillments.length,
         totalReversalCount: reversals.length,
         totalQuantity: totalQty.toString(),
-        uniquePharmacies: this.uniqueCount(ndcClaims, c => c.pharmacyWalletId),
-        uniquePrescribers: this.uniqueCount(ndcClaims, c => c.prescriberWalletId),
-        uniqueMembers: this.uniqueCount(ndcClaims, c => c.memberWalletId),
+        uniquePharmacies: this.uniqueCount(ndcClaims, (c) => c.pharmacyWalletId),
+        uniquePrescribers: this.uniqueCount(ndcClaims, (c) => c.prescriberWalletId),
+        uniqueMembers: this.uniqueCount(ndcClaims, (c) => c.memberWalletId),
       });
     }
 
@@ -345,14 +316,11 @@ export class ReportingService {
   /**
    * 6. Financial Summary — totals and averages.
    */
-  generateFinancialSummary(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): FinancialSummaryReport {
+  generateFinancialSummary(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): FinancialSummaryReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const fulfillments = filtered.filter(c => c.operationType === 'fulfillment');
-    const reversals = filtered.filter(c => c.operationType === 'reversal');
+    const fulfillments = filtered.filter((c) => c.operationType === 'fulfillment');
+    const reversals = filtered.filter((c) => c.operationType === 'reversal');
     const costBreakdown = this.computeCostBreakdown(filtered);
 
     // H7 fix: Compute averages from fulfillments only (not net after reversals).
@@ -366,15 +334,9 @@ export class ReportingService {
       costBreakdown,
       totalClaimCount: claimCount,
       totalReversalCount: reversals.length,
-      averageClaimCost: claimCount > 0
-        ? fulfillmentCosts.totalGrossCostCents / claimCount
-        : 0,
-      averagePatientPay: claimCount > 0
-        ? fulfillmentCosts.totalPatientPayCents / claimCount
-        : 0,
-      averagePlanPay: claimCount > 0
-        ? fulfillmentCosts.totalPlanPayCents / claimCount
-        : 0,
+      averageClaimCost: claimCount > 0 ? fulfillmentCosts.totalGrossCostCents / claimCount : 0,
+      averagePatientPay: claimCount > 0 ? fulfillmentCosts.totalPatientPayCents / claimCount : 0,
+      averagePlanPay: claimCount > 0 ? fulfillmentCosts.totalPlanPayCents / claimCount : 0,
       dateRange: filter?.dateRange,
     };
   }
@@ -390,13 +352,10 @@ export class ReportingService {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
 
-    const priorAuthEntries: PriorAuthUtilizationEntry[] = priorAuths.map(pa => {
+    const priorAuthEntries: PriorAuthUtilizationEntry[] = priorAuths.map((pa) => {
       // Find fulfillment claims matching this PA (same NDC + member)
       const matchingClaims = filtered.filter(
-        c =>
-          c.operationType === 'fulfillment' &&
-          c.ndcHash === pa.ndcHash &&
-          c.memberWalletId === pa.memberWalletId,
+        (c) => c.operationType === 'fulfillment' && c.ndcHash === pa.ndcHash && c.memberWalletId === pa.memberWalletId,
       );
 
       let utilizedQty = 0n;
@@ -405,9 +364,7 @@ export class ReportingService {
       }
 
       const approvedQty = BigInt(pa.approvedQuantity);
-      const utilizationRate = approvedQty > 0n
-        ? Number(utilizedQty * 10000n / approvedQty) / 10000
-        : 0;
+      const utilizationRate = approvedQty > 0n ? Number((utilizedQty * 10000n) / approvedQty) / 10000 : 0;
 
       return {
         ndcHash: pa.ndcHash,
@@ -428,13 +385,10 @@ export class ReportingService {
   /**
    * 8. Reversal Report — only reversals.
    */
-  generateReversalReport(
-    claims: VerifiedClaim[],
-    filterOrDateRange?: ReportFilter | DateRange,
-  ): ReversalReport {
+  generateReversalReport(claims: VerifiedClaim[], filterOrDateRange?: ReportFilter | DateRange): ReversalReport {
     const filter = this.normalizeFilter(filterOrDateRange);
     const filtered = this.applyFilters(claims, filter);
-    const reversals = filtered.filter(c => c.operationType === 'reversal');
+    const reversals = filtered.filter((c) => c.operationType === 'reversal');
 
     let totalPatientRefund = 0;
     let totalPlanRefund = 0;
@@ -464,28 +418,25 @@ export class ReportingService {
   /**
    * 9. Tier Analysis — breakdown by formulary tier level.
    */
-  generateTierAnalysis(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): TierAnalysisReport {
+  generateTierAnalysis(claims: VerifiedClaim[], filter?: ReportFilter): TierAnalysisReport {
     const filtered = this.applyFilters(claims, filter);
     // Only include claims with tierLevel set
-    const tiered = filtered.filter(c => c.tierLevel !== undefined);
-    const grouped = this.groupBy(tiered, c => String(c.tierLevel));
+    const tiered = filtered.filter((c) => c.tierLevel !== undefined);
+    const grouped = this.groupBy(tiered, (c) => String(c.tierLevel));
 
     const tiers: TierAnalysisEntry[] = [];
     for (const [tierStr, tierClaims] of grouped.entries()) {
       const tierLevel = Number(tierStr);
-      const fulfillments = tierClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = tierClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = tierClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = tierClaims.filter((c) => c.operationType === 'reversal');
 
       tiers.push({
         tierLevel,
         tierLabel: ReportingService.TIER_LABELS[tierLevel] || `Tier ${tierLevel}`,
         claimCount: fulfillments.length,
         reversalCount: reversals.length,
-        uniqueMembers: this.uniqueCount(tierClaims, c => c.memberWalletId),
-        uniqueMedications: this.uniqueCount(tierClaims, c => c.ndcHash),
+        uniqueMembers: this.uniqueCount(tierClaims, (c) => c.memberWalletId),
+        uniqueMedications: this.uniqueCount(tierClaims, (c) => c.ndcHash),
         costBreakdown: this.computeCostBreakdown(tierClaims),
       });
     }
@@ -499,25 +450,22 @@ export class ReportingService {
   /**
    * 10. Therapeutic Class Report — breakdown by therapeutic classification.
    */
-  generateTherapeuticClassReport(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): TherapeuticClassReport {
+  generateTherapeuticClassReport(claims: VerifiedClaim[], filter?: ReportFilter): TherapeuticClassReport {
     const filtered = this.applyFilters(claims, filter);
-    const classified = filtered.filter(c => c.therapeuticClass !== undefined);
-    const grouped = this.groupBy(classified, c => c.therapeuticClass!);
+    const classified = filtered.filter((c) => c.therapeuticClass !== undefined);
+    const grouped = this.groupBy(classified, (c) => c.therapeuticClass!);
 
     const classes: TherapeuticClassEntry[] = [];
     for (const [therapeuticClass, classClaims] of grouped.entries()) {
-      const fulfillments = classClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = classClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = classClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = classClaims.filter((c) => c.operationType === 'reversal');
 
       classes.push({
         therapeuticClass,
         claimCount: fulfillments.length,
         reversalCount: reversals.length,
-        uniqueMembers: this.uniqueCount(classClaims, c => c.memberWalletId),
-        uniqueMedications: this.uniqueCount(classClaims, c => c.ndcHash),
+        uniqueMembers: this.uniqueCount(classClaims, (c) => c.memberWalletId),
+        uniqueMedications: this.uniqueCount(classClaims, (c) => c.ndcHash),
         costBreakdown: this.computeCostBreakdown(classClaims),
       });
     }
@@ -531,18 +479,14 @@ export class ReportingService {
   /**
    * 11. Time Series — claims aggregated by time bucket (daily/weekly/monthly).
    */
-  generateTimeSeries(
-    claims: VerifiedClaim[],
-    bucket: TimeBucket,
-    filter?: ReportFilter,
-  ): TimeSeriesReport {
+  generateTimeSeries(claims: VerifiedClaim[], bucket: TimeBucket, filter?: ReportFilter): TimeSeriesReport {
     const filtered = this.applyFilters(claims, filter);
-    const grouped = this.groupBy(filtered, c => this.toBucketKey(c.dateOfService, bucket));
+    const grouped = this.groupBy(filtered, (c) => this.toBucketKey(c.dateOfService, bucket));
 
     const entries: TimeSeriesEntry[] = [];
     for (const [bucketKey, bucketClaims] of grouped.entries()) {
-      const fulfillments = bucketClaims.filter(c => c.operationType === 'fulfillment');
-      const reversals = bucketClaims.filter(c => c.operationType === 'reversal');
+      const fulfillments = bucketClaims.filter((c) => c.operationType === 'fulfillment');
+      const reversals = bucketClaims.filter((c) => c.operationType === 'reversal');
 
       entries.push({
         bucketKey,
@@ -605,7 +549,7 @@ export class ReportingService {
     // Build rows
     const rows: CrossTabRow[] = [];
     for (const [rowKey, colMap] of rowGroups.entries()) {
-      const values = columnHeaders.map(col => {
+      const values = columnHeaders.map((col) => {
         const cellClaims = colMap.get(col) || [];
         return this.computeMeasure(cellClaims, measure);
       });
@@ -637,13 +581,10 @@ export class ReportingService {
    * Apply multi-dimensional filters to claims.
    * Each dimension uses OR within its array; all dimensions use AND across them.
    */
-  private applyFilters(
-    claims: VerifiedClaim[],
-    filter?: ReportFilter,
-  ): VerifiedClaim[] {
+  private applyFilters(claims: VerifiedClaim[], filter?: ReportFilter): VerifiedClaim[] {
     if (!filter) return claims;
 
-    return claims.filter(c => {
+    return claims.filter((c) => {
       // Date range
       if (filter.dateRange) {
         if (c.dateOfService < filter.dateRange.startDate || c.dateOfService > filter.dateRange.endDate) {
@@ -773,14 +714,22 @@ export class ReportingService {
    */
   private getDimensionValue(claim: VerifiedClaim, dim: CrossTabDimension): string | undefined {
     switch (dim) {
-      case 'pharmacyWalletId': return claim.pharmacyWalletId;
-      case 'memberWalletId': return claim.memberWalletId;
-      case 'prescriberWalletId': return claim.prescriberWalletId;
-      case 'tierLevel': return claim.tierLevel !== undefined ? String(claim.tierLevel) : undefined;
-      case 'therapeuticClass': return claim.therapeuticClass;
-      case 'operationType': return claim.operationType;
-      case 'ndc': return claim.ndc;
-      case 'gpi': return claim.gpi;
+      case 'pharmacyWalletId':
+        return claim.pharmacyWalletId;
+      case 'memberWalletId':
+        return claim.memberWalletId;
+      case 'prescriberWalletId':
+        return claim.prescriberWalletId;
+      case 'tierLevel':
+        return claim.tierLevel !== undefined ? String(claim.tierLevel) : undefined;
+      case 'therapeuticClass':
+        return claim.therapeuticClass;
+      case 'operationType':
+        return claim.operationType;
+      case 'ndc':
+        return claim.ndc;
+      case 'gpi':
+        return claim.gpi;
     }
   }
 
@@ -790,7 +739,7 @@ export class ReportingService {
   private computeMeasure(claims: VerifiedClaim[], measure: CrossTabMeasure): number {
     switch (measure) {
       case 'claimCount':
-        return claims.filter(c => c.operationType === 'fulfillment').length;
+        return claims.filter((c) => c.operationType === 'fulfillment').length;
       case 'totalPatientPayCents': {
         let total = 0;
         for (const c of claims) {

@@ -103,7 +103,9 @@ export class InsurerTab {
     }
 
     const messages = messaging.messages || [];
-    const rows = messages.map((m, i) => `
+    const rows = messages
+      .map(
+        (m, i) => `
       <tr>
         <td style="font-size: 11px;">${i}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(m.senderWalletId)}</td>
@@ -112,7 +114,9 @@ export class InsurerTab {
         <td style="font-size: 11px;">${escapeHtml(m.messageType)}</td>
         <td style="font-size: 11px;">${escapeHtml(m.nonce)}</td>
       </tr>
-    `).join('');
+    `,
+      )
+      .join('');
 
     return `
       <div class="section-card" style="border-color: rgba(171, 71, 188, 0.3);">
@@ -155,38 +159,42 @@ export class InsurerTab {
 
   renderInsurerCommunications(state) {
     const dir = state.walletDirectory || {};
-    const MSG_LABELS = { 1:'Rx', 2:'PA Req', 3:'PA Resp', 4:'Notice', 5:'General', 6:'Support', 7:'Summary' };
+    const MSG_LABELS = { 1: 'Rx', 2: 'PA Req', 3: 'PA Resp', 4: 'Notice', 5: 'General', 6: 'Support', 7: 'Summary' };
 
     let insurerWalletId = null;
     for (const [wid, info] of Object.entries(dir)) {
-      if (info.type === 'insurer') { insurerWalletId = wid; break; }
+      if (info.type === 'insurer') {
+        insurerWalletId = wid;
+        break;
+      }
     }
 
     const messages = insurerWalletId
-      ? (state.messaging?.messages || []).filter(m =>
-          m.senderWalletId === insurerWalletId || m.recipientWalletId === insurerWalletId)
+      ? (state.messaging?.messages || []).filter((m) => m.senderWalletId === insurerWalletId || m.recipientWalletId === insurerWalletId)
       : [];
 
     // Group messages by threadId
     const threadMap = new Map();
-    messages.forEach(m => {
+    messages.forEach((m) => {
       const tid = m.threadId || `msg-${m.messageIndex}`;
       if (!threadMap.has(tid)) threadMap.set(tid, []);
       threadMap.get(tid).push(m);
     });
     const threads = Array.from(threadMap.entries())
-      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map(m => m.timestamp || 0)) }))
+      .map(([tid, msgs]) => ({ threadId: tid, messages: msgs, latest: Math.max(...msgs.map((m) => m.timestamp || 0)) }))
       .sort((a, b) => b.latest - a.latest);
 
     // Build recipient options
     const recipientOptions = [];
-    (state.enrolledMembers || []).filter(m => m.lifecycle !== 'REVOKED').forEach(m => {
-      recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)}</option>`);
-    });
-    (state.demoData?.prescribers || []).forEach(p => {
+    (state.enrolledMembers || [])
+      .filter((m) => m.lifecycle !== 'REVOKED')
+      .forEach((m) => {
+        recipientOptions.push(`<option value="member:${escapeHtml(m.walletId)}">${escapeHtml(m.displayName)}</option>`);
+      });
+    (state.demoData?.prescribers || []).forEach((p) => {
       recipientOptions.push(`<option value="prescriber:${p.index}">Dr. ${escapeHtml(p.firstName)} ${escapeHtml(p.lastName)}</option>`);
     });
-    (state.demoData?.pharmacies || []).forEach(p => {
+    (state.demoData?.pharmacies || []).forEach((p) => {
       recipientOptions.push(`<option value="pharmacy:${p.index}">${escapeHtml(p.storeName)}</option>`);
     });
 
@@ -216,17 +224,20 @@ export class InsurerTab {
             <div class="msg-privacy-note">End-to-end encrypted (X25519-ECDH + AES-256-GCM). ZK proof generated on send.</div>
           </div>
           <div id="insurer-send-result" class="hidden"></div>
-          ${threads.length > 0 ? `
+          ${
+            threads.length > 0
+              ? `
           <div class="msg-thread-list">
-            ${threads.map(t => {
-              const lastMsg = t.messages[t.messages.length - 1];
-              const isSent = lastMsg.senderWalletId === insurerWalletId;
-              const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
-              const otherName = dir[otherWid]?.displayName || otherWid.slice(0,8) + '\u2026';
-              const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
-              const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
-              return `
-              <div class="insurer-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(insurerWalletId)}" data-indices="${escapeHtml(t.messages.map(m => m.messageIndex).join(','))}">
+            ${threads
+              .map((t) => {
+                const lastMsg = t.messages[t.messages.length - 1];
+                const isSent = lastMsg.senderWalletId === insurerWalletId;
+                const otherWid = isSent ? lastMsg.recipientWalletId : lastMsg.senderWalletId;
+                const otherName = dir[otherWid]?.displayName || otherWid.slice(0, 8) + '\u2026';
+                const typeLabel = MSG_LABELS[lastMsg.messageType] || 'Msg';
+                const timeStr = lastMsg.timestamp ? new Date(lastMsg.timestamp).toLocaleTimeString() : '';
+                return `
+              <div class="insurer-thread-item msg-thread-item" data-thread-id="${escapeHtml(t.threadId)}" data-wallet-id="${escapeHtml(insurerWalletId)}" data-indices="${escapeHtml(t.messages.map((m) => m.messageIndex).join(','))}">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                   <div>
                     <span class="msg-type-badge msg-type-${escapeHtml(lastMsg.messageType)}">${typeLabel}</span>
@@ -238,9 +249,12 @@ export class InsurerTab {
                 <div style="font-size: 12px; color: var(--text-muted);">${lastMsg.hasEncryptedPayload ? 'Click to decrypt and view' : 'No content'}</div>
                 <div class="msg-thread-expanded hidden" data-thread-body="${escapeHtml(t.threadId)}"></div>
               </div>`;
-            }).join('')}
+              })
+              .join('')}
           </div>
-          ` : '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">No insurer messages yet. Auto-messages appear here after enrollment, PA actions, and terminations.</div>'}
+          `
+              : '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">No insurer messages yet. Auto-messages appear here after enrollment, PA actions, and terminations.</div>'
+          }
         </div>
       </div>
     `;
@@ -252,7 +266,9 @@ export class InsurerTab {
     const delegations = state.messaging?.delegations || [];
     if (delegations.length === 0) return '';
 
-    const rows = delegations.map((d, i) => `
+    const rows = delegations
+      .map(
+        (d, i) => `
       <tr>
         <td style="font-size: 11px;">${i}</td>
         <td class="mono" style="font-size: 10px;">${truncHash(d.delegatorWalletId)}</td>
@@ -260,7 +276,9 @@ export class InsurerTab {
         <td style="font-size: 11px;">${escapeHtml(d.scopeFlags)}</td>
         <td style="font-size: 11px;">${escapeHtml(d.relationshipCode)}</td>
       </tr>
-    `).join('');
+    `,
+      )
+      .join('');
 
     return `
       <div class="section-card">
@@ -301,11 +319,14 @@ export class InsurerTab {
         document.getElementById('insurer-msg-thread-id').value = '';
         document.getElementById('insurer-reply-banner').classList.add('hidden');
         if (msgSubject) msgSubject.value = '';
-        if (msgRecipient) { msgRecipient.value = ''; msgRecipient.disabled = false; }
+        if (msgRecipient) {
+          msgRecipient.value = '';
+          msgRecipient.disabled = false;
+        }
       });
     }
     // Thread click handlers
-    document.querySelectorAll('.insurer-thread-item').forEach(el => {
+    document.querySelectorAll('.insurer-thread-item').forEach((el) => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.msg-reply-btn')) return;
         this.doExpandInsurerThread(el);
@@ -334,12 +355,17 @@ export class InsurerTab {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageIndices: indices, walletId }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const decrypted = await res.json();
       const dir = this.currentState?.walletDirectory || {};
 
       // every value in a message came over the network and is escaped (message-thread.js)
-      bodyDiv.innerHTML = renderMessageBubbles(decrypted, walletId, dir) + `
+      bodyDiv.innerHTML =
+        renderMessageBubbles(decrypted, walletId, dir) +
+        `
         <button class="msg-reply-btn" data-thread-id="${escapeHtml(threadId)}" style="margin-top: 8px; font-size: 11px; background: var(--color-insurer); color: white; border: none; border-radius: 4px; padding: 4px 12px; cursor: pointer;">Reply</button>
       `;
 
@@ -413,7 +439,10 @@ export class InsurerTab {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       const resultDiv = document.getElementById('insurer-send-result');
@@ -442,7 +471,9 @@ export class InsurerTab {
       this.app.setStatus('ready', 'Notification sent');
       setTimeout(async () => {
         const fresh = await loadInteractiveState(API_BASE);
-        if (fresh) { this.render(fresh); }
+        if (fresh) {
+          this.render(fresh);
+        }
       }, 1500);
     } catch (err) {
       const resultDiv = document.getElementById('insurer-send-result');
@@ -504,9 +535,9 @@ export class InsurerTab {
       if (m.lifecycle === 'REVOKED') revoked++;
     }
 
-    const groupRows = [...groups.entries()].map(([gid, count]) =>
-      `<div class="label">${escapeHtml(gid)}</div><div class="value">${count} wallet${count > 1 ? 's' : ''}</div>`
-    ).join('');
+    const groupRows = [...groups.entries()]
+      .map(([gid, count]) => `<div class="label">${escapeHtml(gid)}</div><div class="value">${count} wallet${count > 1 ? 's' : ''}</div>`)
+      .join('');
 
     return `
       <div class="section-card">
@@ -536,24 +567,27 @@ export class InsurerTab {
       return this.emptyCard('Wallet Registry', 'No wallets registered.');
     }
 
-    const rows = enrolled.map(m => {
-      const isRevoked = m.lifecycle === 'REVOKED';
-      const lifecycleClass = isRevoked ? 'rx-status-cancelled' : 'rx-status-active';
-      const lifecycleLabel = isRevoked ? 'REVOKED' : (m.lifecycle || 'ELIGIBLE');
-      return `
+    const rows = enrolled
+      .map((m) => {
+        const isRevoked = m.lifecycle === 'REVOKED';
+        const lifecycleClass = isRevoked ? 'rx-status-cancelled' : 'rx-status-active';
+        const lifecycleLabel = isRevoked ? 'REVOKED' : m.lifecycle || 'ELIGIBLE';
+        return `
       <tr${isRevoked ? ' style="opacity: 0.6;"' : ''}>
         <td class="mono" style="font-size: 11px;">${m.walletIdDisplay ? escapeHtml(m.walletIdDisplay) : truncHash(m.walletId)}</td>
         <td>${escapeHtml(m.groupId)}</td>
         <td>${escapeHtml(m.planId)}</td>
         <td><span class="family-badge ${escapeHtml((m.relationship || 'SELF').toLowerCase())}">${escapeHtml(m.relationship || 'SELF')}</span></td>
         <td><span class="rx-status-badge ${lifecycleClass}">${escapeHtml(lifecycleLabel)}</span></td>
-        <td>${isRevoked
-          ? `<span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(m.terminationDate || '')}</span>`
-          : `<button class="btn-terminate-member" data-wallet-id="${escapeHtml(m.walletId)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate</button>`
+        <td>${
+          isRevoked
+            ? `<span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(m.terminationDate || '')}</span>`
+            : `<button class="btn-terminate-member" data-wallet-id="${escapeHtml(m.walletId)}" style="font-size: 11px; padding: 3px 10px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate</button>`
         }</td>
       </tr>
     `;
-    }).join('');
+      })
+      .join('');
 
     // Group termination buttons
     const activeGroups = new Map();
@@ -562,13 +596,17 @@ export class InsurerTab {
         activeGroups.set(m.groupId, (activeGroups.get(m.groupId) || 0) + 1);
       }
     }
-    const groupButtons = activeGroups.size > 0
-      ? `<div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-          ${[...activeGroups.entries()].map(([gid, count]) =>
-            `<button class="btn-terminate-group" data-group-id="${escapeHtml(gid)}" style="font-size: 11px; padding: 5px 12px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate Group: ${escapeHtml(gid)} (${count} active)</button>`
-          ).join('')}
+    const groupButtons =
+      activeGroups.size > 0
+        ? `<div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+          ${[...activeGroups.entries()]
+            .map(
+              ([gid, count]) =>
+                `<button class="btn-terminate-group" data-group-id="${escapeHtml(gid)}" style="font-size: 11px; padding: 5px 12px; background: var(--accent-red); color: #0d1117; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Terminate Group: ${escapeHtml(gid)} (${count} active)</button>`,
+            )
+            .join('')}
         </div>`
-      : '';
+        : '';
 
     return `
       <div class="section-card">
@@ -615,9 +653,10 @@ export class InsurerTab {
       if (m.lifecycle !== 'REVOKED') g.active++;
     }
 
-    const rows = [...groups.entries()].map(([gid, info]) => {
-      const allTerminated = info.active === 0;
-      return `
+    const rows = [...groups.entries()]
+      .map(([gid, info]) => {
+        const allTerminated = info.active === 0;
+        return `
       <tr${allTerminated ? ' style="opacity: 0.6;"' : ''}>
         <td>${escapeHtml(gid)}</td>
         <td>${escapeHtml(info.planId)}</td>
@@ -627,7 +666,8 @@ export class InsurerTab {
         </td>
       </tr>
     `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -653,33 +693,34 @@ export class InsurerTab {
     }
 
     const medications = state.demoData?.medications || [];
-    const activeMedCount = medications.filter(m => m.active !== false).length;
+    const activeMedCount = medications.filter((m) => m.active !== false).length;
     const history = state.formularyChangeHistory || [];
 
-    const medRows = medications.map((m, i) => {
-      const isActive = m.active !== false;
-      const isOffFormulary = m.initiallyOnFormulary === false && !isActive;
-      const wasRemoved = m.initiallyOnFormulary !== false && !isActive;
-      const rowClass = isActive ? '' : 'formulary-removed';
-      const tier = m.currentTierLevel || m.tier;
-      const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
-      const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
-      const step = m.currentStepTherapyRequired ?? m.stepTherapyRequired;
+    const medRows = medications
+      .map((m, i) => {
+        const isActive = m.active !== false;
+        const isOffFormulary = m.initiallyOnFormulary === false && !isActive;
+        const wasRemoved = m.initiallyOnFormulary !== false && !isActive;
+        const rowClass = isActive ? '' : 'formulary-removed';
+        const tier = m.currentTierLevel || m.tier;
+        const copay = m.currentCopayAmountCents ?? m.copayAmountCents;
+        const pa = m.currentRequiresPriorAuth ?? m.requiresPriorAuth;
+        const step = m.currentStepTherapyRequired ?? m.stepTherapyRequired;
 
-      let statusHtml, actionsHtml;
-      if (isActive) {
-        statusHtml = '<span style="color: var(--accent-green);">Active</span>';
-        actionsHtml = `<button class="btn-formulary-action btn-formulary-modify" data-med-index="${i}">Edit</button>
+        let statusHtml, actionsHtml;
+        if (isActive) {
+          statusHtml = '<span style="color: var(--accent-green);">Active</span>';
+          actionsHtml = `<button class="btn-formulary-action btn-formulary-modify" data-med-index="${i}">Edit</button>
                        <button class="btn-formulary-action btn-formulary-remove" data-med-index="${i}">Remove</button>`;
-      } else if (isOffFormulary) {
-        statusHtml = '<span style="color: var(--accent-orange); font-weight: 600;">Off-Formulary</span>';
-        actionsHtml = `<button class="btn-formulary-action btn-formulary-add" data-med-index="${i}">Add to Formulary</button>`;
-      } else {
-        statusHtml = '<span style="color: var(--accent-red);">Removed</span>';
-        actionsHtml = `<button class="btn-formulary-action btn-formulary-add" data-med-index="${i}">Re-add</button>`;
-      }
+        } else if (isOffFormulary) {
+          statusHtml = '<span style="color: var(--accent-orange); font-weight: 600;">Off-Formulary</span>';
+          actionsHtml = `<button class="btn-formulary-action btn-formulary-add" data-med-index="${i}">Add to Formulary</button>`;
+        } else {
+          statusHtml = '<span style="color: var(--accent-red);">Removed</span>';
+          actionsHtml = `<button class="btn-formulary-action btn-formulary-add" data-med-index="${i}">Re-add</button>`;
+        }
 
-      return `
+        return `
         <tr class="${rowClass}" data-med-index="${i}">
           <td>${i}</td>
           <td>${escapeHtml(m.brandName)}${m.deaSchedule > 0 ? ` <span class="dea-badge dea-schedule-${m.deaSchedule}">C-${m.deaSchedule}</span>` : ''}</td>
@@ -691,23 +732,31 @@ export class InsurerTab {
           <td>${actionsHtml}</td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
-    const historyHtml = history.length > 0 ? `
+    const historyHtml =
+      history.length > 0
+        ? `
       <div style="margin-top: 16px;">
         <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Formulary Change History</div>
         <div style="max-height: 200px; overflow-y: auto;">
-          ${history.map(h => `
+          ${history
+            .map(
+              (h) => `
             <div class="formulary-history-entry">
               <span class="formulary-history-type formulary-history-${escapeHtml(h.changeType.toLowerCase())}">${escapeHtml(h.changeType)}</span>
               <span>${escapeHtml(h.medicationName)}</span>
               <span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(h.details)}</span>
               <span style="color: var(--text-muted); font-size: 10px;">${h.affectedMembers.length} member(s)</span>
             </div>
-          `).join('')}
+          `,
+            )
+            .join('')}
         </div>
       </div>
-    ` : '';
+    `
+        : '';
 
     return `
       <div class="section-card">
@@ -801,58 +850,71 @@ export class InsurerTab {
     }
 
     const activeMap = networkData.active || {};
-    const inNetworkCount = Object.values(activeMap).filter(v => v === true).length;
+    const inNetworkCount = Object.values(activeMap).filter((v) => v === true).length;
     const totalCount = Object.keys(activeMap).length;
     const history = networkData.changeHistory || [];
 
-    const prescriberRows = prescribers.map((p, i) => {
-      // Find walletId for this prescriber
-      let walletIdStr = '';
-      for (const [wid, info] of Object.entries(walletDir)) {
-        if (info.type === 'prescriber' && info.index === i) {
-          walletIdStr = wid;
-          break;
+    const prescriberRows = prescribers
+      .map((p, i) => {
+        // Find walletId for this prescriber
+        let walletIdStr = '';
+        for (const [wid, info] of Object.entries(walletDir)) {
+          if (info.type === 'prescriber' && info.index === i) {
+            walletIdStr = wid;
+            break;
+          }
         }
-      }
 
-      const displayName = `Dr. ${p.firstName} ${p.lastName}`;
-      const isInNetwork = walletIdStr ? activeMap[walletIdStr] === true : false;
-      const rowClass = isInNetwork ? '' : 'formulary-removed';
-      const truncWid = walletIdStr ? walletIdStr.slice(0, 12) + '...' : 'N/A';
+        const displayName = `Dr. ${p.firstName} ${p.lastName}`;
+        const isInNetwork = walletIdStr ? activeMap[walletIdStr] === true : false;
+        const rowClass = isInNetwork ? '' : 'formulary-removed';
+        const truncWid = walletIdStr ? walletIdStr.slice(0, 12) + '...' : 'N/A';
 
-      return `
+        return `
         <tr class="${rowClass}" data-prescriber-wallet="${escapeHtml(walletIdStr)}">
           <td>${i}</td>
           <td>${escapeHtml(displayName)}</td>
           <td>${escapeHtml(p.specialty || 'General')}</td>
           <td class="mono" style="font-size: 10px;">${escapeHtml(truncWid)}</td>
-          <td>${isInNetwork
-            ? '<span style="color: var(--accent-green);">In-Network</span>'
-            : '<span style="color: var(--accent-red);">Out-of-Network</span>'}</td>
+          <td>${
+            isInNetwork
+              ? '<span style="color: var(--accent-green);">In-Network</span>'
+              : '<span style="color: var(--accent-red);">Out-of-Network</span>'
+          }</td>
           <td>
-            ${isInNetwork
-              ? `<button class="btn-network-action btn-network-remove" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Remove</button>`
-              : `<button class="btn-network-action btn-network-add" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Add</button>`}
+            ${
+              isInNetwork
+                ? `<button class="btn-network-action btn-network-remove" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Remove</button>`
+                : `<button class="btn-network-action btn-network-add" data-prescriber-wallet="${escapeHtml(walletIdStr)}" data-prescriber-name="${escapeHtml(displayName)}">Add</button>`
+            }
           </td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
-    const historyHtml = history.length > 0 ? `
+    const historyHtml =
+      history.length > 0
+        ? `
       <div style="margin-top: 16px;">
         <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Network Change History</div>
         <div style="max-height: 200px; overflow-y: auto;">
-          ${history.map(h => `
+          ${history
+            .map(
+              (h) => `
             <div class="formulary-history-entry">
               <span class="formulary-history-type formulary-history-${escapeHtml(h.changeType.toLowerCase())}">${escapeHtml(h.changeType)}</span>
               <span>${escapeHtml(h.prescriberName)}</span>
               <span style="color: var(--text-muted); font-size: 11px;">${escapeHtml(h.details)}</span>
               <span style="color: var(--text-muted); font-size: 10px;">${h.affectedMemberCount} member(s)</span>
             </div>
-          `).join('')}
+          `,
+            )
+            .join('')}
         </div>
       </div>
-    ` : '';
+    `
+        : '';
 
     return `
       <div class="section-card">
@@ -891,8 +953,12 @@ export class InsurerTab {
       return this.emptyCard('Financial Summary', 'No claims adjudicated yet.');
     }
 
-    let totalPatient = 0, totalPlan = 0, totalCost = 0;
-    let reversedCount = 0, reversedPatient = 0, reversedPlan = 0;
+    let totalPatient = 0,
+      totalPlan = 0,
+      totalCost = 0;
+    let reversedCount = 0,
+      reversedPatient = 0,
+      reversedPlan = 0;
     for (const f of fulfillments) {
       if (f.reversed) {
         reversedCount++;
@@ -918,21 +984,25 @@ export class InsurerTab {
             ${this.metricBox('Total Cost', formatCents(totalCost))}
             ${this.metricBox('Avg Claim', formatCents(avgCost))}
           </div>
-          ${reversedCount > 0 ? `
+          ${
+            reversedCount > 0
+              ? `
           <div class="insurer-metric-row" style="margin-top: 12px;">
             ${this.metricBox('Reversed', reversedCount)}
             ${this.metricBox('Patient Refund', formatCents(reversedPatient))}
             ${this.metricBox('Plan Refund', formatCents(reversedPlan))}
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div style="margin-top: 12px;">
             <div class="progress-container">
               <div class="progress-label">
                 <span>Plan vs Patient Split</span>
-                <span>${totalCost > 0 ? Math.round(totalPlan / totalCost * 100) : 0}% plan / ${totalCost > 0 ? Math.round(totalPatient / totalCost * 100) : 0}% patient</span>
+                <span>${totalCost > 0 ? Math.round((totalPlan / totalCost) * 100) : 0}% plan / ${totalCost > 0 ? Math.round((totalPatient / totalCost) * 100) : 0}% patient</span>
               </div>
               <div class="progress-bar" style="height: 12px;">
-                <div class="fill" style="width: ${totalCost > 0 ? (totalPlan / totalCost * 100).toFixed(1) : 0}%; background: var(--color-insurer);"></div>
+                <div class="fill" style="width: ${totalCost > 0 ? ((totalPlan / totalCost) * 100).toFixed(1) : 0}%; background: var(--color-insurer);"></div>
               </div>
             </div>
           </div>
@@ -949,11 +1019,12 @@ export class InsurerTab {
       return this.emptyCard('Prescription Registry', 'No prescriptions issued.');
     }
 
-    const rows = rxs.map(rx => {
-      const walletDisplay = truncHash(rx.memberWalletId);
-      const status = rx.status || (rx.filled ? 'FILLED' : 'ACTIVE');
-      const statusClass = `rx-status-${status.toLowerCase().replace('_', '-')}`;
-      return `
+    const rows = rxs
+      .map((rx) => {
+        const walletDisplay = truncHash(rx.memberWalletId);
+        const status = rx.status || (rx.filled ? 'FILLED' : 'ACTIVE');
+        const statusClass = `rx-status-${status.toLowerCase().replace('_', '-')}`;
+        return `
         <tr>
           <td class="mono" style="font-size: 11px;">${escapeHtml(rx.id)}</td>
           <td class="mono" style="font-size: 11px;">${walletDisplay}</td>
@@ -961,7 +1032,8 @@ export class InsurerTab {
           <td><span class="rx-status-badge ${escapeHtml(statusClass)}">${escapeHtml(status.replace('_', ' '))}</span></td>
         </tr>
       `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -989,10 +1061,11 @@ export class InsurerTab {
       return this.emptyCard('Settlement Registry', 'No settlements recorded.');
     }
 
-    const rows = fulfillments.map(f => {
-      const isReversed = f.reversed;
-      const rowStyle = isReversed ? ' style="opacity: 0.5; text-decoration: line-through;"' : '';
-      return `
+    const rows = fulfillments
+      .map((f) => {
+        const isReversed = f.reversed;
+        const rowStyle = isReversed ? ' style="opacity: 0.5; text-decoration: line-through;"' : '';
+        return `
       <tr${rowStyle}>
         <td class="mono" style="font-size: 11px;">${escapeHtml(f.prescriptionId || '\u2014')}</td>
         <td>${formatCents(f.patientPayCents || 0)}</td>
@@ -1001,7 +1074,8 @@ export class InsurerTab {
         <td>${isReversed ? '<span class="rx-status-badge rx-status-reversed">REVERSED</span>' : '<span class="rx-status-badge rx-status-filled">ACTIVE</span>'}</td>
       </tr>
     `;
-    }).join('');
+      })
+      .join('');
 
     return `
       <div class="section-card">
@@ -1037,18 +1111,26 @@ export class InsurerTab {
             ${this.metricBox('Patient \u03A3', formatCents(audit.totalPatientPayCents))}
             ${this.metricBox('Plan \u03A3', formatCents(audit.totalPlanPayCents))}
           </div>
-          ${audit.reversalCount > 0 ? `
+          ${
+            audit.reversalCount > 0
+              ? `
           <div class="insurer-metric-row" style="margin-top: 12px;">
             ${this.metricBox('Reversals', audit.reversalCount)}
             ${this.metricBox('Patient Refunded', formatCents(audit.totalReversedPatientCents || 0))}
             ${this.metricBox('Plan Refunded', formatCents(audit.totalReversedPlanCents || 0))}
           </div>
-          ` : ''}
-          ${audit.terminationCount > 0 ? `
+          `
+              : ''
+          }
+          ${
+            audit.terminationCount > 0
+              ? `
           <div class="insurer-metric-row" style="margin-top: 12px;">
             ${this.metricBox('Terminations', audit.terminationCount)}
           </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div style="margin-top: 12px; font-size: 12px; color: var(--text-secondary);">
             Every state transition produces a Poseidon hash chain event. The audit trail is tamper-evident —
             any modification to historical events would break the chain hash integrity.
@@ -1065,16 +1147,18 @@ export class InsurerTab {
     if (pas.length === 0) {
       return this.emptyCard(
         'Prior Authorization Queue',
-        'No PA requests. Prescribers can request PA for Tier 3/4 medications that require it.'
+        'No PA requests. Prescribers can request PA for Tier 3/4 medications that require it.',
       );
     }
 
-    const pending = pas.filter(pa => pa.status === 'PENDING');
-    const resolved = pas.filter(pa => pa.status !== 'PENDING');
+    const pending = pas.filter((pa) => pa.status === 'PENDING');
+    const resolved = pas.filter((pa) => pa.status !== 'PENDING');
 
     let pendingRows = '';
     if (pending.length > 0) {
-      pendingRows = pending.map(pa => `
+      pendingRows = pending
+        .map(
+          (pa) => `
         <tr>
           <td class="mono" style="font-size: 11px;">${escapeHtml(pa.id)}</td>
           <td class="mono" style="font-size: 11px;">${truncHash(pa.memberWalletId)}</td>
@@ -1090,16 +1174,20 @@ export class InsurerTab {
             </button>
           </td>
         </tr>
-      `).join('');
+      `,
+        )
+        .join('');
     }
 
     let resolvedRows = '';
     if (resolved.length > 0) {
-      resolvedRows = resolved.map(pa => {
-        const statusBadge = pa.status === 'APPROVED'
-          ? '<span class="pa-badge pa-approved">APPROVED</span>'
-          : '<span class="pa-badge pa-denied">DENIED</span>';
-        return `
+      resolvedRows = resolved
+        .map((pa) => {
+          const statusBadge =
+            pa.status === 'APPROVED'
+              ? '<span class="pa-badge pa-approved">APPROVED</span>'
+              : '<span class="pa-badge pa-denied">DENIED</span>';
+          return `
           <tr style="opacity: 0.7;">
             <td class="mono" style="font-size: 11px;">${escapeHtml(pa.id)}</td>
             <td class="mono" style="font-size: 11px;">${truncHash(pa.memberWalletId)}</td>
@@ -1109,7 +1197,8 @@ export class InsurerTab {
             <td style="font-size: 11px; color: var(--text-muted);">${pa.resolvedAt ? new Date(pa.resolvedAt).toLocaleTimeString() : ''}</td>
           </tr>
         `;
-      }).join('');
+        })
+        .join('');
     }
 
     return `
@@ -1119,7 +1208,9 @@ export class InsurerTab {
           ${pending.length > 0 ? `<span class="pa-badge pa-pending" style="margin-left: 8px; font-size: 11px;">${pending.length} pending</span>` : ''}
         </div>
         <div class="card-body">
-          ${pending.length > 0 ? `
+          ${
+            pending.length > 0
+              ? `
             <div style="margin-bottom: 16px;">
               <div style="font-size: 12px; font-weight: 600; color: var(--accent-yellow); margin-bottom: 8px;">PENDING REQUESTS</div>
               <table class="insurer-table">
@@ -1139,8 +1230,12 @@ export class InsurerTab {
                 Approving generates a real AccessControl.provePriorAuth ZK proof and inserts the PA into the member's forest.
               </div>
             </div>
-          ` : ''}
-          ${resolved.length > 0 ? `
+          `
+              : ''
+          }
+          ${
+            resolved.length > 0
+              ? `
             <div>
               <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">RESOLVED</div>
               <table class="insurer-table">
@@ -1157,7 +1252,9 @@ export class InsurerTab {
                 <tbody>${resolvedRows}</tbody>
               </table>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
           <div id="pa-action-result" class="hidden" style="margin-top: 12px;"></div>
         </div>
       </div>
@@ -1166,20 +1263,20 @@ export class InsurerTab {
 
   bindPaActions() {
     // Approve buttons
-    this.container.querySelectorAll('.btn-pa-approve').forEach(btn => {
+    this.container.querySelectorAll('.btn-pa-approve').forEach((btn) => {
       btn.addEventListener('click', () => this.doApprovePa(btn.dataset.paId, btn));
     });
     // Deny buttons
-    this.container.querySelectorAll('.btn-pa-deny').forEach(btn => {
+    this.container.querySelectorAll('.btn-pa-deny').forEach((btn) => {
       btn.addEventListener('click', () => this.doDenyPa(btn.dataset.paId, btn));
     });
   }
 
   bindTerminateActions() {
-    this.container.querySelectorAll('.btn-terminate-member').forEach(btn => {
+    this.container.querySelectorAll('.btn-terminate-member').forEach((btn) => {
       btn.addEventListener('click', () => this.doTerminateMember(btn.dataset.walletId, btn));
     });
-    this.container.querySelectorAll('.btn-terminate-group').forEach(btn => {
+    this.container.querySelectorAll('.btn-terminate-group').forEach((btn) => {
       btn.addEventListener('click', () => this.doTerminateGroup(btn.dataset.groupId, btn));
     });
   }
@@ -1216,9 +1313,11 @@ export class InsurerTab {
             <div style="font-weight: 600; color: var(--accent-red); margin-bottom: 6px;">Member Terminated</div>
             <div style="font-size: 12px; color: var(--text-secondary);">
               Wallet ${truncHash(walletId)} \u2192 REVOKED. Credential revoked, lifecycle updated.
-              ${cancelledRxs.length > 0
-                ? `<br>${cancelledRxs.length} active prescription${cancelledRxs.length > 1 ? 's' : ''} auto-cancelled: ${escapeHtml(cancelledRxs.join(', '))}`
-                : ''}
+              ${
+                cancelledRxs.length > 0
+                  ? `<br>${cancelledRxs.length} active prescription${cancelledRxs.length > 1 ? 's' : ''} auto-cancelled: ${escapeHtml(cancelledRxs.join(', '))}`
+                  : ''
+              }
             </div>
           </div>
         `;
@@ -1229,7 +1328,6 @@ export class InsurerTab {
       if (fresh) {
         this.render(fresh);
       }
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1284,7 +1382,6 @@ export class InsurerTab {
       if (fresh) {
         this.render(fresh);
       }
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1333,7 +1430,9 @@ export class InsurerTab {
               Forest root updated: ${escapeHtml(result.forestRoot)}
             </div>
           </div>
-          ${result.l2Receipt ? `
+          ${
+            result.l2Receipt
+              ? `
             <div class="l2-receipt-card" style="margin-top:12px;">
               <div class="receipt-title">L2 Receipt</div>
               <div class="receipt-grid">
@@ -1342,7 +1441,9 @@ export class InsurerTab {
                 <div class="rl">Status</div><div class="rv"><span class="l2-status-badge pending">pending</span></div>
               </div>
             </div>
-          ` : ''}
+          `
+              : ''
+          }
         `;
       }
 
@@ -1352,7 +1453,6 @@ export class InsurerTab {
       if (fresh) {
         this.render(fresh);
       }
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1386,7 +1486,6 @@ export class InsurerTab {
       if (fresh) {
         this.render(fresh);
       }
-
     } catch (err) {
       if (resultDiv) {
         resultDiv.classList.remove('hidden');
@@ -1422,7 +1521,7 @@ export class InsurerTab {
 
   bindFormularyActions() {
     // Edit buttons
-    this.container.querySelectorAll('.btn-formulary-modify').forEach(btn => {
+    this.container.querySelectorAll('.btn-formulary-modify').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.showFormularyEditForm(parseInt(btn.dataset.medIndex, 10));
@@ -1430,7 +1529,7 @@ export class InsurerTab {
     });
 
     // Remove buttons
-    this.container.querySelectorAll('.btn-formulary-remove').forEach(btn => {
+    this.container.querySelectorAll('.btn-formulary-remove').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.doFormularyAction(parseInt(btn.dataset.medIndex, 10), 'REMOVE');
@@ -1438,7 +1537,7 @@ export class InsurerTab {
     });
 
     // Re-add buttons
-    this.container.querySelectorAll('.btn-formulary-add').forEach(btn => {
+    this.container.querySelectorAll('.btn-formulary-add').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.doFormularyAction(parseInt(btn.dataset.medIndex, 10), 'ADD');
@@ -1491,7 +1590,10 @@ export class InsurerTab {
         body: JSON.stringify({ medicationIndex: medIndex, action }),
       });
 
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       if (result.chainState) updateChainState(result.chainState);
@@ -1511,7 +1613,6 @@ export class InsurerTab {
         await this.app.fetchState();
         this.render(this.app.state);
       }, 1000);
-
     } catch (err) {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
@@ -1548,7 +1649,10 @@ export class InsurerTab {
         }),
       });
 
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       if (result.chainState) updateChainState(result.chainState);
@@ -1569,7 +1673,6 @@ export class InsurerTab {
         await this.app.fetchState();
         this.render(this.app.state);
       }, 1000);
-
     } catch (err) {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
@@ -1584,7 +1687,7 @@ export class InsurerTab {
 
   bindNetworkActions() {
     // Remove buttons
-    this.container.querySelectorAll('.btn-network-remove').forEach(btn => {
+    this.container.querySelectorAll('.btn-network-remove').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.doNetworkAction(btn.dataset.prescriberWallet, 'REMOVE', btn.dataset.prescriberName);
@@ -1592,7 +1695,7 @@ export class InsurerTab {
     });
 
     // Add buttons
-    this.container.querySelectorAll('.btn-network-add').forEach(btn => {
+    this.container.querySelectorAll('.btn-network-add').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.doNetworkAction(btn.dataset.prescriberWallet, 'ADD', btn.dataset.prescriberName);
@@ -1612,7 +1715,10 @@ export class InsurerTab {
         body: JSON.stringify({ prescriberWalletId, action }),
       });
 
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       if (result.chainState) updateChainState(result.chainState);
@@ -1633,7 +1739,6 @@ export class InsurerTab {
         await this.app.fetchState();
         this.render(this.app.state);
       }, 1000);
-
     } catch (err) {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `<div style="color: var(--accent-red); padding: 8px; font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;
@@ -1655,7 +1760,10 @@ export class InsurerTab {
         body: JSON.stringify({ newPlanYear: '20270101' }),
       });
 
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error);
+      }
       const result = await res.json();
 
       if (result.chainState) updateChainState(result.chainState);
@@ -1672,7 +1780,6 @@ export class InsurerTab {
         await this.app.fetchState();
         this.render(this.app.state);
       }, 1500);
-
     } catch (err) {
       resultDiv.classList.remove('hidden');
       resultDiv.innerHTML = `<div style="color: var(--accent-red); font-size: 12px;">Error: ${escapeHtml(err.message)}</div>`;

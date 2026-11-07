@@ -138,7 +138,13 @@ const STAFF = '127.0.0.1';
 
 const dirs: string[] = [];
 afterAll(() => {
-  for (const dir of dirs) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const dir of dirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
 /**
@@ -149,9 +155,18 @@ function appNode(role: NautilusAppConfig['role'], over: Partial<NautilusAppConfi
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-intake-'));
   dirs.push(dir);
   return new NautilusAppServer({
-    role, port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'admin-token-for-open-intake',
-    publicHosts: [], trustedProxies: [], ...over,
+    role,
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'admin-token-for-open-intake',
+    publicHosts: [],
+    trustedProxies: [],
+    ...over,
   } as NautilusAppConfig);
 }
 const insurerNode = (over: Partial<NautilusAppConfig> = {}): NautilusAppServer => appNode('insurer', over);
@@ -160,7 +175,12 @@ const insurerNode = (over: Partial<NautilusAppConfig> = {}): NautilusAppServer =
 const from = (remoteAddress: string) => ({ url: '/', headers: {}, socket: { remoteAddress } });
 type StandIn = ReturnType<typeof from>;
 
-interface Answer { status: number; retryAfter: string | undefined; error: string | undefined; data: any }
+interface Answer {
+  status: number;
+  retryAfter: string | undefined;
+  error: string | undefined;
+  data: any;
+}
 
 /** Calls `route`'s handler as the server does once it has parsed the body, with a stand-in response; returns the answer. */
 async function call(route: RouteRegistration, req: StandIn, body?: unknown, params: Record<string, string> = {}): Promise<Answer> {
@@ -168,10 +188,21 @@ async function call(route: RouteRegistration, req: StandIn, body?: unknown, para
   let text = '';
   const headers: Record<string, string> = {};
   const res = {
-    get writableEnded() { return status !== 0; },
-    setHeader(name: string, value: string) { headers[name.toLowerCase()] = value; return this; },
-    writeHead(code: number) { status = code; return this; },
-    end(chunk?: string) { text = chunk ?? ''; return this; },
+    get writableEnded() {
+      return status !== 0;
+    },
+    setHeader(name: string, value: string) {
+      headers[name.toLowerCase()] = value;
+      return this;
+    },
+    writeHead(code: number) {
+      status = code;
+      return this;
+    },
+    end(chunk?: string) {
+      text = chunk ?? '';
+      return this;
+    },
   };
   await route.handler(req as unknown as IncomingMessage, res as unknown as ServerResponse, params, new URLSearchParams(), body);
   const json = (text ? JSON.parse(text) : {}) as { error?: string; data?: unknown };
@@ -192,7 +223,11 @@ async function statuses(n: number, send: (i: number) => Promise<Answer>): Promis
 }
 
 /** How a stand-in answers one request: a status, any headers beside the JSON content type, and a JSON body. */
-interface Reply { status: number; headers?: Record<string, string>; body: unknown }
+interface Reply {
+  status: number;
+  headers?: Record<string, string>;
+  body: unknown;
+}
 
 /**
  * A JSON service on loopback, started before the tests of the block that calls this (a describe, or the whole file) and
@@ -251,7 +286,12 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
   const employer = standIn((p) => {
     const code = decodeURIComponent(/^\/tokens\/([^/]+)\/validate$/.exec(p)?.[1] ?? '');
     asked.push(code);
-    return { ok: true, data: issued.has(code) ? { valid: true, groupIdHash: '11', planIdHash: '22', consumed: true } : { valid: false, reason: 'Token not found' } };
+    return {
+      ok: true,
+      data: issued.has(code)
+        ? { valid: true, groupIdHash: '11', planIdHash: '22', consumed: true }
+        : { valid: false, reason: 'Token not found' },
+    };
   });
 
   /** The redemption route of a fresh insurer node, whose limits start empty, with the stand-in configured as its employer. */
@@ -259,24 +299,24 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
   /** A code no employer issued, as a client trying codes sends one. */
   const junk = () => ({ tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242', completionCommitment: COMMITMENT });
 
-  test('a source past ten codes a minute is answered 429 with Retry-After and relays nothing, and another source\'s code still reaches the employer', async () => {
+  test("a source past ten codes a minute is answered 429 with Retry-After and relays nothing, and another source's code still reaches the employer", async () => {
     const redeem = redemption();
     const before = asked.length;
     expect(await statuses(10, () => redeem(from('198.51.100.7'), junk()))).toEqual(Array(10).fill(403));
     expect(asked.length - before).toBe(10);
     const past = await redeem(from('198.51.100.7'), junk());
-    expect([past.status, past.error, past.retryAfter]).toEqual([429, TOO_MANY_CODES, '60']);   // before: [403, NOT_RECOGNIZED, undefined], the code relayed
-    expect(asked.length - before).toBe(10);                                                     // before: 11
+    expect([past.status, past.error, past.retryAfter]).toEqual([429, TOO_MANY_CODES, '60']); // before: [403, NOT_RECOGNIZED, undefined], the code relayed
+    expect(asked.length - before).toBe(10); // before: 11
     const other = await redeem(from('198.51.100.8'), junk());
     expect([other.status, other.error]).toEqual([403, NOT_RECOGNIZED]);
-    expect(asked.length - before).toBe(11);                                                     // before: 12
+    expect(asked.length - before).toBe(11); // before: 12
   });
 
   test('two addresses in one IPv6 /64 are one source, and an address in another /64 is another', async () => {
     const redeem = redemption();
     const sent = await statuses(10, (i) => redeem(from(i % 2 ? '2001:db8:85a3:12::1' : '2001:db8:85a3:12:9f3c:51ff:fe0a:7d21'), junk()));
     expect(sent).toEqual(Array(10).fill(403));
-    expect((await redeem(from('2001:db8:85a3:12::2'), junk())).status).toBe(429);   // before: 403, relayed
+    expect((await redeem(from('2001:db8:85a3:12::2'), junk())).status).toBe(429); // before: 403, relayed
     expect((await redeem(from('2001:db8:85a3:13::1'), junk())).status).toBe(403);
   });
 
@@ -289,9 +329,9 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
     for (let i = 0; i < 6; i++) {
       expect((await redeem(source, { walletId: '42', tokenId: generateEnrollmentCode('EMP-NOBODY'), role: 'pharmacy' })).status).toBe(400);
       expect((await redeem(source, { tokenPinHash: '4242' })).status).toBe(400);
-      expect((await redeem(source, { tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242' })).status).toBe(400);   // before: 403, relayed to the employer and counted against the source
+      expect((await redeem(source, { tokenId: generateEnrollmentCode('EMP-NOBODY'), tokenPinHash: '4242' })).status).toBe(400); // before: 403, relayed to the employer and counted against the source
     }
-    expect(asked.length - before).toBe(0);   // before: 6, each code without a commitment relayed
+    expect(asked.length - before).toBe(0); // before: 6, each code without a commitment relayed
     const code = generateEnrollmentCode('EMP-ISSUER');
     issued.add(code);
     const first = await redeem(source, { tokenId: code, tokenPinHash: '4242', completionCommitment: COMMITMENT });
@@ -305,8 +345,8 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
     expect(await statuses(9, () => redeem(source, junk()))).toEqual(Array(9).fill(403));
     expect(asked.length - before).toBe(10);
     const past = await redeem(source, junk());
-    expect([past.status, past.retryAfter]).toEqual([429, '60']);   // before: [403, undefined], relayed
-    expect(asked.length - before).toBe(10);                        // before: 11
+    expect([past.status, past.retryAfter]).toEqual([429, '60']); // before: [403, undefined], relayed
+    expect(asked.length - before).toBe(10); // before: 11
   });
 });
 
@@ -315,15 +355,30 @@ describe('POST /enrollment/process: the codes one source may have the insurer as
 /** An attestation as the employer node loads it from the sequencer; the validate route reads the insurer's key from it. */
 function attestationFor(employerId: string, insurerPublicKeyHex: string): EmployerAttestation {
   return {
-    v: 2, employerId, publicKeyHex: 'b'.repeat(64), authorizedPlanIds: ['PLAN-1'], enrollmentCap: 0,
-    agreementCommitment: '1', documentHash: '2', effectiveDate: '20260101',
-    employerSignature: 'c'.repeat(128), insurerSignature: 'd'.repeat(128), insurerPublicKeyHex,
-    ts: 1792200000, applicationId: 'EMPAPP-relay', attestationSeq: 1, signerName: 'Test', signerTitle: 'Test',
+    v: 2,
+    employerId,
+    publicKeyHex: 'b'.repeat(64),
+    authorizedPlanIds: ['PLAN-1'],
+    enrollmentCap: 0,
+    agreementCommitment: '1',
+    documentHash: '2',
+    effectiveDate: '20260101',
+    employerSignature: 'c'.repeat(128),
+    insurerSignature: 'd'.repeat(128),
+    insurerPublicKeyHex,
+    ts: 1792200000,
+    applicationId: 'EMPAPP-relay',
+    attestationSeq: 1,
+    signerName: 'Test',
+    signerTitle: 'Test',
   };
 }
 
 /** A request the employer node's validate route received: the signature it carried and the status the route answered. */
-interface Received { signature: string; status: number }
+interface Received {
+  signature: string;
+  status: number;
+}
 
 /**
  * An employer node started on loopback, as the insurer reaches a tenant it spawned: its routes as buildEmployerRoutes
@@ -337,20 +392,34 @@ async function startedEmployer(pinHash: string): Promise<{ url: string; code: st
   const hr = from('127.0.0.1');
   expect((await call(routeOf(routes, 'POST', '/onboarding/configure'), hr, { employerId: 'EMP-RELAY' })).status).toBe(200);
   (server.getEntityNode() as EmployerNode).setAttestation(attestationFor('EMP-RELAY', insurerPublicKeyFromSeed(INSURER_SEED)));
-  expect((await call(routeOf(routes, 'POST', '/groups'), hr, { groupId: 'G1', planId: 'PLAN-1', effectiveDate: '20260101' })).status).toBe(201);
-  const issued = await call(routeOf(routes, 'POST', '/tokens/generate'), hr, { groupId: 'G1', employeeIdHash: 'employee-hash-1', validUntil: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10) });
+  expect((await call(routeOf(routes, 'POST', '/groups'), hr, { groupId: 'G1', planId: 'PLAN-1', effectiveDate: '20260101' })).status).toBe(
+    201,
+  );
+  const issued = await call(routeOf(routes, 'POST', '/tokens/generate'), hr, {
+    groupId: 'G1',
+    employeeIdHash: 'employee-hash-1',
+    validUntil: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+  });
   expect(issued.status).toBe(201);
   const code = issued.data.tokenId as string;
-  expect((await call(routeOf(routes, 'POST', '/tokens/:tokenId/set-pin-hash'), hr, { tokenPinHash: pinHash }, { tokenId: code })).status).toBe(200);
+  expect(
+    (await call(routeOf(routes, 'POST', '/tokens/:tokenId/set-pin-hash'), hr, { tokenPinHash: pinHash }, { tokenId: code })).status,
+  ).toBe(200);
   const received: Received[] = [];
   const validate = routeOf(routes, 'POST', '/tokens/:tokenId/validate');
-  server.registerRoutes(routes.map((r): RouteRegistration => r !== validate ? r : {
-    ...r,
-    handler: async (req, res, params, query, body) => {
-      await validate.handler(req, res, params, query, body);
-      received.push({ signature: String(req.headers['x-admin-signature']), status: res.statusCode });
-    },
-  }));
+  server.registerRoutes(
+    routes.map((r): RouteRegistration =>
+      r !== validate
+        ? r
+        : {
+            ...r,
+            handler: async (req, res, params, query, body) => {
+              await validate.handler(req, res, params, query, body);
+              received.push({ signature: String(req.headers['x-admin-signature']), status: res.statusCode });
+            },
+          },
+    ),
+  );
   await server.start();
   return { url: `http://127.0.0.1:${server.getPort()}`, code, received, stop: () => server.stop() };
 }
@@ -377,28 +446,42 @@ describe('POST /enrollment/process: relays of one code and PIN hash signed in on
       const redeem = redemptionAt(employer.url);
       const body = copy();
       const at = Date.now();
-      const answers = await inOneMillisecond(at, () => Promise.all([redeem(from('198.51.100.21'), body), redeem(from('198.51.100.22'), body)]));
+      const answers = await inOneMillisecond(at, () =>
+        Promise.all([redeem(from('198.51.100.21'), body), redeem(from('198.51.100.22'), body)]),
+      );
       expect(employer.received).toHaveLength(2);
       const [first, second] = employer.received;
-      expect([first.signature, second.signature].map((s) => s.split(':').slice(0, 2).join(':'))).toEqual([`insurer:${at}`, `insurer:${at}`]);
-      expect(first.signature).not.toBe(second.signature);   // before: the same signature twice
-      expect([first.status, second.status]).toEqual([200, 200]);   // before: [200, 401], the second refused as a replay and charged to the insurer's caller key
-      expect(answers.map((r) => [r.status, r.error])).toEqual([[403, NOT_RECOGNIZED], [403, NOT_RECOGNIZED]]);   // before: one was [502, 'Cannot validate enrollment code: employer (static) returned 401: This oracle answers only the insurer: this signature has already been presented.']
+      expect([first.signature, second.signature].map((s) => s.split(':').slice(0, 2).join(':'))).toEqual([
+        `insurer:${at}`,
+        `insurer:${at}`,
+      ]);
+      expect(first.signature).not.toBe(second.signature); // before: the same signature twice
+      expect([first.status, second.status]).toEqual([200, 200]); // before: [200, 401], the second refused as a replay and charged to the insurer's caller key
+      expect(answers.map((r) => [r.status, r.error])).toEqual([
+        [403, NOT_RECOGNIZED],
+        [403, NOT_RECOGNIZED],
+      ]); // before: one was [502, 'Cannot validate enrollment code: employer (static) returned 401: This oracle answers only the insurer: this signature has already been presented.']
     } finally {
       await employer.stop();
     }
   });
 
-  test('a junk code sixty-one sources send at once is answered on its merits each time, none of it charged to the insurer, and a member\'s code relayed next is redeemed', async () => {
+  test("a junk code sixty-one sources send at once is answered on its merits each time, none of it charged to the insurer, and a member's code relayed next is redeemed", async () => {
     const employer = await startedEmployer(MEMBER_PIN_HASH);
     try {
       const redeem = redemptionAt(employer.url);
       const body = copy();
-      const answers = await inOneMillisecond(Date.now(), () => Promise.all(Array.from({ length: 61 }, (_, i) => redeem(from(`198.51.100.${100 + i}`), body))));
-      expect(answers.filter((r) => r.status === 403 && r.error === NOT_RECOGNIZED)).toHaveLength(61);   // before: 1, the other 60 answered 502
-      expect(employer.received.filter((r) => r.status === 401)).toHaveLength(0);   // before: 60, each a copy refused as a replay and charged to the insurer's caller key
-      const member = await redeem(from('203.0.113.60'), { tokenId: employer.code, tokenPinHash: MEMBER_PIN_HASH, completionCommitment: COMMITMENT });
-      expect([member.status, member.data?.redeemed]).toEqual([200, true]);   // before: [502, undefined], the employer having refused the insurer 429 before checking its signature
+      const answers = await inOneMillisecond(Date.now(), () =>
+        Promise.all(Array.from({ length: 61 }, (_, i) => redeem(from(`198.51.100.${100 + i}`), body))),
+      );
+      expect(answers.filter((r) => r.status === 403 && r.error === NOT_RECOGNIZED)).toHaveLength(61); // before: 1, the other 60 answered 502
+      expect(employer.received.filter((r) => r.status === 401)).toHaveLength(0); // before: 60, each a copy refused as a replay and charged to the insurer's caller key
+      const member = await redeem(from('203.0.113.60'), {
+        tokenId: employer.code,
+        tokenPinHash: MEMBER_PIN_HASH,
+        completionCommitment: COMMITMENT,
+      });
+      expect([member.status, member.data?.redeemed]).toEqual([200, true]); // before: [502, undefined], the employer having refused the insurer 429 before checking its signature
     } finally {
       await employer.stop();
     }
@@ -408,7 +491,10 @@ describe('POST /enrollment/process: relays of one code and PIN hash signed in on
 // ── What a member's device says ─────────────────────────────
 
 /** An insurer node started on loopback, as a member's device reaches it, relaying codes as relayingInsurer says. */
-async function startedInsurer(employerUrl: string | undefined, over: Partial<NautilusAppConfig> = {}): Promise<{ url: string; stop: () => Promise<void> }> {
+async function startedInsurer(
+  employerUrl: string | undefined,
+  over: Partial<NautilusAppConfig> = {},
+): Promise<{ url: string; stop: () => Promise<void> }> {
   const server = relayingInsurer(employerUrl, over);
   server.registerRoutes(buildInsurerRoutes(server));
   await server.start();
@@ -425,17 +511,19 @@ async function memberDevice(insurerUrl: string): Promise<((tokenPIN: string) => 
   const routes = buildMemberRoutes(server);
   const device = from('127.0.0.1');
   expect((await call(routeOf(routes, 'POST', '/onboarding/unlock'), device, { pin: '135790' })).status).toBe(200);
-  expect((await call(routeOf(routes, 'POST', '/onboarding/accept-token'), device, { tokenId: generateEnrollmentCode('EMP-NOBODY') })).status).toBe(200);
+  expect(
+    (await call(routeOf(routes, 'POST', '/onboarding/accept-token'), device, { tokenId: generateEnrollmentCode('EMP-NOBODY') })).status,
+  ).toBe(200);
   expect((await call(routeOf(routes, 'POST', '/onboarding/generate-key'), device, {})).status).toBe(200);
   const redeem = routeOf(routes, 'POST', '/onboarding/redeem');
   return Object.assign((tokenPIN: string) => call(redeem, device, { tokenPIN }), { phase: () => server.getOnboardingPhase() as string });
 }
 
-describe('POST /onboarding/redeem: what a member\'s device says when the insurer does not redeem its code', () => {
+describe("POST /onboarding/redeem: what a member's device says when the insurer does not redeem its code", () => {
   /** The employer the insurer relays to: a stand-in that issued nothing, so every code is "Token not found". */
   const nobody = standIn(() => ({ ok: true, data: { valid: false, reason: 'Token not found' } }));
 
-  test('the insurer\'s 429 is answered 429, saying too many attempts came from this network, with the insurer\'s Retry-After; its 403 keeps the refusal', async () => {
+  test("the insurer's 429 is answered 429, saying too many attempts came from this network, with the insurer's Retry-After; its 403 keeps the refusal", async () => {
     const insurer = await startedInsurer(nobody.url());
     try {
       const redeem = await memberDevice(insurer.url);
@@ -444,7 +532,7 @@ describe('POST /onboarding/redeem: what a member\'s device says when the insurer
       for (let i = 0; i < 10; i++) refused.push(await redeem(String(48213970 + i)));
       expect(refused.map((r) => [r.status, r.error, r.retryAfter])).toEqual(Array(10).fill([403, REFUSED, undefined]));
       const limited = await redeem('48213980');
-      expect([limited.status, limited.error, limited.retryAfter]).toEqual([429, TOO_MANY_ATTEMPTS, '60']);   // before: [429, REFUSED, undefined]
+      expect([limited.status, limited.error, limited.retryAfter]).toEqual([429, TOO_MANY_ATTEMPTS, '60']); // before: [429, REFUSED, undefined]
     } finally {
       await insurer.stop();
     }
@@ -455,21 +543,33 @@ describe('POST /onboarding/redeem: what a member\'s device says when the insurer
   /** A sequencer that lists no employer node, as before any employer has finished activation. */
   const noEmployers = standIn(() => ({ jsonrpc: '2.0', id: 1, result: [] }));
   /** An insurer that answers every request 503 with a Retry-After of two minutes. */
-  const unavailable = replying(() => ({ status: 503, headers: { 'Retry-After': '120' }, body: { ok: false, error: 'Service unavailable' } }));
+  const unavailable = replying(() => ({
+    status: 503,
+    headers: { 'Retry-After': '120' },
+    body: { ok: false, error: 'Service unavailable' },
+  }));
   /** An employer that answers the insurer 503, as one with no attestation loaded does, until a test brings it back; then it redeems every code. */
   let employerDown = true;
-  const recovering = replying(() => (employerDown
-    ? { status: 503, body: { ok: false, error: 'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.' } }
-    : { status: 200, body: { ok: true, data: { valid: true, groupIdHash: '11', planIdHash: '22', consumed: true } } }));
+  const recovering = replying(() =>
+    employerDown
+      ? {
+          status: 503,
+          body: {
+            ok: false,
+            error: 'This employer node has no attestation loaded, so it cannot tell who the insurer is. Refresh the attestation first.',
+          },
+        }
+      : { status: 200, body: { ok: true, data: { valid: true, groupIdHash: '11', planIdHash: '22', consumed: true } } },
+  );
 
   test('an employer the insurer cannot reach, or one too busy to answer it, has the insurer answer 502, and the device answers 502, saying the insurer could not check the code now; a code the employer refuses is still refused', async () => {
     const insurers = await Promise.all([startedInsurer('http://127.0.0.1:1'), startedInsurer(busy.url()), startedInsurer(nobody.url())]);
     try {
       const [unreachable, tooBusy, refusing] = await Promise.all(insurers.map((i) => memberDevice(i.url)));
       const notListening = await unreachable('48213970');
-      expect([notListening.status, notListening.error, notListening.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]);   // before: [403, REFUSED, undefined]
+      expect([notListening.status, notListening.error, notListening.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]); // before: [403, REFUSED, undefined]
       const limited = await tooBusy('48213970');
-      expect([limited.status, limited.error]).toEqual([502, COULD_NOT_CHECK]);                                               // before: [403, REFUSED]
+      expect([limited.status, limited.error]).toEqual([502, COULD_NOT_CHECK]); // before: [403, REFUSED]
       const refused = await refusing('48213970');
       expect([refused.status, refused.error]).toEqual([403, REFUSED]);
     } finally {
@@ -477,16 +577,16 @@ describe('POST /onboarding/redeem: what a member\'s device says when the insurer
     }
   });
 
-  test('an insurer with no employer registered answers 503, and the device answers 502 the same way, with the insurer\'s Retry-After when it sends one', async () => {
+  test("an insurer with no employer registered answers 503, and the device answers 502 the same way, with the insurer's Retry-After when it sends one", async () => {
     const insurer = await startedInsurer(undefined, { sequencerUrl: noEmployers.url() });
     try {
       const none = await (await memberDevice(insurer.url))('48213970');
-      expect([none.status, none.error, none.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]);           // before: [403, REFUSED, undefined]
+      expect([none.status, none.error, none.retryAfter]).toEqual([502, COULD_NOT_CHECK, undefined]); // before: [403, REFUSED, undefined]
     } finally {
       await insurer.stop();
     }
     const waiting = await (await memberDevice(unavailable.url()))('48213970');
-    expect([waiting.status, waiting.error, waiting.retryAfter]).toEqual([502, COULD_NOT_CHECK, '120']);        // before: [403, REFUSED, undefined]
+    expect([waiting.status, waiting.error, waiting.retryAfter]).toEqual([502, COULD_NOT_CHECK, '120']); // before: [403, REFUSED, undefined]
   });
 
   test('the code was fine all along: the device stays where it was, and once the employer answers the insurer again the same PIN redeems it', async () => {
@@ -494,7 +594,7 @@ describe('POST /onboarding/redeem: what a member\'s device says when the insurer
     try {
       const redeem = await memberDevice(insurer.url);
       const down = await redeem('48213970');
-      expect([down.status, down.error]).toEqual([502, COULD_NOT_CHECK]);   // before: [403, REFUSED]
+      expect([down.status, down.error]).toEqual([502, COULD_NOT_CHECK]); // before: [403, REFUSED]
       expect(redeem.phase()).toBe('key_generated');
       employerDown = false;
       const back = await redeem('48213970');
@@ -513,9 +613,16 @@ const sequencer = standIn(() => ({ jsonrpc: '2.0', id: 1, result: null }));
 let employers = 0;
 /** An application as an employer fills it in, under an employerId no other application in this file has used. */
 const application = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-  companyName: 'Fernhill Test Works LLC', employerId: `FERNHILL-${++employers}`, contactName: 'Jordan Testcase',
-  contactEmail: 'hr@fernhill.example.test', state: 'WI', selectedPlanIds: ['PLAN-TEST-1'], effectiveDate: '2027-01-01',
-  enrollmentCap: 10, publicKeyHex: 'a'.repeat(64), ...over,
+  companyName: 'Fernhill Test Works LLC',
+  employerId: `FERNHILL-${++employers}`,
+  contactName: 'Jordan Testcase',
+  contactEmail: 'hr@fernhill.example.test',
+  state: 'WI',
+  selectedPlanIds: ['PLAN-TEST-1'],
+  effectiveDate: '2027-01-01',
+  enrollmentCap: 10,
+  publicKeyHex: 'a'.repeat(64),
+  ...over,
 });
 
 /**
@@ -532,14 +639,21 @@ function marketplace(over: Partial<NautilusAppConfig> = {}) {
   return {
     stateDir: server.getConfig().stateDir,
     /** An application from `remoteAddress`, as an employer fills it in unless `over` says otherwise. */
-    apply: (remoteAddress: string, over: Record<string, unknown> = {}): Promise<Answer> => call(apply, from(remoteAddress), application(over)),
+    apply: (remoteAddress: string, over: Record<string, unknown> = {}): Promise<Answer> =>
+      call(apply, from(remoteAddress), application(over)),
     /** The staff deny an application. */
     deny: (applicationId: string): Promise<Answer> =>
-      call(routeOf(admin, 'POST', '/employer-applications/:applicationId/deny'), from(STAFF), { reason: 'Not an employer the insurer serves' }, { applicationId }),
+      call(
+        routeOf(admin, 'POST', '/employer-applications/:applicationId/deny'),
+        from(STAFF),
+        { reason: 'Not an employer the insurer serves' },
+        { applicationId },
+      ),
     /** Every application, as the staff's screen reads them. */
     listing: (): Promise<Answer> => call(routeOf(admin, 'GET', '/employer-applications'), from(STAFF)),
     /** One application, as the employer's screen reads it. */
-    status: (applicationId: string): Promise<Answer> => call(routeOf(routes, 'GET', '/marketplace/api/status/:applicationId'), from(STAFF), undefined, { applicationId }),
+    status: (applicationId: string): Promise<Answer> =>
+      call(routeOf(routes, 'GET', '/marketplace/api/status/:applicationId'), from(STAFF), undefined, { applicationId }),
   };
 }
 
@@ -552,9 +666,18 @@ function fill(n: number, source?: string): void {
   const store = getApplicationStore();
   for (let i = 0; i < n; i++) {
     const app: EmployerApplication & { source?: string } = {
-      applicationId: `EMPAPP-FILL-${store.size}`, employerId: `FILL-${++employers}`, companyName: 'Filler Works LLC',
-      contactName: 'Pat Filler', contactEmail: 'hr@filler.example.test', state: 'WI', selectedPlanIds: ['PLAN-TEST-1'],
-      effectiveDate: '20270101', enrollmentCap: 10, publicKeyHex: 'a'.repeat(64), submittedAt: Date.now(), status: 'submitted',
+      applicationId: `EMPAPP-FILL-${store.size}`,
+      employerId: `FILL-${++employers}`,
+      companyName: 'Filler Works LLC',
+      contactName: 'Pat Filler',
+      contactEmail: 'hr@filler.example.test',
+      state: 'WI',
+      selectedPlanIds: ['PLAN-TEST-1'],
+      effectiveDate: '20270101',
+      enrollmentCap: 10,
+      publicKeyHex: 'a'.repeat(64),
+      submittedAt: Date.now(),
+      status: 'submitted',
       ...(source === undefined ? {} : { source }),
     };
     store.set(app.applicationId, app);
@@ -566,18 +689,18 @@ describe('POST /marketplace/api/apply: what one source may file', () => {
     const mkt = marketplace();
     const sent: Answer[] = [];
     for (let i = 0; i < 10; i++) sent.push(await mkt.apply('198.51.100.7'));
-    expect(sent.map((r) => r.status)).toEqual([201, 201, 201, ...Array(7).fill(429)]);       // before: ten 201s, every one kept
-    expect(sent.slice(3).map((r) => [r.error, r.retryAfter])).toEqual(Array(7).fill([OPEN_FROM_SOURCE, '3600']));   // before: no error and no Retry-After
+    expect(sent.map((r) => r.status)).toEqual([201, 201, 201, ...Array(7).fill(429)]); // before: ten 201s, every one kept
+    expect(sent.slice(3).map((r) => [r.error, r.retryAfter])).toEqual(Array(7).fill([OPEN_FROM_SOURCE, '3600'])); // before: no error and no Retry-After
     const other = await mkt.apply('198.51.100.8');
-    expect([other.status, other.error]).toEqual([201, undefined]);                           // before: [429, ROUTE_WIDE], one source's ten spent the route's minute
-    expect(openApplications()).toBe(4);                                                       // before: 10
+    expect([other.status, other.error]).toEqual([201, undefined]); // before: [429, ROUTE_WIDE], one source's ten spent the route's minute
+    expect(openApplications()).toBe(4); // before: 10
   });
 
   test('applications one source sends together are counted one after another: three are kept', async () => {
     const mkt = marketplace();
     const sent = await Promise.all(Array.from({ length: 10 }, () => mkt.apply('198.51.100.9')));
-    expect(sent.map((r) => r.status).sort((a, b) => a - b)).toEqual([201, 201, 201, ...Array(7).fill(429)]);   // before: ten 201s, each passed the route's count before any was kept
-    expect(openApplications()).toBe(3);                                                       // before: 10
+    expect(sent.map((r) => r.status).sort((a, b) => a - b)).toEqual([201, 201, 201, ...Array(7).fill(429)]); // before: ten 201s, each passed the route's count before any was kept
+    expect(openApplications()).toBe(3); // before: 10
   });
 
   test('a source has at most six applications kept in an hour, counting only those kept, and past that is refused 429 with Retry-After though staff denied the rest', async () => {
@@ -604,7 +727,7 @@ describe('POST /marketplace/api/apply: what one source may file', () => {
       for (const id of ids) expect((await mkt.deny(id)).status).toBe(200);
     }
     const past = await mkt.apply(source);
-    expect([past.status, past.error, past.retryAfter]).toEqual([429, HOURLY, '3600']);        // before: [201, undefined, undefined], nothing counted a source's hour
+    expect([past.status, past.error, past.retryAfter]).toEqual([429, HOURLY, '3600']); // before: [201, undefined, undefined], nothing counted a source's hour
     expect((await mkt.apply('203.0.113.32')).status).toBe(201);
   });
 
@@ -615,17 +738,17 @@ describe('POST /marketplace/api/apply: what one source may file', () => {
     for (let i = 0; i < 3; i++) kept.push(await mkt.apply(source));
     expect(kept.map((r) => r.status)).toEqual([201, 201, 201]);
     const fourth = await mkt.apply(source);
-    expect([fourth.status, fourth.error, fourth.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']);   // before: [201, undefined, undefined]
+    expect([fourth.status, fourth.error, fourth.retryAfter]).toEqual([429, OPEN_FROM_SOURCE, '3600']); // before: [201, undefined, undefined]
     expect((await mkt.deny(kept[0].data.applicationId)).status).toBe(200);
     expect((await mkt.apply(source)).status).toBe(201);
-    expect((await mkt.apply(source)).status).toBe(429);                                      // before: 201
+    expect((await mkt.apply(source)).status).toBe(429); // before: 201
     // Activation starts the employer's node and, once it is up, marks the application active.
     getApplicationStore().get(kept[1].data.applicationId)!.status = 'active';
     expect((await mkt.apply(source)).status).toBe(201);
-    expect((await mkt.apply(source)).status).toBe(429);                                      // before: 201
+    expect((await mkt.apply(source)).status).toBe(429); // before: 201
   });
 
-  test('an application holds its source\'s slot while it waits on the insurer, and frees it once approved, signed, activated or denied', async () => {
+  test("an application holds its source's slot while it waits on the insurer, and frees it once approved, signed, activated or denied", async () => {
     const source = '192.0.2.41';
     const after: Array<[EmployerApplicationStatus, number]> = [];
     for (const status of ['submitted', 'under_review', 'needs_documents', 'approved', 'signed', 'active', 'denied'] as const) {
@@ -637,8 +760,13 @@ describe('POST /marketplace/api/apply: what one source may file', () => {
       after.push([status, (await mkt.apply(source)).status]);
     }
     expect(after).toEqual([
-      ['submitted', 429], ['under_review', 429], ['needs_documents', 429],                    // before: 201 for each, no source held a slot
-      ['approved', 201], ['signed', 201], ['active', 201], ['denied', 201],
+      ['submitted', 429],
+      ['under_review', 429],
+      ['needs_documents', 429], // before: 201 for each, no source held a slot
+      ['approved', 201],
+      ['signed', 201],
+      ['active', 201],
+      ['denied', 201],
     ]);
   });
 });
@@ -653,13 +781,13 @@ describe('POST /marketplace/api/apply: the open applications the insurer keeps',
     const waiting = '198.51.100.51';
     for (let i = 0; i < 7; i++) {
       const full = await mkt.apply(waiting);
-      expect([full.status, full.error, full.retryAfter]).toEqual([503, FULL, '3600']);       // before: [201, undefined, undefined], no bound on what was kept
+      expect([full.status, full.error, full.retryAfter]).toEqual([503, FULL, '3600']); // before: [201, undefined, undefined], no bound on what was kept
     }
     expect((await mkt.deny('EMPAPP-FILL-0')).status).toBe(200);
     expect((await mkt.apply(waiting)).status).toBe(201);
     const next = await mkt.apply('198.51.100.52');
-    expect([next.status, next.retryAfter]).toEqual([503, '3600']);                            // before: [201, undefined]
-    expect(openApplications()).toBe(1_000);                                                   // before: 1,008
+    expect([next.status, next.retryAfter]).toEqual([503, '3600']); // before: [201, undefined]
+    expect(openApplications()).toBe(1_000); // before: 1,008
   });
 
   test('with every slot taken, what an application says and what its source has filed are answered first: 400, then 409, then 429, then 503', async () => {
@@ -674,18 +802,18 @@ describe('POST /marketplace/api/apply: the open applications the insurer keeps',
     const held = await mkt.apply(atItsLimit, { employerId: taken });
     expect([held.status, held.error]).toEqual([409, `An application for "${taken}" is already submitted`]);
     const limited = await mkt.apply(atItsLimit);
-    expect([limited.status, limited.error]).toEqual([429, OPEN_FROM_SOURCE]);                // before: [201, undefined], kept past every bound
+    expect([limited.status, limited.error]).toEqual([429, OPEN_FROM_SOURCE]); // before: [201, undefined], kept past every bound
     const full = await mkt.apply(fresh);
-    expect([full.status, full.error]).toEqual([503, FULL]);                                  // before: [201, undefined]
+    expect([full.status, full.error]).toEqual([503, FULL]); // before: [201, undefined]
   });
 });
 
 describe('the source an application keeps', () => {
-  test('is filed with the application, so a source with three open is still refused after a restart, and neither the staff\'s listing nor the employer\'s status shows it', async () => {
+  test("is filed with the application, so a source with three open is still refused after a restart, and neither the staff's listing nor the employer's status shows it", async () => {
     const mkt = marketplace();
     const ids: string[] = [];
     for (let i = 0; i < 3; i++) ids.push((await mkt.apply('203.0.113.77')).data.applicationId);
-    expect((getApplicationStore().get(ids[0]) as EmployerApplication & { source?: string }).source).toBe('203.0.113.77');   // before: undefined
+    expect((getApplicationStore().get(ids[0]) as EmployerApplication & { source?: string }).source).toBe('203.0.113.77'); // before: undefined
     const listing = await mkt.listing();
     expect([listing.status, listing.data.length]).toEqual([200, 3]);
     expect(JSON.stringify(listing.data)).not.toContain('203.0.113.77');
@@ -697,7 +825,7 @@ describe('the source an application keeps', () => {
     const restarted = marketplace({ stateDir: mkt.stateDir });
     expect(getApplicationStore().size).toBe(3);
     const again = await restarted.apply('203.0.113.77');
-    expect([again.status, again.error]).toEqual([429, OPEN_FROM_SOURCE]);                    // before: [201, undefined]
+    expect([again.status, again.error]).toEqual([429, OPEN_FROM_SOURCE]); // before: [201, undefined]
     expect((await restarted.apply('203.0.113.78')).status).toBe(201);
   });
 });

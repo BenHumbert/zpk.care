@@ -156,10 +156,10 @@ export const WINDOWS_PORT_SYSTEM: PortSystem = {
   },
   isRunning: (pid) => {
     try {
-      process.kill(pid, 0);   // signal 0 tests for the process without touching it
+      process.kill(pid, 0); // signal 0 tests for the process without touching it
       return true;
     } catch (err) {
-      return (err as NodeJS.ErrnoException).code === 'EPERM';   // running, but not ours to signal
+      return (err as NodeJS.ErrnoException).code === 'EPERM'; // running, but not ours to signal
     }
   },
 };
@@ -213,11 +213,13 @@ export function freeProjectPorts(
       }
     }
     const outcome = outcomes.get(holder.pid);
-    print(outcome === 'stopped'
-      ? `port ${holder.port}: stopped ${holder.name} (PID ${holder.pid}), which ran from this checkout`
-      : outcome === 'exited'
-        ? `port ${holder.port}: ${holder.name} (PID ${holder.pid}) had already exited`
-        : `port ${holder.port}: could not stop ${holder.name} (PID ${holder.pid}), which runs from this checkout`);
+    print(
+      outcome === 'stopped'
+        ? `port ${holder.port}: stopped ${holder.name} (PID ${holder.pid}), which ran from this checkout`
+        : outcome === 'exited'
+          ? `port ${holder.port}: ${holder.name} (PID ${holder.pid}) had already exited`
+          : `port ${holder.port}: could not stop ${holder.name} (PID ${holder.pid}), which runs from this checkout`,
+    );
   }
   for (const holder of plan.leave) {
     const hint = holder.port === explorerPort ? ' To run the explorer elsewhere, set ZKTRIDENT_EXPLORER_PORT to a free port.' : '';

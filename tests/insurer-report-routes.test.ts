@@ -55,14 +55,34 @@ const dirs: string[] = [];
 /** A claim as a report reads it. */
 function claim(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    prescriptionHash: '11', entryCommitment: '12', patientPayCents: 1500, planPayCents: 3500, operationType: 'fulfillment',
-    pharmacyWalletId: '21', memberWalletId: '22', prescriberWalletId: '23', ndcHash: '24', ingredientCostCents: 3750,
-    dispensingFeeCents: 1250, quantityDispensed: '30000', dateOfService: 20260115, ndc: '00378410591', tierLevel: 1,
-    therapeuticClass: 'ANTIVIRAL', ...over,
+    prescriptionHash: '11',
+    entryCommitment: '12',
+    patientPayCents: 1500,
+    planPayCents: 3500,
+    operationType: 'fulfillment',
+    pharmacyWalletId: '21',
+    memberWalletId: '22',
+    prescriberWalletId: '23',
+    ndcHash: '24',
+    ingredientCostCents: 3750,
+    dispensingFeeCents: 1250,
+    quantityDispensed: '30000',
+    dateOfService: 20260115,
+    ndc: '00378410591',
+    tierLevel: 1,
+    therapeuticClass: 'ANTIVIRAL',
+    ...over,
   };
 }
 
-const PRIOR_AUTH = { ndcHash: '24', memberWalletId: '22', prescriberWalletId: '23', approvalDate: 20260101, expirationDate: 20261231, approvedQuantity: '90000' };
+const PRIOR_AUTH = {
+  ndcHash: '24',
+  memberWalletId: '22',
+  prescriberWalletId: '23',
+  approvalDate: 20260101,
+  expirationDate: 20261231,
+  approvedQuantity: '90000',
+};
 
 /** Every report route with a body it accepts. */
 const REPORTS: Array<[string, Record<string, unknown>]> = [
@@ -81,7 +101,11 @@ const REPORTS: Array<[string, Record<string, unknown>]> = [
 ];
 
 async function report(name: string, body: unknown, headers: Record<string, string> = AS_ADMIN): Promise<{ status: number; json: any }> {
-  const r = await fetch(`${url}/reports/${name}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const r = await fetch(`${url}/reports/${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
   return { status: r.status, json: await r.json() };
 }
 
@@ -92,8 +116,15 @@ beforeAll(async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'insurer-reports-'));
   dirs.push(dir);
   insurerServer = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:1', stateDir: dir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: ADMIN,
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:1',
+    stateDir: dir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: ADMIN,
   } as any);
   insurerServer.registerRoutes(buildInsurerRoutes(insurerServer));
   insurerNode = new InsurerNode({ role: 'insurer', sequencerUrl: 'http://127.0.0.1:1', displayName: 'Insurer' } as any);
@@ -104,19 +135,27 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await insurerServer?.stop();
-  for (const d of dirs) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
+  for (const d of dirs) {
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
+  }
 });
 
-afterEach(() => { jest.restoreAllMocks(); });
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('the credential', () => {
-  test.each(REPORTS)('/reports/%s refuses a request without the node\'s admin credential, and computes nothing', async (name, body) => {
+  test.each(REPORTS)("/reports/%s refuses a request without the node's admin credential, and computes nothing", async (name, body) => {
     const spies = Object.getOwnPropertyNames(Object.getPrototypeOf(insurerNode))
       .filter((m) => m.startsWith('generate'))
       .map((m) => jest.spyOn(insurerNode, m));
     for (const headers of [{}, { Authorization: 'Bearer not-the-token' }] as Array<Record<string, string>>) {
       const r = await report(name, body, headers);
-      expect([name, r.status]).toEqual([name, 401]);                         // before: 200, for anyone
+      expect([name, r.status]).toEqual([name, 401]); // before: 200, for anyone
     }
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
@@ -129,15 +168,26 @@ describe('the credential', () => {
   test('the reports read what the service makes of the claims', async () => {
     const r = await report('claims-register', { claims: [claim(), claim({ operationType: 'reversal', prescriptionHash: '13' })] });
     expect(r.json.data).toMatchObject({ totalClaimCount: 1, totalReversalCount: 1 });
-    const x = await report('cross-tab', { claims: [claim(), claim({ pharmacyWalletId: '31', tierLevel: 2 })], row: 'pharmacyWalletId', col: 'tierLevel', measure: 'claimCount' });
-    expect(x.json.data).toMatchObject({ columnHeaders: ['1', '2'], rows: [{ rowKey: '21', values: [1, 0] }, { rowKey: '31', values: [0, 1] }] });
+    const x = await report('cross-tab', {
+      claims: [claim(), claim({ pharmacyWalletId: '31', tierLevel: 2 })],
+      row: 'pharmacyWalletId',
+      col: 'tierLevel',
+      measure: 'claimCount',
+    });
+    expect(x.json.data).toMatchObject({
+      columnHeaders: ['1', '2'],
+      rows: [
+        { rowKey: '21', values: [1, 0] },
+        { rowKey: '31', values: [0, 1] },
+      ],
+    });
   });
 });
 
 describe('the limits', () => {
   test('the limits are what the routes say', async () => {
-    const { REPORT_LIMITS } = await import('../src/nodes/routes/insurer-routes.js') as any;
-    const { MAX_CROSS_TAB_CELLS } = await import('../src/reporting/reporting-service.js') as any;
+    const { REPORT_LIMITS } = (await import('../src/nodes/routes/insurer-routes.js')) as any;
+    const { MAX_CROSS_TAB_CELLS } = (await import('../src/reporting/reporting-service.js')) as any;
     expect(REPORT_LIMITS).toEqual({ claims: 10_000, priorAuths: 1_000, filterValues: 1_000, textChars: 128 });
     expect(MAX_CROSS_TAB_CELLS).toBe(100_000);
   });
@@ -145,7 +195,7 @@ describe('the limits', () => {
   test('more than 10,000 claims is refused 413 before any report runs; 10,000 is computed', async () => {
     const spy = jest.spyOn(insurerNode, 'generateClaimsRegister');
     const over = await report('claims-register', { claims: Array.from({ length: 10_001 }, () => ({})) });
-    expect(over.status).toBe(413);                                             // before: computed
+    expect(over.status).toBe(413); // before: computed
     expect(over.json.error).toBe('A report reads at most 10000 claims; this request has 10001');
     expect(spy).not.toHaveBeenCalled();
     const at = await report('claims-register', { claims: Array.from({ length: 10_000 }, () => claim()) });
@@ -155,10 +205,12 @@ describe('the limits', () => {
 
   test('text over 128 characters where a report computes over it is refused 413; what a claim merely carries is not read', async () => {
     const long = await report('medication-utilization', { claims: [claim({ quantityDispensed: '9'.repeat(129) })] });
-    expect(long.status).toBe(413);                                             // before: a 129-digit BigInt, and a million-digit one as readily
+    expect(long.status).toBe(413); // before: a 129-digit BigInt, and a million-digit one as readily
     expect(long.json.error).toBe('claims[0].quantityDispensed is longer than 128 characters');
-    const carried = await report('claims-register', { claims: [claim({ metadata: { note: 'n'.repeat(1000) }, leaf: { memberWalletId: '22' } })] });
-    expect(carried.status).toBe(200);                                          // a claim accumulator entry's own fields pass through
+    const carried = await report('claims-register', {
+      claims: [claim({ metadata: { note: 'n'.repeat(1000) }, leaf: { memberWalletId: '22' } })],
+    });
+    expect(carried.status).toBe(200); // a claim accumulator entry's own fields pass through
   });
 
   test('a field a report computes over must be a number or text', async () => {
@@ -181,11 +233,22 @@ describe('the limits', () => {
     const many = Array.from({ length: 1_001 }, (_, i) => String(i));
     const r = await report('pharmacy-activity', { claims: [claim()], filter: { memberWalletIds: many } });
     expect([r.status, r.json.error]).toEqual([413, 'filter.memberWalletIds holds at most 1000 values; this request has 1001']);
-    const date = await report('time-series', { claims: [claim()], bucket: 'daily', filter: { dateRange: { startDate: '2'.repeat(200), endDate: 20261231 } } });
+    const date = await report('time-series', {
+      claims: [claim()],
+      bucket: 'daily',
+      filter: { dateRange: { startDate: '2'.repeat(200), endDate: 20261231 } },
+    });
     expect([date.status, date.json.error]).toEqual([413, 'filter.dateRange.startDate is longer than 128 characters']);
-    const bare = await report('time-series', { claims: [claim()], bucket: 'daily', filter: { startDate: 20260101, endDate: '3'.repeat(200) } });
+    const bare = await report('time-series', {
+      claims: [claim()],
+      bucket: 'daily',
+      filter: { startDate: 20260101, endDate: '3'.repeat(200) },
+    });
     expect([bare.status, bare.json.error]).toEqual([413, 'filter.endDate is longer than 128 characters']);
-    const ok = await report('pharmacy-activity', { claims: [claim()], filter: { memberWalletIds: many.slice(0, 1_000), dateRange: { startDate: 20260101, endDate: 20261231 } } });
+    const ok = await report('pharmacy-activity', {
+      claims: [claim()],
+      filter: { memberWalletIds: many.slice(0, 1_000), dateRange: { startDate: 20260101, endDate: 20261231 } },
+    });
     expect(ok.status).toBe(200);
   });
 
@@ -197,7 +260,7 @@ describe('the limits', () => {
   test('a cross-tab of more than 100,000 cells is refused 413 before a cell is built; 90,000 is computed', async () => {
     const distinct = (n: number) => Array.from({ length: n }, (_, i) => claim({ pharmacyWalletId: `P${i}`, ndc: `N${i}` }));
     const big = await report('cross-tab', { claims: distinct(400), row: 'pharmacyWalletId', col: 'ndc', measure: 'claimCount' });
-    expect(big.status).toBe(413);                                              // before: 160,000 cells, built and sent
+    expect(big.status).toBe(413); // before: 160,000 cells, built and sent
     expect(big.json.error).toMatch(/^A cross-tab of 400 rows by 400 columns is over 100000 cells/);
     const fits = await report('cross-tab', { claims: distinct(300), row: 'pharmacyWalletId', col: 'ndc', measure: 'claimCount' });
     expect(fits.status).toBe(200);
@@ -205,15 +268,15 @@ describe('the limits', () => {
   });
 
   test('the reporting service itself refuses such a cross-tab, for any caller', async () => {
-    const { ReportingService, ReportTooLargeError } = await import('../src/reporting/reporting-service.js') as any;
-    const claims = Array.from({ length: 317 }, (_, i) => claim({ memberWalletId: `M${i}`, gpi: `G${i}` }));   // 317 x 317 = 100,489 cells
+    const { ReportingService, ReportTooLargeError } = (await import('../src/reporting/reporting-service.js')) as any;
+    const claims = Array.from({ length: 317 }, (_, i) => claim({ memberWalletId: `M${i}`, gpi: `G${i}` })); // 317 x 317 = 100,489 cells
     expect(() => new ReportingService().generateCrossTab(claims, 'memberWalletId', 'gpi', 'claimCount')).toThrow(ReportTooLargeError);
     expect(new ReportingService().generateCrossTab(claims.slice(0, 316), 'memberWalletId', 'gpi', 'claimCount').rows).toHaveLength(316);
   });
 });
 
 describe('the insurer dashboard', () => {
-  test('API.generateReport posts to the report route with the node\'s admin token, and throws the node\'s refusal', async () => {
+  test("API.generateReport posts to the report route with the node's admin token, and throws the node's refusal", async () => {
     const calls: Array<{ url: string; init: any }> = [];
     let answer = { ok: true, status: 200, body: { ok: true, data: { totalClaimCount: 1 } } as Record<string, unknown> };
     const ctx: Record<string, unknown> = {
@@ -240,21 +303,38 @@ describe('the insurer dashboard', () => {
     const at = src.indexOf(NL + '  async function doGenerateReport(');
     const fn = src.slice(at + 1, src.indexOf(NL + '  }' + NL, at) + 4);
     const els: Record<string, any> = {
-      'rpt-type': { value: 'claims-register' }, 'rpt-source': { value: 'member' }, 'rpt-source-id': { value: '22' },
-      'rpt-results-panel': { classList: { remove() {} } }, 'rpt-results': { innerHTML: '' }, 'rpt-type-badge': { textContent: '' },
+      'rpt-type': { value: 'claims-register' },
+      'rpt-source': { value: 'member' },
+      'rpt-source-id': { value: '22' },
+      'rpt-results-panel': { classList: { remove() {} } },
+      'rpt-results': { innerHTML: '' },
+      'rpt-type-badge': { textContent: '' },
     };
     const toasts: Array<[string, string]> = [];
     const asked: unknown[][] = [];
     const API = {
       getMemberClaims: async () => [claim()],
-      generateReport: async (...args: unknown[]) => { asked.push(args); throw new Error('Unauthorized'); },
+      generateReport: async (...args: unknown[]) => {
+        asked.push(args);
+        throw new Error('Unauthorized');
+      },
     };
-    const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const esc = (s: unknown) =>
+      String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
     const run = new Function('$', 'API', 'toast', 'esc', 'renderReportData', `'use strict';\n${fn}\nreturn doGenerateReport;`)(
-      (id: string) => els[id], API, (m: string, t: string) => { toasts.push([m, t]); }, esc, () => 'a report',
+      (id: string) => els[id],
+      API,
+      (m: string, t: string) => {
+        toasts.push([m, t]);
+      },
+      esc,
+      () => 'a report',
     );
     await run();
-    expect(asked).toEqual([['claims-register', { claims: [claim()] }]]);       // before: a bare fetch, its refusal rendered as data
+    expect(asked).toEqual([['claims-register', { claims: [claim()] }]]); // before: a bare fetch, its refusal rendered as data
     expect(els['rpt-results'].innerHTML).toBe('<div class="form-result error">Report failed: Unauthorized</div>');
     expect(toasts).toEqual([]);
   });

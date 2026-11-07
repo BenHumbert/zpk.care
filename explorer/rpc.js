@@ -26,9 +26,15 @@ const RPC = (() => {
   let sseListeners = [];
   let rpcId = 0;
 
-  function setBaseUrl(url) { baseUrl = url.replace(/\/+$/, ''); }
-  function setAdminToken(t) { adminToken = t || ''; }
-  function getAdminToken() { return adminToken; }
+  function setBaseUrl(url) {
+    baseUrl = url.replace(/\/+$/, '');
+  }
+  function setAdminToken(t) {
+    adminToken = t || '';
+  }
+  function getAdminToken() {
+    return adminToken;
+  }
 
   function headers(admin) {
     const h = { 'Content-Type': 'application/json' };
@@ -63,7 +69,11 @@ const RPC = (() => {
     });
     const text = await res.text();
     let data;
-    try { data = JSON.parse(text); } catch { data = text; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
     if (data && data.error) {
       const err = new Error(data.error.message || JSON.stringify(data.error));
       err.code = data.error.code;
@@ -76,26 +86,46 @@ const RPC = (() => {
   async function getHealth() {
     const res = await fetch(baseUrl + '/health', { headers: headers() });
     const text = await res.text();
-    try { return JSON.parse(text); } catch { return text; }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
   }
 
   // ── Chain state ───────────────────────────────────
-  function getStatus()         { return call('l2_getStatus'); }
-  function getChainState()     { return call('l2_getChainState'); }
-  function getChainProof()     { return call('l2_getChainProof'); }
-  function getStateDigest()    { return call('l2_getStateDigest'); }
+  function getStatus() {
+    return call('l2_getStatus');
+  }
+  function getChainState() {
+    return call('l2_getChainState');
+  }
+  function getChainProof() {
+    return call('l2_getChainProof');
+  }
+  function getStateDigest() {
+    return call('l2_getStateDigest');
+  }
 
   // ── Batches & blocks ─────────────────────────────
-  function getBatch(n)         { return call('l2_getBatch', { batchNumber: n }); }
-  function getBlock(n)         { return call('l2_getBlock', { blockNumber: n }); }
+  function getBatch(n) {
+    return call('l2_getBatch', { batchNumber: n });
+  }
+  function getBlock(n) {
+    return call('l2_getBlock', { blockNumber: n });
+  }
   function getAllBatches(limit, offset) {
     return call('l2_getAllBatches', { limit: limit || 100, offset: offset || 0 });
   }
 
   // ── Receipts ─────────────────────────────────────
-  function getReceipt(id)      { return call('l2_getReceipt', { receiptId: id }); }
+  function getReceipt(id) {
+    return call('l2_getReceipt', { receiptId: id });
+  }
   // D1: member receipts and the receipt list answer a credential; the explorer sends its token when it holds one.
-  function getReceiptsByWallet(w) { return call('l2_getReceiptsByWallet', { walletId: w }, true); }
+  function getReceiptsByWallet(w) {
+    return call('l2_getReceiptsByWallet', { walletId: w }, true);
+  }
   function getAllReceipts(limit, offset) {
     return call('l2_getAllReceipts', { limit: limit || 100, offset: offset || 0 }, true);
   }
@@ -104,47 +134,95 @@ const RPC = (() => {
   function getAuditLog(limit, offset) {
     return call('l2_getAuditLog', { limit: limit || 200, offset: offset || 0 }, true);
   }
-  function verifyChainIntegrity()   { return call('l2_verifyChainIntegrity'); }
+  function verifyChainIntegrity() {
+    return call('l2_verifyChainIntegrity');
+  }
   // D1: the balance totals and the duplicate groups come from the audit log, so each check answers a credential, as the log does.
-  function verifyFinancialBalance() { return call('l2_verifyFinancialBalance', {}, true); }
-  function detectDuplicateClaims()  { return call('l2_detectDuplicateClaims', {}, true); }
+  function verifyFinancialBalance() {
+    return call('l2_verifyFinancialBalance', {}, true);
+  }
+  function detectDuplicateClaims() {
+    return call('l2_detectDuplicateClaims', {}, true);
+  }
 
   // ── Claims ───────────────────────────────────────
-  function getClaimsByMember(w)     { return call('l2_getClaimsByMember', { walletId: w }); }
-  function getClaimsByPharmacy(w)   { return call('l2_getClaimsByPharmacy', { walletId: w }); }
-  function getClaimsByPrescriber(w) { return call('l2_getClaimsByPrescriber', { walletId: w }); }
-  function getClaimsByNdc(n)        { return call('l2_getClaimsByNdc', { ndcHash: n }); }
-  function getClaimWithProof(idx)   { return call('l2_getClaimWithProof', { leafIndex: idx }); }
-  function getClaimAccumulatorRoot(){ return call('l2_getClaimAccumulatorRoot'); }
+  function getClaimsByMember(w) {
+    return call('l2_getClaimsByMember', { walletId: w });
+  }
+  function getClaimsByPharmacy(w) {
+    return call('l2_getClaimsByPharmacy', { walletId: w });
+  }
+  function getClaimsByPrescriber(w) {
+    return call('l2_getClaimsByPrescriber', { walletId: w });
+  }
+  function getClaimsByNdc(n) {
+    return call('l2_getClaimsByNdc', { ndcHash: n });
+  }
+  function getClaimWithProof(idx) {
+    return call('l2_getClaimWithProof', { leafIndex: idx });
+  }
+  function getClaimAccumulatorRoot() {
+    return call('l2_getClaimAccumulatorRoot');
+  }
 
   // ── Messages ─────────────────────────────────────
-  function getMessagesByWallet(w)    { return call('l2_getMessagesByWallet', { walletId: w }); }
-  function getMessagesBySender(w)    { return call('l2_getMessagesBySender', { walletId: w }); }
-  function getMessagesByRecipient(w) { return call('l2_getMessagesByRecipient', { walletId: w }); }
-  function getMessagesByThread(h)    { return call('l2_getMessagesByThread', { threadIdHash: h }); }
-  function getMessageStoreRoot()     { return call('l2_getMessageStoreRoot'); }
+  function getMessagesByWallet(w) {
+    return call('l2_getMessagesByWallet', { walletId: w });
+  }
+  function getMessagesBySender(w) {
+    return call('l2_getMessagesBySender', { walletId: w });
+  }
+  function getMessagesByRecipient(w) {
+    return call('l2_getMessagesByRecipient', { walletId: w });
+  }
+  function getMessagesByThread(h) {
+    return call('l2_getMessagesByThread', { threadIdHash: h });
+  }
+  function getMessageStoreRoot() {
+    return call('l2_getMessageStoreRoot');
+  }
 
   // ── Wallets ──────────────────────────────────────
-  function reconstructAccumulator(w) { return call('l2_reconstructAccumulator', { walletId: w }); }
+  function reconstructAccumulator(w) {
+    return call('l2_reconstructAccumulator', { walletId: w });
+  }
 
   // ── Formulary ────────────────────────────────────
-  function getFormulary(planIdHash)  { return call('l2_getFormulary', { planIdHash }); }
+  function getFormulary(planIdHash) {
+    return call('l2_getFormulary', { planIdHash });
+  }
 
   // ── Peers ────────────────────────────────────────
-  function getPeerInfo()  { return call('l2_getPeerInfo'); }
-  function getPeerList()  { return call('l2_getPeerList'); }
+  function getPeerInfo() {
+    return call('l2_getPeerInfo');
+  }
+  function getPeerList() {
+    return call('l2_getPeerList');
+  }
 
   // ── Leviathan (if target is leviathan) ───────────
-  function getLeviathanStatus()   { return call('l2_getLeviathanStatus'); }
-  function getPartitionLeaders()  { return call('l2_getPartitionLeaders'); }
-  function getQuorumStatus()      { return call('l2_getQuorumStatus'); }
-  function getStateCertificate(i) { return call('l2_getStateCertificate', { partitionIndex: i }); }
+  function getLeviathanStatus() {
+    return call('l2_getLeviathanStatus');
+  }
+  function getPartitionLeaders() {
+    return call('l2_getPartitionLeaders');
+  }
+  function getQuorumStatus() {
+    return call('l2_getQuorumStatus');
+  }
+  function getStateCertificate(i) {
+    return call('l2_getStateCertificate', { partitionIndex: i });
+  }
 
   // ── Entities (viz) ───────────────────────────────
   async function getVizEntities() {
     const res = await fetch(baseUrl + '/viz/entities', { headers: headers() });
     const text = await res.text();
-    try { return JSON.parse(text); } catch { return []; }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return [];
+    }
   }
 
   // ── Admin ────────────────────────────────────────
@@ -159,49 +237,102 @@ const RPC = (() => {
     disconnectSSE();
     try {
       sseConn = new EventSource(baseUrl + '/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
-      sseConn.onopen = () => sseListeners.forEach(fn => fn('connected'));
-      sseConn.onmessage = ev => {
-        try { if (onEvent) onEvent(JSON.parse(ev.data)); }
-        catch { if (onEvent) onEvent({ raw: ev.data }); }
+      sseConn.onopen = () => sseListeners.forEach((fn) => fn('connected'));
+      sseConn.onmessage = (ev) => {
+        try {
+          if (onEvent) onEvent(JSON.parse(ev.data));
+        } catch {
+          if (onEvent) onEvent({ raw: ev.data });
+        }
       };
-      sseConn.onerror = () => sseListeners.forEach(fn => fn('disconnected'));
+      sseConn.onerror = () => sseListeners.forEach((fn) => fn('disconnected'));
     } catch {}
   }
-  function disconnectSSE() { if (sseConn) { sseConn.close(); sseConn = null; } }
+  function disconnectSSE() {
+    if (sseConn) {
+      sseConn.close();
+      sseConn = null;
+    }
+  }
 
   function connectVizSSE(onEvent) {
     disconnectVizSSE();
     try {
       vizConn = new EventSource(baseUrl + '/viz/events' + (adminToken ? '?token=' + encodeURIComponent(adminToken) : ''));
-      vizConn.onmessage = ev => {
-        try { if (onEvent) onEvent(JSON.parse(ev.data)); }
-        catch { if (onEvent) onEvent({ raw: ev.data }); }
+      vizConn.onmessage = (ev) => {
+        try {
+          if (onEvent) onEvent(JSON.parse(ev.data));
+        } catch {
+          if (onEvent) onEvent({ raw: ev.data });
+        }
       };
     } catch {}
   }
-  function disconnectVizSSE() { if (vizConn) { vizConn.close(); vizConn = null; } }
+  function disconnectVizSSE() {
+    if (vizConn) {
+      vizConn.close();
+      vizConn = null;
+    }
+  }
 
-  function onConnectionChange(fn) { sseListeners.push(fn); }
+  function onConnectionChange(fn) {
+    sseListeners.push(fn);
+  }
   async function checkConnection() {
-    try { await getHealth(); return true; } catch { return false; }
+    try {
+      await getHealth();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return {
-    setBaseUrl, setAdminToken, getAdminToken,
-    call, getHealth,
-    getStatus, getChainState, getChainProof, getStateDigest,
-    getBatch, getBlock, getAllBatches,
-    getReceipt, getReceiptsByWallet, getAllReceipts,
-    getAuditLog, verifyChainIntegrity, verifyFinancialBalance, detectDuplicateClaims,
-    getClaimsByMember, getClaimsByPharmacy, getClaimsByPrescriber, getClaimsByNdc,
-    getClaimWithProof, getClaimAccumulatorRoot,
-    getMessagesByWallet, getMessagesBySender, getMessagesByRecipient, getMessagesByThread, getMessageStoreRoot,
-    reconstructAccumulator, getFormulary,
-    getPeerInfo, getPeerList,
-    getLeviathanStatus, getPartitionLeaders, getQuorumStatus, getStateCertificate,
+    setBaseUrl,
+    setAdminToken,
+    getAdminToken,
+    call,
+    getHealth,
+    getStatus,
+    getChainState,
+    getChainProof,
+    getStateDigest,
+    getBatch,
+    getBlock,
+    getAllBatches,
+    getReceipt,
+    getReceiptsByWallet,
+    getAllReceipts,
+    getAuditLog,
+    verifyChainIntegrity,
+    verifyFinancialBalance,
+    detectDuplicateClaims,
+    getClaimsByMember,
+    getClaimsByPharmacy,
+    getClaimsByPrescriber,
+    getClaimsByNdc,
+    getClaimWithProof,
+    getClaimAccumulatorRoot,
+    getMessagesByWallet,
+    getMessagesBySender,
+    getMessagesByRecipient,
+    getMessagesByThread,
+    getMessageStoreRoot,
+    reconstructAccumulator,
+    getFormulary,
+    getPeerInfo,
+    getPeerList,
+    getLeviathanStatus,
+    getPartitionLeaders,
+    getQuorumStatus,
+    getStateCertificate,
     getVizEntities,
     forceBatch,
-    connectSSE, disconnectSSE, connectVizSSE, disconnectVizSSE,
-    onConnectionChange, checkConnection,
+    connectSSE,
+    disconnectSSE,
+    connectVizSSE,
+    disconnectVizSSE,
+    onConnectionChange,
+    checkConnection,
   };
 })();

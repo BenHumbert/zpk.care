@@ -24,17 +24,27 @@ const REPO = path.resolve(__dirname, '..');
 const PASS = 'a holder passphrase for tests';
 let dir: string;
 
-function runAsync(script: 'holder' | 'ceremony', args: string[], passphrase: string | null = PASS): Promise<{ code: number | null; out: string }> {
+function runAsync(
+  script: 'holder' | 'ceremony',
+  args: string[],
+  passphrase: string | null = PASS,
+): Promise<{ code: number | null; out: string }> {
   const env = { ...process.env };
   if (passphrase) env.ZPK_HOLDER_PASSPHRASE = passphrase;
   else delete env.ZPK_HOLDER_PASSPHRASE;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', path.join(REPO, 'scripts', 'keys', `${script}.ts`), ...args], {
-      cwd: REPO, env, stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: REPO,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
-    child.stdout.on('data', (d: Buffer) => { out += d.toString(); });
-    child.stderr.on('data', (d: Buffer) => { out += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      out += d.toString();
+    });
     child.on('close', (code) => resolve({ code, out }));
   });
 }
@@ -44,7 +54,11 @@ function run(script: 'holder' | 'ceremony', args: string[], passphrase: string |
   if (passphrase) env.ZPK_HOLDER_PASSPHRASE = passphrase;
   else delete env.ZPK_HOLDER_PASSPHRASE;
   const r = spawnSync(process.execPath, ['--import', 'tsx', path.join(REPO, 'scripts', 'keys', `${script}.ts`), ...args], {
-    cwd: REPO, env, encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: REPO,
+    env,
+    encoding: 'utf8',
+    timeout: 120_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
@@ -88,7 +102,10 @@ test('three holders, a 2-of-3 ceremony, two signatures, a valid record', () => {
   expect(unconfirmed.code).not.toBe(0);
   expect(JSON.parse(fs.readFileSync(recordFile, 'utf8')).signatures).toEqual([]);
   // a wrong passphrase signs nothing either
-  expect(run('holder', ['sign-record', '--key', path.join(dir, 'h1.key.json'), '--record', recordFile, '--yes'], 'not the passphrase at all').code).not.toBe(0);
+  expect(
+    run('holder', ['sign-record', '--key', path.join(dir, 'h1.key.json'), '--record', recordFile, '--yes'], 'not the passphrase at all')
+      .code,
+  ).not.toBe(0);
 
   expect(run('ceremony', ['verify', '--record', recordFile]).code).not.toBe(0);
   for (const i of [1, 3]) {
@@ -112,7 +129,10 @@ test('three holders, a 2-of-3 ceremony, two signatures, a valid record', () => {
   }
   const everything = [
     ...printed,
-    ...fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')),
+    ...fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => fs.readFileSync(path.join(dir, f), 'utf8')),
     fs.readFileSync(recordFile, 'utf8'),
     ...shares.map((f) => fs.readFileSync(path.join(out, 'shares', f), 'utf8')),
   ].join('\n');
@@ -125,8 +145,15 @@ test('two holders provision a node with the release program, and a wrong fingerp
   const record = JSON.parse(fs.readFileSync(path.join(out, 'record.json'), 'utf8')) as CeremonyRecord;
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ceremony-cli-node-'));
   const server = new NautilusAppServer({
-    role: 'insurer', port: 0, host: '127.0.0.1', sequencerUrl: 'http://127.0.0.1:9', stateDir,
-    enableSSE: false, maxSseConnections: 0, allowedOrigins: [], adminToken: 'insurer-token',
+    role: 'insurer',
+    port: 0,
+    host: '127.0.0.1',
+    sequencerUrl: 'http://127.0.0.1:9',
+    stateDir,
+    enableSSE: false,
+    maxSseConnections: 0,
+    allowedOrigins: [],
+    adminToken: 'insurer-token',
   } as unknown as NautilusAppConfig);
   server.registerRoutes(buildKeyRoutes(server));
   const keyring = new NodeKeyring({ record, nodeId: 'insurer', stateDir, seal: testOnlyMachineSeal(), log: () => {} });
@@ -136,10 +163,18 @@ test('two holders provision a node with the release program, and a wrong fingerp
   const node = `http://127.0.0.1:${server.getPort()}`;
   try {
     const fingerprint = keyring.status().bootFingerprint!;
-    const release = (i: number, fp: string) => runAsync('holder', [
-      'release', '--key', path.join(dir, `h${i}.key.json`), '--share', path.join(out, 'shares', `holder-${i}.insurer.share.json`),
-      '--node', node, '--boot-fingerprint', fp,
-    ]);
+    const release = (i: number, fp: string) =>
+      runAsync('holder', [
+        'release',
+        '--key',
+        path.join(dir, `h${i}.key.json`),
+        '--share',
+        path.join(out, 'shares', `holder-${i}.insurer.share.json`),
+        '--node',
+        node,
+        '--boot-fingerprint',
+        fp,
+      ]);
     const wrong = await release(2, '0000-0000-0000-0000');
     expect(wrong.code).not.toBe(0);
     expect(wrong.out).toMatch(/nothing was released/);

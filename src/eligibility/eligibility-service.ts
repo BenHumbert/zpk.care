@@ -16,14 +16,8 @@
 
 import { Field, MerkleTree } from 'o1js';
 import { ProofGateProgram } from '../wallets/proof-gate.js';
-import {
-  WalletRegistry,
-  WalletState,
-} from '../wallets/wallet-state.js';
-import {
-  LifecycleWitness,
-  lifecycleLeafCommitment,
-} from '../engine/lifecycle.js';
+import { WalletRegistry, WalletState } from '../wallets/wallet-state.js';
+import { LifecycleWitness, lifecycleLeafCommitment } from '../engine/lifecycle.js';
 import type { ILocalStore } from '../storage/local-store.js';
 import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
 import { CredentialInventory } from '../credentials/credential-inventory.js';
@@ -113,11 +107,7 @@ export class EligibilityService {
     expiresAt: Field = Field(0),
   ): CredentialData {
     // Insert eligibility commitment into ACCESS_CONTROL tree
-    forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      eligLeafIndex,
-      eligibilityData.commitment(),
-    );
+    forest.setLeaf(ForestDomain.ACCESS_CONTROL, eligLeafIndex, eligibilityData.commitment());
 
     return new CredentialData({
       credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
@@ -154,14 +144,7 @@ export class EligibilityService {
     expiresAt: Field = Field(0),
   ): Promise<EligibilityMintResult> {
     // 1. Build credential
-    const credentialData = this.buildEligibilityCredential(
-      memberWalletId,
-      eligibilityData,
-      forest,
-      eligLeafIndex,
-      issuedAt,
-      expiresAt,
-    );
+    const credentialData = this.buildEligibilityCredential(memberWalletId, eligibilityData, forest, eligLeafIndex, issuedAt, expiresAt);
 
     // 2. Generate eligibility proof
     const eligibilityProof = await this.proveEligibility(
@@ -174,8 +157,7 @@ export class EligibilityService {
     );
 
     // 3. Mint into member's inventory
-    const { index: credentialIndex, newRoot: newInventoryRoot } =
-      memberInventory.mint(credentialData);
+    const { index: credentialIndex, newRoot: newInventoryRoot } = memberInventory.mint(credentialData);
 
     // 4. Update wallet registry
     const oldState = this.registry.getState(memberWalletId);
@@ -189,10 +171,7 @@ export class EligibilityService {
 
     // 5. Store proof metadata
     const proofId = `eligibility-${credentialIndex}-${Date.now()}`;
-    await this.store.saveProof(
-      proofId,
-      JSON.stringify(eligibilityProof.toJSON()),
-    );
+    await this.store.saveProof(proofId, JSON.stringify(eligibilityProof.toJSON()));
 
     return {
       credentialData,
@@ -218,12 +197,8 @@ export class EligibilityService {
     currentDate: Field,
   ) {
     const forestRoots = ForestRoots.fromForest(forest);
-    const forestWitness = forest.getWitness(
-      ForestDomain.ACCESS_CONTROL,
-      eligLeafIndex,
-    );
-    const benefitPlanWitness =
-      this.benefitPlanRegistry.getPlanWitness(benefitPlanIndex);
+    const forestWitness = forest.getWitness(ForestDomain.ACCESS_CONTROL, eligLeafIndex);
+    const benefitPlanWitness = this.benefitPlanRegistry.getPlanWitness(benefitPlanIndex);
     const benefitPlanRoot = this.benefitPlanRegistry.getRoot();
 
     const result = await EligibilityProgram.proveEligibility(
@@ -267,20 +242,19 @@ export class EligibilityService {
       case 'member':
         pgResult = await ProofGateProgram.verifyMember(
           walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
+          preimage[0]!,
+          preimage[1]!,
+          preimage[2]!,
+          preimage[3]!,
+          preimage[4]!,
+          preimage[5]!,
         );
         break;
       case 'prescriber':
-        pgResult = await ProofGateProgram.verifyPrescriber(
-          walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!,
-        );
+        pgResult = await ProofGateProgram.verifyPrescriber(walletId, preimage[0]!, preimage[1]!, preimage[2]!);
         break;
       case 'pharmacy':
-        pgResult = await ProofGateProgram.verifyPharmacy(
-          walletId,
-          preimage[0]!, preimage[1]!, preimage[2]!,
-        );
+        pgResult = await ProofGateProgram.verifyPharmacy(walletId, preimage[0]!, preimage[1]!, preimage[2]!);
         break;
     }
 
@@ -293,15 +267,12 @@ export class EligibilityService {
     const currentLeaf = this.lifecycleTree.getNode(0, walletIndex);
     if (currentLeaf.toString() !== lifecycleLeaf.toString()) {
       throw new Error(
-        `Lifecycle tree mismatch at index ${walletIndex}: caller's lifecycle ` +
-        `does not match tree state. Tree may be out of sync.`,
+        `Lifecycle tree mismatch at index ${walletIndex}: caller's lifecycle ` + `does not match tree state. Tree may be out of sync.`,
       );
     }
 
     this.lifecycleTree.setLeaf(walletIndex, lifecycleLeaf);
-    const lifecycleWitness = new LifecycleWitness(
-      this.lifecycleTree.getWitness(walletIndex),
-    );
+    const lifecycleWitness = new LifecycleWitness(this.lifecycleTree.getWitness(walletIndex));
     const lifecycleRoot = this.lifecycleTree.getRoot();
 
     // 3. Build network witness

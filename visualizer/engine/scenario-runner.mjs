@@ -57,14 +57,14 @@ const MEMBER_FILTER = getArg('members', null);
 // Indices into MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS
 
 const MEMBERS = [
-  { idx: 0, name: 'Alice Johnson',    familyId: 'FAM-ACME-10001', relationship: 'SELF' },
-  { idx: 1, name: 'Bob Martinez',     familyId: 'FAM-ACME-10002', relationship: 'SELF' },
-  { idx: 2, name: 'Carol Williams',   familyId: 'FAM-ACME-10003', relationship: 'SELF' },
-  { idx: 3, name: 'Daniel Williams',  familyId: 'FAM-ACME-10003', relationship: 'SPOUSE' },
-  { idx: 4, name: 'Emma Williams',    familyId: 'FAM-ACME-10003', relationship: 'CHILD' },
-  { idx: 5, name: 'Frank Lee',        familyId: 'FAM-GX-50001',   relationship: 'SELF' },
-  { idx: 6, name: 'Grace Nakamura',   familyId: 'FAM-GX-50002',   relationship: 'SELF' },
-  { idx: 7, name: 'Henry Okafor',     familyId: 'FAM-GX-50003',   relationship: 'SELF' },
+  { idx: 0, name: 'Alice Johnson', familyId: 'FAM-ACME-10001', relationship: 'SELF' },
+  { idx: 1, name: 'Bob Martinez', familyId: 'FAM-ACME-10002', relationship: 'SELF' },
+  { idx: 2, name: 'Carol Williams', familyId: 'FAM-ACME-10003', relationship: 'SELF' },
+  { idx: 3, name: 'Daniel Williams', familyId: 'FAM-ACME-10003', relationship: 'SPOUSE' },
+  { idx: 4, name: 'Emma Williams', familyId: 'FAM-ACME-10003', relationship: 'CHILD' },
+  { idx: 5, name: 'Frank Lee', familyId: 'FAM-GX-50001', relationship: 'SELF' },
+  { idx: 6, name: 'Grace Nakamura', familyId: 'FAM-GX-50002', relationship: 'SELF' },
+  { idx: 7, name: 'Henry Okafor', familyId: 'FAM-GX-50003', relationship: 'SELF' },
 ];
 
 // Medications that DON'T require PA and DON'T require step therapy (safe to prescribe immediately)
@@ -74,11 +74,21 @@ const EASY_MEDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14]; // Tier 1 generics + J
 const PA_MEDS = [12, 13, 15, 17, 18, 19, 20, 21]; // Rinvoq, Xolair, Trulicity, Humira, Keytruda, Revlimid, Ozempic, Stelara
 
 // 10 prescribers (indices 0-9), 8 pharmacies (indices 0-7)
-function randomPrescriber() { return Math.floor(Math.random() * 10); }
-function randomPharmacy() { return Math.floor(Math.random() * 8); }
-function randomEasyMed() { return EASY_MEDS[Math.floor(Math.random() * EASY_MEDS.length)]; }
-function randomPaMed() { return PA_MEDS[Math.floor(Math.random() * PA_MEDS.length)]; }
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function randomPrescriber() {
+  return Math.floor(Math.random() * 10);
+}
+function randomPharmacy() {
+  return Math.floor(Math.random() * 8);
+}
+function randomEasyMed() {
+  return EASY_MEDS[Math.floor(Math.random() * EASY_MEDS.length)];
+}
+function randomPaMed() {
+  return PA_MEDS[Math.floor(Math.random() * PA_MEDS.length)];
+}
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 // ─── HTTP Helpers ───────────────────────────────────────────
 
@@ -109,7 +119,9 @@ async function get(path) {
   }
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 /** Poll an async job until complete/error. */
 async function pollUntilDone(pollPath, label, maxWaitMs = 300000) {
@@ -134,9 +146,15 @@ async function pollUntilDone(pollPath, label, maxWaitMs = 300000) {
 
 // ─── Logging ────────────────────────────────────────────────
 
-function log(msg) { console.log(`[${new Date().toLocaleTimeString()}] ${msg}`); }
-function header(msg) { console.log(`\n${'═'.repeat(60)}\n  ${msg}\n${'═'.repeat(60)}`); }
-function subheader(msg) { console.log(`\n  ── ${msg} ──`); }
+function log(msg) {
+  console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
+}
+function header(msg) {
+  console.log(`\n${'═'.repeat(60)}\n  ${msg}\n${'═'.repeat(60)}`);
+}
+function subheader(msg) {
+  console.log(`\n  ── ${msg} ──`);
+}
 
 /** Wait for the server to be reachable AND compilation to finish. */
 async function waitForServer(maxWaitMs = 600000) {
@@ -170,7 +188,7 @@ async function waitForServer(maxWaitMs = 600000) {
           log('All ZkPrograms compiled. Ready to run scenarios.');
           return;
         }
-        const done = data.programs.filter(p => p.status === 'complete').length;
+        const done = data.programs.filter((p) => p.status === 'complete').length;
         const total = data.programs.length;
         const elapsed = ((Date.now() - start) / 1000).toFixed(0);
         process.stdout.write(`\r  Compiling ZkPrograms... ${done}/${total} (${elapsed}s)`);
@@ -187,7 +205,9 @@ async function waitForServer(maxWaitMs = 600000) {
             return;
           }
         }
-      } catch { /* still starting */ }
+      } catch {
+        /* still starting */
+      }
     }
     await sleep(5000);
   }
@@ -221,10 +241,7 @@ async function enrollMember(memberIndex, memberName) {
   }
 
   // Poll for completion
-  const result = await pollUntilDone(
-    `/interactive/enroll-status?memberIndex=${memberIndex}`,
-    `Enrollment of ${memberName}`
-  );
+  const result = await pollUntilDone(`/interactive/enroll-status?memberIndex=${memberIndex}`, `Enrollment of ${memberName}`);
   return result?.walletId || null;
 }
 
@@ -250,7 +267,7 @@ async function generateCredential(walletId, memberName) {
 
   const result = await pollUntilDone(
     `/interactive/credential-status?walletId=${walletId}&proofType=holding`,
-    `Credential for ${memberName}`
+    `Credential for ${memberName}`,
   );
   return result;
 }
@@ -301,10 +318,7 @@ async function scenarioPrescribeFillComplete(ctx) {
     log(`  [ERR] Fill failed: ${JSON.stringify(fill.data)}`);
     return `Rx ${rxId} created but fill failed`;
   }
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Rx ${rxId} fill timed out`;
   await sleep(OP_DELAY);
 
@@ -431,10 +445,7 @@ async function scenarioPrescribeFillReverse(ctx) {
   // Fill
   log(`  Filling ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Rx ${rxId} fill failed`;
   await sleep(OP_DELAY);
 
@@ -507,10 +518,7 @@ async function scenarioPaApproveFill(ctx) {
   // Fill
   log(`  Filling ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Rx ${rxId} fill timed out`;
 
   return `P5: ${rx.data.medication?.brandName} PA approved, prescribed, filled`;
@@ -587,10 +595,7 @@ async function scenarioAssignPcpPrescribeFill(ctx) {
   // Fill
   log(`  Filling ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Rx ${rxId} fill timed out`;
 
   // Complete
@@ -647,10 +652,7 @@ async function scenarioPrescribeDispenseComplete(ctx) {
     // Fall through — try to fill instead
     log(`  Falling back to fill...`);
     await post('/interactive/fill', { prescriptionId: rxId });
-    const fillResult = await pollUntilDone(
-      `/interactive/fill-status?prescriptionId=${rxId}`,
-      `Fill ${rxId}`
-    );
+    const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
     if (!fillResult) return `Rx ${rxId} fill timed out`;
     await sleep(OP_DELAY);
 
@@ -669,10 +671,7 @@ async function scenarioPrescribeDispenseComplete(ctx) {
   // Member picks up → fill
   log(`  Member picks up — filling ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Rx ${rxId} fill timed out after dispense`;
   await sleep(OP_DELAY);
 
@@ -760,10 +759,7 @@ async function scenarioFillReverseCancel(ctx) {
   // Fill
   log(`  Filling ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fillResult = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill ${rxId}`
-  );
+  const fillResult = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill ${rxId}`);
   if (!fillResult) return `Fill timed out`;
   await sleep(OP_DELAY);
 
@@ -822,24 +818,22 @@ async function scenarioMultipleFills(ctx) {
   // First fill
   log(`  First fill of ${rxId}...`);
   await post('/interactive/fill', { prescriptionId: rxId });
-  const fill1 = await pollUntilDone(
-    `/interactive/fill-status?prescriptionId=${rxId}`,
-    `Fill 1 of ${rxId}`
-  );
+  const fill1 = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill 1 of ${rxId}`);
   if (!fill1) return `First fill timed out`;
-  log(`  [OK] Fill 1 complete — patient pay: ${fill1.adjudication?.patientPayCents || '?'}c, plan pay: ${fill1.adjudication?.planPayCents || '?'}c`);
+  log(
+    `  [OK] Fill 1 complete — patient pay: ${fill1.adjudication?.patientPayCents || '?'}c, plan pay: ${fill1.adjudication?.planPayCents || '?'}c`,
+  );
   await sleep(OP_DELAY);
 
   // Second fill (if Rx allows)
   log(`  Second fill of ${rxId}...`);
   const fill2start = await post('/interactive/fill', { prescriptionId: rxId });
   if (fill2start.status === 202 || fill2start.status === 200) {
-    const fill2 = await pollUntilDone(
-      `/interactive/fill-status?prescriptionId=${rxId}`,
-      `Fill 2 of ${rxId}`
-    );
+    const fill2 = await pollUntilDone(`/interactive/fill-status?prescriptionId=${rxId}`, `Fill 2 of ${rxId}`);
     if (fill2) {
-      log(`  [OK] Fill 2 complete — patient pay: ${fill2.adjudication?.patientPayCents || '?'}c, plan pay: ${fill2.adjudication?.planPayCents || '?'}c`);
+      log(
+        `  [OK] Fill 2 complete — patient pay: ${fill2.adjudication?.patientPayCents || '?'}c, plan pay: ${fill2.adjudication?.planPayCents || '?'}c`,
+      );
     }
   } else {
     log(`  [INFO] Second fill not possible: ${JSON.stringify(fill2start.data)}`);
@@ -855,17 +849,17 @@ async function scenarioMultipleFills(ctx) {
  * Ensures a good mix of visual scenarios.
  */
 const SCENARIO_POOL = [
-  { name: 'prescribe_fill_complete',   weight: 4, fn: scenarioPrescribeFillComplete },
-  { name: 'prescribe_cancel',          weight: 2, fn: scenarioPrescribeCancel },
-  { name: 'prescribe_reject',          weight: 2, fn: scenarioPrescribeReject },
-  { name: 'prescribe_fill_reverse',    weight: 3, fn: scenarioPrescribeFillReverse },
-  { name: 'pa_approve_fill',           weight: 3, fn: scenarioPaApproveFill },
-  { name: 'pa_deny',                   weight: 2, fn: scenarioPaDeny },
-  { name: 'pcp_prescribe_fill',        weight: 2, fn: scenarioAssignPcpPrescribeFill },
-  { name: 'dispense_complete',         weight: 2, fn: scenarioPrescribeDispenseComplete },
-  { name: 'send_message',              weight: 2, fn: scenarioSendMessage },
-  { name: 'fill_reverse_cancel',       weight: 2, fn: scenarioFillReverseCancel },
-  { name: 'multiple_fills',            weight: 2, fn: scenarioMultipleFills },
+  { name: 'prescribe_fill_complete', weight: 4, fn: scenarioPrescribeFillComplete },
+  { name: 'prescribe_cancel', weight: 2, fn: scenarioPrescribeCancel },
+  { name: 'prescribe_reject', weight: 2, fn: scenarioPrescribeReject },
+  { name: 'prescribe_fill_reverse', weight: 3, fn: scenarioPrescribeFillReverse },
+  { name: 'pa_approve_fill', weight: 3, fn: scenarioPaApproveFill },
+  { name: 'pa_deny', weight: 2, fn: scenarioPaDeny },
+  { name: 'pcp_prescribe_fill', weight: 2, fn: scenarioAssignPcpPrescribeFill },
+  { name: 'dispense_complete', weight: 2, fn: scenarioPrescribeDispenseComplete },
+  { name: 'send_message', weight: 2, fn: scenarioSendMessage },
+  { name: 'fill_reverse_cancel', weight: 2, fn: scenarioFillReverseCancel },
+  { name: 'multiple_fills', weight: 2, fn: scenarioMultipleFills },
 ];
 
 /** Select N random scenarios using weighted random selection. */
@@ -909,9 +903,7 @@ async function main() {
   await waitForServer();
 
   // Determine which members to run
-  const memberIndices = MEMBER_FILTER
-    ? MEMBER_FILTER.split(',').map(s => parseInt(s.trim(), 10))
-    : MEMBERS.map(m => m.idx);
+  const memberIndices = MEMBER_FILTER ? MEMBER_FILTER.split(',').map((s) => parseInt(s.trim(), 10)) : MEMBERS.map((m) => m.idx);
   log(`Members: ${memberIndices.join(', ')} (${memberIndices.length} total)`);
 
   // ─── Phase 1: Reset ────────────────────────────
@@ -1011,8 +1003,8 @@ async function main() {
   // ─── Summary ───────────────────────────────────
   header('Run Summary');
 
-  const successes = results.filter(r => r.success).length;
-  const failures = results.filter(r => !r.success).length;
+  const successes = results.filter((r) => r.success).length;
+  const failures = results.filter((r) => !r.success).length;
   log(`Total scenarios: ${results.length}`);
   log(`Successes: ${successes}`);
   log(`Failures: ${failures}`);
@@ -1034,7 +1026,7 @@ async function main() {
 
 // ─── Entry Point ────────────────────────────────────────────
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Fatal error:', err);
   process.exit(1);
 });

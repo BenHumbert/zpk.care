@@ -25,8 +25,16 @@ import path from 'path';
 import { PersistedAttemptLimiter, DEFAULT_ATTEMPT_LIMITS } from '../src/security/attempt-limiter.js';
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'attempts-')); });
-afterEach(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'attempts-'));
+});
+afterEach(() => {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 describe('the attempt limiter', () => {
   test('three attempts are free, then the delay doubles from two seconds to a fifteen-minute cap', () => {
@@ -85,8 +93,7 @@ describe('the attempt limiter', () => {
   });
 
   test('invalid limits are refused at construction', () => {
-    expect(() => new PersistedAttemptLimiter(path.join(dir, 'x.json'), { freeAttempts: 3, baseDelayMs: 0, maxDelayMs: 1 }))
-      .not.toThrow();   // baseDelayMs 0 is a legal "no delay" configuration
+    expect(() => new PersistedAttemptLimiter(path.join(dir, 'x.json'), { freeAttempts: 3, baseDelayMs: 0, maxDelayMs: 1 })).not.toThrow(); // baseDelayMs 0 is a legal "no delay" configuration
     expect(() => new PersistedAttemptLimiter(path.join(dir, 'x.json'), { maxDelayMs: -1 } as never)).not.toThrow();
   });
 });

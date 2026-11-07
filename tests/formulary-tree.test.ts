@@ -25,12 +25,7 @@
  * comment.
  */
 import { Field, MerkleTree } from 'o1js';
-import {
-  buildTreeBottomUp,
-  FORMULARY_TREE_HEIGHT,
-  FormularyService,
-  computeFormularyLeafHash,
-} from '../src/l2/formulary-service.js';
+import { buildTreeBottomUp, FORMULARY_TREE_HEIGHT, FormularyService, computeFormularyLeafHash } from '../src/l2/formulary-service.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 
 /** Build the same leaves the slow way, one setLeaf at a time. */
@@ -46,8 +41,7 @@ function buildFast(leaves: Field[]): MerkleTree {
   return tree;
 }
 
-const leavesOf = (n: number): Field[] =>
-  Array.from({ length: n }, (_, i) => Field(1000n + BigInt(i)));
+const leavesOf = (n: number): Field[] => Array.from({ length: n }, (_, i) => Field(1000n + BigInt(i)));
 
 describe('buildTreeBottomUp matches setLeaf exactly', () => {
   // 0 and 1 are the degenerate cases; 3, 5 and 7 leave a lone child at some level; 4 and 8 are
@@ -55,8 +49,7 @@ describe('buildTreeBottomUp matches setLeaf exactly', () => {
   for (const n of [0, 1, 2, 3, 4, 5, 7, 8, 17, 100]) {
     test(`${n} leaves produce the same root`, () => {
       const leaves = leavesOf(n);
-      expect(buildFast(leaves).getRoot().toString())
-        .toBe(buildWithSetLeaf(leaves).getRoot().toString());
+      expect(buildFast(leaves).getRoot().toString()).toBe(buildWithSetLeaf(leaves).getRoot().toString());
     });
   }
 
@@ -69,8 +62,7 @@ describe('buildTreeBottomUp matches setLeaf exactly', () => {
       const width = Math.ceil(37 / 2 ** level);
       // One past the filled range too, to catch a build that writes where setLeaf does not.
       for (let i = 0; i <= width; i++) {
-        expect(fast.getNode(level, BigInt(i)).toString())
-          .toBe(slow.getNode(level, BigInt(i)).toString());
+        expect(fast.getNode(level, BigInt(i)).toString()).toBe(slow.getNode(level, BigInt(i)).toString());
       }
     }
   });
@@ -83,8 +75,7 @@ describe('buildTreeBottomUp matches setLeaf exactly', () => {
     for (const i of [0n, 1n, 11n, 22n]) {
       const witness = fast.getWitness(i);
       const slow = buildWithSetLeaf(leaves);
-      expect(witness.map((w) => w.sibling.toString()))
-        .toEqual(slow.getWitness(i).map((w) => w.sibling.toString()));
+      expect(witness.map((w) => w.sibling.toString())).toEqual(slow.getWitness(i).map((w) => w.sibling.toString()));
       // The leaf is where we put it.
       expect(fast.getLeaf(i).toString()).toBe(leaves[Number(i)].toString());
     }
@@ -92,8 +83,7 @@ describe('buildTreeBottomUp matches setLeaf exactly', () => {
   });
 
   test('an empty build leaves the canonical empty root', () => {
-    expect(buildFast([]).getRoot().toString())
-      .toBe(new MerkleTree(FORMULARY_TREE_HEIGHT).getRoot().toString());
+    expect(buildFast([]).getRoot().toString()).toBe(new MerkleTree(FORMULARY_TREE_HEIGHT).getRoot().toString());
   });
 });
 
@@ -115,10 +105,17 @@ describe('FormularyService root is unchanged by the faster build', () => {
   }));
 
   /** The leaves the service must have committed to, derived independently from the records. */
-  const expectedLeaves = (): Field[] => records.map((r) => computeFormularyLeafHash(
-    hashString(r.ndc).toString(),
-    r.classification, r.tierLevel, r.copayAmount, r.requiresPriorAuth, r.maxDaySupply,
-  ));
+  const expectedLeaves = (): Field[] =>
+    records.map((r) =>
+      computeFormularyLeafHash(
+        hashString(r.ndc).toString(),
+        r.classification,
+        r.tierLevel,
+        r.copayAmount,
+        r.requiresPriorAuth,
+        r.maxDaySupply,
+      ),
+    );
 
   test('the service root equals a setLeaf tree over the same leaves', () => {
     const svc = new FormularyService();
