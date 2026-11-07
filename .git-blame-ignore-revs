@@ -4,3 +4,6 @@
 
 # 2026-11-07: text files stored with LF line endings (cleanup phase 1.3)
 00d615501ab1c44eceecfb8aeb29522e4939dea5
+
+# 2026-11-07: the code formatted with Prettier (cleanup phase 2.2)
+eba8e870d9b18fd11dd7b366ed1bdf0b3ca5fb3e

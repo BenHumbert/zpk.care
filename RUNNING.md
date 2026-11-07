@@ -78,6 +78,8 @@ A variable set in the shell wins over the file, so `ZKTRIDENT_EXPLORER_PORT=8020
 | `npm test` | Run the regression batch, the suites in `scripts/dev/regression-suites.txt`, one at a time (about ten minutes); `npm test -- tests/a.test.ts` runs only the suites named |
 | `npm run test:all` | Run every suite, the slow ones that compile and prove circuits (`scripts/dev/slow-suites.txt`) included |
 | `npm run typecheck` | Typecheck `src/`, `scripts/` and the suites (`tsconfig.json`, `tsconfig.scripts.json`, `tsconfig.tests.json`) |
+| `npm run format` / `npm run format:check` | Format the code with Prettier (`.prettierrc.json`, `.prettierignore`), or only check it |
+| `npm run check` | Every typecheck and the format check: what a change should pass before it is committed |
 | `npm run start:explorer` | Run just the block explorer (port 8000) |
 | `npx tsx src/data/import-nadac.ts` | Import the newest NADAC catalog from CMS into `src/data` (`NADAC_CSV` for a local copy) |
 | `npm run bootstrap` | Scripted full-system bootstrap |

@@ -202,3 +202,16 @@ Items 4.1 to 4.6 are scoped to remove these, worst first.
     - Every suite now passes: the batch has 205 and the slow list 11, with no failing section.
   - **Typecheck (8c69792):** `npm run typecheck` covers src, scripts and the suites, all at 0 errors. visualizer/engine keeps 2 errors in the legacy console drivers (owner question).
   - **Next:** a live run booted by `npm start -- --fresh`, then commit phase 4.1; then 2.1 (unused imports) and 2.2 (Prettier, width 140); then the rest of phase 4.
+- **2026-11-07 (afternoon).** Phase 2.1 and 2.2, two more findings, and the full disk.
+  - **2.1 (608629d, 80548b5):** about 240 unused imports (TypeScript's own fix) and 40 dead locals, members and helpers, removed after reading each one; `noUnusedLocals` is on. The sweep found:
+    - **A-150 (low, open):** a message's audit entry does not commit the messaging roots it is given.
+    - **A-151 (high in code not in the boot path; fixed in 80be2be):** a replica's opt-in batch check called `proof.verify()`, a no-op outside a circuit. It now verifies against the compiled key; before the fix a dummy proof was applied.
+  - **2.2 (Prettier 3.9.10, single quotes, 140 columns):** 495 files, one commit, listed in `.git-blame-ignore-revs`.
+    - 14 suites that assert on source text now use `tests/helpers/source-text.ts` `flat()`, or follow the formatted code where they lift functions out to run them.
+    - `npm run format`, `npm run format:check` and `npm run check` (typecheck plus format check).
+    - Verified: batch 206/206 (3,005 tests); live run, `npm start -- --fresh` plus the harness, 260/260 checks.
+  - **The disk:** C: filled to 0 bytes mid-run, and an npm step failed with ENOSPC. Deleting 2.2 GB of my own old caches in the scratchpad freed room; about 2 GB is free now. The owner's other projects also run on this machine.
+  - **Next:**
+    - the slow list (`npm run test:all`) on the formatted tree;
+    - phase 4.3 (the config module, from the environment inventory);
+    - 4.5 (remove the unsecure path), 4.6 (docs) and 2.3 (ESLint).
