@@ -882,8 +882,8 @@ describe('L2 Constants', () => {
     expect(DEFAULT_BATCH_INTERVAL_MS).toBe(180_000);
   });
 
-  test('MAX_TRANSITIONS_PER_BATCH is 4', () => {
-    expect(MAX_TRANSITIONS_PER_BATCH).toBe(4);
+  test('MAX_TRANSITIONS_PER_BATCH is 2 (since the proving pool, 2026-03-02)', () => {
+    expect(MAX_TRANSITIONS_PER_BATCH).toBe(2);
   });
 });
 

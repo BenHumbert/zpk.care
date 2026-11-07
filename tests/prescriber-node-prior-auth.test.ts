@@ -176,7 +176,7 @@ describe('the /rpc proxy catalogs', () => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_estimateCost', params: { ndcHash: ndcHashOf(ABACAVIR), quantity: 30 } }),
       });
       expect(r.status).toBe(403);
-      expect((await r.json()).error).toMatchObject({ code: -32601 });
+      expect(((await r.json()) as Record<string, unknown>).error).toMatchObject({ code: -32601 });
     }
   });
 });

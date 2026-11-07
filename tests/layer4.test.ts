@@ -68,6 +68,7 @@ import { MerkleForest, ForestDomain } from '../src/zkp/merkle-forest.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import type { PharmacyLocalData } from '../src/models/pharmacy.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Test Data ───────────────────────────────────────────
 
@@ -92,7 +93,7 @@ const testPharmacy: PharmacyLocalData = {
 const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
 
 // Wallet IDs
-const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 const prescriberWalletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
 const pharmacyWalletId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
 
@@ -296,7 +297,7 @@ describe('Layer 4 — Credential System / User Path', () => {
     test('generates valid proof when minting eligibility credential into member wallet', async () => {
       const inventory = new CredentialInventory();
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       // Generate ownership proof
       const pgResult = await ProofGateProgram.verifyMember(
@@ -329,7 +330,7 @@ describe('Layer 4 — Credential System / User Path', () => {
     test('proof verifies standalone (simulates offline verification)', async () => {
       const inventory = new CredentialInventory();
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
@@ -356,7 +357,7 @@ describe('Layer 4 — Credential System / User Path', () => {
         ...credential1,
         forestRoot: Field(999),
       });
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       // Mint first credential at slot 0
       inventory.mint(credential1);
@@ -385,7 +386,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       const inventory = new CredentialInventory();
       // Credential with pharmacy as subject, but member proves ownership
       const wrongCredential = createEligibilityCredential(prescriberWalletId, pharmacyWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
@@ -416,7 +417,7 @@ describe('Layer 4 — Credential System / User Path', () => {
         expiresAt: Field(20270201),
         revoked: Field(1), // PRE-REVOKED
       });
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
@@ -444,7 +445,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       inventory.mint(credential);
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
@@ -470,7 +471,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       inventory.mint(credential);
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
@@ -493,7 +494,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       // Don't mint — inventory is empty
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
@@ -520,7 +521,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       inventory.revoke(index);
       const revokedCredential = inventory.getCredential(index)!;
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
@@ -573,7 +574,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
       inventory.mint(credential);
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         preimage[0]!, preimage[1]!, preimage[2]!, preimage[3]!, preimage[4]!, preimage[5]!,
@@ -763,7 +764,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       );
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       const result = await service.mintCredential(
         preimage,
@@ -796,7 +797,7 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       // First mint a credential
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
       // Now prove holding
@@ -819,7 +820,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       );
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
       const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
@@ -850,7 +851,7 @@ describe('Layer 4 — Credential System / User Path', () => {
       );
 
       const credential = createEligibilityCredential(prescriberWalletId, memberWalletId);
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const mintResult = await service.mintCredential(preimage, 'member', credential, LIFECYCLE_ELIGIBLE);
 
       const holdingProof = await service.proveCredentialHolding(preimage, 'member', mintResult.credentialIndex);
@@ -882,7 +883,7 @@ describe('Layer 4 — Credential System / User Path', () => {
 
       expect(service.getCredentialCount()).toBe(0);
 
-      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       // Mint first credential
       const credential1 = createEligibilityCredential(prescriberWalletId, memberWalletId);

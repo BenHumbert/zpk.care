@@ -134,14 +134,7 @@ function createTestWalletRegistry(): {
 } {
   const registry = new WalletRegistry();
   const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-  registry.register(
-    pharmacyWalletId,
-    new WalletState({
-      walletId: pharmacyWalletId,
-      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
-      nonce: Field(0),
-    }),
-  );
+  registry.register(pharmacyWalletId);
   return { registry, lifecycleTree };
 }
 

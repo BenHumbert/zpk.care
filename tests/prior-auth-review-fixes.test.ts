@@ -115,7 +115,7 @@ async function namePcp(member: string, prescriberIndex: number): Promise<void> {
   await svc.assignPcpForDevice({ walletId: member, pcpWalletId: prescriberWallet(prescriberIndex), effectiveDate: '20261019', specialty: 'Family Medicine', consentScopeFlags: 7 });
   const body = JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method: 'l2_registerPcpAssignment', params: { memberWalletId: member, prescriberWalletId: prescriberWallet(prescriberIndex), effectiveDate: '2026-10-19' } });
   const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signRequest({ signerId: member, privateKey: memberKeys[member].privateKey, method: 'POST', path: '/rpc', body }) }, body });
-  expect((await r.json()).error).toBeUndefined();
+  expect(((await r.json()) as Record<string, unknown>).error).toBeUndefined();
 }
 
 const pendingFor = (member: string, ndc: string): any =>

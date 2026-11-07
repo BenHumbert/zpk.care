@@ -54,6 +54,7 @@ import {
 } from '../src/wallets/index.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Test Data ───────────────────────────────────────────
 
@@ -283,7 +284,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
 
       resetTrees();
 
-      memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       prescriberWalletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
 
       // Deploy + init
@@ -404,7 +405,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       contractKey = PrivateKey.random();
       contract = new CareContract(contractKey.toPublicKey());
       adminPkHash = Poseidon.hash(admin.toFields());
-      walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       resetTrees();
 
@@ -570,7 +571,7 @@ describe('Layer 3 — zkApp Core Engine', () => {
       contractKey = PrivateKey.random();
       contract = new CareContract(contractKey.toPublicKey());
       adminPkHash = Poseidon.hash(admin.toFields());
-      walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
       resetTrees();
 

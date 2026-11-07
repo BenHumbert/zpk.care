@@ -140,22 +140,8 @@ function createTestAccumulator(overrides: Partial<{
 
 function createTestWalletRegistry(): WalletRegistry {
   const registry = new WalletRegistry();
-  registry.register(
-    pharmacyWalletId,
-    new WalletState({
-      walletId: pharmacyWalletId,
-      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
-      nonce: Field(0),
-    }),
-  );
-  registry.register(
-    memberWalletId,
-    new WalletState({
-      walletId: memberWalletId,
-      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
-      nonce: Field(0),
-    }),
-  );
+  registry.register(pharmacyWalletId);
+  registry.register(memberWalletId);
   return registry;
 }
 
@@ -312,7 +298,7 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
   // ── AccumulatorFulfillmentOutput ──────────────────────────
 
   describe('AccumulatorFulfillmentOutput', () => {
-    it('has 10 fields including newEligibilityForestRoot, deductibleCreditCents, and ndcHash', () => {
+    it('has 12 fields including newEligibilityForestRoot, deductibleCreditCents, ndcHash and the B8 family outputs', () => {
       const output = new AccumulatorFulfillmentOutput({
         prescriptionHash: Field(1),
         oldForestRoot: Field(2),
@@ -324,10 +310,14 @@ describe('Accumulator — Benefit Accumulators (Deductible, OOPM, Annual Max)', 
         newEligibilityForestRoot: Field(8),
         deductibleCreditCents: Field(9),
         ndcHash: Field(10),
+        familyCommitment: Field(11),
+        familyRule: Field(12),
       });
       expect(output.prescriptionHash.toString()).toBe('1');
       expect(output.newEligibilityForestRoot.toString()).toBe('8');
       expect(output.deductibleCreditCents.toString()).toBe('9');
+      expect(output.familyCommitment.toString()).toBe('11');
+      expect(output.familyRule.toString()).toBe('12');
     });
   });
 

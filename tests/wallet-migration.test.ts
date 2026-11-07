@@ -362,13 +362,13 @@ describe('ClaimLeaf 9th field — deductibleCreditCents', () => {
     const hash2 = computeClaimLeafHash(leafWithZero);
     expect(hash1.toString()).toBe(hash2.toString());
 
-    // Matches manual Poseidon.hash of 9 fields with 0 as 9th
+    // Matches manual Poseidon.hash of 9 fields with 0 as 9th; the date of service enters hashed
     const expected = Poseidon.hash([
       Field(BigInt(leafWithZero.memberWalletId)),
       Field(BigInt(leafWithZero.ndcHash)),
       Field(BigInt(leafWithZero.pharmacyWalletId)),
       Field(BigInt(leafWithZero.prescriberWalletId)),
-      Field(BigInt(leafWithZero.dateOfService)),
+      Poseidon.hash([Field(BigInt(leafWithZero.dateOfService))]),
       Field(BigInt(leafWithZero.patientPayCents)),
       Field(BigInt(leafWithZero.planPayCents)),
       Field(BigInt(leafWithZero.operationType)),

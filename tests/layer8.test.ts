@@ -135,24 +135,10 @@ function createTestWalletRegistry(): {
   const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
   // Register pharmacy wallet
-  registry.register(
-    pharmacyWalletId,
-    new WalletState({
-      walletId: pharmacyWalletId,
-      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
-      nonce: Field(0),
-    }),
-  );
+  registry.register(pharmacyWalletId);
 
   // Register pharmacy2 wallet
-  registry.register(
-    pharmacy2WalletId,
-    new WalletState({
-      walletId: pharmacy2WalletId,
-      credentialInventoryRoot: EMPTY_CREDENTIAL_ROOT,
-      nonce: Field(0),
-    }),
-  );
+  registry.register(pharmacy2WalletId);
 
   return { registry, lifecycleTree };
 }
@@ -277,64 +263,49 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
   });
 
   // ── Status Transition Validation ────────────────────────
+  // The lifecycle the engine runs (VALID_TRANSITIONS in prescription-data.ts): ADJUDICATED -> FILLED (prepared,
+  // mark-filled) -> DISPENSED (picked up and paid, the settlement proof), with partial fills, cancellation, rejection,
+  // transfer and reversal. Every one of the 64 pairs of statuses is checked, off the circuit and in it.
 
   describe('Status Transition Validation', () => {
-    it('valid transitions accepted', () => {
-      expect(isValidStatusTransition(1n, 2n)).toBe(true);  // ACTIVE → PARTIAL
-      expect(isValidStatusTransition(1n, 3n)).toBe(true);  // ACTIVE → FILLED
-      expect(isValidStatusTransition(1n, 7n)).toBe(true);  // ACTIVE → TRANSFERRED
-      expect(isValidStatusTransition(2n, 3n)).toBe(true);  // PARTIAL → FILLED
-      expect(isValidStatusTransition(2n, 6n)).toBe(true);  // PARTIAL → REVERSED
-      expect(isValidStatusTransition(3n, 6n)).toBe(true);  // FILLED → REVERSED
-      expect(isValidStatusTransition(6n, 1n)).toBe(true);  // REVERSED → ACTIVE
-    });
+    const LIFECYCLE: Array<[bigint, bigint]> = [
+      [1n, 3n], [1n, 4n], [1n, 5n], [1n, 7n],           // ADJUDICATED -> FILLED, CANCELLED, REJECTED, TRANSFERRED
+      [2n, 2n], [2n, 3n], [2n, 4n], [2n, 6n], [2n, 7n], // PARTIALLY_FILLED -> itself, FILLED, CANCELLED, REVERSED, TRANSFERRED
+      [3n, 8n], [3n, 4n],                                // FILLED -> DISPENSED, CANCELLED
+      [8n, 6n],                                          // DISPENSED -> REVERSED
+      [6n, 1n],                                          // REVERSED -> ADJUDICATED
+    ];
+    const inLifecycle = (from: bigint, to: bigint) => LIFECYCLE.some(([f, t]) => f === from && t === to);
+    const STATUSES = [
+      RX_STATUS_ADJUDICATED, RX_STATUS_PARTIALLY_FILLED, RX_STATUS_FILLED, RX_STATUS_CANCELLED,
+      RX_STATUS_REJECTED, RX_STATUS_REVERSED, RX_STATUS_TRANSFERRED, RX_STATUS_DISPENSED,
+    ];
 
-    it('invalid transitions rejected', () => {
-      expect(isValidStatusTransition(3n, 1n)).toBe(false); // FILLED → ACTIVE
-      expect(isValidStatusTransition(4n, 1n)).toBe(false); // CANCELLED → ACTIVE
-      expect(isValidStatusTransition(5n, 1n)).toBe(false); // REJECTED → ACTIVE
-      expect(isValidStatusTransition(7n, 1n)).toBe(false); // TRANSFERRED → ACTIVE
-      expect(isValidStatusTransition(1n, 1n)).toBe(false); // ACTIVE → ACTIVE
-    });
-
-    it('terminal states block further transitions', () => {
-      // CANCELLED, REJECTED, TRANSFERRED are terminal
-      for (let to = 1n; to <= 8n; to++) {
-        expect(isValidStatusTransition(4n, to)).toBe(false); // CANCELLED → *
-        expect(isValidStatusTransition(5n, to)).toBe(false); // REJECTED → *
-        expect(isValidStatusTransition(7n, to)).toBe(false); // TRANSFERRED → *
+    it("accepts exactly the lifecycle's transitions, off the circuit", () => {
+      for (const from of STATUSES) {
+        for (const to of STATUSES) {
+          const pair = [from.toBigInt(), to.toBigInt()] as const;
+          expect([...pair, isValidStatusTransition(...pair)]).toEqual([...pair, inLifecycle(...pair)]);
+        }
       }
     });
 
-    it('DISPENSED transitions accepted', () => {
-      expect(isValidStatusTransition(1n, 8n)).toBe(true);  // ACTIVE → DISPENSED
-      expect(isValidStatusTransition(8n, 3n)).toBe(true);  // DISPENSED → FILLED
-      expect(isValidStatusTransition(8n, 4n)).toBe(true);  // DISPENSED → CANCELLED
-      expect(isValidStatusTransition(8n, 5n)).toBe(true);  // DISPENSED → REJECTED
+    it('the circuit accepts and refuses the same transitions', () => {
+      for (const from of STATUSES) {
+        for (const to of STATUSES) {
+          const check = () => assertValidStatusTransition(from, to);
+          if (inLifecycle(from.toBigInt(), to.toBigInt())) expect(check).not.toThrow();
+          else expect(check).toThrow('Invalid prescription status transition');
+        }
+      }
     });
 
-    it('invalid DISPENSED transitions rejected', () => {
-      expect(isValidStatusTransition(8n, 1n)).toBe(false); // DISPENSED → ACTIVE
-      expect(isValidStatusTransition(8n, 2n)).toBe(false); // DISPENSED → PARTIALLY_FILLED
-      expect(isValidStatusTransition(8n, 6n)).toBe(false); // DISPENSED → REVERSED
-      expect(isValidStatusTransition(8n, 7n)).toBe(false); // DISPENSED → TRANSFERRED
-      expect(isValidStatusTransition(8n, 8n)).toBe(false); // DISPENSED → DISPENSED
-      expect(isValidStatusTransition(2n, 8n)).toBe(false); // PARTIALLY_FILLED → DISPENSED
-      expect(isValidStatusTransition(3n, 8n)).toBe(false); // FILLED → DISPENSED
-    });
-
-    it('assertValidStatusTransition accepts DISPENSED transitions in circuit', () => {
-      expect(() => assertValidStatusTransition(RX_STATUS_ADJUDICATED, RX_STATUS_DISPENSED)).not.toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_FILLED)).not.toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_CANCELLED)).not.toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REJECTED)).not.toThrow();
-    });
-
-    it('assertValidStatusTransition rejects invalid DISPENSED transitions in circuit', () => {
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_ADJUDICATED)).toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_REVERSED)).toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_DISPENSED, RX_STATUS_DISPENSED)).toThrow();
-      expect(() => assertValidStatusTransition(RX_STATUS_PARTIALLY_FILLED, RX_STATUS_DISPENSED)).toThrow();
+    it('cancelled, rejected and transferred prescriptions are terminal', () => {
+      for (const to of STATUSES) {
+        for (const terminal of [RX_STATUS_CANCELLED, RX_STATUS_REJECTED, RX_STATUS_TRANSFERRED]) {
+          expect(isValidStatusTransition(terminal.toBigInt(), to.toBigInt())).toBe(false);
+        }
+      }
     });
   });
 
@@ -801,9 +772,10 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         const forest = createTestForest();
         forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
 
+        // a full fill at pickup: FILLED (prepared) -> DISPENSED
         const oldStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_ADJUDICATED,
+          status: RX_STATUS_FILLED,
           updatedByWalletId: prescriberWalletId,
           updatedAt: Field(20260201120000n),
           pharmacyWalletId,
@@ -824,7 +796,7 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
 
         const newStatus = new PrescriptionStatusData({
           prescriptionHash: rxData.commitment(),
-          status: RX_STATUS_PARTIALLY_FILLED,
+          status: RX_STATUS_DISPENSED,
           updatedByWalletId: pharmacyWalletId,
           updatedAt: Field(20260205100000n),
           pharmacyWalletId,

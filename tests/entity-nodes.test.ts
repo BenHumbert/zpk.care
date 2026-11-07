@@ -84,6 +84,7 @@ function mockClaimEntry(overrides: Partial<{
     patientPayCents: overrides.patientPayCents ?? '1000',
     planPayCents: overrides.planPayCents ?? '5000',
     operationType: overrides.operationType ?? '1',
+    deductibleCreditCents: '0',
   };
   return {
     leafIndex: overrides.leafIndex ?? 0n,
@@ -360,6 +361,7 @@ describe('MemberNode', () => {
       {
         cardholderId: 'CH001',
         dateOfBirth: '19900101',
+        genderCode: 2,
         firstName: 'Alice',
         lastName: 'Smith',
       },

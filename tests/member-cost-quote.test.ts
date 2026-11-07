@@ -244,7 +244,7 @@ describe('a prescriber node\'s key is no consent of the member\'s', () => {
 
   test('with no member it stays open', async () => {
     const r = await fetch(`${url}/rpc`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: envelopeFor({ ndcHash: ndcHashOf(ABACAVIR), quantity: 30 }) });
-    expect((await r.json()).result).toMatchObject({ covered: true, dispensingFeeSource: 'network-default' });
+    expect(((await r.json()) as Record<string, unknown>).result).toMatchObject({ covered: true, dispensingFeeSource: 'network-default' });
   });
 });
 

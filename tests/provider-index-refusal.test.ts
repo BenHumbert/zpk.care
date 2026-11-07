@@ -165,7 +165,7 @@ describe('the provider nodes\' routes', () => {
     const fake = fakeNodeServer(walletId, resolveAnswer);
     return { ...fake, routes: buildPharmacyRoutes(fake.server as any) };
   };
-  const callsTo = (calls: Array<{ url: string }>, suffix: string) => calls.filter((c) => c.url.split('?')[0].endsWith(suffix));
+  const callsTo = <C extends { url: string }>(calls: C[], suffix: string) => calls.filter((c) => c.url.split('?')[0].endsWith(suffix));
 
   test('an unseeded pharmacy\'s fill is refused, not filled as pharmacy 0', async () => {
     const p = pharmacy('999', { status: 200, body: { prescriberIndex: 0, pharmacyIndex: -1 } });

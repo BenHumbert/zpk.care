@@ -78,6 +78,7 @@ import { NetworkMerkleWitness, NETWORK_TREE_HEIGHT } from '../src/eligibility/pr
 import type { MemberLocalData } from '../src/models/member.js';
 import type { PrescriberLocalData } from '../src/models/prescriber.js';
 import type { PharmacyLocalData } from '../src/models/pharmacy.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Test Data ───────────────────────────────────────────
 
@@ -102,7 +103,7 @@ const testPharmacy: PharmacyLocalData = {
 const TEST_ENROLLMENT_KEY = 'xK9#mP2$vL5nQ8wR3jF7';
 
 // Wallet IDs
-const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+const memberWalletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 const prescriberWalletId = derivePrescriberWalletId(testPrescriber, TEST_ENROLLMENT_KEY);
 const pharmacyWalletId = derivePharmacyWalletId(testPharmacy, TEST_ENROLLMENT_KEY);
 
@@ -787,7 +788,7 @@ describe('Layer 5 — Eligibility Flow (Use Cases A + C)', () => {
 
       const inventory = new CredentialInventory();
       inventory.mint(credentialData);
-      const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+      const memberPreimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
       const pgResult = await ProofGateProgram.verifyMember(
         memberWalletId,
         memberPreimage[0]!, memberPreimage[1]!, memberPreimage[2]!,

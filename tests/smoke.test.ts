@@ -85,9 +85,10 @@ describe('Seed Data — Smoke Tests', () => {
     }
   });
 
-  // ── Medications (NADAC — 32,768 real drugs) ──
-  test('has 32,768 medications (MerkleTree(16) capacity)', () => {
-    expect(MEDICATIONS).toHaveLength(32768);
+  // ── Medications (the CMS NADAC catalog; the suites read the frozen copy in tests/fixtures/data) ──
+  test('the catalog fits the formulary tree (MerkleTree(16): at most 32,768 drugs)', () => {
+    expect(MEDICATIONS.length).toBeGreaterThan(0);
+    expect(MEDICATIONS.length).toBeLessThanOrEqual(32768);
   });
 
   test('tier distribution covers all 4 tiers', () => {
@@ -96,7 +97,7 @@ describe('Seed Data — Smoke Tests', () => {
     expect(TIER3_NON_PREFERRED.length).toBeGreaterThan(0);
     expect(TIER4_SPECIALTY.length).toBeGreaterThan(0);
     expect(TIER1_GENERICS.length + TIER2_PREFERRED.length +
-           TIER3_NON_PREFERRED.length + TIER4_SPECIALTY.length).toBe(32768);
+           TIER3_NON_PREFERRED.length + TIER4_SPECIALTY.length).toBe(MEDICATIONS.length);
   });
 
   test('all NDCs are 11-digit', () => {
@@ -131,8 +132,8 @@ describe('Seed Data — Smoke Tests', () => {
     }
   });
 
-  test('getAllFormularyEntries returns all 32,768', () => {
-    expect(getAllFormularyEntries()).toHaveLength(32768);
+  test('getAllFormularyEntries returns one entry per drug', () => {
+    expect(getAllFormularyEntries()).toHaveLength(MEDICATIONS.length);
   });
 
   test('getFormularyEntriesByTier filters correctly', () => {

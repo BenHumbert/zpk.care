@@ -63,6 +63,7 @@ import {
   DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ═══════════════════════════════════════════════════════════
 //  A. FAST UNIT TESTS (no compilation)
@@ -377,8 +378,8 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     console.log(`[setup] Generating BatchProof #1 (2 registrations)...`);
     t = Date.now();
 
-    walletId1 = deriveMemberWalletId(chainMember1, CHAIN_KEY_1, Field(0));
-    const pre1 = memberWalletPreimage(chainMember1, CHAIN_KEY_1, Field(0));
+    walletId1 = deriveMemberWalletId(chainMember1, CHAIN_KEY_1, Field(0), fixtureIdentitySalt({ localData: chainMember1 }));
+    const pre1 = memberWalletPreimage(chainMember1, CHAIN_KEY_1, Field(0), fixtureIdentitySalt({ localData: chainMember1 }));
     const st1 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       pre1[0]!, pre1[1]!, pre1[2]!, pre1[3]!, pre1[4]!, pre1[5]!,
@@ -389,8 +390,8 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     regTree.setLeaf(0n, Poseidon.hash([walletId1, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(0n, lifecycleLeafCommitment(walletId1, LIFECYCLE_REGISTERED));
 
-    const walletId2 = deriveMemberWalletId(chainMember2, CHAIN_KEY_2, Field(0));
-    const pre2 = memberWalletPreimage(chainMember2, CHAIN_KEY_2, Field(0));
+    const walletId2 = deriveMemberWalletId(chainMember2, CHAIN_KEY_2, Field(0), fixtureIdentitySalt({ localData: chainMember2 }));
+    const pre2 = memberWalletPreimage(chainMember2, CHAIN_KEY_2, Field(0), fixtureIdentitySalt({ localData: chainMember2 }));
     const st2 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       pre2[0]!, pre2[1]!, pre2[2]!, pre2[3]!, pre2[4]!, pre2[5]!,
@@ -409,8 +410,8 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     console.log(`[setup] Generating BatchProof #2 (2 registrations)...`);
     t = Date.now();
 
-    const walletId3 = deriveMemberWalletId(chainMember3, CHAIN_KEY_3, Field(0));
-    const pre3 = memberWalletPreimage(chainMember3, CHAIN_KEY_3, Field(0));
+    const walletId3 = deriveMemberWalletId(chainMember3, CHAIN_KEY_3, Field(0), fixtureIdentitySalt({ localData: chainMember3 }));
+    const pre3 = memberWalletPreimage(chainMember3, CHAIN_KEY_3, Field(0), fixtureIdentitySalt({ localData: chainMember3 }));
     const st3 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       pre3[0]!, pre3[1]!, pre3[2]!, pre3[3]!, pre3[4]!, pre3[5]!,
@@ -421,8 +422,8 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     regTree.setLeaf(2n, Poseidon.hash([walletId3, EMPTY_CREDENTIAL_ROOT, Field(0)]));
     lcTree.setLeaf(2n, lifecycleLeafCommitment(walletId3, LIFECYCLE_REGISTERED));
 
-    const walletId4 = deriveMemberWalletId(chainMember4, CHAIN_KEY_4, Field(0));
-    const pre4 = memberWalletPreimage(chainMember4, CHAIN_KEY_4, Field(0));
+    const walletId4 = deriveMemberWalletId(chainMember4, CHAIN_KEY_4, Field(0), fixtureIdentitySalt({ localData: chainMember4 }));
+    const pre4 = memberWalletPreimage(chainMember4, CHAIN_KEY_4, Field(0), fixtureIdentitySalt({ localData: chainMember4 }));
     const st4 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       pre4[0]!, pre4[1]!, pre4[2]!, pre4[3]!, pre4[4]!, pre4[5]!,
@@ -450,8 +451,8 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
       lastName: 'Chain',
     };
     const chainKey5 = 'gE8!oT1^iU4vX7yZ0aB2';
-    const walletId5 = deriveMemberWalletId(chainMember5, chainKey5, Field(0));
-    const pre5 = memberWalletPreimage(chainMember5, chainKey5, Field(0));
+    const walletId5 = deriveMemberWalletId(chainMember5, chainKey5, Field(0), fixtureIdentitySalt({ localData: chainMember5 }));
+    const pre5 = memberWalletPreimage(chainMember5, chainKey5, Field(0), fixtureIdentitySalt({ localData: chainMember5 }));
     const st5 = await StateTransitionProgram.proveRegistration(
       DOMAIN_TAG_MEMBER,
       pre5[0]!, pre5[1]!, pre5[2]!, pre5[3]!, pre5[4]!, pre5[5]!,
@@ -463,7 +464,7 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
     lcTree.setLeaf(4n, lifecycleLeafCommitment(walletId5, LIFECYCLE_REGISTERED));
 
     // Wallet update for member1 at slot 0
-    const pre1update = memberWalletPreimage(chainMember1, CHAIN_KEY_1, Field(0));
+    const pre1update = memberWalletPreimage(chainMember1, CHAIN_KEY_1, Field(0), fixtureIdentitySalt({ localData: chainMember1 }));
     const newCredRoot = Poseidon.hash([Field(7777)]);
     const st6 = await StateTransitionProgram.proveWalletUpdate(
       DOMAIN_TAG_MEMBER,

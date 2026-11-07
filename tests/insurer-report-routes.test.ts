@@ -114,7 +114,7 @@ describe('the credential', () => {
     const spies = Object.getOwnPropertyNames(Object.getPrototypeOf(insurerNode))
       .filter((m) => m.startsWith('generate'))
       .map((m) => jest.spyOn(insurerNode, m));
-    for (const headers of [{}, { Authorization: 'Bearer not-the-token' }]) {
+    for (const headers of [{}, { Authorization: 'Bearer not-the-token' }] as Array<Record<string, string>>) {
       const r = await report(name, body, headers);
       expect([name, r.status]).toEqual([name, 401]);                         // before: 200, for anyone
     }

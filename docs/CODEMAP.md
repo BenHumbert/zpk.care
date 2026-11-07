@@ -69,7 +69,7 @@ All children inherit the launcher's full `process.env` (`start:523,557,662`); `Z
 | `visualizer/engine/` | 9 | 5901 | console drivers (`flowchart-orchestrator.ts`, `auto-mode-controller.ts`, `start-interactive.ts`, `start-sequencer.ts`, scenarios), the USB NFC bridge (`nfc-bridge.ts`, implements `src/adjudication/nfc-port.ts`), `nfc-test.ts` |
 | `dashboard-*/` | 31 | 24752 | browser apps served by their nodes (member 2740, prescriber 3882, pharmacy 4962, insurer 4121, marketplace 1090, employer 1922, hr-tool 1468, leviathan 4434) |
 | `scripts/e2e-verify/` | 8 | 1517 | live harness: `run.ts`, `run-multi.ts`, `check-*.ts`, `trace.ts`, plan files |
-| `tests/` | 52 files | | Jest suites (not mapped; `registry-consistency.test.ts` covers the Phase 1 fix) |
+| `tests/` | 219 suites | | Jest suites (not mapped). Each is listed once: `scripts/dev/regression-suites.txt` (`npm test`) or `scripts/dev/slow-suites.txt` (added by `npm run test:all`); `tests/suite-lists.test.ts` holds that |
 
 ## 3. Route inventory (counts; full tables in the detail files)
 
@@ -238,7 +238,7 @@ Ed25519 (not ZK): admin auth (§4), employer and insurer attestation signatures,
 | `POOL_SIZE`, `POOL_RECYCLE_JOBS`, `POOL_COMPILE_TIMEOUT`, `BATCH_INTERVAL` | pools, node | tuning |
 | `E2E_RESUME_DIR`, `E2E_SEQ`, `E2E_PRIOR_TRACE` | `scripts/e2e-verify/*` | harness options |
 
-Commands: tests `npx jest tests/<file>.test.ts`; network `npx tsx src/nodes/start-leviathan.ts` with the secrets and `ZKTRIDENT_FORMULARY_LIMIT=100 ZKTRIDENT_POOL_SIZE=2 ZKTRIDENT_PROOF_POOL_SIZE=4 ZKTRIDENT_OPEN_BROWSERS=0`, in the background, polling (registration proving 20–120 s); harness `scripts/e2e-verify/run.ts` (one employer), `run-multi.ts` (two employers, four members), `check-registry.ts`, `check-identity-exposure.ts`, `check-phi-containment.ts <run-dir> <network-log>`, `check-proof-gate.ts`, `check-network-surface.ts`. Reset `l2-data/`, `nautilus-data/`, `hr-tool-data/` between clean runs (`npm run clean:state` removes the first two).
+Commands: tests `npm test` (the batch), `npm run test:all`, or `npm test -- tests/<file>.test.ts`; network `npx tsx src/nodes/start-leviathan.ts` with the secrets and `ZKTRIDENT_FORMULARY_LIMIT=100 ZKTRIDENT_POOL_SIZE=2 ZKTRIDENT_PROOF_POOL_SIZE=4 ZKTRIDENT_OPEN_BROWSERS=0`, in the background, polling (registration proving 20–120 s); harness `scripts/e2e-verify/run.ts` (one employer), `run-multi.ts` (two employers, four members), `check-registry.ts`, `check-identity-exposure.ts`, `check-phi-containment.ts <run-dir> <network-log>`, `check-proof-gate.ts`, `check-network-surface.ts`. Reset `l2-data/`, `nautilus-data/`, `hr-tool-data/` between clean runs (`npm run clean:state` removes the first two).
 
 ## 10. State of work (2026-10-16, end of Session 1)
 

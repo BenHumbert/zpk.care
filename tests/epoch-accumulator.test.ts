@@ -75,6 +75,7 @@ function makeClaimLeaf(
     patientPayCents: '1000',
     planPayCents: '5000',
     operationType: '1',
+    deductibleCreditCents: '0',
   };
 }
 

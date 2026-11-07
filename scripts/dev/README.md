@@ -51,6 +51,6 @@ Rules that have held since session 1:
 - Compare failures by name against the previous run; a run is accepted when the set is identical
   or smaller and every new check passes.
 - The regression batch is the suite list in `scripts/dev/regression-suites.txt`; a new acceptance
-  suite is added to it with its commit. Run it with the harness stopped:
-  `npx jest $(sed 's/\r$//' scripts/dev/regression-suites.txt | tr '\n' ' ')` (the sed strips the carriage returns a Windows checkout adds to the list). `tests/l2-network.test.ts`
-  is outside it, because it is slow, and must be run by hand when the sequencer's gates change.
+  suite is added to it with its commit. Run it with the harness stopped: `npm test` (one suite at a
+  time, `--forceExit`; `npm test -- tests/a.test.ts` runs only the suites named). `npm run test:all`
+  runs every suite, the slow ones listed in `scripts/dev/slow-suites.txt` included.

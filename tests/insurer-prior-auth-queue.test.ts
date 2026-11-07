@@ -62,7 +62,7 @@ afterAll(async () => {
 });
 
 /** The engine's requests as the engine answers its list: the PA state, with fields the insurer must not pass on. */
-function engineRequests() {
+function engineRequests(): Array<{ id: string; status: string; resolvedAt: number | null; decisionReason: string | null; [field: string]: unknown }> {
   return [
     {
       id: 'PA-0002', status: 'PENDING', memberWalletId: WALLET_B, memberName: 'Riley Fixture', ndcHash: '222', ndc: '00093-7146-56',

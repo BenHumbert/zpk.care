@@ -70,7 +70,7 @@ import { FormularyRegistry } from '../src/access-control/formulary-registry.js';
 import { AccumulatorData, ACCUMULATOR_LEAF_INDEX } from '../src/access-control/accumulator-data.js';
 import { hashString, dateToField, centsToField, quantityToField, codeToField } from '../src/zkp/hash-utils.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, getAllFormularyEntries } from '../src/data/index.js';
+import { MEMBERS, PRESCRIBERS, PHARMACIES, MEDICATIONS, getAllFormularyEntries, fixtureIdentitySalt } from '../src/data/index.js';
 import { createAcceptAllVerifierForTests } from '../src/l2/l2-proof-verifier.js';
 
 // ─── Constants ──────────────────────────────────────────────
@@ -561,7 +561,7 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
 
   test('P15 — build prescription + fulfillment data and generate claim proof', async () => {
     // ─── Derive wallet IDs from seed data ──────────────────
-    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
+    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0), fixtureIdentitySalt(alice));
     const prescriberWid = derivePrescriberWalletId(drChen.localData, drChen.enrollmentKey);
     const pharmacyWid = derivePharmacyWalletId(mainSt.localData, mainSt.enrollmentKey);
 
@@ -569,7 +569,6 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
     const formularyEntries = getAllFormularyEntries();
     const planTemplate = new PlanTemplate({
       planId: 'PLAN-GOLD-2026',
-      groupId: 'ACME-CORP',
       copayAmountCents: 3000,
       coverageType: 1,
       deductibleAmountCents: 50000,
@@ -772,9 +771,9 @@ describe('Production Showcase — Alice\'s Healthcare Journey', () => {
 
     // Generate wallet update proof using already-compiled StateTransitionProgram
     // Member preimage: need domainTag (0) + 5 wallet fields
-    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0));
+    const memberWid = deriveMemberWalletId(alice.localData, alice.enrollmentKey, Field(0), fixtureIdentitySalt(alice));
     const { memberWalletPreimage } = await import('../src/wallets/wallet-derivation.js');
-    const walletFields = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0));
+    const walletFields = memberWalletPreimage(alice.localData, alice.enrollmentKey, Field(0), fixtureIdentitySalt(alice));
     const padded = [...walletFields];
     while (padded.length < 6) padded.push(Field(0));
 

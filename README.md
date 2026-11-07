@@ -43,7 +43,7 @@ zpk.care is free and always will be. If it has helped you and you would like to 
 
 zpk.care is a **hardened production candidate** running end to end on a one-computer test network. It is not yet ready for a pilot. Where it stands, as of 2026-10-26:
 
-- **Works end to end:** plan publishing, employer signup, enrollment on the member's device, primary-care choice, prescribing with the member's price shown first, fill and adjudication. Live end-to-end runs on 2026-10-25 passed 246 of 246 checks (one member) and 221 of 221 (four members, two employers); the regression batch is 153 suites and 1,832 tests, all passing.
+- **Works end to end:** plan publishing, employer signup, enrollment on the member's device, primary-care choice, prescribing with the member's price shown first, fill and adjudication. Live end-to-end runs on 2026-10-25 passed 246 of 246 checks (one member) and 221 of 221 (four members, two employers); the regression batch (`npm test`) is 200 suites and 2,898 tests, all passing, and `npm run test:all` adds the suites that prove circuits for longer.
 - **Hardened by an internal audit:** 147 findings, 122 fixed, 25 open, none critical. Every route that changes state or returns member data authenticates its caller; requests are signed and replay-protected; every submitted proof is verified against a pinned key before anything is written; the member's device proves every change to its own record, and the engine holds no identity inputs.
 - **Not yet built or not yet complete:** outside verification of each fill's money (option A, step 1 of 8 done), the price lock and signed pickup with a 14-day reversal, providers holding their own keys, end-to-end message encryption, the NCPDP standard claim format, pharmacy payments, a native phone app and employer reports.
 - **Not independently audited.** The cryptography, key management and network protocol need a third-party review before any deployment that handles real data.
@@ -180,7 +180,7 @@ zpk.care is published as a working reference implementation, so it can be studie
 
 1. Run the full network locally and walk through the end-to-end flow ([Getting started](#getting-started)).
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the trust model, then [ZKP_OVERVIEW.md](ZKP_OVERVIEW.md) for the proof pipeline.
-3. Run `npm test`. The Jest suites cover each layer of the system, the L2 network, failover, WAL and quorum durability, and end-to-end smoke tests. Suites that compile circuits are slow.
+3. Run `npm test`, the regression batch (about ten minutes), then `npm run test:all`, which adds the slow suites that compile and prove circuits. The suites cover each layer of the system, the L2 network, failover, WAL and quorum durability.
 4. Read [SECURITY.md](SECURITY.md) before making any decision that involves real data.
 
 ### Integration points

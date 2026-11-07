@@ -124,7 +124,7 @@ test('after a restart, with no version held in memory: still answered, never a 4
   expect(svc.checkStepTherapy(W, ndcHashOf(AMRIX)).allowed).toBe(true);   // no prerequisite class defined for it in the catalog
   const r = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf(ABACAVIR)}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
   expect(r.status).toBe(200);
-  expect((await r.json()).message).toBe('Step therapy not required');
+  expect(((await r.json()) as Record<string, unknown>).message).toBe('Step therapy not required');
   // a drug off the published plan is still refused, with its own status
   const off = await fetch(`${url}/interactive/step-therapy-check?memberWalletId=${W}&ndcHash=${ndcHashOf('00173071622')}`, { headers: { Authorization: `Bearer ${OPERATOR}` } });
   expect(off.status).toBe(403);

@@ -199,7 +199,7 @@ afterEach(() => { jest.restoreAllMocks(); });
 describe('the claim, audit and messaging reads', () => {
   test.each(GATED)('%s refuses a caller without the node\'s admin credential, and the sequencer is not asked', async (_route, target, sequencerRead) => {
     const asked = jest.spyOn(client, sequencerRead);
-    for (const headers of [{}, { Authorization: 'Bearer not-the-token' }]) {
+    for (const headers of [{}, { Authorization: 'Bearer not-the-token' }] as Array<Record<string, string>>) {
       const r = await get(target, headers);
       expect([r.status, r.json.data]).toEqual([401, undefined]);  // before: 200, read as the plan for anyone
     }

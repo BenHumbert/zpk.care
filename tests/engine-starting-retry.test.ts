@@ -83,7 +83,7 @@ describe('sendWhileEngineStarts', () => {
     const send = jest.fn<() => Promise<Response>>().mockImplementation(async () => starting('10'));
     const r = await sendWhileEngineStarts(send, { now: time.now, sleep: time.sleep, windowMs: 25_000 });
     expect(r.status).toBe(503);
-    expect((await r.json()).error).toBe(STARTING);
+    expect(((await r.json()) as Record<string, unknown>).error).toBe(STARTING);
     expect(send).toHaveBeenCalledTimes(3); // at 0 s, 10 s and 20 s; a fourth would start at 30 s
     expect(time.waits).toEqual([10_000, 10_000]);
   });
@@ -154,7 +154,7 @@ async function call(routes: Route[], method: string, path: string, body?: unknow
   await route.handler({}, {}, {}, query, body);
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const callsTo = (calls: Array<{ path: string }>, path: string) => calls.filter((c) => c.path === path);
+const callsTo = <C extends { path: string }>(calls: C[], path: string) => calls.filter((c) => c.path === path);
 
 describe("the prescriber node's prescribe job", () => {
   const rxBody = { memberWalletId: '9001', pharmacyWalletId: '5002', ndcHash: '777', brandName: 'ABACAVIR', quantity: 30 };

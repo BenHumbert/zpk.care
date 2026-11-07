@@ -37,6 +37,7 @@ import {
   DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -83,8 +84,8 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
-    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
+    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
     // StateTransitionProof (wallet verification inlined — no ProofGateProof needed)
     console.log(`[test1] Generating StateTransitionProof...`);
@@ -119,7 +120,7 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0));
+    const preimage = memberWalletPreimage(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
 
     console.log(`[test2] Generating StateTransitionProof...`);
     let s = Date.now();
@@ -153,10 +154,10 @@ describe('L3 — StateTransitionProgram Recursive Proofs', () => {
     const regTree = new MerkleTree(WALLET_TREE_HEIGHT);
     const lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
-    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(testMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: testMember }));
     const wrongMember = { ...testMember, firstName: 'Jane' };
-    const wrongPreimage = memberWalletPreimage(wrongMember, TEST_ENROLLMENT_KEY, Field(0));
-    const wrongWalletId = deriveMemberWalletId(wrongMember, TEST_ENROLLMENT_KEY, Field(0));
+    const wrongPreimage = memberWalletPreimage(wrongMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: wrongMember }));
+    const wrongWalletId = deriveMemberWalletId(wrongMember, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: wrongMember }));
 
     console.log(`[test3] Generating StateTransitionProof with different identity...`);
     const s = Date.now();

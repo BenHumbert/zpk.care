@@ -70,6 +70,7 @@ import {
   DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -138,8 +139,8 @@ async function generateRegistration(
   regTree: MerkleTree,
   lcTree: MerkleTree,
 ): Promise<{ proof: any; walletId: Field }> {
-  const walletId = deriveMemberWalletId(member, enrollmentKey, Field(0));
-  const preimage = memberWalletPreimage(member, enrollmentKey, Field(0));
+  const walletId = deriveMemberWalletId(member, enrollmentKey, Field(0), fixtureIdentitySalt({ localData: member }));
+  const preimage = memberWalletPreimage(member, enrollmentKey, Field(0), fixtureIdentitySalt({ localData: member }));
 
   const regWitness = new WalletRegistryWitness(regTree.getWitness(slot));
   const lcWitness = new LifecycleWitness(lcTree.getWitness(slot));
@@ -328,7 +329,7 @@ describe('L2 Settlement — End-to-End on LocalBlockchain', () => {
     const reg5 = await generateRegistration(member5, ENROLLMENT_KEY_5, 4n, regTree, lcTree);
 
     // Wallet update for member1 (already registered at slot 0)
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0), fixtureIdentitySalt({ localData: member1 }));
     const newCredentialRoot = Poseidon.hash([Field(42)]);
     const regWitness1 = new WalletRegistryWitness(regTree.getWitness(0n));
     const lcWitness1 = new LifecycleWitness(lcTree.getWitness(0n));

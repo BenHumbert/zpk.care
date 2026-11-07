@@ -36,7 +36,7 @@ import {
   type MessageStoreEntry,
 } from '../src/l2/message-store-types.js';
 import { L2SequencerService } from '../src/l2/l2-sequencer-service.js';
-import { L2Node } from '../src/l2/l2-node.js';
+import { L2Node, type L2NodeOptions } from '../src/l2/l2-node.js';
 import type { GossipMessage, MessageStoredPayload } from '../src/l2/l2-peer-types.js';
 import { generateMessageId } from '../src/l2/l2-peer-network.js';
 import { InMemoryStore } from '../src/storage/local-store.js';
@@ -84,7 +84,7 @@ function makePayload(content = 'test'): MessagePayload {
 }
 
 /** Create a fresh L2Node for testing */
-function createNode(opts: Partial<Parameters<typeof L2Node.prototype.start>[0]> = {}): L2Node {
+function createNode(opts: Partial<L2NodeOptions> = {}): L2Node {
   const node = new L2Node(
     {
       batchIntervalMs: 999_999, // no auto-batch

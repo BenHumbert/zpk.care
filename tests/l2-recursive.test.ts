@@ -57,6 +57,7 @@ import {
   DOMAIN_TAG_MEMBER,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -136,8 +137,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree = new MerkleTree(WALLET_TREE_HEIGHT);
 
     // ── Registration 1: member1 at slot 0 ──
-    walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1, Field(0));
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
+    walletId1 = deriveMemberWalletId(member1, ENROLLMENT_KEY_1, Field(0), fixtureIdentitySalt({ localData: member1 }));
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0), fixtureIdentitySalt({ localData: member1 }));
 
     console.log(`[test1] Generating StateTransitionProof #1 (register member1)...`);
     let s = Date.now();
@@ -161,8 +162,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree.setLeaf(0n, lcLeaf1);
 
     // ── Registration 2: member2 at slot 1 ──
-    const walletId2 = deriveMemberWalletId(member2, ENROLLMENT_KEY_2, Field(0));
-    const preimage2 = memberWalletPreimage(member2, ENROLLMENT_KEY_2, Field(0));
+    const walletId2 = deriveMemberWalletId(member2, ENROLLMENT_KEY_2, Field(0), fixtureIdentitySalt({ localData: member2 }));
+    const preimage2 = memberWalletPreimage(member2, ENROLLMENT_KEY_2, Field(0), fixtureIdentitySalt({ localData: member2 }));
 
     console.log(`[test1] Generating StateTransitionProof #2 (register member2)...`);
     s = Date.now();
@@ -209,8 +210,8 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     console.log(`\n── Test 2/5: wrapPair (registration + wallet update) (${mem()}) ──`);
 
     // ── Registration 3: member3 at slot 2 ──
-    const walletId3 = deriveMemberWalletId(member3, ENROLLMENT_KEY_3, Field(0));
-    const preimage3 = memberWalletPreimage(member3, ENROLLMENT_KEY_3, Field(0));
+    const walletId3 = deriveMemberWalletId(member3, ENROLLMENT_KEY_3, Field(0), fixtureIdentitySalt({ localData: member3 }));
+    const preimage3 = memberWalletPreimage(member3, ENROLLMENT_KEY_3, Field(0), fixtureIdentitySalt({ localData: member3 }));
 
     console.log(`[test2] Generating StateTransitionProof #3 (register member3)...`);
     let s = Date.now();
@@ -234,7 +235,7 @@ describe('L2 — BatchProgram Recursive Proofs (Uniform Pair)', () => {
     lcTree.setLeaf(2n, lcLeaf3);
 
     // ── Wallet update: member1 at slot 0 (already registered in test 1) ──
-    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0));
+    const preimage1 = memberWalletPreimage(member1, ENROLLMENT_KEY_1, Field(0), fixtureIdentitySalt({ localData: member1 }));
 
     console.log(`[test2] Generating StateTransitionProof #4 (wallet update member1)...`);
     s = Date.now();

@@ -440,6 +440,7 @@ describe('ProvingJobRequest / ProvingJobResult types', () => {
         blockHeight: '5',
       },
       proveTimeMs: 42000,
+      workerId: 1,
     };
 
     const json = JSON.stringify(result);

@@ -86,6 +86,7 @@ import {
   deriveMemberWalletId,
 } from '../src/wallets/wallet-derivation.js';
 import type { MemberLocalData } from '../src/models/member.js';
+import { fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Test Data ─────────────────────────────────────────────
 
@@ -716,7 +717,7 @@ describe('Onboarding — EnrollmentService', () => {
     );
 
     // Step B: Member computes wallet ID on device (simulated)
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
 
     // Step C: Insurer processes enrollment with (walletId, tokenId)
     const result = ctx.service.processEnrollment(
@@ -774,7 +775,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-002',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
     const result = ctx.service.processEnrollment(
       walletId,
       'TOKEN-002',
@@ -828,7 +829,7 @@ describe('Onboarding — EnrollmentService', () => {
 
   test('processEnrollment: rejects duplicate wallet', () => {
     const ctx = setupService();
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
 
     ctx.tokenAuthority.generateToken(
       'ACME-CORP-001',
@@ -974,7 +975,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-TERM',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
     ctx.service.processEnrollment(walletId, 'TOKEN-TERM', '20260115');
 
     // Verify enrolled
@@ -1122,7 +1123,7 @@ describe('Onboarding — EnrollmentService', () => {
       'TOKEN-OPAQUE',
     );
 
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0));
+    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
     const result = ctx.service.processEnrollment(
       walletId,
       'TOKEN-OPAQUE',

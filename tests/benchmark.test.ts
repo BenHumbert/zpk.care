@@ -94,7 +94,7 @@ import { PlanTemplate } from '../src/onboarding/plan-template.js';
 import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 
 // Production data
-import { PRESCRIBERS, PHARMACIES, MEMBERS, getAllFormularyEntries } from '../src/data/index.js';
+import { PRESCRIBERS, PHARMACIES, MEMBERS, getAllFormularyEntries, fixtureIdentitySalt } from '../src/data/index.js';
 
 // ─── Timing Infrastructure ──────────────────────────────────
 
@@ -201,8 +201,8 @@ describe('Full Claim Lifecycle Benchmark', () => {
 
     // 1a. Wallet derivation
     await timed('P1', 'Derive member wallet ID', 'offchain', false, () => {
-      memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0));
-      memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0));
+      memberWalletId = deriveMemberWalletId(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
+      memberPreimageFields = memberWalletPreimage(member.localData, member.enrollmentKey, Field(0), fixtureIdentitySalt(member));
     });
 
     await timed('P1', 'Derive prescriber wallet ID', 'offchain', false, () => {

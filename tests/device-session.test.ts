@@ -99,7 +99,7 @@ async function startMemberNode(adminToken?: string): Promise<{ port: number; dir
     onboarding: {
       phase: 'ready',
       tokenData: { tokenId: 'TOKEN-SECRET-001', groupId: 'ACME-CORP', planId: 'PLAN-GOLD-2026' },
-    } as NautilusStateData['onboarding'],
+    } as unknown as NautilusStateData['onboarding'],
     lastSavedAt: new Date().toISOString(),
   };
   await seed.save(state);

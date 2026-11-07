@@ -56,7 +56,8 @@ This is the recommended way to start everything fresh. It:
 
 | Command | Purpose |
 |---|---|
-| `npm test` | Run the Jest test suites |
+| `npm test` | Run the regression batch, the suites in `scripts/dev/regression-suites.txt`, one at a time (about ten minutes); `npm test -- tests/a.test.ts` runs only the suites named |
+| `npm run test:all` | Run every suite, the slow ones that compile and prove circuits (`scripts/dev/slow-suites.txt`) included |
 | `npm run start:explorer` | Run just the block explorer (port 8000) |
 | `npm run start:flowchart` | Run the animated end-to-end visualizer demo |
 | `npm run fetch:nadac` | Fetch fresh NADAC drug-pricing data |
@@ -188,5 +189,5 @@ state and checkpoints so you can start fresh.
   can eventually slow down. Restart with a `:clean` script. (In a real
   deployment each participant proves on their own device, so this doesn't
   arise.)
-- **Windows + tests:** use `npm test` (which calls `npx jest`) rather than
-  invoking the jest binary directly.
+- **Windows + tests:** use `npm test` or `npm run test:all` (scripts/dev/run-tests.ts runs Jest
+  with `--runInBand --forceExit`) rather than invoking the jest binary directly.

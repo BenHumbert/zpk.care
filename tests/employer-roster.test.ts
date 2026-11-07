@@ -36,7 +36,7 @@ describe('the employer roster', () => {
     const issued = node.generateToken('G-ROSTER', 'employee-hash-1', 'family-hash-1', inSevenDays());
     const entries = node.listRoster();
     expect(entries).toHaveLength(1);
-    const entry = entries[0] as Record<string, unknown>;
+    const entry = entries[0] as unknown as Record<string, unknown>;
     expect(Object.keys(entry).sort()).toEqual(['createdAt', 'employeeIdHash', 'familyIdHash', 'groupIdHash', 'inviteStatus', 'status', 'tokenIdHash']);
     expect(entry.tokenIdHash).toBe(hashString(issued.tokenId).toString());
     expect(entry.inviteStatus).toBe('unused');                // A-109: what became of the invite, for the HR Tool's notices

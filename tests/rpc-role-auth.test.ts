@@ -160,7 +160,7 @@ describe('admin-gated HTTP routes', () => {
   test('the insurer is refused an operator route with 403, and the member is refused the insurer\'s', async () => {
     const r = await fetch(`${url}/viz/clear`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signedBy(insurer, '', '/viz/clear') } });
     expect(r.status).toBe(403);
-    expect((await r.json()).error).toMatch(/role insurer may not call POST \/viz\/clear/);
+    expect(((await r.json()) as Record<string, unknown>).error).toMatch(/role insurer may not call POST \/viz\/clear/);
     const body = JSON.stringify({ ndcHash: '1' });
     const m = await fetch(`${url}/interactive/update-formulary`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...signedBy(member, body, '/interactive/update-formulary') }, body });
     expect(m.status).toBe(403);
