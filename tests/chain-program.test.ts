@@ -48,6 +48,8 @@ import {
   BatchOutput,
 } from '../src/l2/batch-program.js';
 import { ChainProgram, ChainProof } from '../src/l2/chain-program.js';
+import { L2Node } from '../src/l2/l2-node.js';
+import { InMemoryStore } from '../src/storage/local-store.js';
 import {
   WalletRegistryWitness,
   WALLET_TREE_HEIGHT,
@@ -643,4 +645,30 @@ describe('ChainProgram — 3-tier recursive proofs (zkTrident chain)', () => {
 
     console.log(`✓ 05-R06 PASSED — full 3-tier zkTrident chain verified in ${secs(t)}s (${mem()})\n`);
   }, 600_000);
+
+  // A-151: a replica that checks gossiped batches used batchProof.verify(), which does nothing outside a circuit, so a
+  // forged batch proof passed as well as a real one
+  test('A-151: a replica checking gossiped batches applies a real batch proof and refuses a forged one', async () => {
+    const replica = new L2Node(
+      { role: 'replica', nodeId: 'rep-a151', batchIntervalMs: 999_999, autoSettle: false, settlementDelayMs: 0, maxBatchRetries: 0, l2Only: true },
+      new InMemoryStore(), new MerkleTree(WALLET_TREE_HEIGHT).getRoot(), new MerkleTree(WALLET_TREE_HEIGHT).getRoot(), Field(0),
+    );
+    await replica.enableBatchVerification();   // BatchProgram is compiled already in this suite
+    const applied = jest.spyOn(replica.getSequencer(), 'applyReplicatedBatch').mockImplementation(() => undefined as never);
+    const rejected: string[] = [];
+    replica.on((e) => { if (e.type === 'batch:rejected') rejected.push(String((e.data as { reason?: string }).reason)); });
+    const gossip = (batchNumber: bigint, batchProofJson: string) => (replica as any).handleGossip({
+      messageId: `a151-${batchNumber}`, type: 'batch:built', senderId: 'seq-a151', timestamp: Date.now(),
+      payload: { batch: { batchNumber, batchProofJson }, block: {}, updatedReceipts: [], updatedAuditEvents: [] },
+    });
+
+    await gossip(1n, JSON.stringify(batchProof1.toJSON()));
+    expect(rejected).toEqual([]);
+    expect(applied).toHaveBeenCalledTimes(1);
+
+    const forged = await BatchProof.dummy(undefined, batchProof1.publicOutput, 2);
+    await gossip(2n, JSON.stringify(forged.toJSON()));
+    expect(rejected).toEqual([expect.stringMatching(/does not verify/)]);
+    expect(applied).toHaveBeenCalledTimes(1);   // the forged batch is not applied
+  }, 300_000);
 });

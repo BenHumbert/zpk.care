@@ -1130,8 +1130,13 @@ export class L2Node {
         if (this.batchVerificationEnabled && payload.batch.batchProofJson) {
           try {
             const { BatchProof } = await import('./batch-program.js');
+            const { verify } = await import('o1js');
             const batchProof = await BatchProof.fromJSON(JSON.parse(payload.batch.batchProofJson));
-            await batchProof.verify();
+            // A-151: verify against the compiled key. batchProof.verify() only marks a proof for an enclosing circuit
+            // and does nothing here, so it let every batch proof through, a forged one included.
+            if (!this.batchVerificationKey || !(await verify(batchProof, this.batchVerificationKey))) {
+              throw new Error('the batch proof does not verify against the compiled BatchProgram key');
+            }
           } catch (err) {
             this.emit({
               type: 'batch:rejected',
