@@ -137,6 +137,7 @@ tests/node-keyring.test.ts
 tests/node-roles.test.ts
 tests/pa-review-screens.test.ts
 tests/parent-watchdog.test.ts
+tests/partial-fill-lifecycle.test.ts
 tests/pcp-reads-follow-choice.test.ts
 tests/pcp-via-queue.test.ts
 tests/pcp.test.ts

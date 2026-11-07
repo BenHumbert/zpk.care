@@ -4634,6 +4634,10 @@ export class AdjudicationService {
       if (!fromBigint || !toBigint || !isValidStatusTransition(fromBigint, toBigint)) {
         throw new Error(`Invalid status transition: ${rxState.status} → ${opts.newStatus}`);
       }
+      // A-148: a partly filled script is finished by the fill that dispenses its rest, with its proof, never by hand
+      if (opts.newStatus === 'DISPENSED' && rxState.status !== 'FILLED') {
+        throw new Error(`Invalid status transition: ${rxState.status} → DISPENSED (only the last fill finishes a partly filled prescription)`);
+      }
 
       // Validate role: prescribers cancel, pharmacies reject
       if (opts.newStatus === 'CANCELLED' && opts.role !== 'prescriber') {

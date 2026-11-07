@@ -271,7 +271,9 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
     const LIFECYCLE: Array<[bigint, bigint]> = [
       [1n, 3n], [1n, 4n], [1n, 5n], [1n, 7n],           // ADJUDICATED -> FILLED, CANCELLED, REJECTED, TRANSFERRED
       [2n, 2n], [2n, 3n], [2n, 4n], [2n, 6n], [2n, 7n], // PARTIALLY_FILLED -> itself, FILLED, CANCELLED, REVERSED, TRANSFERRED
+      [2n, 8n],                                          // PARTIALLY_FILLED -> DISPENSED (the last part, A-148)
       [3n, 8n], [3n, 4n],                                // FILLED -> DISPENSED, CANCELLED
+      [3n, 2n],                                          // FILLED -> PARTIALLY_FILLED (the first part, A-148)
       [8n, 6n],                                          // DISPENSED -> REVERSED
       [6n, 1n],                                          // REVERSED -> ADJUDICATED
     ];
@@ -818,6 +820,56 @@ describe('Layer 8 — Prescription Flow (Use Case D)', () => {
         const ok = await PrescriptionProgram.verify(result.proof);
         expect(ok).toBe(true);
       }, 60_000);
+
+      // A-148: a script handed over in parts proves FILLED -> PARTIALLY_FILLED for its first part and
+      // PARTIALLY_FILLED -> DISPENSED for its last; the circuit refused both
+      it.each([
+        ['the first part of a prepared script', RX_STATUS_FILLED, RX_STATUS_PARTIALLY_FILLED],
+        ['the last part of a partly filled script', RX_STATUS_PARTIALLY_FILLED, RX_STATUS_DISPENSED],
+      ])('a partial fill proves and verifies: %s', async (_label, from, to) => {
+        const rxData = createTestPrescriptionData();
+        const forest = createTestForest();
+        forest.setLeaf(ForestDomain.MEDICATION, 0n, rxData.commitment());
+        const oldStatus = new PrescriptionStatusData({
+          prescriptionHash: rxData.commitment(),
+          status: from,
+          updatedByWalletId: pharmacyWalletId,
+          updatedAt: Field(20260205100000n),
+          pharmacyWalletId,
+          fillQuantity: Field(0),
+          notesHash: Field(0),
+        });
+        forest.setLeaf(ForestDomain.TRANSACTION, 0n, oldStatus.commitment());
+        const credentialData = new CredentialData({
+          credentialType: CREDENTIAL_TYPE_PRESCRIPTION,
+          forestRoot: forest.getForestRoot(),
+          issuerWalletId: prescriberWalletId,
+          subjectWalletId: pharmacyWalletId,
+          issuedAt: dateToField('20260201'),
+          expiresAt: dateToField('20270201'),
+          revoked: Field(0),
+        });
+        const newStatus = new PrescriptionStatusData({
+          prescriptionHash: rxData.commitment(),
+          status: to,
+          updatedByWalletId: pharmacyWalletId,
+          updatedAt: Field(20260206100000n),
+          pharmacyWalletId,
+          fillQuantity: quantityToField(10),
+          notesHash: Field(0),
+        });
+        const result = await PrescriptionProgram.proveStatusUpdate(
+          credentialData, rxData, oldStatus, newStatus, ForestRoots.fromForest(forest),
+          forest.getWitness(ForestDomain.MEDICATION, 0n),
+          forest.getWitness(ForestDomain.TRANSACTION, 0n),
+          forest.getWitness(ForestDomain.TRANSACTION, 1n),
+          PRESCRIBER_QUAL,
+          PRESCRIBER_ID_HASH,
+          PRESCRIBER_EK_HASH,
+        );
+        expect(await PrescriptionProgram.verify(result.proof)).toBe(true);
+        expect(result.proof.publicOutput.statusCode.toString()).toBe(to.toString());
+      }, 120_000);
 
       it('rejects invalid transition (FILLED→ACTIVE)', async () => {
         const rxData = createTestPrescriptionData();

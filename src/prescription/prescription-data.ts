@@ -199,11 +199,12 @@ export function buildPrescriptionStatusData(
 /**
  * Valid prescription status transitions.
  *
- * Claim lifecycle: ADJUDICATED → FILLED → DISPENSED → (REVERSED)
+ * Claim lifecycle: ADJUDICATED → FILLED → DISPENSED → (REVERSED); a script handed over in parts goes
+ * FILLED → PARTIALLY_FILLED → … → DISPENSED, one fill proof per part (A-148).
  *
  * ADJUDICATED(1) → FILLED(3), CANCELLED(4), REJECTED(5), TRANSFERRED(7)
- * PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7)
- * FILLED(3) → DISPENSED(8), CANCELLED(4)
+ * PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7), DISPENSED(8)
+ * FILLED(3) → DISPENSED(8), PARTIALLY_FILLED(2), CANCELLED(4)
  * DISPENSED(8) → REVERSED(6)  (late reversal only — meds already given)
  * REVERSED(6) → ADJUDICATED(1)  (can restart)
  * CANCELLED, REJECTED, TRANSFERRED → terminal (no further transitions)
@@ -220,8 +221,10 @@ const VALID_TRANSITIONS: [bigint, bigint][] = [
   [2n, 4n], // PARTIALLY_FILLED → CANCELLED
   [2n, 6n], // PARTIALLY_FILLED → REVERSED
   [2n, 7n], // PARTIALLY_FILLED → TRANSFERRED
+  [2n, 8n], // PARTIALLY_FILLED → DISPENSED (the rest of the quantity handed over and paid: the last part, A-148)
   // From FILLED (physically prepared, awaiting member pickup + payment)
   [3n, 8n], // FILLED → DISPENSED (member paid, meds handed over, settlement proof)
+  [3n, 2n], // FILLED → PARTIALLY_FILLED (part of the quantity handed over and paid: the first part, A-148)
   [3n, 4n], // FILLED → CANCELLED (meds returned to stock before dispense)
   // From DISPENSED (terminal successful state — settlement finalized)
   [8n, 6n], // DISPENSED → REVERSED (late reversal with ZK proof)
@@ -248,15 +251,17 @@ export function assertValidStatusTransition(from: Field, to: Field): void {
   const t3 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_REJECTED));
   const t4 = from.equals(RX_STATUS_ADJUDICATED).and(to.equals(RX_STATUS_TRANSFERRED));
 
-  // PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7)
+  // PARTIALLY_FILLED(2) → PARTIALLY_FILLED(2), FILLED(3), CANCELLED(4), REVERSED(6), TRANSFERRED(7), DISPENSED(8)
   const t5 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_PARTIALLY_FILLED));
   const t6 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_FILLED));
   const t7 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_CANCELLED));
   const t8 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_REVERSED));
   const t9 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_TRANSFERRED));
+  const t14 = from.equals(RX_STATUS_PARTIALLY_FILLED).and(to.equals(RX_STATUS_DISPENSED));
 
-  // FILLED(3) → DISPENSED(8), CANCELLED(4)
+  // FILLED(3) → DISPENSED(8), PARTIALLY_FILLED(2), CANCELLED(4)
   const t10 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_DISPENSED));
+  const t15 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_PARTIALLY_FILLED));
   const t11 = from.equals(RX_STATUS_FILLED).and(to.equals(RX_STATUS_CANCELLED));
 
   // DISPENSED(8) → REVERSED(6)
@@ -266,8 +271,8 @@ export function assertValidStatusTransition(from: Field, to: Field): void {
   const t13 = from.equals(RX_STATUS_REVERSED).and(to.equals(RX_STATUS_ADJUDICATED));
 
   const isValid = t1.or(t2).or(t3).or(t4)
-    .or(t5).or(t6).or(t7).or(t8).or(t9)
-    .or(t10).or(t11)
+    .or(t5).or(t6).or(t7).or(t8).or(t9).or(t14)
+    .or(t10).or(t15).or(t11)
     .or(t12).or(t13);
   isValid.assertTrue('Invalid prescription status transition');
 }
