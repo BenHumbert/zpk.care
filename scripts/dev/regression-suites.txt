@@ -110,6 +110,7 @@ tests/ledger-lifecycle-gate.test.ts
 tests/leviathan-dashboard-batches.test.ts
 tests/leviathan-failover.test.ts
 tests/listener-request-guards.test.ts
+tests/local-profile.test.ts
 tests/locked-route-budget.test.ts
 tests/machine-seal.test.ts
 tests/marketplace-credentials.test.ts

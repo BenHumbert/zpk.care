@@ -13,6 +13,9 @@ l2-checkpoint-*.json
 .env.*
 credentials.json
 
+# The local profile (npm run setup / npm start): generated secrets, sample files, logs, the HR Tool's workspace
+.zpk/
+
 # OS files
 .DS_Store
 Thumbs.db

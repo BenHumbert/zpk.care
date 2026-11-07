@@ -5,6 +5,12 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "setup": "tsx scripts/local/setup.ts",
+    "start": "tsx scripts/local/start.ts",
+    "stop": "tsx scripts/local/stop.ts",
+    "status": "tsx scripts/local/status.ts",
+    "tokens": "tsx scripts/local/tokens.ts",
+    "texts": "tsx scripts/local/texts.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json && tsc -p tsconfig.tests.json",
     "test": "tsx scripts/dev/run-tests.ts",
     "test:all": "tsx scripts/dev/run-tests.ts --all",

@@ -67,6 +67,7 @@ All children inherit the launcher's full `process.env` (`start:523,557,662`); `Z
 | `visualizer/engine/` | 9 | 5901 | console drivers (`flowchart-orchestrator.ts`, `auto-mode-controller.ts`, `start-interactive.ts`, `start-sequencer.ts`, scenarios), the USB NFC bridge (`nfc-bridge.ts`, implements `src/adjudication/nfc-port.ts`), `nfc-test.ts` |
 | `dashboard-*/` | 31 | 24752 | browser apps served by their nodes (member 2740, prescriber 3882, pharmacy 4962, insurer 4121, marketplace 1090, employer 1922, hr-tool 1468, leviathan 4434) |
 | `scripts/e2e-verify/` | 8 | 1517 | live harness: `run.ts`, `run-multi.ts`, `check-*.ts`, `trace.ts`, plan files |
+| `scripts/local/` | 11 | ~700 | the local profile (cleanup phase 4.1): `npm run setup` (machine checks, secrets in `.zpk/local.env`, sample roster and EIN letter), `npm start` (the secured network and the HR Tool, launched by absolute path so `npm stop` knows them), `npm stop`, `npm run status`, `npm run tokens`, `npm run texts` |
 | `tests/` | 219 suites | | Jest suites (not mapped). Each is listed once: `scripts/dev/regression-suites.txt` (`npm test`) or `scripts/dev/slow-suites.txt` (added by `npm run test:all`); `tests/suite-lists.test.ts` holds that |
 
 ## 3. Route inventory (counts; full tables in the detail files)
