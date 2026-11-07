@@ -1,1 +1,19 @@
+# Text files are stored with LF line endings. A checkout's working copy follows core.autocrlf as before;
+# shell scripts keep LF everywhere so bash runs them on every platform.
+* text=auto
+*.sh text eol=lf
+
+# Binary files: never converted, never diffed as text
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.docx binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# The walkthrough videos live in Git LFS
 docs/media/*.mp4 filter=lfs diff=lfs merge=lfs -text

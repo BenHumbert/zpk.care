@@ -1,0 +1,17 @@
+# Editor settings that match the code: UTF-8, 2-space indents, a final newline, no trailing spaces.
+# Line endings are left to git (.gitattributes and core.autocrlf).
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+# two trailing spaces are a line break in Markdown
+trim_trailing_whitespace = false
+
+[*.py]
+indent_size = 4
