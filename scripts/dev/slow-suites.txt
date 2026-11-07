@@ -16,9 +16,6 @@ tests/layer9.test.ts                 # 75 s
 tests/network.test.ts                # 108 s (run beside another suite)
 #
 # Failing until phase 3 of docs/CLEANUP-PLAN.md removes the code they test or the suite itself:
-tests/onboarding.test.ts             # EnrollmentService.processEnrollment, broken since A-109's hash-only invites (3.3)
-tests/wallet-migration.test.ts       # EnrollmentService.processMigration, the same (3.3)
-tests/formulary-update.test.ts       # two cases on EnrollmentService.updateFormularyForPlan, which needs processEnrollment (3.3)
 tests/benchmark.test.ts              # EnrollmentService.processEnrollment (3.3)
 tests/smoke-e2e.test.ts              # walks the flows from before the hardening; the live harness walks them now (3)
 tests/smoke-leviathan.test.ts        # the same (3)

@@ -14,68 +14,25 @@
  * limitations under the License.
  */
 
+/**
+ * Terminating a console fixture member on the trees the engine shares with the sequencer.
+ *
+ * This is what is left of the in-process EnrollmentService, the insurer's half of the enrollment ceremony from before
+ * enrollment went over the network (the member's device redeems its code with the insurer's node, which redeems it with
+ * the employer's node: `src/nodes/routes/insurer-routes.ts`). Its enrollment, migration, group-termination and formulary
+ * paths read the raw group, plan and family IDs, which an invite has not carried since A-109 (codes are kept by their
+ * fingerprint), and nothing the network runs called them; the cleanup removed them (docs/CLEANUP-PLAN.md, phase 3.3).
+ * The engine still terminates a console fixture member here (`AdjudicationService.terminateMember`) until the fixtures
+ * go; a member with a device is terminated on the lifecycle tree directly.
+ */
 import { Field, MerkleTree } from 'o1js';
-import {
-  WalletRegistry,
-  WalletState,
-  WALLET_TREE_HEIGHT,
-} from '../wallets/wallet-state.js';
-import {
-  lifecycleLeafCommitment,
-  LIFECYCLE_REGISTERED,
-  LIFECYCLE_ELIGIBLE,
-  LIFECYCLE_REVOKED,
-} from '../engine/lifecycle.js';
-import { CredentialData, CREDENTIAL_TYPE_ELIGIBILITY } from '../credentials/credential-data.js';
-import { CredentialInventory } from '../credentials/credential-inventory.js';
-import { MerkleForest, ForestDomain } from '../zkp/merkle-forest.js';
-import { ACCUMULATOR_LEAF_INDEX, AccumulatorData } from '../access-control/accumulator-data.js';
-import { BenefitPlanRegistry } from '../eligibility/benefit-plan-registry.js';
-import { EligibilityData } from '../eligibility/eligibility-data.js';
-import { hashString, dateToField } from '../zkp/hash-utils.js';
-import { TokenAuthority } from './token-authority.js';
-import {
-  GroupRegistry,
-  GroupConfig,
-  GROUP_STATUS_ACTIVE,
-  GROUP_STATUS_TERMINATED,
-} from './group-registry.js';
-import {
-  OpaqueRoster,
-  RosterEntry,
-  buildRosterEntry,
-  ENROLLMENT_STATUS_ACTIVE,
-  ENROLLMENT_STATUS_TERMINATED,
-} from './opaque-roster.js';
-import { PlanTemplate } from './plan-template.js';
+import { WalletRegistry } from '../wallets/wallet-state.js';
+import { lifecycleLeafCommitment, LIFECYCLE_REVOKED } from '../engine/lifecycle.js';
+import { dateToField } from '../zkp/hash-utils.js';
+import { GroupRegistry, GroupConfig } from './group-registry.js';
+import { OpaqueRoster, RosterEntry, ENROLLMENT_STATUS_TERMINATED } from './opaque-roster.js';
 
-/**
- * Result of a successful member enrollment.
- */
-export interface EnrollmentResult {
-  /** The member's wallet ID */
-  walletId: Field;
-  /** The minted eligibility credential */
-  credentialData: CredentialData;
-  /** Credential slot index in the member's inventory */
-  credentialIndex: bigint;
-  /** New wallet registry Merkle root */
-  newRegistryRoot: Field;
-  /** New lifecycle tree Merkle root */
-  newLifecycleRoot: Field;
-  /** Roster entry index */
-  rosterIndex: bigint;
-  /** Group ID (cleartext) */
-  groupId: string;
-  /** Plan ID (cleartext) */
-  planId: string;
-  /** Family ID (cleartext) */
-  familyId: string;
-}
-
-/**
- * Result of a member termination.
- */
+/** Result of a member termination. */
 export interface TerminationResult {
   /** The terminated wallet ID */
   walletId: Field;
@@ -85,415 +42,62 @@ export interface TerminationResult {
   newLifecycleRoot: Field;
 }
 
-/**
- * Result of a wallet migration.
- */
-export interface MigrationResult {
-  /** The old wallet ID (now revoked) */
-  oldWalletId: Field;
-  /** The new wallet ID (now enrolled) */
-  newWalletId: Field;
-  /** Termination result for the old wallet */
-  termination: TerminationResult;
-  /** Enrollment result for the new wallet */
-  enrollment: EnrollmentResult;
-  /** Reconstructed accumulator values seeded to new wallet (if provided) */
-  seededAccumulator?: {
-    deductiblePaidCents: bigint;
-    oopPaidCents: bigint;
-    benefitUsedCents: bigint;
-  };
-}
-
-/**
- * Result of a group termination.
- */
-export interface GroupTerminationResult {
-  /** Group ID that was terminated */
-  groupId: string;
-  /** Number of members terminated */
-  terminatedCount: number;
-  /** Individual termination results */
-  terminations: TerminationResult[];
-  /** New group registry root */
-  newGroupRegistryRoot: Field;
-}
-
-/**
- * EnrollmentService — insurer-side orchestration for the three-party enrollment ceremony.
- *
- * This is the insurer's half of the enrollment protocol:
- *
- *   1. Employer generates GroupEnrollmentTokens via TokenAuthority
- *   2. Member self-enrolls on device, sends (walletId, tokenId) to insurer
- *   3. THIS SERVICE processes the enrollment:
- *      a. Validates the token
- *      b. Looks up the group and plan
- *      c. Registers the wallet
- *      d. Builds and mints the eligibility credential
- *      e. Records in the opaque roster
- *      f. Advances lifecycle to ELIGIBLE
- *
- * What the insurer knows after enrollment:
- *   - walletId (opaque Poseidon hash)
- *   - planId, groupId (insurer created these)
- *   - enrolledDate
- *
- * What the insurer does NOT know:
- *   - Member name, DOB, address — nothing
- *   - Enrollment key — never transmitted
- *   - PHI preimage fields — never transmitted
- *
- * Preconditions:
- *   - WalletRegistry and lifecycle tree must be initialized
- *   - Plan templates must be loaded
- *   - Groups must be registered
- *   - Tokens must be generated by the employer
- *
- * Note: This service does NOT generate ZkProgram proofs.
- * Eligibility proofs are generated separately via EligibilityService
- * after the wallet is registered and the credential is minted.
- * The admin path (CareContract.updateWalletState) is signature-gated,
- * not proof-gated, so no compilation is needed for enrollment.
- */
 export class EnrollmentService {
-  private walletRegistry: WalletRegistry;
-  private lifecycleTree: MerkleTree;
-  private tokenAuthority: TokenAuthority;
-  private groupRegistry: GroupRegistry;
-  private planTemplates: Map<string, PlanTemplate>;
-  private opaqueRoster: OpaqueRoster;
-  private benefitPlanRegistry: BenefitPlanRegistry;
-  private adminWalletId: Field;
-  private memberInventories: Map<string, CredentialInventory>;
-  private memberForests: Map<string, MerkleForest>;
-
   constructor(
-    walletRegistry: WalletRegistry,
-    lifecycleTree: MerkleTree,
-    tokenAuthority: TokenAuthority,
-    groupRegistry: GroupRegistry,
-    planTemplates: Map<string, PlanTemplate>,
-    opaqueRoster: OpaqueRoster,
-    benefitPlanRegistry: BenefitPlanRegistry,
-    adminWalletId: Field,
-  ) {
-    this.walletRegistry = walletRegistry;
-    this.lifecycleTree = lifecycleTree;
-    this.tokenAuthority = tokenAuthority;
-    this.groupRegistry = groupRegistry;
-    this.planTemplates = planTemplates;
-    this.opaqueRoster = opaqueRoster;
-    this.benefitPlanRegistry = benefitPlanRegistry;
-    this.adminWalletId = adminWalletId;
-    this.memberInventories = new Map();
-    this.memberForests = new Map();
-  }
+    private readonly walletRegistry: WalletRegistry,
+    private readonly lifecycleTree: MerkleTree,
+    private readonly groupRegistry: GroupRegistry,
+    private readonly opaqueRoster: OpaqueRoster,
+  ) {}
 
   /**
-   * Process a member enrollment — the core enrollment ceremony.
-   *
-   * This is called when the insurer receives (walletId, tokenId) from the member.
-   * The token was previously generated by the employer via TokenAuthority.
-   *
-   * Steps:
-   *   1. Validate token (exists, unused, not expired)
-   *   2. Look up group config (active, not at enrollment cap)
-   *   3. Look up plan template
-   *   4. Register wallet in WalletRegistry
-   *   5. Set lifecycle to ELIGIBLE
-   *   6. Build eligibility data + accumulator from plan template
-   *   7. Build MerkleForest with eligibility data
-   *   8. Create and mint eligibility credential
-   *   9. Update wallet state with new credential inventory root
-   *  10. Consume token
-   *  11. Add to opaque roster
-   *  12. Increment group enrolled count
-   *
-   * @param walletId — the member's wallet ID (computed on their device)
-   * @param tokenId — the enrollment token ID
-   * @param currentDate — current date as CCYYMMDD string
-   * @param tokenPinHash — optional Poseidon(tokenId + PIN) for enrollment 2FA
-   */
-  processEnrollment(
-    walletId: Field,
-    tokenId: string,
-    currentDate: string,
-    tokenPinHash?: string,
-  ): EnrollmentResult {
-    // ──── Phase 1: Validate (no mutations) ────────────────────
-
-    // 1. Validate token (with PIN if required)
-    const validation = this.tokenAuthority.validateTokenWithPin(tokenId, currentDate, tokenPinHash);
-    if (!validation.valid) {
-      throw new Error(`Token validation failed: ${validation.reason}`);
-    }
-
-    const groupId = validation.groupId!;
-    const planId = validation.planId!;
-    const familyId = validation.familyId!;
-
-    // 2. Look up group — must exist and be active
-    const groupIdHash = hashString(groupId);
-    const groupResult = this.groupRegistry.getGroupByHash(groupIdHash);
-    if (!groupResult) {
-      throw new Error(`Group not found: ${groupId}`);
-    }
-    if (
-      groupResult.config.status.toString() !== GROUP_STATUS_ACTIVE.toString()
-    ) {
-      throw new Error('Group is not active');
-    }
-
-    // 3. Check enrollment cap
-    const currentCount = BigInt(
-      groupResult.config.enrolledCount.toString(),
-    );
-    const cap = BigInt(groupResult.config.enrollmentCap.toString());
-    if (cap > 0n && currentCount >= cap) {
-      throw new Error('Group enrollment cap reached');
-    }
-
-    // 4. Check wallet not already enrolled
-    if (this.walletRegistry.isRegistered(walletId)) {
-      throw new Error('Wallet already registered');
-    }
-    if (this.opaqueRoster.isEnrolled(walletId)) {
-      throw new Error('Wallet already enrolled in roster');
-    }
-
-    // 5. Look up plan template
-    const planTemplate = this.planTemplates.get(planId);
-    if (!planTemplate) {
-      throw new Error(`Plan template not found: ${planId}`);
-    }
-
-    // ──── Phase 2: Prepare (compute all data, no mutations) ───
-
-    const effectiveDate = groupResult.config.effectiveDate.toString();
-    const terminationDate = groupResult.config.terminationDate.toString();
-    const eligibilityData = planTemplate.buildEligibilityData(
-      groupId,
-      effectiveDate,
-      terminationDate === '0' ? '' : terminationDate,
-    );
-
-    const planYearStart = effectiveDate.slice(0, 4) + '0101';
-    const accumulatorData = planTemplate.buildAccumulatorData(planYearStart);
-
-    const forest = new MerkleForest();
-    forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      0n,
-      eligibilityData.commitment(),
-    );
-    forest.setLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      ACCUMULATOR_LEAF_INDEX,
-      accumulatorData.commitment(),
-    );
-
-    const credentialData = new CredentialData({
-      credentialType: CREDENTIAL_TYPE_ELIGIBILITY,
-      forestRoot: forest.getForestRoot(),
-      issuerWalletId: this.adminWalletId,
-      subjectWalletId: walletId,
-      issuedAt: dateToField(currentDate),
-      expiresAt: Field(0),
-      revoked: Field(0),
-    });
-
-    const inventory = new CredentialInventory();
-    const { index: credentialIndex, newRoot: newInventoryRoot } =
-      inventory.mint(credentialData);
-
-    const newWalletState = new WalletState({
-      walletId,
-      credentialInventoryRoot: newInventoryRoot,
-      nonce: Field(1),
-    });
-
-    const rosterEntry = buildRosterEntry(walletId, {
-      planId,
-      groupId,
-      familyId,
-      enrolledDate: currentDate,
-      tokenId,
-    });
-
-    const updatedGroupConfig = new GroupConfig({
-      groupIdHash: groupResult.config.groupIdHash,
-      planIdHash: groupResult.config.planIdHash,
-      effectiveDate: groupResult.config.effectiveDate,
-      terminationDate: groupResult.config.terminationDate,
-      enrollmentCap: groupResult.config.enrollmentCap,
-      enrolledCount: Field(currentCount + 1n),
-      status: groupResult.config.status,
-    });
-
-    // ──── Phase 3: Commit (all mutations, guarded) ────────────
-    // Snapshot Merkle roots for rollback on failure.
-    const prevRegistryRoot = this.walletRegistry.getRoot();
-    const walletKey = walletId.toString();
-    let walletRegistered = false;
-    let lifecycleSet = false;
-    let stateStored = false;
-    let walletStateUpdated = false;
-    let rosterAdded = false;
-    let rosterIndex = 0n;
-
-    try {
-      // 6. Register wallet in registry
-      const walletIndex = this.walletRegistry.register(walletId);
-      walletRegistered = true;
-
-      // 7. Set lifecycle: EMPTY → REGISTERED → ELIGIBLE
-      const regLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REGISTERED);
-      this.lifecycleTree.setLeaf(walletIndex, regLeaf);
-      const eligLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE);
-      this.lifecycleTree.setLeaf(walletIndex, eligLeaf);
-      lifecycleSet = true;
-
-      // 8. Store inventory and forest for later operations
-      this.memberInventories.set(walletKey, inventory);
-      this.memberForests.set(walletKey, forest);
-      stateStored = true;
-
-      // 9. Update wallet state with credential
-      this.walletRegistry.updateState(walletId, newWalletState);
-      walletStateUpdated = true;
-
-      // 10. Add to opaque roster
-      const rosterResult = this.opaqueRoster.addEntry(rosterEntry);
-      rosterIndex = rosterResult.index;
-      rosterAdded = true;
-
-      // 11. Increment group enrolled count
-      this.groupRegistry.updateGroup(groupResult.index, updatedGroupConfig);
-
-      // 12. Consume token — LAST mutation (commit point).
-      // If everything above succeeded, this finalizes the enrollment.
-      // The token is the external coordination mechanism; once consumed,
-      // the enrollment is considered complete.
-      this.tokenAuthority.consumeToken(tokenId, walletId);
-    } catch (err) {
-      // Rollback: undo mutations in reverse order.
-      // Group count and token are idempotent-safe (only reached if they succeeded).
-      if (stateStored) {
-        this.memberInventories.delete(walletKey);
-        this.memberForests.delete(walletKey);
-      }
-      if (walletRegistered) {
-        // Reset the wallet's tree leaf to zero (empty) to restore registry integrity.
-        // The WalletRegistry index counter cannot be decremented (monotonic),
-        // but the leaf is cleared so it doesn't affect lookups.
-        const idx = this.walletRegistry.getIndex(walletId);
-        this.walletRegistry.updateState(
-          walletId,
-          new WalletState({ walletId, credentialInventoryRoot: Field(0), nonce: Field(0) }),
-        );
-      }
-      if (lifecycleSet) {
-        // Reset lifecycle leaf to zero (EMPTY)
-        const idx = this.walletRegistry.getIndex(walletId);
-        this.lifecycleTree.setLeaf(idx, Field(0));
-      }
-      throw new Error(
-        `Enrollment failed (rolled back): ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
-    return {
-      walletId,
-      credentialData,
-      credentialIndex,
-      newRegistryRoot: this.walletRegistry.getRoot(),
-      newLifecycleRoot: this.lifecycleTree.getRoot(),
-      rosterIndex,
-      groupId,
-      planId,
-      familyId,
-    };
-  }
-
-  /**
-   * Terminate a single member's enrollment.
-   *
-   * Revokes the eligibility credential, advances lifecycle to REVOKED,
-   * and updates the roster entry to TERMINATED.
+   * Terminate a member: lifecycle REVOKED, roster entry TERMINATED with the date, the group's enrolled count one lower.
    *
    * @param walletId — the member's wallet ID
-   * @param terminationDate — termination date as CCYYMMDD string
+   * @param terminationDate — CCYYMMDD
    */
-  terminateMember(
-    walletId: Field,
-    terminationDate: string,
-  ): TerminationResult {
-    // 1. Validate wallet exists
+  terminateMember(walletId: Field, terminationDate: string): TerminationResult {
     if (!this.walletRegistry.isRegistered(walletId)) {
       throw new Error('Wallet not registered');
     }
-
     const rosterResult = this.opaqueRoster.getEntryByWallet(walletId);
     if (!rosterResult) {
       throw new Error('Wallet not in roster');
     }
 
-    // 2. Revoke eligibility credential (if inventory is managed)
-    const inventory = this.memberInventories.get(walletId.toString());
-    if (inventory && inventory.getCredential(0n)) {
-      const newInventoryRoot = inventory.revoke(0n);
-      const currentState = this.walletRegistry.getState(walletId);
-      const newNonce = Field(
-        BigInt(currentState.nonce.toString()) + 1n,
-      );
-      this.walletRegistry.updateState(
-        walletId,
-        new WalletState({
-          walletId,
-          credentialInventoryRoot: newInventoryRoot,
-          nonce: newNonce,
-        }),
-      );
-    }
-
-    // 3. Update lifecycle to REVOKED
     const walletIndex = this.walletRegistry.getIndex(walletId);
-    const revokedLeaf = lifecycleLeafCommitment(walletId, LIFECYCLE_REVOKED);
-    this.lifecycleTree.setLeaf(walletIndex, revokedLeaf);
+    this.lifecycleTree.setLeaf(walletIndex, lifecycleLeafCommitment(walletId, LIFECYCLE_REVOKED));
 
-    // 4. Update roster entry to TERMINATED
-    const terminatedEntry = new RosterEntry({
-      walletId: rosterResult.entry.walletId,
-      planIdHash: rosterResult.entry.planIdHash,
-      groupIdHash: rosterResult.entry.groupIdHash,
-      familyIdHash: rosterResult.entry.familyIdHash,
-      enrolledDate: rosterResult.entry.enrolledDate,
-      terminatedDate: dateToField(terminationDate),
-      status: ENROLLMENT_STATUS_TERMINATED,
-      tokenIdHash: rosterResult.entry.tokenIdHash,
-    });
-    this.opaqueRoster.updateEntry(rosterResult.index, terminatedEntry);
-
-    // 5. Decrement group enrolled count
-    const groupResult = this.groupRegistry.getGroupByHash(
-      rosterResult.entry.groupIdHash,
+    this.opaqueRoster.updateEntry(
+      rosterResult.index,
+      new RosterEntry({
+        walletId: rosterResult.entry.walletId,
+        planIdHash: rosterResult.entry.planIdHash,
+        groupIdHash: rosterResult.entry.groupIdHash,
+        familyIdHash: rosterResult.entry.familyIdHash,
+        enrolledDate: rosterResult.entry.enrolledDate,
+        terminatedDate: dateToField(terminationDate),
+        status: ENROLLMENT_STATUS_TERMINATED,
+        tokenIdHash: rosterResult.entry.tokenIdHash,
+      }),
     );
-    if (groupResult) {
-      const currentCount = BigInt(
-        groupResult.config.enrolledCount.toString(),
-      );
-      if (currentCount > 0n) {
-        const updatedGroup = new GroupConfig({
-          groupIdHash: groupResult.config.groupIdHash,
-          planIdHash: groupResult.config.planIdHash,
-          effectiveDate: groupResult.config.effectiveDate,
-          terminationDate: groupResult.config.terminationDate,
-          enrollmentCap: groupResult.config.enrollmentCap,
-          enrolledCount: Field(currentCount - 1n),
-          status: groupResult.config.status,
-        });
-        this.groupRegistry.updateGroup(groupResult.index, updatedGroup);
+
+    const group = this.groupRegistry.getGroupByHash(rosterResult.entry.groupIdHash);
+    if (group) {
+      const count = BigInt(group.config.enrolledCount.toString());
+      if (count > 0n) {
+        this.groupRegistry.updateGroup(
+          group.index,
+          new GroupConfig({
+            groupIdHash: group.config.groupIdHash,
+            planIdHash: group.config.planIdHash,
+            effectiveDate: group.config.effectiveDate,
+            terminationDate: group.config.terminationDate,
+            enrollmentCap: group.config.enrollmentCap,
+            enrolledCount: Field(count - 1n),
+            status: group.config.status,
+          }),
+        );
       }
     }
 
@@ -501,356 +105,6 @@ export class EnrollmentService {
       walletId,
       newRegistryRoot: this.walletRegistry.getRoot(),
       newLifecycleRoot: this.lifecycleTree.getRoot(),
-    };
-  }
-
-  /**
-   * Process a wallet migration — transfer enrollment from old wallet to new wallet.
-   *
-   * Called when a member recovers via NFC card and needs a new wallet.
-   * The insurer identifies the member via tokenIdHash (from the recovery card),
-   * looks up the consumed token, terminates the old wallet, and enrolls the
-   * new wallet with the same group/plan.
-   *
-   * Optionally seeds the new wallet's AccumulatorData with reconstructed values
-   * from the sequencer's claim history (deductible, OOP, benefit continuity).
-   *
-   * @param oldWalletId — the old wallet being replaced
-   * @param newWalletId — the new wallet to enroll
-   * @param tokenIdHash — Poseidon hash of the original enrollment tokenId
-   * @param currentDate — current date as CCYYMMDD string
-   * @param reconstructedAccumulator — optional accumulator totals from sequencer.
-   *   IMPORTANT: Callers should use plan-filtered reconstruction
-   *   (`sequencer.reconstructAccumulator(walletId, planIdHash)`) to avoid
-   *   cross-plan contamination for members who changed plans mid-year.
-   *   The planIdHash is available on MigrationRequest from the recovery card.
-   */
-  processMigration(
-    oldWalletId: Field,
-    newWalletId: Field,
-    tokenIdHash: string,
-    currentDate: string,
-    reconstructedAccumulator?: {
-      deductiblePaidCents: bigint;
-      oopPaidCents: bigint;
-      benefitUsedCents: bigint;
-    },
-  ): MigrationResult {
-    // 1. Look up the consumed token by its hash
-    const tokenRecord = this.tokenAuthority.getTokenByHash(tokenIdHash);
-    if (!tokenRecord) {
-      throw new Error('No token found matching tokenIdHash — cannot verify identity');
-    }
-    if (tokenRecord.status !== 'consumed') {
-      throw new Error(`Token is ${tokenRecord.status}, expected consumed`);
-    }
-
-    // 2. Verify the old wallet matches the token's consumed wallet
-    if (tokenRecord.consumedByWalletId !== oldWalletId.toString()) {
-      throw new Error(
-        'Token was consumed by a different wallet — identity mismatch',
-      );
-    }
-
-    // 3. Verify old wallet is in the roster
-    const rosterResult = this.opaqueRoster.getEntryByWallet(oldWalletId);
-    if (!rosterResult) {
-      throw new Error('Old wallet not found in roster');
-    }
-
-    // 4. Get original enrollment data from roster entry
-    const groupIdHash = rosterResult.entry.groupIdHash;
-    const planIdHash = rosterResult.entry.planIdHash;
-
-    // 5. Find the group and plan
-    const groupResult = this.groupRegistry.getGroupByHash(groupIdHash);
-    if (!groupResult) {
-      throw new Error('Group not found for migration');
-    }
-
-    // Find the plan ID from the token's local data
-    const planId = tokenRecord.localData.planId;
-    const groupId = tokenRecord.localData.groupId;
-    const familyId = tokenRecord.localData.familyId;
-
-    // 6. Terminate the old wallet
-    const termination = this.terminateMember(oldWalletId, currentDate);
-
-    // 7. Re-generate a fresh token for the new enrollment
-    // (reuse the same group/plan/family but new token ID for the new wallet)
-    const migrationTokenId = `MIGRATION-${Date.now()}`;
-    const { tokenId: newTokenId } = this.tokenAuthority.generateToken(
-      groupId,
-      planId,
-      tokenRecord.localData.employeeId,
-      familyId,
-      '29991231', // Far future expiry for migration tokens
-      migrationTokenId,
-    );
-
-    // 8. Enroll the new wallet using the migration token
-    const enrollment = this.processEnrollment(newWalletId, newTokenId, currentDate);
-
-    // 9. Seed accumulator data if reconstruction is provided
-    let seededAccumulator: MigrationResult['seededAccumulator'];
-    if (reconstructedAccumulator) {
-      const forest = this.memberForests.get(newWalletId.toString());
-      if (forest) {
-        const planTemplate = this.planTemplates.get(planId);
-        if (planTemplate) {
-          const effectiveDate = groupResult.config.effectiveDate.toString();
-          const planYearStart = effectiveDate.slice(0, 4) + '0101';
-          const seededAccData = planTemplate.buildAccumulatorData(planYearStart);
-
-          // Override with reconstructed values
-          const newAccData = new AccumulatorData({
-            planYear: seededAccData.planYear,
-            deductibleAmountCents: seededAccData.deductibleAmountCents,
-            deductiblePaidCents: Field(reconstructedAccumulator.deductiblePaidCents),
-            oopMaxCents: seededAccData.oopMaxCents,
-            oopPaidCents: Field(reconstructedAccumulator.oopPaidCents),
-            annualBenefitMaxCents: seededAccData.annualBenefitMaxCents,
-            annualBenefitUsedCents: Field(reconstructedAccumulator.benefitUsedCents),
-          });
-
-          forest.setLeaf(
-            ForestDomain.ACCESS_CONTROL,
-            ACCUMULATOR_LEAF_INDEX,
-            newAccData.commitment(),
-          );
-
-          // Update credential with new forest root
-          const inventory = this.memberInventories.get(newWalletId.toString());
-          if (inventory) {
-            const currentCred = inventory.getCredential(0n);
-            if (currentCred) {
-              const updatedCred = new CredentialData({
-                credentialType: currentCred.credentialType,
-                forestRoot: forest.getForestRoot(),
-                issuerWalletId: currentCred.issuerWalletId,
-                subjectWalletId: currentCred.subjectWalletId,
-                issuedAt: currentCred.issuedAt,
-                expiresAt: currentCred.expiresAt,
-                revoked: currentCred.revoked,
-              });
-              inventory.updateCredential(0n, updatedCred);
-
-              // Update wallet state
-              this.walletRegistry.updateState(
-                newWalletId,
-                new WalletState({
-                  walletId: newWalletId,
-                  credentialInventoryRoot: inventory.getRoot(),
-                  nonce: Field(2),
-                }),
-              );
-            }
-          }
-
-          seededAccumulator = {
-            deductiblePaidCents: reconstructedAccumulator.deductiblePaidCents,
-            oopPaidCents: reconstructedAccumulator.oopPaidCents,
-            benefitUsedCents: reconstructedAccumulator.benefitUsedCents,
-          };
-        }
-      }
-    }
-
-    return {
-      oldWalletId,
-      newWalletId,
-      termination,
-      enrollment,
-      seededAccumulator,
-    };
-  }
-
-  /**
-   * Terminate all members in an employer group.
-   *
-   * Used when an employer cancels their contract.
-   * Terminates each member and sets group status to TERMINATED.
-   *
-   * @param groupId — the employer group ID
-   * @param terminationDate — termination date as CCYYMMDD string
-   */
-  terminateGroup(
-    groupId: string,
-    terminationDate: string,
-  ): GroupTerminationResult {
-    const groupIdHash = hashString(groupId);
-    const groupResult = this.groupRegistry.getGroupByHash(groupIdHash);
-    if (!groupResult) {
-      throw new Error(`Group not found: ${groupId}`);
-    }
-
-    // Get all active members in this group
-    const members = this.opaqueRoster.getEntriesByGroup(groupIdHash);
-    const activeMembers = members.filter(
-      (m) =>
-        m.entry.status.toString() === ENROLLMENT_STATUS_ACTIVE.toString(),
-    );
-
-    // Terminate each active member
-    const terminations: TerminationResult[] = [];
-    for (const member of activeMembers) {
-      const result = this.terminateMember(
-        member.entry.walletId,
-        terminationDate,
-      );
-      terminations.push(result);
-    }
-
-    // Set group status to TERMINATED
-    const terminatedGroup = new GroupConfig({
-      groupIdHash: groupResult.config.groupIdHash,
-      planIdHash: groupResult.config.planIdHash,
-      effectiveDate: groupResult.config.effectiveDate,
-      terminationDate: dateToField(terminationDate),
-      enrollmentCap: groupResult.config.enrollmentCap,
-      enrolledCount: Field(0),
-      status: GROUP_STATUS_TERMINATED,
-    });
-    this.groupRegistry.updateGroup(groupResult.index, terminatedGroup);
-
-    return {
-      groupId,
-      terminatedCount: terminations.length,
-      terminations,
-      newGroupRegistryRoot: this.groupRegistry.getRoot(),
-    };
-  }
-
-  /** Get the member's CredentialInventory (if managed by this service) */
-  getMemberInventory(walletId: Field): CredentialInventory | undefined {
-    return this.memberInventories.get(walletId.toString());
-  }
-
-  /** Get the member's MerkleForest (if managed by this service) */
-  getMemberForest(walletId: Field): MerkleForest | undefined {
-    return this.memberForests.get(walletId.toString());
-  }
-
-  /**
-   * Bulk update formulary for all active members on a given plan.
-   *
-   * This is an admin convenience method. In production, each member
-   * would rebuild their forest and submit a wallet update proof individually.
-   *
-   * Steps for each active member on this plan:
-   *   1. Get their current forest
-   *   2. Build new EligibilityData with updated formularyRoot
-   *   3. Replace ACCESS_CONTROL leaf 0
-   *   4. Update CredentialData forest root in inventory
-   *   5. Update wallet state with new credential inventory root
-   *
-   * @param planId — the plan ID to update
-   * @param newFormularyRoot — the new formulary Merkle root
-   * @returns Number of members updated
-   */
-  updateFormularyForPlan(
-    planId: string,
-    newFormularyRoot: Field,
-  ): { updatedCount: number; updatedWalletIds: string[] } {
-    const planIdHash = hashString(planId);
-    const updatedWalletIds: string[] = [];
-
-    // Find all roster entries for this plan
-    for (const entry of this.opaqueRoster.getAllEntries()) {
-      // Skip terminated members
-      if (entry.entry.status.toString() !== ENROLLMENT_STATUS_ACTIVE.toString()) {
-        continue;
-      }
-      // Skip members on different plans
-      if (entry.entry.planIdHash.toString() !== planIdHash.toString()) {
-        continue;
-      }
-
-      const walletId = entry.entry.walletId;
-      const walletStr = walletId.toString();
-
-      // Get managed forest
-      const forest = this.memberForests.get(walletStr);
-      if (!forest) continue;
-
-      // Get managed inventory
-      const inventory = this.memberInventories.get(walletStr);
-      if (!inventory) continue;
-
-      // Get current credential to extract existing eligibility data fields
-      const currentCredential = inventory.getCredential(0n);
-      if (!currentCredential) continue;
-
-      // Get plan template to rebuild eligibility data with new formulary root
-      const planTemplate = this.planTemplates.get(planId);
-      if (!planTemplate) continue;
-
-      // Get group config for this member's group
-      const groupResult = this.groupRegistry.getGroupByHash(entry.entry.groupIdHash);
-      if (!groupResult) continue;
-
-      // Rebuild eligibility data with new formulary root
-      const effectiveDate = groupResult.config.effectiveDate.toString();
-      const terminationDate = groupResult.config.terminationDate.toString();
-      const newEligData = planTemplate.buildEligibilityData(
-        // We need the group ID; since we only have the hash, use the template
-        // In practice the insurer knows the groupId
-        '', // groupId is hashed anyway — we can rebuild from the stored hash
-        effectiveDate,
-        terminationDate === '0' ? '' : terminationDate,
-      );
-
-      // Override with the specific formulary root and preserve groupIdHash
-      const updatedEligData = new EligibilityData({
-        planIdHash: newEligData.planIdHash,
-        groupIdHash: entry.entry.groupIdHash,
-        effectiveDate: newEligData.effectiveDate,
-        terminationDate: newEligData.terminationDate,
-        copayAmountCents: newEligData.copayAmountCents,
-        coverageType: newEligData.coverageType,
-        formularyRoot: newFormularyRoot,
-        networkRoot: newEligData.networkRoot,
-      });
-
-      // Update ACCESS_CONTROL tree leaf 0
-      forest.setLeaf(
-        ForestDomain.ACCESS_CONTROL,
-        0n,
-        updatedEligData.commitment(),
-      );
-
-      // Rebuild credential with new forest root
-      const newCredential = new CredentialData({
-        credentialType: currentCredential.credentialType,
-        forestRoot: forest.getForestRoot(),
-        issuerWalletId: currentCredential.issuerWalletId,
-        subjectWalletId: currentCredential.subjectWalletId,
-        issuedAt: currentCredential.issuedAt,
-        expiresAt: currentCredential.expiresAt,
-        revoked: currentCredential.revoked,
-      });
-
-      // Update inventory slot 0
-      inventory.updateCredential(0n, newCredential);
-
-      // Update wallet state
-      const currentState = this.walletRegistry.getState(walletId);
-      const newNonce = Field(BigInt(currentState.nonce.toString()) + 1n);
-      this.walletRegistry.updateState(
-        walletId,
-        new WalletState({
-          walletId,
-          credentialInventoryRoot: inventory.getRoot(),
-          nonce: newNonce,
-        }),
-      );
-
-      updatedWalletIds.push(walletStr);
-    }
-
-    return {
-      updatedCount: updatedWalletIds.length,
-      updatedWalletIds,
     };
   }
 }

@@ -24,9 +24,8 @@
  *   4. TokenAuthority.getTokenByHash — insurer lookup for migration
  *   5. WalletMigrationProgram — MigrationOutput struct + hash consistency
  *   6. WalletMigrationService — client-side recovery + new wallet generation
- *   7. EnrollmentService.processMigration — insurer-side migration ceremony
  *   8. L2SequencerService integration — deductibleCreditCents + reconstruction
- *   9. Migration E2E flow — full pipeline
+ *   9. Migration E2E flow — the recovery card keeps the insurer's identification hashes
  *
  * All FAST (no ZkProgram compilation). ~45 tests.
  *
@@ -82,7 +81,6 @@ import { MigrationOutput } from '../src/wallets/wallet-migration-program.js';
 import { hashString } from '../src/zkp/hash-utils.js';
 
 // ─── Enrollment Service ────────────────────────────────────
-import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
 import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
 import {
@@ -309,7 +307,7 @@ describe('Recovery Card v2', () => {
     expect(BigInt(card.tokenIdHash)).toBeGreaterThan(0n);
     expect(BigInt(card.employeeIdHash)).toBeGreaterThan(0n);
     expect(BigInt(card.groupIdHash)).toBeGreaterThan(0n);
-    expect(BigInt(card.planIdHash)).toBeGreaterThan(0n);
+    expect(BigInt(card.planIdHash ?? 0)).toBeGreaterThan(0n);
   });
 
   test('recoverFromCard returns planIdHash from card', () => {
@@ -566,12 +564,12 @@ describe('TokenAuthority.getTokenByHash', () => {
     // Consume the token
     authority.consumeToken('TOKEN-FIND-001', Poseidon.hash([Field(42)]));
 
-    // Look up by hash
-    const tokenIdHash = hashString('TOKEN-FIND-001').toString();
+    // Look up by the code's fingerprint, the key the authority keeps each record under (A-109)
+    const tokenIdHash = TokenAuthority.fingerprintOf('TOKEN-FIND-001');
     const found = authority.getTokenByHash(tokenIdHash);
 
     expect(found).toBeDefined();
-    expect(found!.localData.tokenId).toBe('TOKEN-FIND-001');
+    expect(found!.tokenIdHash).toBe(tokenIdHash);
     expect(found!.status).toBe('consumed');
     expect(found!.consumedByWalletId).toBe(Poseidon.hash([Field(42)]).toString());
   });
@@ -587,7 +585,7 @@ describe('TokenAuthority.getTokenByHash', () => {
       'TOKEN-EXISTING',
     );
 
-    const unknownHash = hashString('TOKEN-NONEXISTENT').toString();
+    const unknownHash = TokenAuthority.fingerprintOf('TOKEN-NONEXISTENT');
     const found = authority.getTokenByHash(unknownHash);
     expect(found).toBeUndefined();
   });
@@ -801,192 +799,6 @@ describe('WalletMigrationService', () => {
   });
 });
 
-// ─── 7. EnrollmentService.processMigration ─────────────────
-
-describe('EnrollmentService.processMigration', () => {
-  // Helper to set up a fully configured EnrollmentService with enrolled member
-  function setupMigrationContext() {
-    const walletRegistry = new WalletRegistry();
-    const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
-    const groupRegistry = new GroupRegistry();
-    const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    const groupConfig = buildGroupConfig({
-      groupId: 'ACME-CORP-001',
-      planId: 'PLAN-GOLD-2026',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 100,
-    });
-    groupRegistry.addGroup(groupConfig, {
-      groupId: 'ACME-CORP-001',
-      planId: 'PLAN-GOLD-2026',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 100,
-    });
-
-    const service = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    // Enroll a member
-    tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-ORIG-001',
-    );
-
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), TEST_SALT);
-    service.processEnrollment(oldWalletId, 'TOKEN-ORIG-001', '20260115');
-
-    return {
-      service,
-      tokenAuthority,
-      walletRegistry,
-      opaqueRoster,
-      groupRegistry,
-      oldWalletId,
-    };
-  }
-
-  test('processMigration succeeds with valid token', () => {
-    const ctx = setupMigrationContext();
-    const newWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY_2, Field(0), TEST_SALT);
-    const tokenIdHash = hashString('TOKEN-ORIG-001').toString();
-
-    const result = ctx.service.processMigration(
-      ctx.oldWalletId,
-      newWalletId,
-      tokenIdHash,
-      '20260201',
-    );
-
-    expect(result.oldWalletId.toString()).toBe(ctx.oldWalletId.toString());
-    expect(result.newWalletId.toString()).toBe(newWalletId.toString());
-    expect(result.termination).toBeDefined();
-    expect(result.enrollment).toBeDefined();
-    expect(result.enrollment.planId).toBe('PLAN-GOLD-2026');
-    expect(result.enrollment.groupId).toBe('ACME-CORP-001');
-  });
-
-  test('processMigration throws if token not found by hash', () => {
-    const ctx = setupMigrationContext();
-    const newWalletId = Poseidon.hash([Field(777)]);
-    const fakeTokenIdHash = hashString('TOKEN-NONEXISTENT').toString();
-
-    expect(() =>
-      ctx.service.processMigration(
-        ctx.oldWalletId,
-        newWalletId,
-        fakeTokenIdHash,
-        '20260201',
-      ),
-    ).toThrow('No token found matching tokenIdHash');
-  });
-
-  test('processMigration throws if old wallet does not match token', () => {
-    const ctx = setupMigrationContext();
-    const wrongOldWallet = Poseidon.hash([Field(888)]);
-    const newWalletId = Poseidon.hash([Field(777)]);
-    const tokenIdHash = hashString('TOKEN-ORIG-001').toString();
-
-    expect(() =>
-      ctx.service.processMigration(
-        wrongOldWallet,
-        newWalletId,
-        tokenIdHash,
-        '20260201',
-      ),
-    ).toThrow('consumed by a different wallet');
-  });
-
-  test('processMigration throws if old wallet not in roster', () => {
-    // Set up service but DON'T enroll the member
-    const walletRegistry = new WalletRegistry();
-    const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
-    const groupRegistry = new GroupRegistry();
-    const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    groupRegistry.addGroup(
-      buildGroupConfig({
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      }),
-      {
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      },
-    );
-
-    const service = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    // Generate and consume a token manually (simulate prior enrollment)
-    tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-GHOST',
-    );
-    const ghostWallet = Poseidon.hash([Field(555)]);
-    tokenAuthority.consumeToken('TOKEN-GHOST', ghostWallet);
-
-    const newWalletId = Poseidon.hash([Field(777)]);
-    const tokenIdHash = hashString('TOKEN-GHOST').toString();
-
-    // The token was consumed by ghostWallet but ghostWallet was never enrolled in roster
-    expect(() =>
-      service.processMigration(
-        ghostWallet,
-        newWalletId,
-        tokenIdHash,
-        '20260201',
-      ),
-    ).toThrow();
-  });
-});
-
 // ─── 8. L2SequencerService Integration ─────────────────────
 
 describe('L2SequencerService Integration — deductibleCreditCents + reconstruction', () => {
@@ -1151,200 +963,6 @@ describe('L2SequencerService Integration — deductibleCreditCents + reconstruct
 // ─── 9. Migration E2E Flow ─────────────────────────────────
 
 describe('Migration E2E Flow', () => {
-  test('full flow: enroll -> submit claims -> export recovery card -> recover -> migrate -> verify accumulator seeded', () => {
-    // ── Phase 1: Enrollment ─────────────────────────────────
-    const walletRegistry = new WalletRegistry();
-    const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
-    const groupRegistry = new GroupRegistry();
-    const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    groupRegistry.addGroup(
-      buildGroupConfig({
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      }),
-      {
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      },
-    );
-
-    const enrollmentService = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    // Generate token and enroll
-    tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-E2E-001',
-    );
-
-    const e2eGroupIdHash = hashString('ACME-CORP-001');
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, e2eGroupIdHash, TEST_SALT);
-    enrollmentService.processEnrollment(oldWalletId, 'TOKEN-E2E-001', '20260115');
-
-    // Verify enrollment
-    expect(walletRegistry.isRegistered(oldWalletId)).toBe(true);
-    expect(opaqueRoster.isEnrolled(oldWalletId)).toBe(true);
-
-    // ── Phase 2: Export Recovery Card ───────────────────────
-    const tokenIdHash = hashString('TOKEN-E2E-001').toString();
-    const employeeIdHash = hashString('EMP-12345').toString();
-    const groupIdHash = e2eGroupIdHash.toString();
-    const planIdHash = hashString('PLAN-GOLD-2026').toString();
-
-    const recoveryCard = exportRecoveryCard(
-      TEST_ENROLLMENT_KEY,
-      TEST_PIN,
-      oldWalletId.toString(),
-      0,
-      tokenIdHash,
-      employeeIdHash,
-      groupIdHash,
-      planIdHash,
-    );
-
-    expect(isRecoveryCard(recoveryCard)).toBe(true);
-    expect(estimateRecoveryCardSize(recoveryCard)).toBeLessThanOrEqual(NFC_CAPACITY_BYTES);
-
-    // ── Phase 3: Recover from Card ──────────────────────────
-    const recovery = WalletMigrationService.recoverFromCard(
-      recoveryCard,
-      TEST_PIN,
-      TEST_MEMBER,
-      TEST_SALT,
-    );
-
-    expect(recovery.oldWalletId).toBe(oldWalletId.toString());
-    expect(recovery.oldEnrollmentKey).toBe(TEST_ENROLLMENT_KEY);
-
-    // ── Phase 4: Prepare New Wallet ─────────────────────────
-    const newWalletResult = WalletMigrationService.prepareNewWallet(TEST_MEMBER, 0, undefined, TEST_SALT);
-    expect(newWalletResult.newWalletId).not.toBe(oldWalletId.toString());
-
-    // ── Phase 5: Process Migration (insurer side) ───────────
-    const newWalletId = Field(BigInt(newWalletResult.newWalletId));
-    const migrationResult = enrollmentService.processMigration(
-      oldWalletId,
-      newWalletId,
-      tokenIdHash,
-      '20260201',
-    );
-
-    expect(migrationResult.oldWalletId.toString()).toBe(oldWalletId.toString());
-    expect(migrationResult.newWalletId.toString()).toBe(newWalletId.toString());
-    expect(migrationResult.enrollment.planId).toBe('PLAN-GOLD-2026');
-    expect(migrationResult.enrollment.groupId).toBe('ACME-CORP-001');
-
-    // ── Phase 6: Verify New Wallet Enrolled ─────────────────
-    expect(walletRegistry.isRegistered(newWalletId)).toBe(true);
-    expect(opaqueRoster.isEnrolled(newWalletId)).toBe(true);
-  });
-
-  test('migration with reconstructed accumulator seeds new wallet', () => {
-    // Set up enrollment infrastructure
-    const walletRegistry = new WalletRegistry();
-    const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
-    const groupRegistry = new GroupRegistry();
-    const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    groupRegistry.addGroup(
-      buildGroupConfig({
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      }),
-      {
-        groupId: 'ACME-CORP-001',
-        planId: 'PLAN-GOLD-2026',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      },
-    );
-
-    const enrollmentService = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    // Enroll
-    tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-ACC-001',
-    );
-
-    const accGroupIdHash = hashString('ACME-CORP-001');
-    const oldWalletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, accGroupIdHash, TEST_SALT);
-    enrollmentService.processEnrollment(oldWalletId, 'TOKEN-ACC-001', '20260115');
-
-    // Migrate with reconstructed accumulator values
-    const newKey = generateEnrollmentKey();
-    const newWalletId = deriveMemberWalletId(TEST_MEMBER, newKey, accGroupIdHash, TEST_SALT);
-    const tokenIdHash = hashString('TOKEN-ACC-001').toString();
-
-    const migrationResult = enrollmentService.processMigration(
-      oldWalletId,
-      newWalletId,
-      tokenIdHash,
-      '20260201',
-      {
-        deductiblePaidCents: 15000n,
-        oopPaidCents: 25000n,
-        benefitUsedCents: 75000n,
-      },
-    );
-
-    // Verify accumulator was seeded
-    expect(migrationResult.seededAccumulator).toBeDefined();
-    expect(migrationResult.seededAccumulator!.deductiblePaidCents).toBe(15000n);
-    expect(migrationResult.seededAccumulator!.oopPaidCents).toBe(25000n);
-    expect(migrationResult.seededAccumulator!.benefitUsedCents).toBe(75000n);
-  });
-
   test('recovery card + migration preserves insurer identification hashes', () => {
     // Export recovery card with specific hashes
     const traceGroupIdHash = hashString('ACME-TRACE-001');

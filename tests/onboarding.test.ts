@@ -23,7 +23,7 @@
  *   3. GroupRegistry — employer group management
  *   4. OpaqueRoster — walletId → plan/group mapping (zero PHI)
  *   5. TokenAuthority — employer-side token lifecycle
- *   6. EnrollmentService — insurer-side enrollment ceremony
+ *   6. EnrollmentService — terminating a console fixture member (all that is left of the in-process ceremony)
  *
  * All tests are FAST (no ZkProgram compilation).
  * The enrollment service uses admin-path operations (signature-gated),
@@ -78,6 +78,7 @@ import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 
 // ─── Dependencies from existing layers ─────────────────────
 import { WalletRegistry, WALLET_TREE_HEIGHT } from '../src/wallets/wallet-state.js';
+import { lifecycleLeafCommitment, LIFECYCLE_ELIGIBLE, LIFECYCLE_REVOKED } from '../src/engine/lifecycle.js';
 import { BenefitPlanRegistry } from '../src/eligibility/benefit-plan-registry.js';
 import { CREDENTIAL_TYPE_ELIGIBILITY } from '../src/credentials/credential-data.js';
 import { MerkleForest, ForestDomain, TREE_HEIGHT } from '../src/zkp/merkle-forest.js';
@@ -547,7 +548,7 @@ describe('Onboarding — TokenAuthority', () => {
 
   test('validates unused tokens within date range', () => {
     const authority = new TokenAuthority('ACME Corporation');
-    authority.generateToken(
+    const { token } = authority.generateToken(
       'ACME-CORP-001',
       'PLAN-GOLD-2026',
       'EMP-12345',
@@ -556,10 +557,11 @@ describe('Onboarding — TokenAuthority', () => {
       'TOKEN-A',
     );
 
+    // since A-109 an invite carries the group's and the plan's hashes, never the IDs
     const result = authority.validateToken('TOKEN-A', '20260115');
     expect(result.valid).toBe(true);
-    expect(result.groupId).toBe('ACME-CORP-001');
-    expect(result.planId).toBe('PLAN-GOLD-2026');
+    expect(result.groupIdHash).toBe(token.groupIdHash.toString());
+    expect(result.planIdHash).toBe(token.planIdHash.toString());
   });
 
   test('rejects non-existent tokens', () => {
@@ -659,494 +661,61 @@ describe('Onboarding — TokenAuthority', () => {
   });
 });
 
-describe('Onboarding — EnrollmentService', () => {
-  // Helper to set up a fully configured EnrollmentService
-  function setupService() {
+describe('Onboarding — terminating a fixture member (EnrollmentService)', () => {
+  // A fixture member is put on the trees the way the engine does it (AdjudicationService's fixture enrollment):
+  // registered, ELIGIBLE, on the roster, counted in its group. Enrollment over the network never uses this service.
+  function setupEnrolled(memberCount: number) {
     const walletRegistry = new WalletRegistry();
     const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
     const groupRegistry = new GroupRegistry();
     const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    // Register plan template
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    // Register group
-    const groupConfig = buildGroupConfig(TEST_GROUP_LOCAL);
-    groupRegistry.addGroup(groupConfig, TEST_GROUP_LOCAL);
-
-    const service = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    return {
-      service,
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-      planTemplate,
-    };
+    groupRegistry.addGroup(buildGroupConfig(TEST_GROUP_LOCAL), TEST_GROUP_LOCAL);
+    const walletIds: Field[] = [];
+    for (let i = 1; i <= memberCount; i++) {
+      const walletId = Poseidon.hash([Field(i * 1000)]);
+      walletRegistry.register(walletId);
+      lifecycleTree.setLeaf(walletRegistry.getIndex(walletId), lifecycleLeafCommitment(walletId, LIFECYCLE_ELIGIBLE));
+      opaqueRoster.addEntry(buildRosterEntry(walletId, {
+        planId: 'PLAN-GOLD-2026', groupId: 'ACME-CORP-001', familyId: `FAM-ACME-${i}`, enrolledDate: '20260115', tokenId: `TOKEN-${i}`,
+      }));
+      walletIds.push(walletId);
+    }
+    const group = groupRegistry.getGroupByHash(hashString('ACME-CORP-001'))!;
+    groupRegistry.updateGroup(group.index, new GroupConfig({ ...group.config, enrolledCount: Field(memberCount) }));
+    const service = new EnrollmentService(walletRegistry, lifecycleTree, groupRegistry, opaqueRoster);
+    return { service, walletRegistry, lifecycleTree, groupRegistry, opaqueRoster, walletIds };
   }
 
-  test('processEnrollment: full ceremony end-to-end', () => {
-    const ctx = setupService();
-
-    // Step A: Employer generates token
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-001',
-    );
-
-    // Step B: Member computes wallet ID on device (simulated)
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
-
-    // Step C: Insurer processes enrollment with (walletId, tokenId)
-    const result = ctx.service.processEnrollment(
-      walletId,
-      'TOKEN-001',
-      '20260115',
-    );
-
-    // Verify result
-    expect(result.walletId.toString()).toBe(walletId.toString());
-    expect(result.groupId).toBe('ACME-CORP-001');
-    expect(result.planId).toBe('PLAN-GOLD-2026');
-    expect(result.credentialIndex).toBe(0n);
-    expect(result.rosterIndex).toBe(0n);
-
-    // Verify credential
-    expect(result.credentialData.credentialType.toString()).toBe(
-      CREDENTIAL_TYPE_ELIGIBILITY.toString(),
-    );
-    expect(result.credentialData.subjectWalletId.toString()).toBe(
-      walletId.toString(),
-    );
-    expect(result.credentialData.issuerWalletId.toString()).toBe(
-      ctx.adminWalletId.toString(),
-    );
-    expect(result.credentialData.revoked.toString()).toBe('0');
-
-    // Verify wallet is registered
-    expect(ctx.walletRegistry.isRegistered(walletId)).toBe(true);
-    expect(ctx.walletRegistry.getState(walletId).nonce.toString()).toBe('1');
-
-    // Verify roster
-    expect(ctx.opaqueRoster.isEnrolled(walletId)).toBe(true);
-
-    // Verify token consumed
-    const tokenRecord = ctx.tokenAuthority.getTokenRecord('TOKEN-001')!;
-    expect(tokenRecord.status).toBe('consumed');
-    expect(tokenRecord.consumedByWalletId).toBe(walletId.toString());
-
-    // Verify group enrolled count incremented
-    const group = ctx.groupRegistry.getGroupByHash(
-      hashString('ACME-CORP-001'),
-    )!;
-    expect(group.config.enrolledCount.toString()).toBe('1');
-  });
-
-  test('processEnrollment: credential has correct forest structure', () => {
-    const ctx = setupService();
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-002',
-    );
-
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
-    const result = ctx.service.processEnrollment(
-      walletId,
-      'TOKEN-002',
-      '20260115',
-    );
-
-    // Verify the forest root was computed from eligibility + accumulator data
-    const forest = ctx.service.getMemberForest(walletId);
-    expect(forest).toBeDefined();
-    expect(result.credentialData.forestRoot.toString()).toBe(
-      forest!.getForestRoot().toString(),
-    );
-
-    // Eligibility data at ACCESS_CONTROL leaf 0
-    const eligLeaf = forest!.getLeaf(ForestDomain.ACCESS_CONTROL, 0n);
-    expect(eligLeaf.toString()).not.toBe(Field(0).toString());
-
-    // Accumulator data at ACCESS_CONTROL leaf 127
-    const accLeaf = forest!.getLeaf(
-      ForestDomain.ACCESS_CONTROL,
-      ACCUMULATOR_LEAF_INDEX,
-    );
-    expect(accLeaf.toString()).not.toBe(Field(0).toString());
-  });
-
-  test('processEnrollment: rejects invalid token', () => {
-    const ctx = setupService();
-    const walletId = Poseidon.hash([Field(42)]);
-
-    expect(() =>
-      ctx.service.processEnrollment(walletId, 'FAKE-TOKEN', '20260115'),
-    ).toThrow('Token validation failed: Token not found');
-  });
-
-  test('processEnrollment: rejects expired token', () => {
-    const ctx = setupService();
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-EXPIRED',
-    );
-
-    const walletId = Poseidon.hash([Field(42)]);
-    expect(() =>
-      ctx.service.processEnrollment(walletId, 'TOKEN-EXPIRED', '20260301'),
-    ).toThrow('Token validation failed: Token expired');
-  });
-
-  test('processEnrollment: rejects duplicate wallet', () => {
-    const ctx = setupService();
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
-
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-001',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-DUP1',
-    );
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-002',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-DUP2',
-    );
-
-    ctx.service.processEnrollment(walletId, 'TOKEN-DUP1', '20260115');
-
-    expect(() =>
-      ctx.service.processEnrollment(walletId, 'TOKEN-DUP2', '20260115'),
-    ).toThrow('Wallet already registered');
-  });
-
-  test('processEnrollment: rejects unknown plan', () => {
-    const ctx = setupService();
-
-    // Register a second group with a different plan that has no template
-    const otherGroup = buildGroupConfig({
-      groupId: 'BETA-CORP',
-      planId: 'PLAN-PLATINUM',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 50,
-    });
-    ctx.groupRegistry.addGroup(otherGroup, {
-      groupId: 'BETA-CORP',
-      planId: 'PLAN-PLATINUM',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 50,
-    });
-
-    ctx.tokenAuthority.generateToken(
-      'BETA-CORP',
-      'PLAN-PLATINUM',
-      'EMP-999',
-      'FAM-BETA-001',
-      '20260228',
-      'TOKEN-NO-PLAN',
-    );
-
-    const walletId = Poseidon.hash([Field(77)]);
-    expect(() =>
-      ctx.service.processEnrollment(walletId, 'TOKEN-NO-PLAN', '20260115'),
-    ).toThrow('Plan template not found: PLAN-PLATINUM');
-  });
-
-  test('processEnrollment: enforces enrollment cap', () => {
-    // Create a group with cap of 2
-    const walletRegistry = new WalletRegistry();
-    const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-    const tokenAuthority = new TokenAuthority('ACME Corporation');
-    const groupRegistry = new GroupRegistry();
-    const opaqueRoster = new OpaqueRoster();
-    const benefitPlanRegistry = new BenefitPlanRegistry();
-    const adminWalletId = Poseidon.hash([Field(999)]);
-
-    const planTemplate = new PlanTemplate(TEST_PLAN_CONFIG);
-    const planTemplates = new Map<string, PlanTemplate>();
-    planTemplates.set('PLAN-GOLD-2026', planTemplate);
-
-    const tinyGroup = buildGroupConfig({
-      groupId: 'TINY-CORP',
-      planId: 'PLAN-GOLD-2026',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 2,
-    });
-    groupRegistry.addGroup(tinyGroup, {
-      groupId: 'TINY-CORP',
-      planId: 'PLAN-GOLD-2026',
-      effectiveDate: '20260101',
-      terminationDate: '20261231',
-      enrollmentCap: 2,
-    });
-
-    const service = new EnrollmentService(
-      walletRegistry,
-      lifecycleTree,
-      tokenAuthority,
-      groupRegistry,
-      planTemplates,
-      opaqueRoster,
-      benefitPlanRegistry,
-      adminWalletId,
-    );
-
-    // Enroll 2 members
-    for (let i = 1; i <= 2; i++) {
-      tokenAuthority.generateToken(
-        'TINY-CORP',
-        'PLAN-GOLD-2026',
-        `EMP-${i}`,
-        `FAM-TINY-${i}`,
-        '20260228',
-        `TINY-TOKEN-${i}`,
-      );
-      service.processEnrollment(
-        Poseidon.hash([Field(i)]),
-        `TINY-TOKEN-${i}`,
-        '20260115',
-      );
-    }
-
-    // Third enrollment should fail
-    tokenAuthority.generateToken(
-      'TINY-CORP',
-      'PLAN-GOLD-2026',
-      'EMP-3',
-      'FAM-TINY-3',
-      '20260228',
-      'TINY-TOKEN-3',
-    );
-    expect(() =>
-      service.processEnrollment(
-        Poseidon.hash([Field(3)]),
-        'TINY-TOKEN-3',
-        '20260115',
-      ),
-    ).toThrow('Group enrollment cap reached');
-  });
-
-  test('terminateMember: revokes credential and updates lifecycle', () => {
-    const ctx = setupService();
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-TERM',
-    );
-
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
-    ctx.service.processEnrollment(walletId, 'TOKEN-TERM', '20260115');
-
-    // Verify enrolled
-    expect(ctx.opaqueRoster.isEnrolled(walletId)).toBe(true);
-    const groupBefore = ctx.groupRegistry.getGroupByHash(
-      hashString('ACME-CORP-001'),
-    )!;
-    expect(groupBefore.config.enrolledCount.toString()).toBe('1');
-
-    // Terminate
+  test('terminateMember: revokes the lifecycle, terminates the roster entry and counts the group down', () => {
+    const ctx = setupEnrolled(2);
+    const [walletId, other] = ctx.walletIds;
     const termResult = ctx.service.terminateMember(walletId, '20260630');
 
     expect(termResult.walletId.toString()).toBe(walletId.toString());
+    expect(termResult.newLifecycleRoot.toString()).toBe(ctx.lifecycleTree.getRoot().toString());
+    const index = ctx.walletRegistry.getIndex(walletId);
+    expect(ctx.lifecycleTree.getNode(0, index).toString()).toBe(lifecycleLeafCommitment(walletId, LIFECYCLE_REVOKED).toString());
 
-    // Verify credential revoked
-    const inventory = ctx.service.getMemberInventory(walletId);
-    const credential = inventory!.getCredential(0n);
-    expect(credential!.revoked.toString()).toBe('1');
-
-    // Verify roster updated
     const rosterEntry = ctx.opaqueRoster.getEntryByWallet(walletId)!;
-    expect(rosterEntry.entry.status.toString()).toBe(
-      ENROLLMENT_STATUS_TERMINATED.toString(),
-    );
+    expect(rosterEntry.entry.status.toString()).toBe(ENROLLMENT_STATUS_TERMINATED.toString());
     expect(rosterEntry.entry.terminatedDate.toString()).toBe('20260630');
+    // the other member is untouched
+    expect(ctx.opaqueRoster.getEntryByWallet(other)!.entry.status.toString()).toBe(ENROLLMENT_STATUS_ACTIVE.toString());
 
-    // Verify group count decremented
-    const groupAfter = ctx.groupRegistry.getGroupByHash(
-      hashString('ACME-CORP-001'),
-    )!;
-    expect(groupAfter.config.enrolledCount.toString()).toBe('0');
+    const group = ctx.groupRegistry.getGroupByHash(hashString('ACME-CORP-001'))!;
+    expect(group.config.enrolledCount.toString()).toBe('1');
+    expect(group.config.status.toString()).toBe(GROUP_STATUS_ACTIVE.toString());
   });
 
-  test('terminateGroup: terminates all members in a group', () => {
-    const ctx = setupService();
-
-    // Enroll 3 members
-    const walletIds: Field[] = [];
-    for (let i = 1; i <= 3; i++) {
-      ctx.tokenAuthority.generateToken(
-        'ACME-CORP-001',
-        'PLAN-GOLD-2026',
-        `EMP-${i}`,
-        `FAM-ACME-${i}`,
-        '20260228',
-        `TOKEN-GRP-${i}`,
-      );
-      const wId = Poseidon.hash([Field(i * 1000)]);
-      ctx.service.processEnrollment(wId, `TOKEN-GRP-${i}`, '20260115');
-      walletIds.push(wId);
-    }
-
-    // Verify all enrolled
-    expect(
-      ctx.groupRegistry
-        .getGroupByHash(hashString('ACME-CORP-001'))!
-        .config.enrolledCount.toString(),
-    ).toBe('3');
-
-    // Terminate entire group
-    const groupResult = ctx.service.terminateGroup(
-      'ACME-CORP-001',
-      '20260630',
-    );
-
-    expect(groupResult.terminatedCount).toBe(3);
-    expect(groupResult.terminations.length).toBe(3);
-
-    // Verify group is TERMINATED
-    const group = ctx.groupRegistry.getGroupByHash(
-      hashString('ACME-CORP-001'),
-    )!;
-    expect(group.config.status.toString()).toBe(
-      GROUP_STATUS_TERMINATED.toString(),
-    );
-    expect(group.config.enrolledCount.toString()).toBe('0');
-
-    // Verify all members terminated
-    for (const wId of walletIds) {
-      const roster = ctx.opaqueRoster.getEntryByWallet(wId)!;
-      expect(roster.entry.status.toString()).toBe(
-        ENROLLMENT_STATUS_TERMINATED.toString(),
-      );
-    }
+  test('terminateMember: rejects an unknown wallet', () => {
+    const ctx = setupEnrolled(1);
+    expect(() => ctx.service.terminateMember(Poseidon.hash([Field(9999)]), '20260630')).toThrow('Wallet not registered');
   });
 
-  test('terminateMember: rejects unknown wallet', () => {
-    const ctx = setupService();
-    const unknownWallet = Poseidon.hash([Field(9999)]);
-
-    expect(() =>
-      ctx.service.terminateMember(unknownWallet, '20260630'),
-    ).toThrow('Wallet not registered');
-  });
-
-  test('processEnrollment: multiple members in same group get same plan data', () => {
-    const ctx = setupService();
-
-    const results = [];
-    for (let i = 1; i <= 3; i++) {
-      ctx.tokenAuthority.generateToken(
-        'ACME-CORP-001',
-        'PLAN-GOLD-2026',
-        `EMP-${i}`,
-        `FAM-ACME-${i}`,
-        '20260228',
-        `TOKEN-MULTI-${i}`,
-      );
-      const wId = Poseidon.hash([Field(i * 100)]);
-      results.push(
-        ctx.service.processEnrollment(wId, `TOKEN-MULTI-${i}`, '20260115'),
-      );
-    }
-
-    // All credentials should be ELIGIBILITY type with same issuer
-    for (const r of results) {
-      expect(r.credentialData.credentialType.toString()).toBe(
-        CREDENTIAL_TYPE_ELIGIBILITY.toString(),
-      );
-      expect(r.credentialData.issuerWalletId.toString()).toBe(
-        ctx.adminWalletId.toString(),
-      );
-      expect(r.planId).toBe('PLAN-GOLD-2026');
-      expect(r.groupId).toBe('ACME-CORP-001');
-    }
-
-    // Forest roots should be identical (same plan, same data)
-    // because each member gets the same eligibility + accumulator config
-    expect(results[0]!.credentialData.forestRoot.toString()).toBe(
-      results[1]!.credentialData.forestRoot.toString(),
-    );
-    expect(results[1]!.credentialData.forestRoot.toString()).toBe(
-      results[2]!.credentialData.forestRoot.toString(),
-    );
-  });
-
-  test('processEnrollment: insurer sees only opaque data', () => {
-    const ctx = setupService();
-    ctx.tokenAuthority.generateToken(
-      'ACME-CORP-001',
-      'PLAN-GOLD-2026',
-      'EMP-12345',
-      'FAM-TEST-001',
-      '20260228',
-      'TOKEN-OPAQUE',
-    );
-
-    const walletId = deriveMemberWalletId(TEST_MEMBER, TEST_ENROLLMENT_KEY, Field(0), fixtureIdentitySalt({ localData: TEST_MEMBER }));
-    const result = ctx.service.processEnrollment(
-      walletId,
-      'TOKEN-OPAQUE',
-      '20260115',
-    );
-
-    // The insurer received walletId — an opaque Poseidon hash
-    // They cannot reverse it to get: name, DOB, enrollment key
-    // They only know planId and groupId (they created these)
-    const rosterEntry = ctx.opaqueRoster.getEntryByWallet(walletId)!;
-
-    // All fields are either the walletId (opaque) or hashes of insurer-known data
-    expect(rosterEntry.entry.walletId.toString()).toBe(
-      walletId.toString(),
-    );
-    expect(rosterEntry.entry.planIdHash.toString()).toBe(
-      hashString('PLAN-GOLD-2026').toString(),
-    );
-    expect(rosterEntry.entry.groupIdHash.toString()).toBe(
-      hashString('ACME-CORP-001').toString(),
-    );
-
-    // The insurer does NOT have: member name, DOB, cardholder ID, enrollment key
-    // There is no way to extract these from walletId — it's a one-way Poseidon hash
+  test('terminateMember: rejects a registered wallet that is not on the roster', () => {
+    const ctx = setupEnrolled(1);
+    const stranger = Poseidon.hash([Field(4242)]);
+    ctx.walletRegistry.register(stranger);
+    expect(() => ctx.service.terminateMember(stranger, '20260630')).toThrow('Wallet not in roster');
   });
 });

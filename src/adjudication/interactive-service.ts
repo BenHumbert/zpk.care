@@ -998,8 +998,6 @@ export class AdjudicationService {
       }
     }
 
-    const planTemplates = new Map([['PLAN-GOLD-2026', this.planTemplate]]);
-
     // Register employer group
     const groupConfig = new GroupConfig({
       groupIdHash: hashString('ACME-CORP'),
@@ -1018,10 +1016,7 @@ export class AdjudicationService {
       enrollmentCap: 100,
     });
 
-    this.enrollmentService = new EnrollmentService(
-      this.walletRegistry, this.lifecycleTree, this.tokenAuthority, this.groupRegistry,
-      planTemplates, this.opaqueRoster, this.benefitPlanRegistry, this.adminWalletId,
-    );
+    this.enrollmentService = new EnrollmentService(this.walletRegistry, this.lifecycleTree, this.groupRegistry, this.opaqueRoster);
 
     // Build shared plan data and register it once (index 0: the console's PLAN-GOLD-2026)
     this.sharedEligibilityData = this.rebuildSharedEligibilityData();

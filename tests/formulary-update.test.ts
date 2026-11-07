@@ -16,8 +16,7 @@
 
 /**
  * Formulary updates: FormularyUpdateService's builds, rebuilds and diffs, the sequencer's formulary store (its version
- * count and its checkpoint), l2_storeFormulary and l2_getFormulary over RPC, and EnrollmentService's bulk update of a
- * plan's members.
+ * count and its checkpoint), and l2_storeFormulary and l2_getFormulary over RPC.
  *
  * What was wrong: the suite had not loaded since member wallet derivation took the identity salt (C1). Its fixtures
  * derived the two member wallets without one, at the top of the file, so no case ran. Two more fixtures had fallen
@@ -25,9 +24,8 @@
  * (the employer whose codes it routes). Found by the review of option A step 1 (2026-10-24).
  *
  * Now the fixtures give a fixed salt, the operator token to the RPC server and its client, and an issuer to the token
- * authority; the source is unchanged. The two EnrollmentService cases still fail, on a defect in the source:
- * processEnrollment reads the group, plan and family IDs from a token validation that carries only their hashes, so it
- * refuses every enrollment ('Group not found: undefined').
+ * authority; the source is unchanged. Its two cases on EnrollmentService's bulk update of a plan's members went with
+ * that method (the cleanup's phase 3.3): it updated only members the broken processEnrollment had made.
  */
 import { Field, Poseidon, MerkleTree } from 'o1js';
 import {
@@ -61,7 +59,6 @@ import {
 } from '../src/wallets/index.js';
 import type { MemberLocalData } from '../src/models/member.js';
 import { PlanTemplate } from '../src/onboarding/plan-template.js';
-import { EnrollmentService } from '../src/onboarding/enrollment-service.js';
 import { TokenAuthority } from '../src/onboarding/token-authority.js';
 import { GroupRegistry, buildGroupConfig } from '../src/onboarding/group-registry.js';
 import { OpaqueRoster } from '../src/onboarding/opaque-roster.js';
@@ -379,143 +376,4 @@ describe('Formulary Update Push (GAP 3)', () => {
     });
   });
 
-  // ─── EnrollmentService — bulk formulary update ─────────
-
-  describe('EnrollmentService.updateFormularyForPlan', () => {
-    test('updates all active members on a plan', () => {
-      // Set up enrollment infrastructure
-      const walletRegistry = new WalletRegistry();
-      const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      const tokenAuthority = new TokenAuthority('ACME');   // before: no issuer, and every code it made was refused
-      const groupRegistry = new GroupRegistry();
-      const opaqueRoster = new OpaqueRoster();
-      const benefitPlanRegistry = new BenefitPlanRegistry();
-
-      // Create plan template
-      const planTemplate = new PlanTemplate({
-        planId: 'PLAN-BULK',
-        copayAmountCents: 2000,
-        coverageType: 1,
-        deductibleAmountCents: 50000,
-        oopMaxCents: 800000,
-        annualBenefitMaxCents: 0,
-        formularyEntries: baseFormularyEntries,
-      });
-      const plans = new Map([['PLAN-BULK', planTemplate]]);
-
-      // Register group
-      const groupLocalData = {
-        groupId: 'GRP-TEST',
-        planId: 'PLAN-BULK',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      };
-      const groupConfig = buildGroupConfig(groupLocalData);
-      groupRegistry.addGroup(groupConfig, groupLocalData);
-
-      // Create enrollment service
-      const enrollmentService = new EnrollmentService(
-        walletRegistry,
-        lifecycleTree,
-        tokenAuthority,
-        groupRegistry,
-        plans,
-        opaqueRoster,
-        benefitPlanRegistry,
-        adminWalletId,
-      );
-
-      // Enroll 2 members
-      const token1 = tokenAuthority.generateToken(
-        'GRP-TEST', 'PLAN-BULK', 'EMP-1', 'FAM-1', '20261231',
-      );
-      const token2 = tokenAuthority.generateToken(
-        'GRP-TEST', 'PLAN-BULK', 'EMP-2', 'FAM-2', '20261231',
-      );
-
-      enrollmentService.processEnrollment(member1WalletId, token1.tokenId, '20260115');
-      enrollmentService.processEnrollment(member2WalletId, token2.tokenId, '20260115');
-
-      // Verify both have forests
-      const forest1Before = enrollmentService.getMemberForest(member1WalletId);
-      const forest2Before = enrollmentService.getMemberForest(member2WalletId);
-      expect(forest1Before).toBeDefined();
-      expect(forest2Before).toBeDefined();
-
-      const oldRoot1 = forest1Before!.getForestRoot().toString();
-      const oldRoot2 = forest2Before!.getForestRoot().toString();
-
-      // Build new formulary
-      const { root: newFormularyRoot } =
-        FormularyUpdateService.buildFormulary(updatedFormularyEntries);
-
-      // Bulk update
-      const result = enrollmentService.updateFormularyForPlan('PLAN-BULK', newFormularyRoot);
-      expect(result.updatedCount).toBe(2);
-      expect(result.updatedWalletIds.length).toBe(2);
-
-      // Verify forests changed
-      const forest1After = enrollmentService.getMemberForest(member1WalletId);
-      const forest2After = enrollmentService.getMemberForest(member2WalletId);
-      expect(forest1After!.getForestRoot().toString()).not.toBe(oldRoot1);
-      expect(forest2After!.getForestRoot().toString()).not.toBe(oldRoot2);
-    });
-
-    test('skips terminated members', () => {
-      const walletRegistry = new WalletRegistry();
-      const lifecycleTree = new MerkleTree(WALLET_TREE_HEIGHT);
-      const tokenAuthority = new TokenAuthority('ACME');
-      const groupRegistry = new GroupRegistry();
-      const opaqueRoster = new OpaqueRoster();
-      const benefitPlanRegistry = new BenefitPlanRegistry();
-
-      const planTemplate = new PlanTemplate({
-        planId: 'PLAN-SKIP',
-        copayAmountCents: 2000,
-        coverageType: 1,
-        deductibleAmountCents: 0,
-        oopMaxCents: 0,
-        annualBenefitMaxCents: 0,
-        formularyEntries: baseFormularyEntries,
-      });
-      const plans = new Map([['PLAN-SKIP', planTemplate]]);
-
-      const groupLocalData = {
-        groupId: 'GRP-SKIP',
-        planId: 'PLAN-SKIP',
-        effectiveDate: '20260101',
-        terminationDate: '20261231',
-        enrollmentCap: 100,
-      };
-      const groupConfig = buildGroupConfig(groupLocalData);
-      groupRegistry.addGroup(groupConfig, groupLocalData);
-
-      const enrollmentService = new EnrollmentService(
-        walletRegistry, lifecycleTree, tokenAuthority, groupRegistry,
-        plans, opaqueRoster, benefitPlanRegistry, adminWalletId,
-      );
-
-      // Enroll 2 members
-      const token1 = tokenAuthority.generateToken(
-        'GRP-SKIP', 'PLAN-SKIP', 'EMP-1', 'F1', '20261231',
-      );
-      const token2 = tokenAuthority.generateToken(
-        'GRP-SKIP', 'PLAN-SKIP', 'EMP-2', 'F2', '20261231',
-      );
-
-      enrollmentService.processEnrollment(member1WalletId, token1.tokenId, '20260115');
-      enrollmentService.processEnrollment(member2WalletId, token2.tokenId, '20260115');
-
-      // Terminate member 2
-      enrollmentService.terminateMember(member2WalletId, '20260301');
-
-      // Bulk update — should only update member 1
-      const { root: newRoot } = FormularyUpdateService.buildFormulary(updatedFormularyEntries);
-      const result = enrollmentService.updateFormularyForPlan('PLAN-SKIP', newRoot);
-      expect(result.updatedCount).toBe(1);
-      expect(result.updatedWalletIds).toContain(member1WalletId.toString());
-      expect(result.updatedWalletIds).not.toContain(member2WalletId.toString());
-    });
-  });
 });

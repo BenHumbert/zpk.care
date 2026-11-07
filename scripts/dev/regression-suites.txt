@@ -61,6 +61,7 @@ tests/fixture-directory.test.ts
 tests/fixture-identities.test.ts
 tests/formulary-cache.test.ts
 tests/formulary-tree.test.ts
+tests/formulary-update.test.ts
 tests/gossip-secret-seed.test.ts
 tests/hr-tool-lockdown.test.ts
 tests/hr-tool-router.test.ts
@@ -136,6 +137,7 @@ tests/node-caller-address.test.ts
 tests/node-event-stream-gate.test.ts
 tests/node-keyring.test.ts
 tests/node-roles.test.ts
+tests/onboarding.test.ts
 tests/pa-review-screens.test.ts
 tests/parent-watchdog.test.ts
 tests/partial-fill-lifecycle.test.ts
@@ -200,5 +202,6 @@ tests/step-therapy-display.test.ts
 tests/suite-lists.test.ts
 tests/verify-pool-restarts.test.ts
 tests/wallet-key.test.ts
+tests/wallet-migration.test.ts
 tests/wallet-signed-rpc.test.ts
 tests/wallet-update-payload.test.ts
