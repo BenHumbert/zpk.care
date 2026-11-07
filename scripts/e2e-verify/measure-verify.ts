@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'l2_getRegistrationWitnesses', params: {} }),
   });
-  const w = (await resp.json()).result;
+  const w = ((await resp.json()) as { result?: Record<string, any> }).result;
   if (!w) throw new Error('no witnesses from the sequencer');
 
   const t0 = Date.now();

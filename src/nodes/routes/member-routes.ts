@@ -1875,6 +1875,7 @@ export function buildMemberRoutes(server: NautilusAppServer): RouteRegistration[
       if (b?.recipientWalletId && b?.body && !b?.message) {
         try {
           const walletId = node.getWalletId();
+          if (!walletId) return server.sendResponse(res, 409, false, undefined, 'Member wallet ID not set');
           const plaintext = b.body;
           const seqUrl = server.getConfig().sequencerUrl.replace(/\/+$/, '');
           const threadIdHash = Poseidon.hash([

@@ -124,7 +124,8 @@ export interface ReadyMessage {
 export interface ResultMessage {
   type: 'result';
   jobId: string;
-  result: ProvingJobResult;
+  /** The coordinator stamps `workerId`; the worker does not know its own pool index */
+  result: Omit<ProvingJobResult, 'workerId'>;
 }
 
 export interface ErrorMessage {

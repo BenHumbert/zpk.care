@@ -193,7 +193,7 @@ async function handleProve(
     }
 
     // 4. Send result
-    const result: ProvingJobResult = {
+    const result: Omit<ProvingJobResult, 'workerId'> = {
       batchProofJson: JSON.stringify(finalProof.toJSON()),
       batchOutput: {
         oldRegistryRoot: batchOutput.oldRegistryRoot.toString(),

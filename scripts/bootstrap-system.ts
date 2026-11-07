@@ -246,7 +246,7 @@ function openAllDashboards(): void {
   for (const d of dashboards) {
     const url = `http://localhost:${d.port}`;
     try {
-      execSync(`start "" "${url}"`, { shell: true, stdio: 'ignore' });
+      execSync(`start "" "${url}"`, { stdio: 'ignore' });
       log('browser', `Opened ${d.label} → ${url}`);
     } catch {
       log('browser', `Failed to open ${d.label} — open manually: ${url}`);

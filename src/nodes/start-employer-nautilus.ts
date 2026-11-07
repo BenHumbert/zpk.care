@@ -125,22 +125,21 @@ if (fs.existsSync(path.join(dashboardDir, 'index.html'))) {
   config.dashboardDir = dashboardDir;
 }
 
-const employerId = env.ZKTRIDENT_EMPLOYER_ID;
-if (!employerId) {
-  console.error('  [FATAL] ZKTRIDENT_EMPLOYER_ID is required');
+function fatal(...lines: string[]): never {
+  for (const line of lines) console.error(line);
   process.exit(1);
 }
+
+const employerId = env.ZKTRIDENT_EMPLOYER_ID || fatal('  [FATAL] ZKTRIDENT_EMPLOYER_ID is required');
 // Phase A: mandatory Ed25519 public key pin. The employer node MUST know what
 // public key it is expected to operate under. When the attestation loads from
 // the sequencer, its publicKeyHex field is compared against this environment
 // variable; any mismatch is a fatal identity error and the process exits.
-const employerPubKeyHex = env.ZKTRIDENT_EMPLOYER_PUBKEY_HEX;
-if (!employerPubKeyHex) {
-  console.error('  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX is required');
-  console.error('          This must be the Ed25519 public key that signed the marketplace');
-  console.error('          agreement for this employerId. The orchestrator provides this.');
-  process.exit(1);
-}
+const employerPubKeyHex = env.ZKTRIDENT_EMPLOYER_PUBKEY_HEX || fatal(
+  '  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX is required',
+  '          This must be the Ed25519 public key that signed the marketplace',
+  '          agreement for this employerId. The orchestrator provides this.',
+);
 if (!/^[0-9a-f]{64}$/i.test(employerPubKeyHex)) {
   console.error('  [FATAL] ZKTRIDENT_EMPLOYER_PUBKEY_HEX must be 64 hex characters (32 bytes)');
   process.exit(1);

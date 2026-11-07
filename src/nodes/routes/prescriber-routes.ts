@@ -475,7 +475,7 @@ export function buildPrescriberRoutes(
 
       // Serialize the prescription as the message payload
       const rxJson = JSON.stringify(prescription);
-      const threadIdHash = hashString(`rx-${rxId}`);
+      const threadIdHash = hashString(`rx-${rxId}`).toString();
       const messageCommitment = Poseidon.hash([Field(BigInt(walletId)), Field(Date.now())]).toString();
 
       try {
@@ -511,7 +511,7 @@ export function buildPrescriberRoutes(
           prescription,
           sentToPharmacy: true,
           sentToMember: true,
-          messageIndex: pharmacyMsg.index,
+          messageIndex: String(pharmacyMsg.leafIndex),
         });
       } catch (err) {
         server.sendResponse(res, 500, false, undefined, err instanceof Error ? err.message : 'Failed to send prescription');

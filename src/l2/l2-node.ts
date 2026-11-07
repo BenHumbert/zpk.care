@@ -170,6 +170,8 @@ export type L2EventType =
   | 'pool:worker:crashed'
   | 'leader:promoted'
   | 'leader:demoted'
+  | 'quorum:achieved'
+  | 'quorum:timeout'
   | 'employer:registered'
   | 'employer:revoked'
   | 'employer:node-registered'
