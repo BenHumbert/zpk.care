@@ -1,0 +1,11 @@
+{
+  "//": "The suites, typechecked. ts-jest only transpiles them (isolatedModules), so a call or a fixture that fell behind the code used to show up weeks later as a failing suite, or not at all for a suite outside the batch; here it is a type error on the day (cleanup phase 1.2). rootDir and noEmit are overridden because the base config points rootDir at src/.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "types": ["jest", "node"]
+  },
+  "include": ["tests/**/*"],
+  "exclude": ["node_modules", "build"]
+}

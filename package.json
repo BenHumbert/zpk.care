@@ -5,8 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json && tsc -p tsconfig.tests.json",
     "test": "tsx scripts/dev/run-tests.ts",
     "test:all": "tsx scripts/dev/run-tests.ts --all",
     "start:leviathan": "npx tsx src/nodes/start-leviathan.ts",
