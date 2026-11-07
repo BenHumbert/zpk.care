@@ -173,7 +173,9 @@ Items 4.1 to 4.6 are scoped to remove these, worst first.
 
 1. **The naming refactor:** fold it into this cleanup (5.4), or keep it for later?
 2. **The legacy visualizer** (`visualizer/`): delete it, or keep the operator console and serve it from the network like the dashboards?
-3. **From before:**
+3. **The F3 services**, which no running code calls but whose suites test the ZK programs through them: the verification services, `UserWalletService`, `AorService`, `CareContract`, `WalletMigrationService` and its program. Delete them with their suites, keeping a direct test of each program the engine uses, or keep them until the fixtures go?
+4. **The local profile's insurer signing seed:** `npm run setup` keeps it in `.zpk/local.env`, so employer attestations survive a restart on one machine, where there is no key ceremony. A production deployment takes it from the ceremony and never keeps it in a file. Acceptable for the local profile?
+5. **From before:**
    - the ceremony (proposed: required in production, not on one machine);
    - who holds the keys;
    - pushing the local commits.
