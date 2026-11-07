@@ -1,11 +1,10 @@
 {
   "name": "zpk_care",
   "version": "1.0.0",
-  "description": "Zero Knowledge Proof Claim Adjudication on MINA Protocol",
+  "description": "Pharmacy-benefit claims adjudicated with zero-knowledge proofs: identities stay on the member's phone",
   "type": "module",
-  "main": "build/index.js",
+  "private": true,
   "scripts": {
-    "build": "tsc",
     "typecheck": "tsc --noEmit",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "tsx scripts/dev/run-tests.ts",
@@ -21,9 +20,7 @@
     "start:prescriber": "npx tsx src/nodes/start-prescriber-nautilus.ts",
     "start:pharmacy": "npx tsx src/nodes/start-pharmacy-nautilus.ts",
     "start:insurer": "npx tsx src/nodes/start-insurer-nautilus.ts",
-    "start:employer": "node -e \"console.error('start:employer is deprecated as of Phase A. Employer nodes are spawned on-demand by marketplace activation (Phase C orchestrator). Complete the marketplace flow at http://localhost:4004/marketplace/ instead, or set ZKTRIDENT_EMPLOYER_ID + ZKTRIDENT_EMPLOYER_PUBKEY_HEX manually and run npx tsx src/nodes/start-employer-nautilus.ts for advanced debugging.'); process.exit(1)\"",
     "start:explorer": "npx tsx src/nodes/start-explorer.ts",
-    "fetch:nadac": "npx tsx scripts/fetch-nadac.ts",
     "kill:ports": "npx tsx scripts/dev/kill-ports.ts",
     "bootstrap": "npx tsx scripts/bootstrap-system.ts",
     "clean:state": "node -e \"const{rmSync:r}=require('fs');['.l2-checkpoints','l2-data','nautilus-data','visualizer/.l2-checkpoints'].forEach(d=>{try{r(d,{recursive:true,force:true});console.log('Deleted '+d)}catch{}});console.log('State cleaned.')\"",
@@ -32,10 +29,9 @@
     "start:hr-tool": "npx tsx src/tools/hr-tool-server.ts"
   },
   "keywords": [
-    "zkp",
-    "mina",
+    "zero-knowledge",
     "healthcare",
-    "nft",
+    "pharmacy-benefits",
     "o1js"
   ],
   "author": "Ben Humbert",
@@ -50,7 +46,6 @@
     "@types/node": "^25.2.1",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6",
-    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
 }
