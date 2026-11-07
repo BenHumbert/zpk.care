@@ -6,14 +6,14 @@ How to install, run, and troubleshoot the system on a single machine.
 
 ## Prerequisites
 
-- **Node.js 20 or newer.** The project is ES-modules + TypeScript run directly
-  through [`tsx`](https://github.com/privatenumber/tsx) — there is **no build
-  step** required to run it.
-- **~32 GB RAM recommended.** The system compiles real zero-knowledge circuits
-  and runs a pool of prover worker processes. It will run with less, but with
-  fewer workers and slower batching.
+- **Node.js 22 or newer.** The project is ES modules and TypeScript run directly
+  through [`tsx`](https://github.com/privatenumber/tsx); there is **no build
+  step**.
+- **Memory:** the whole network took about 12 GB once ready (17 processes, the
+  100-drug catalog, 2026-11-07) and more while it proves; 32 GB is comfortable,
+  and `npm run setup` warns below 16 GB.
 - A modern browser for the dashboards.
-- Works on macOS, Linux, and Windows.
+- Windows, macOS or Linux.
 
 ## Install
 
@@ -24,32 +24,51 @@ npm install
 ## Run (the one command)
 
 ```bash
-npm run start:leviathan:clean:100:unsecure
+npm start
 ```
 
-This is the recommended way to start everything fresh. It:
+This boots the whole network on this machine, **secured**, from the local
+profile (`scripts/local/`, kept in `.zpk/`, which git ignores). The first time,
+it sets the machine up as `npm run setup` does:
 
-1. **`clean`** — kills processes on the dev ports and deletes local chain state
-   so you start from genesis.
-2. Starts the **Leviathan sequencer** + two replicas.
-3. Compiles the zero-knowledge programs and starts the **prover pool**.
-4. Boots the **insurer** node first (it credentials providers), waits for it to
-   report `ready`, then boots **member / prescriber / pharmacy** nodes and the
-   **explorer**.
-5. Serves every dashboard.
-6. **`100`** — limits the demo formulary to ~100 drugs so the first boot is
-   quick.
+1. checks Node, memory, disk and the network's ports (a port another program
+   holds is named and left alone; the explorer moves to the first free port
+   from 8010 when 8000 is taken);
+2. writes `.zpk/local.env` with fresh secrets: the operator's, the insurer's and
+   the prescriber's tokens, the gossip secret (hex), the prover's key and the
+   insurer's signing seed (one machine has no key ceremony);
+3. makes a fictional employee roster and a sample EIN letter in `.zpk/samples/`.
 
-> **First boot takes a few minutes** because real circuits are compiled. Watch
-> the logs until each node prints that it has reached `ready`.
+Then it starts the sequencer and two replicas, the proof workers, the insurer,
+member, prescriber and pharmacy nodes, the explorer and the HR Tool (with its
+text outbox), and prints where each dashboard is and which token it asks for
+once the engine's provers are ready.
 
-### Useful variants
+> **The first boot takes a few minutes** because real circuits are compiled.
+> `npm start` says when the network is ready.
+
+### The local profile's commands
+
+| Command | What it does |
+|---|---|
+| `npm start` | Boot the network and the HR Tool, keeping the state of the last run |
+| `npm start -- --fresh` | Start from nothing: clear the network's state and the local HR Tool workspace first |
+| `npm start -- --full-catalog` | Load the whole NADAC catalog (about 30,000 drugs; a much slower boot) instead of 100 drugs |
+| `npm stop` | Stop a network that is still running, from any terminal; only this checkout's processes |
+| `npm run status` | Which parts answer, and whether the engine's provers are ready |
+| `npm run tokens` | The dashboards and the token each one asks for, from `.zpk/local.env` |
+| `npm run texts` | The PINs the HR Tool texted (on one machine they go to its outbox) |
+| `npm run setup -- --new-secrets` | New secrets; every dashboard asks for its token again and earlier attestations are void |
+
+A variable set in the shell wins over the file, so `ZKTRIDENT_EXPLORER_PORT=8020 npm start` works as before.
+
+### The earlier commands
 
 | Command | What it changes |
 |---|---|
-| `npm run start:leviathan` | Start without cleaning (keeps existing state) |
+| `npm run start:leviathan` | Start with the environment of the shell (no local profile), keeping existing state |
 | `npm run start:leviathan:clean` | Clean + start with the full formulary |
-| `npm run start:leviathan:clean:100:unsecure` | Demo mode with relaxed local-dev security (CORS `*`, no admin auth). **Local use only.** |
+| `npm run start:leviathan:clean:100:unsecure` | Relaxed local-development security (shared `admin123` token, CORS `*`). **Local use only**; to be removed now that `npm start` is a secured boot |
 | `npm run start:leviathan:warm:100:unsecure` | Same, but keeps existing state (no clean) |
 
 ### Other scripts

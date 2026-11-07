@@ -113,6 +113,34 @@ Items 4.1 to 4.6 are scoped to remove these, worst first.
   - a boot warns on an unknown `ZKTRIDENT_` name;
   - `npm run config` prints the settings in force, without secrets;
   - the table in RUNNING.md is generated from it.
+  - **What the inventory found** (2026-11-07). The code reads about 110 names: some 70 `ZKTRIDENT_*`, plus `HR_TOOL_*`, `E2E_*`, `ZPK_*`, `NADAC_*`, the generic `PORT` and `NODE_ENV`, and the visualizer's own. Every documented name has a reader.
+    - **Values that misparse silently.**
+      - Numbers go through `parseInt` with no check, so NaN or a prefix is taken as a value: batch interval, SSE cap, checkpoints kept, pool sizes, partition count and index, member device ports, formulary limit, and every port but the explorer's.
+      - Booleans follow five conventions: `'true'`, not `'false'`, not `'0'`, `'1'`, `=== '1'`.
+      - One TLS file without the other serves plain HTTP with no warning.
+      - An empty `ZKTRIDENT_HOST` binds every interface.
+      - CORS and public-host entries are never checked, and peer URLs are taken raw.
+      - The gossip secret's hex seed was the worst case: A-149, fixed.
+    - **Near-duplicate names.**
+      - `MEMBER_DEVICE_PORTS` beside `MEMBER_DEVICES_DIR`.
+      - `ZKT_E2E_SERIAL` among the `E2E_*` names.
+      - `ZKP_DATA_DIR` beside `ZPK_*`.
+      - Three names each for the sequencer's port and its URL.
+      - `ZKTRIDENT_ADMIN_TOKEN` is the operator's token in the launcher but a node's own inside the nodes (on the naming list).
+    - **Docs that say the wrong thing.**
+      - CODEMAP §9 and RUNNING swap `POOL_SIZE` and `PROOF_POOL_SIZE`.
+      - They also misstate `RPC_PROXY`'s default, `UNSECURE`'s readers and what `INSURER_URL` does.
+      - The launcher's header gives the wrong batch interval and pool minimum.
+    - **Unused or unsafe defaults.**
+      - `ZKTRIDENT_PROVER_API_KEY` defaults to `dev-key` on a secured boot (A-85's family).
+      - `ZKTRIDENT_PROVER_URL` and `ZKTRIDENT_EMPLOYER_URL` are read and never used.
+      - `ZKTRIDENT_PRODUCTION_FORMULARY` is documented and read nowhere.
+  - **The module, then:**
+    - every name with its kind, type, default, readers and meaning;
+    - one parser per type, which refuses a bad value at boot, with the reason;
+    - a warning for an unknown `ZKTRIDENT_` name;
+    - `npm run config`, with secrets masked;
+    - RUNNING's table generated from the module, and a suite that fails when the code reads a name the module lacks.
 - **4.4 Two profiles.**
   - `local`: one machine, generated secrets, no ceremony.
   - `production`: a ceremony record, TLS and public host names are required, and the boot refuses without them. This also answers the open question of whether a secured boot must have a ceremony: yes in production, no on one machine.
@@ -164,3 +192,13 @@ Items 4.1 to 4.6 are scoped to remove these, worst first.
     - **Commands:** `npm test` and `npm run test:all` run them through `scripts/dev/run-tests.ts`.
     - **Revived:** 13 stale suites run again (the 14 reruns all passed). The guard found a 65th suite, `network`, that no batch ran; it passes (slow).
   - **Next:** the A-148 fix, then phase 3.1 to 3.3, then phase 4.1 (`npm run setup` / `npm start`, written and tested, waiting for a live boot).
+- **2026-11-07 (later).** Two fixes, phase 3, and a clean typecheck.
+  - **A-148 (be45bc1):** partial fills can be proven; the circuit and the table gained the two transitions. Batch 201/201; layer8 proves and verifies both.
+  - **A-149 (7929569):** a gossip secret that is not hex no longer seeds a recomputable attestation key; the boot refuses it. Found by the inventory of every environment variable. Batch 202/202.
+  - **Phase 3 (50a0691, aafd63c, 8bb7688, 3249ea2):** about 27,000 lines deleted.
+    - `src/poc/` (F1c), `src/seed/`, `src/index.ts` and 14 barrels, the dead NADAC seed script and `ts-node`; `docx` stays (`employer-attestation.ts` writes the agreement with it).
+    - `EnrollmentService` down to `terminateMember`.
+    - Five superseded suites.
+    - Every suite now passes: the batch has 205 and the slow list 11, with no failing section.
+  - **Typecheck (8c69792):** `npm run typecheck` covers src, scripts and the suites, all at 0 errors. visualizer/engine keeps 2 errors in the legacy console drivers (owner question).
+  - **Next:** a live run booted by `npm start -- --fresh`, then commit phase 4.1; then 2.1 (unused imports) and 2.2 (Prettier, width 140); then the rest of phase 4.

@@ -99,24 +99,24 @@ For the full technical design see [ARCHITECTURE.md](ARCHITECTURE.md). For the pr
 
 ## Getting started
 
-You can run the entire network (sequencer, every participant node, and every dashboard) on one machine with a single command.
+You can run the entire network, secured, on one machine with one command: the sequencer and its replicas, every participant node, the HR Tool and every dashboard.
 
 ### Prerequisites
 
-- Node.js 20 or newer (TypeScript runs through `tsx`; there is no build step)
+- Node.js 22 or newer (TypeScript runs through `tsx`; there is no build step)
 - git
-- macOS, Linux, or Windows
+- Windows, macOS or Linux
 - A modern browser for the dashboards
 
 ### Hardware
 
-Full demo on one machine: **64 GB RAM, 4 cores** (16 GB / 8 cores is comfortable).
+On one machine the whole network took about 12 GB of memory once it was ready (17 processes, measured 2026-11-07 with the 100-drug catalog), and more while it proves. 32 GB is comfortable, and `npm run setup` warns below 16 GB.
 
 Per node, if deployed separately:
 
 | Node | Min CPU | Min RAM |
 |------|:---:|:---:|
-| Leviathan sequencer | 8 cores | 32 GB |
+| Sequencer (with the adjudication engine) | 8 cores | 32 GB |
 | All other nodes (member, prescriber, pharmacy, insurer, employer) | 2 cores | 8 GB |
 
 The sequencer does the heavy zero-knowledge work, since proving runs inside it. The other nodes are lightweight web servers; their 8 GB covers the one-time circuit compile during enrollment.
@@ -134,40 +134,48 @@ The sequencer does the heavy zero-knowledge work, since proving runs inside it. 
    ```
 3. **Start everything**
    ```bash
-   npm run start:leviathan:clean:100:unsecure
+   npm start
    ```
-   This stops any of this project's own processes still holding its ports, clears local state, and then boots the Leviathan sequencer, two replicas, the proof workers, and every participant node with its dashboard. `:100` loads a 100-drug formulary so the first boot is fast. `:unsecure` relaxes RPC authentication and CORS for single-machine development. Never use this mode beyond `localhost`.
+   The first start sets up this machine (`npm run setup` does the same on its own):
+   - it checks Node, memory, disk and the network's ports; a port another program holds is named and left alone, and the explorer moves to the first free port from 8010 when 8000 is taken;
+   - it writes `.zpk/local.env` with fresh secrets for a secured boot (`.zpk/` is ignored by git);
+   - it makes a fictional employee roster and a sample EIN letter in `.zpk/samples/`.
 
-   If another program already uses port 8000, set `ZKTRIDENT_EXPLORER_PORT` to a free port (for example 8010) before starting, and the explorer serves there.
+   Then it boots the sequencer, two replicas, the proof workers, every participant node and the HR Tool, and prints where each dashboard is and which token it asks for. `npm run tokens` shows the tokens again. `npm start -- --fresh` starts from nothing; `npm start -- --full-catalog` loads the whole NADAC catalog instead of 100 drugs.
 
-   > The first boot takes a few minutes while the zero-knowledge circuits compile. This is expected and happens once per run. Wait for the startup banner.
+   > The first boot compiles the zero-knowledge circuits, which takes a few minutes. `npm start` says when the network is ready.
 
-4. **Open the dashboards** in your browser:
+4. **Open the dashboards** in your browser (the table `npm start` prints):
 
-   | Dashboard | URL |
-   |------|-----|
-   | Employer marketplace (start here) | http://localhost:4004/marketplace/ |
-   | Insurer / plan admin | http://localhost:4004/ |
-   | Member (patient) | http://localhost:4001/ |
-   | Prescriber | http://localhost:4002/ |
-   | Pharmacy | http://localhost:4003/ |
-   | Network explorer | http://localhost:8000/, or the port in `ZKTRIDENT_EXPLORER_PORT` |
+   | Dashboard | URL | Asks for |
+   |------|-----|-----|
+   | Insurer / plan admin | http://localhost:4004/ | the insurer token, on the Admin tab |
+   | Employer marketplace | http://localhost:4004/marketplace/ | nothing |
+   | HR Tool (the employer's) | http://localhost:5050/ | the employer node's URL and token from activation, and a passphrase you choose |
+   | Member (the phone) | http://localhost:4001/ | a device PIN you choose |
+   | Prescriber | http://localhost:4002/ | the prescriber token, on the Onboarding tab (for a patient's own price) |
+   | Pharmacy | http://localhost:4003/ | nothing |
+   | Sequencer | http://localhost:3030/ | the operator token, on the Config & Admin tab |
+   | Network explorer | http://localhost:8000/, or the port setup chose | nothing |
 
 5. **Walk through the full flow:**
-   1. **Marketplace.** An employer browses plans, applies, signs, and activates. Activation starts that employer's private node; the employer runs the HR Tool on its own machine.
-   2. **HR Tool.** Import an employee list and issue enrollment codes. All personal data is hashed locally on the employer's machine, and the tool texts each PIN straight to its employee, so no one at HR sees one.
-   3. **Member.** Enroll with a code, then view coverage and drug history.
-   4. **Prescriber.** Write an e-prescription.
-   5. **Pharmacy.** Fill it and watch the claim settle.
-   6. **Explorer.** Inspect the batches, receipts, and chain state behind it all.
+   1. **Insurer.** Paste the insurer token on the Admin tab, then create a plan and publish it.
+   2. **Marketplace.** An employer browses the plans, applies (the CP 575 upload can be `.zpk/samples/sample-ein-letter.pdf`), and the insurer approves the application in its dashboard. The employer then signs and activates. Activation starts that employer's private node and shows its URL and admin token once: keep both.
+   3. **Employer node and HR Tool.** Open the employer dashboard from the activation page, paste the token on its Admin tab and create a group. In the HR Tool, set up a workspace with the node's URL and token, select the group and import `.zpk/samples/roster.csv`. All personal data is hashed on the employer's machine, and the tool texts each employee's PIN, so no one at HR sees one. On one machine the texts go to the HR Tool's outbox: `npm run texts` shows them.
+   4. **Member.** Enroll with an employee's code and the PIN from `npm run texts`, then view coverage and drug history.
+   5. **Prescriber.** Write an e-prescription.
+   6. **Pharmacy.** Fill it and watch the claim settle.
+   7. **Explorer.** Inspect the batches, receipts and chain state behind it all.
 
 6. **Stop**
-   - Press Ctrl+C in the terminal.
-   - If a port is still held afterward, run `npm run kill:ports`. It stops only this checkout's own processes; a port another program holds is named and left alone.
+   - Press Ctrl+C in the terminal that runs it, or run `npm stop` from another one. Either way only this checkout's own processes stop; a port another program holds is named and left alone.
+   - `npm run status` says which parts are up.
 
 7. **Run the tests** (optional)
    ```bash
-   npm test
+   npm test            # the regression batch, about ten minutes
+   npm run test:all    # every suite, the slow ones that prove circuits included
+   npm run typecheck   # src, scripts and the suites
    ```
 
 For run variants, ports, and troubleshooting see [RUNNING.md](RUNNING.md).
