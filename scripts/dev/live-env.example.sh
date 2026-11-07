@@ -7,7 +7,7 @@
 #
 # Nothing here is a production value. A production network creates its secrets at deployment.
 export ZKTRIDENT_ADMIN_TOKEN=replace-with-64-hex
-export ZKTRIDENT_GOSSIP_SECRET=replace-with-64-hex
+export ZKTRIDENT_GOSSIP_SECRET=replace-with-64-hex   # 64 hex characters: it also seeds the NFC attestation key (A-149)
 export ZKTRIDENT_INSURER_ADMIN_TOKEN=replace-with-a-random-string
 export ZKTRIDENT_FORMULARY_LIMIT=100   # 100 drugs instead of 32,000: a boot in minutes, not an hour
 export ZKTRIDENT_POOL_SIZE=2           # batch-proving workers; each takes ~800 MB

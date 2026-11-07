@@ -61,6 +61,7 @@ tests/fixture-directory.test.ts
 tests/fixture-identities.test.ts
 tests/formulary-cache.test.ts
 tests/formulary-tree.test.ts
+tests/gossip-secret-seed.test.ts
 tests/hr-tool-lockdown.test.ts
 tests/hr-tool-router.test.ts
 tests/hr-tool-texts.test.ts

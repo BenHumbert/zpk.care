@@ -75,7 +75,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Field, MerkleTree } from 'o1js';
-import { L2Node } from '../l2/l2-node.js';
+import { L2Node, attestationSeedError } from '../l2/l2-node.js';
 import type { L2NodeOptions } from '../l2/l2-node.js';
 import { L2SequencerService } from '../l2/l2-sequencer-service.js';
 import { L2RpcServer } from '../l2/l2-rpc-server.js';
@@ -131,7 +131,14 @@ const insurerAdminToken = env.ZKTRIDENT_INSURER_ADMIN_TOKEN
  */
 const prescriberAdminToken = env.ZKTRIDENT_PRESCRIBER_ADMIN_TOKEN
   ?? (adminToken ? deriveNodeAdminToken(adminToken, 'prescriber') : undefined);
-const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET;
+// an empty value means none, as before
+const gossipSecret = env.ZKTRIDENT_GOSSIP_SECRET || undefined;
+// A-149: it also seeds the NFC attestation key, so one that is not 32 bytes of hex stops the boot before anything starts
+const gossipSecretError = gossipSecret === undefined ? null : attestationSeedError(gossipSecret);
+if (gossipSecretError) {
+  console.error('  [FATAL] %s', gossipSecretError);
+  process.exit(1);
+}
 
 /*
  * The insurer's attestation signing seed, and its public half — phase A item A9, findings A-14

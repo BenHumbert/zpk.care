@@ -219,6 +219,17 @@ export interface L2NodeStatus {
 export const PROVING_LOCK_WATCHDOG_MS = 5 * 60 * 1000;
 
 /**
+ * Why a gossip secret cannot seed the NFC attestation key, or null when it can (A-149): it must be 32 bytes written
+ * as 64 hex characters. A secret that is not hex decoded to nothing, or to a few bytes, and the key made from them
+ * was one anyone could recompute.
+ */
+export function attestationSeedError(secret: string): string | null {
+  return /^[0-9a-fA-F]{64}$/.test(secret)
+    ? null
+    : 'ZKTRIDENT_GOSSIP_SECRET must be 32 bytes written as 64 hex characters (openssl rand -hex 32): it also seeds the sequencer\'s NFC attestation key';
+}
+
+/**
  * Run `fn` under a proving lock already acquired, and call `release` only once `fn` has settled; the caller
  * gets `fn`'s own result or error. L2Node and L2Leviathan both hold their locks this way (option A, step 1).
  *
@@ -388,8 +399,10 @@ export class L2Node {
 
   // ─── NFC Attestation ─────────────────────────────────────
 
-  /** Enable NFC credential attestation signing. Called once at startup. */
+  /** Enable NFC credential attestation signing. Called once at startup; a seed must pass attestationSeedError. */
   async enableAttestations(seed?: string): Promise<void> {
+    const seedError = seed === undefined ? null : attestationSeedError(seed);
+    if (seedError) throw new Error(seedError);
     const { SequencerAttestationAuthority } = await import('../credentials/nfc-attestation.js');
     this.attestationAuthority = seed
       ? new SequencerAttestationAuthority(Buffer.from(seed, 'hex'))
